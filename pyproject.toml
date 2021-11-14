@@ -1,0 +1,36 @@
+[tool.poetry]
+name = "django-cryptofeed-werks"
+version = "0.1.0"
+description = "Django Cryptofeed Werks aggregates candlesticks using tick data from financial exchanges"
+authors = ["Alex <globophobe@gmail.com>"]
+readme = "README.md"
+license = "MIT"
+homepage = "https://github.com/globophobe/django-cryptofeed-werks"
+repository = "https://github.com/globophobe/django-cryptofeed-werks"
+keywords = ["django", "cryptocurrency", "candles", "trading"]
+classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Independent"]
+packages = [{ include = "cryptofeed_werks" }]
+
+[tool.poetry.dependencies]
+python = ">=3.8,<4.0"
+django-filter = "^21.1"
+djangorestframework = "^3.12.4"
+httpx = ">=0.17.0"
+pandas = "^1.2.0"
+psycopg2-binary = "^2.9.2"
+
+[tool.poetry.dev-dependencies]
+django-semantic-admin = "^0.3.0"
+python-decouple = "^3.5"
+flake8 = "^3.8.4"
+black = "^20.8b1"
+isort = "^5.7.0"
+invoke = "^1.5.0"
+mkdocs = "^1.1.2"
+
+[tool.isort]
+known_first_party = ["cryptofeed_werks"]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
