@@ -1,7 +1,6 @@
 from .base import BaseController
 from .constants import HTTPX_ERRORS
 from .rest import (
-    ExchangeMultiSymbolREST,
     ExchangeREST,
     IntegerPaginationMixin,
     SequentialIntegerMixin,
@@ -9,12 +8,11 @@ from .rest import (
     iter_api,
     throttle_api_requests,
 )
-from .s3 import ExchangeMultiSymbolS3, ExchangeS3, use_s3
+from .s3 import ExchangeS3, use_s3
 
 __all__ = [
     "BaseController",
     "HTTPX_ERRORS",
-    "ExchangeMultiSymbolREST",
     "ExchangeREST",
     "IntegerPaginationMixin",
     "SequentialIntegerMixin",
@@ -22,6 +20,5 @@ __all__ = [
     "iter_api",
     "throttle_api_requests",
     "ExchangeS3",
-    "ExchangeMultiSymbolS3",
     "use_s3",
 ]

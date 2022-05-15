@@ -26,6 +26,8 @@ SECRET_KEY = config("SECRET_KEY")
 
 ALLOWED_HOSTS = []
 
+ASGI_APPLICATION = "demo.asgi.application"
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -39,6 +41,7 @@ INSTALLED_APPS = [
     # PostgreSQL
     "django.contrib.postgres",
     # 3rd party
+    "channels",
     "django_filters",
     "rest_framework",
     "rest_framework.authtoken",
@@ -77,22 +80,6 @@ TEMPLATES = [
 WSGI_APPLICATION = "demo.wsgi.application"
 
 
-# Database
-# https://docs.djangoproject.com/en/4.0/ref/settings/#databases
-
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": config("DATABASE_NAME"),
-        "USER": config("DATABASE_USER"),
-        "PASSWORD": config("DATABASE_PASSWORD"),
-        "HOST": config("DATABASE_HOST"),
-        "PORT": config("DATABASE_PORT"),
-        "TEST": {"NAME": f'test_{config("DATABASE_NAME")}'},
-    }
-}
-
-
 # Password validation
 # https://docs.djangoproject.com/en/4.0/ref/settings/#auth-password-validators
 
@@ -123,7 +110,6 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 
 USE_TZ = True
-
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.0/howto/static-files/

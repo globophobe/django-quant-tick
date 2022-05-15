@@ -17,7 +17,7 @@ def format_ftx_api_timestamp(timestamp: datetime) -> float:
 def get_ftx_api_response(
     get_api_url: Callable,
     base_url: str,
-    timestamp_from: Optional[datetime],
+    timestamp_from: Optional[datetime] = None,
     pagination_id: Optional[str] = None,
     retry=30,
 ):

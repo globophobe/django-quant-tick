@@ -1,4 +1,4 @@
 from .constants import XBTUSD
-from .controllers import bitmex_futures, bitmex_trades
+from .controllers import bitmex_trades
 
-__all__ = ["XBTUSD", "bitmex_trades", "bitmex_futures"]
+__all__ = ["XBTUSD", "bitmex_trades"]

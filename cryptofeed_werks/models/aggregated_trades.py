@@ -1,72 +1,249 @@
-from django.core.exceptions import ValidationError
-from django.db import models
+import os
+from datetime import datetime
+from io import BytesIO
+from typing import Dict, Generator, List, Optional, Tuple
 
+import pandas as pd
+from django.core.files.base import ContentFile
+from django.db import models
+from pandas import DataFrame
+
+from cryptofeed_werks.lib import (
+    aggregate_rows,
+    get_current_time,
+    get_min_time,
+    get_next_time,
+    get_range,
+    iter_missing,
+    iter_timeframe,
+)
 from cryptofeed_werks.utils import gettext_lazy as _
 
-from .base import big_decimal
+from .symbols import Symbol
 
 
-def one_or_minus_one(value):
-    if value not in (None, 1, -1):
-        raise ValidationError(
-            _("%(value)s is neither 1 nor -1"), params={"value": value}
-        )
+def upload_to(instance, filename):
+    """Upload to."""
+    exchange = instance.symbol.exchange
+    symbol = instance.symbol.symbol
+    date = instance.timestamp.date().isoformat()
+    fname = instance.timestamp.time().strftime("%H%M")
+    _, ext = os.path.splitext(filename)
+    return f"{exchange}/{symbol}/{date}/{fname}{ext}"
 
 
-class AggregatedTrade(models.Model):
-    candle = models.ForeignKey(
-        "cryptofeed_werks.Candle",
-        related_name="aggregated_trades",
+class AggregatedTradeData(models.Model):
+    symbol = models.ForeignKey(
+        "cryptofeed_werks.Symbol",
+        related_name="candles",
         on_delete=models.CASCADE,
     )
-    timestamp = models.DateTimeField(_("timestamp"))
-    nanoseconds = models.PositiveIntegerField(_("nanoseconds"))
-    price = big_decimal("price")
-    volume = big_decimal("volume", null=True)
-    notional = big_decimal("notional", null=True)
-    tick_rule = models.IntegerField(
-        _("notional"), null=True, validators=[one_or_minus_one]
+    timestamp = models.DateTimeField(_("timestamp"), db_index=True)
+    uid = models.CharField(_("uid"), blank=True, max_length=255)
+    data = models.FileField(_("data"), blank=True, upload_to=upload_to)
+    is_hourly = models.BooleanField(
+        _("hourly"), null=True, default=False, db_index=True
     )
-    ticks = models.PositiveIntegerField(_("ticks"), null=True)
-    high = big_decimal("high")
-    low = big_decimal("low")
-    total_buy_volume = big_decimal("total buy volume")
-    total_volume = big_decimal("total volume")
-    total_buy_notional = big_decimal("total buy notional")
-    total_notional = big_decimal("total notional")
-    total_buy_ticks = models.PositiveIntegerField(_("total buy ticks"))
-    total_ticks = models.PositiveIntegerField(_("total ticks"))
+    ok = models.BooleanField(_("ok"), null=True, default=False, db_index=True)
 
-    @property
-    def columns(self) -> list:
-        SINGLE_SYMBOL = [
-            "timestamp",
-            "nanoseconds",
-            "price",
-            "volume",
-            "notional",
-            "tickRule",
-            "ticks",
-            "high",
-            "low",
-            "totalBuyVolume",
-            "totalVolume",
-            "totalBuyNotional",
-            "totalNotional",
-            "totalBuyTicks",
-            "totalTicks",
-            "index",
+    @classmethod
+    def iter_all(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        reverse: bool = True,
+        retry: bool = False,
+    ) -> Generator[Tuple[datetime, datetime], None, None]:
+        """Iter all, by days in 1 hour chunks, further chunked by 1m intervals.
+
+        1 day -> 24 hours -> 60 minutes or 10 minutes, etc.
+        """
+        now = get_current_time()
+        max_timestamp_to = get_min_time(now, value="1t")
+        for daily_timestamp_from, daily_timestamp_to in iter_timeframe(
+            timestamp_from, timestamp_to, value="1d", reverse=reverse
+        ):
+            # Query for daily.
+            daily_existing = cls.get_existing(
+                symbol, daily_timestamp_from, daily_timestamp_to, retry=retry
+            )
+            daily_delta = daily_timestamp_to - daily_timestamp_from
+            daily_expected = int(daily_delta.total_seconds() / 60)
+            if len(daily_existing) < daily_expected:
+                for hourly_timestamp_from, hourly_timestamp_to in iter_timeframe(
+                    daily_timestamp_from,
+                    daily_timestamp_to,
+                    value="1h",
+                    reverse=reverse,
+                ):
+                    # List comprehension for hourly.
+                    hourly_existing = [
+                        timestamp
+                        for timestamp in daily_existing
+                        if timestamp >= hourly_timestamp_from
+                        and timestamp < hourly_timestamp_to
+                    ]
+                    hourly_delta = hourly_timestamp_to - hourly_timestamp_from
+                    hourly_expected = int(hourly_delta.total_seconds() / 60)
+                    if len(hourly_existing) < hourly_expected:
+                        for start_time, end_time in iter_missing(
+                            hourly_timestamp_from,
+                            hourly_timestamp_to,
+                            hourly_existing,
+                            reverse=reverse,
+                        ):
+                            end = (
+                                max_timestamp_to
+                                if end_time > max_timestamp_to
+                                else end_time
+                            )
+                            yield start_time, end
+
+    @classmethod
+    def get_missing(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+    ) -> List[datetime]:
+        """Get missing."""
+        existing = cls.get_existing(symbol, timestamp_from, timestamp_to)
+        # Result from get_range may include timestamp_to,
+        # which will never be part of data_frame
+        if timestamp_to > timestamp_from:
+            timestamp_to -= pd.Timedelta("1t")
+        return [
+            timestamp
+            for timestamp in get_range(timestamp_from, timestamp_to)
+            if timestamp not in existing
         ]
-        if self.symbol.is_futures:
-            # Multiple symbol
-            return ["symbol"] + SINGLE_SYMBOL[:-1] + ["expiry", "index"]
+
+    @classmethod
+    def get_existing(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        retry: bool = False,
+    ) -> List[datetime]:
+        """Get existing."""
+        queryset = cls.objects.filter(
+            symbol=symbol,
+            timestamp__gte=timestamp_from,
+            timestamp__lt=timestamp_to,
+        )
+        if retry:
+            queryset = queryset.exclude(ok=False)
+        # List of 1m timestamps.
+        result = []
+        for item in queryset.values("timestamp", "is_hourly"):
+            timestamp = item["timestamp"]
+            if item["is_hourly"]:
+                result += [timestamp + pd.Timedelta(index) for index in range(60)]
+            else:
+                result.append(timestamp)
+        return sorted(result)
+
+    @classmethod
+    def get_last_uid(cls, symbol: Symbol, timestamp: datetime) -> str:
+        """Get last uid."""
+        queryset = cls.objects.filter(symbol=symbol, timestamp__gte=timestamp)
+        obj = queryset.exclude(uid="").order_by("timestamp").first()
+        if obj:
+            return obj.uid
+
+    @classmethod
+    def write(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        data_frame: DataFrame,
+        validated: Optional[Dict[datetime, bool]] = {},
+    ) -> None:
+        """Write to database."""
+        is_first_minute = timestamp_from.time().minute == 0
+        is_hourly = timestamp_from == timestamp_to - pd.Timedelta("1h")
+        if is_first_minute and is_hourly:
+            cls.write_hour(symbol, timestamp_from, data_frame, validated)
         else:
-            return SINGLE_SYMBOL
+            cls.write_minutes(
+                symbol, timestamp_from, timestamp_to, data_frame, validated
+            )
+
+    @classmethod
+    def write_hour(
+        cls,
+        symbol: Symbol,
+        timestamp: datetime,
+        data_frame: DataFrame,
+        validated: Optional[Dict[datetime, bool]] = {},
+    ) -> None:
+        """Write hourly data to database."""
+        params = {"symbol": symbol, "timestamp": timestamp, "is_hourly": True}
+        try:
+            obj = AggregatedTradeData.objects.get(**params)
+        except AggregatedTradeData.DoesNotExist:
+            obj = AggregatedTradeData(**params)
+        finally:
+            if len(data_frame):
+                obj.uid = data_frame.iloc[0].uid
+                if obj.pk:
+                    obj.data.delete()
+                obj.data = cls.get_content_file(data_frame)
+            else:
+                obj.uid = ""
+            obj.ok = all(validated.values())
+            obj.save()
+
+    @classmethod
+    def write_minutes(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        data_frame: DataFrame,
+        validated: Optional[Dict[datetime, bool]] = {},
+    ) -> None:
+        """Write minute data to database."""
+        timestamps = cls.get_missing(symbol, timestamp_from, timestamp_to)
+        existing = {
+            obj.timestamp: obj
+            for obj in AggregatedTradeData.objects.filter(
+                symbol=symbol, timestamp__in=timestamps, is_hourly=False
+            )
+        }
+        for timestamp in timestamps:
+            if timestamp in existing:
+                obj = existing[timestamp]
+            else:
+                obj = AggregatedTradeData(
+                    symbol=symbol, timestamp=timestamp, is_hourly=False
+                )
+
+            if len(data_frame):
+                df = data_frame[
+                    (data_frame.timestamp >= timestamp)
+                    & (data_frame.timestamp < get_next_time(timestamp, "1t"))
+                ]
+                if len(df):
+                    summary = aggregate_rows(
+                        df, timestamp=timestamp, nanoseconds=0, is_filtered=True
+                    )
+                    obj.uid = summary.get("uid", "")
+                    obj.data = cls.get_content_file(df)
+
+            obj.ok = validated.get(timestamp, False)
+            obj.save()
+
+    @classmethod
+    def get_content_file(cls, data_frame: DataFrame):
+        buffer = BytesIO()
+        data_frame.to_parquet(buffer, engine="auto", compression="snappy")
+        return ContentFile(buffer.getvalue(), "data.parquet")
 
     class Meta:
-        db_table = "cryptofeed_werks_aggregated_trade"
-        # It would be nice to order by and index nanoseconds,
-        # but it uses a lot of disk space.
+        db_table = "cryptofeed_werks_aggregated_trade_data"
         ordering = ("timestamp",)
-        verbose_name = _("aggregated trade")
-        verbose_name_plural = _("aggregated trades")
+        verbose_name = verbose_name_plural = _("aggregated")

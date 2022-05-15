@@ -11,6 +11,8 @@ from .constants import MAX_RESULTS, S3_URL
 
 
 class BybitMixin:
+    """Bybit mixin."""
+
     def get_uid(self, trade: dict) -> str:
         """Get uid."""
         return str(trade["id"])
@@ -45,6 +47,8 @@ class BybitMixin:
 
 
 class BybitRESTMixin(SequentialIntegerMixin, BybitMixin):
+    """Bybit REST mixin."""
+
     def get_pagination_id(self, data=None):
         """Get pagination_id."""
         pagination_id = super().get_pagination_id(data=data)
@@ -55,11 +59,15 @@ class BybitRESTMixin(SequentialIntegerMixin, BybitMixin):
         return pagination_id
 
     def iter_api(self, symbol, pagination_id, log_format):
+        """Iterate API."""
         return get_trades(symbol, self.timestamp_from, pagination_id, log_format)
 
 
 class BybitS3Mixin(BybitMixin):
+    """Bybit S3 mixin."""
+
     def get_url(self, date):
+        """Get URL."""
         directory = f"{S3_URL}{self.symbol}/"
         response = httpx.get(directory)
         if response.status_code == 200:
@@ -69,9 +77,11 @@ class BybitS3Mixin(BybitMixin):
 
     @property
     def get_columns(self):
+        """Get columns."""
         return ("trdMatchID", "timestamp", "price", "size", "tickDirection")
 
     def parse_dataframe(self, data_frame):
+        """Parse dataframe."""
         # No false positives.
         # Source: https://pandas.pydata.org/pandas-docs/stable/user_guide/
         # indexing.html#returning-a-view-versus-a-copy

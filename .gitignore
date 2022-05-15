@@ -1,4 +1,6 @@
 *.pyc
 .env
+cloud-tools/
 dist/
 data/
+keys/

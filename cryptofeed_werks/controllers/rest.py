@@ -14,7 +14,7 @@ from cryptofeed_werks.lib import (
     validate_data_frame,
     volume_filter_with_time_window,
 )
-from cryptofeed_werks.models import Candle, Symbol
+from cryptofeed_werks.models import AggregatedTradeData, Symbol
 
 from .base import BaseController
 
@@ -144,8 +144,8 @@ class ExchangeREST(BaseController):
         """Get timestamp_to, omitting first incomplete candle."""
 
     def main(self) -> DataFrame:
-        """Main loop, with Candle.iter_all"""
-        for timestamp_from, timestamp_to in Candle.iter_all(
+        """Main loop, with AggregatedTradeData.iter_all"""
+        for timestamp_from, timestamp_to in AggregatedTradeData.iter_all(
             self.symbol,
             self.timestamp_from,
             self.timestamp_to,
@@ -172,6 +172,9 @@ class ExchangeREST(BaseController):
             validated = validate_data_frame(
                 timestamp_from, timestamp_to, filtered, candles
             )
+            import pdb
+
+            pdb.set_trace()
             self.on_data_frame(
                 self.symbol, timestamp_from, timestamp_to, filtered, validated=validated
             )
@@ -274,7 +277,7 @@ class IntegerPaginationMixin:
 
     def get_pagination_id(self, timestamp_from: datetime) -> Optional[int]:
         """Get integer pagination_id."""
-        return Candle.get_last_uid(self.symbol, timestamp_from)
+        return AggregatedTradeData.get_last_uid(self.symbol, timestamp_from)
 
 
 class SequentialIntegerMixin(IntegerPaginationMixin):
@@ -293,61 +296,3 @@ class SequentialIntegerMixin(IntegerPaginationMixin):
         expected = len(trades) - 1
         diff = data_frame["index"].diff().dropna()
         assert abs(diff.sum()) == expected
-
-
-class ExchangeMultiSymbolREST(ExchangeREST):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.symbols = self.get_symbols()
-
-    @property
-    def active_symbols(self) -> list:
-        """Active symbols for root symbol."""
-        return [s for s in self.symbols if (s["expiry"] >= self.timestamp_from)]
-
-    def get_symbols(self):
-        """Get symbols for root symbol."""
-        raise NotImplementedError
-
-    def main(self, timestamp_from: datetime, timestamp_to: datetime) -> DataFrame:
-        for timestamp_from, timestamp_to in self.iter_timeframe:
-            trades = []
-            is_last_iteration = []
-            # Iterate symbols
-            for active_symbol in self.active_symbols:
-                pagination_id = self.get_pagination_id()
-                symbol = active_symbol["symbol"]
-                log_format = f"{self.exchange_display} {symbol}"
-                t, is_last = self.iter_api(
-                    active_symbol["api_symbol"], pagination_id, log_format
-                )
-                trades += self.parse_data(
-                    t, active_symbol["symbol"], active_symbol["expiry"]
-                )
-                is_last_iteration.append(is_last)
-            valid_trades = self.get_valid_trades(trades)
-
-            data_frame = self.get_data_frame(valid_trades)
-            self.on_data_frame(data_frame)
-
-            # Complete
-            if all(is_last_iteration):
-                break
-
-    def parse_data(self, data: list, symbol: str, expiry: datetime) -> list:
-        """Parse trade data."""
-        return [
-            {
-                "uid": self.get_uid(trade),
-                "symbol": symbol,
-                "expiry": expiry,
-                "timestamp": self.get_timestamp(trade),
-                "nanoseconds": self.get_nanoseconds(trade),
-                "price": self.get_price(trade),
-                "volume": self.get_volume(trade),
-                "notional": self.get_notional(trade),
-                "tickRule": self.get_tick_rule(trade),
-                "index": self.get_index(trade),
-            }
-            for trade in data
-        ]

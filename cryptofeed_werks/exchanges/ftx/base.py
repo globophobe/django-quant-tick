@@ -18,7 +18,10 @@ class FTXMixin:
     def iter_api(self, timestamp_from: datetime, pagination_id: str) -> tuple:
         """Iterate Coinbase API."""
         return get_trades(
-            self.symbol.name, timestamp_from, pagination_id, log_format=self.log_format
+            self.symbol.api_symbol,
+            timestamp_from,
+            pagination_id,
+            log_format=self.log_format,
         )
 
     def get_uid(self, trade: dict) -> datetime:
@@ -57,13 +60,12 @@ class FTXMixin:
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
-        # FTX end_time is inclusive
         ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1t")
         candles = get_candles(
-            self.symbol.name,
+            self.symbol.api_symbol,
             timestamp_from,
             format_ftx_api_timestamp(ts_to),
             resolution=60,
-            log_format=f"{self.log_format} 1m candles",
+            log_format=f"{self.log_format} validating",
         )
-        return candles_to_data_frame(candles)
+        return candles_to_data_frame(timestamp_from, timestamp_to, candles)

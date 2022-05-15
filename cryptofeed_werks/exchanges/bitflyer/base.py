@@ -10,7 +10,7 @@ class BitflyerMixin(IntegerPaginationMixin):
     def iter_api(self, timestamp_from: datetime, pagination_id: str) -> list:
         """Iterate Bitflyer API."""
         return get_trades(
-            self.symbol.name, timestamp_from, pagination_id, self.log_format
+            self.symbol.api_symbol, timestamp_from, pagination_id, self.log_format
         )
 
     def get_uid(self, trade: dict) -> str:

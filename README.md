@@ -30,21 +30,15 @@ Candles are aggregated at 1 minute intervals, and validated with the exchange's 
 Supported exchanges
 -------------------
 
-:white_medium_square: Alpaca Markets
-
-:white_check_mark: Binance REST API (requires API key)
+:white_medium_square: Binance REST API (requires API key)
 
 :white_check_mark: Bitfinex REST API
-
-:white_medium_square: Bitflyer REST API
 
 :white_check_mark: BitMEX REST API, and [S3](https://public.bitmex.com/) repository
 
 :white_check_mark: Bybit REST API, and [S3](https://public.bybit.com/) repository
 
 :white_check_mark: Coinbase Pro REST API
-
-:white_medium_square: Deribit REST API
 
 :white_check_mark: FTX REST API
 

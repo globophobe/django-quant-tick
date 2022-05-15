@@ -4,8 +4,6 @@ from typing import Callable
 from django.db import models
 from pandas import DataFrame
 
-from cryptofeed_werks.constants import SymbolType
-
 
 class BaseController:
     def __init__(
@@ -31,7 +29,7 @@ class BaseController:
 
     @property
     def columns(self) -> list:
-        SINGLE_SYMBOL_COLUMNS = [
+        return [
             "uid",
             "timestamp",
             "nanoseconds",
@@ -41,10 +39,6 @@ class BaseController:
             "tickRule",
             "index",
         ]
-        if self.symbol.symbol_type == SymbolType.FUTURE:
-            return SINGLE_SYMBOL_COLUMNS[:-1] + ["expiry", "index"]
-        else:
-            return SINGLE_SYMBOL_COLUMNS
 
     def main(self):
         raise NotImplementedError

@@ -6,18 +6,13 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
-from cryptofeed_werks.lib import get_min_time, get_next_time
-from cryptofeed_werks.models import Candle
+from cryptofeed_werks.lib import candles_to_data_frame
 
-from .api import (
-    format_bitmex_api_timestamp,
-    get_active_futures,
-    get_bitmex_api_timestamp,
-    get_expired_futures,
-    get_trades,
-)
+from .api import format_bitmex_api_timestamp, get_bitmex_api_timestamp
+from .candles import get_candles
 from .constants import S3_URL
 from .lib import calculate_index
+from .trades import get_trades
 
 
 class BitmexMixin:
@@ -53,16 +48,34 @@ class BitmexMixin:
         """Get index."""
         return np.nan  # No index, set per partition
 
+    def get_candles(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> DataFrame:
+        """Get candles from Exchange API."""
+        # Timestamp is at candle close.
+        ts_from = timestamp_from + pd.Timedelta(value="1t")
+        candles = get_candles(
+            self.symbol.api_symbol,
+            ts_from,
+            format_bitmex_api_timestamp(timestamp_to),
+            bin_size="1m",
+            log_format=f"{self.log_format} validating",
+        )
+        return candles_to_data_frame(timestamp_from, timestamp_to, candles)
+
 
 class BitmexRESTMixin(BitmexMixin):
     def get_pagination_id(self, data: Optional[dict] = None) -> str:
         """Get pagination_id."""
         return format_bitmex_api_timestamp(self.timestamp_to)
 
-    def iter_api(self, timestamp_from, pagination_id):
+    def iter_api(self, timestamp_from: datetime, pagination_id: str):
         """Iterate Bitmex API."""
         return get_trades(
-            self.symbol.name, timestamp_from, pagination_id, str(self.symbol)
+            self.symbol.api_symbol,
+            timestamp_from,
+            pagination_id,
+            log_format=self.log_format,
         )
 
     def get_data_frame(self, trades: list) -> DataFrame:
@@ -109,66 +122,3 @@ class BitmexS3Mixin(BitmexMixin):
         )
         data_frame = calculate_index(data_frame)
         return super().parse_dataframe(data_frame)
-
-
-class BitmexFuturesS3Mixin(BitmexS3Mixin):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.symbols = self.get_symbols()
-
-    def get_symbols(self) -> list:
-        """Get symbols for root symbol."""
-        active_futures = get_active_futures(
-            self.symbol,
-            date_from=self.period_from,
-            date_to=self.period_to,
-            verbose=self.verbose,
-        )
-        expired_futures = get_expired_futures(
-            self.symbol,
-            date_from=self.period_from,
-            date_to=self.period_to,
-            verbose=self.verbose,
-        )
-        return active_futures + expired_futures
-
-    def has_symbols(self, data: dict) -> bool:
-        """Is there data for all active symbols?"""
-        return all([data.get(s["symbol"], None) for s in self.active_symbols])
-
-    def get_symbol_data(self, symbol: str) -> dict:
-        """Get data for symbol."""
-        return [s for s in self.symbols if s["symbol"] == symbol][0]
-
-    def has_data(self, date: datetime.date) -> bool:
-        """Is there data for each active symbol?"""
-        if not self.active_symbols:
-            print(f"{self.log_format} No data")
-            return True
-        else:
-            missing = Candle.objects.filter(
-                symbol=self.symbol,
-                futures__in=self.active_symbols,
-                timestamp__gte=get_min_time(date),
-                timestamp__lt=get_next_time(date),
-                ok=False,
-            )
-            if self.has_symbols(daily_trades.data):
-                date = date.isoformat()
-                print(f"{self.log_format} {date} OK")
-                return True
-
-    def get_data(self, data_frame: DataFrame) -> dict:
-        """Get data, including listing and expiry."""
-        data = super().get_data(data_frame)
-        for s in self.active_symbols:
-            symbol = s["symbol"]
-            # API data
-            # Dataframe
-            if symbol in data:
-                d = self.get_symbol_data(symbol)
-                listing = d["listing"].replace(tzinfo=datetime.timezone.utc)
-                expiry = d["expiry"].replace(tzinfo=datetime.timezone.utc)
-                data[symbol]["listing"] = listing
-                data[symbol]["expiry"] = expiry
-        return data

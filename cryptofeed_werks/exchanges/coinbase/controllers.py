@@ -18,6 +18,7 @@ def coinbase_trades(
     retry: bool = False,
     verbose: bool = False,
 ):
+    """Get Coinbase trades."""
     CoinbaseTrades(
         symbol,
         timestamp_from=timestamp_from,
@@ -29,6 +30,8 @@ def coinbase_trades(
 
 
 class CoinbaseTrades(CoinbaseMixin, ExchangeREST):
+    """Coinbase trades."""
+
     def assert_data_frame(
         self,
         timestamp_from: datetime,
@@ -39,7 +42,7 @@ class CoinbaseTrades(CoinbaseMixin, ExchangeREST):
         super().assert_data_frame(timestamp_from, timestamp_to, data_frame, trades)
         # Missing orders.
         expected = len(trades) - 1
-        if self.symbol.name == BTCUSD:
+        if self.symbol.api_symbol == BTCUSD:
             # It seems 45 ids may have been skipped for BTC-USD on 2021-06-09
             if timestamp_from.date() == date(2021, 6, 9):
                 return

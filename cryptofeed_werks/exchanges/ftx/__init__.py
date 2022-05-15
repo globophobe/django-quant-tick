@@ -1,4 +1,3 @@
-from .constants import BTCMOVE
-from .controllers import ftx_move, ftx_trades
+from .controllers import ftx_trades
 
-__all__ = ["BTCMOVE", "ftx_trades", "ftx_move"]
+__all__ = ["ftx_trades"]

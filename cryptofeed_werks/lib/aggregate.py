@@ -17,7 +17,7 @@ def aggregate_rows(
     nanoseconds: Optional[int] = None,
     open_price: Optional[Decimal] = None,
     is_filtered: bool = False,
-):
+) -> dict:
     """Aggregate rows of a data_frame."""
     first_row = df.iloc[0]
     last_row = df.iloc[-1]

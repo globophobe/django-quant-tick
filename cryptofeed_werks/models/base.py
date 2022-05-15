@@ -20,13 +20,3 @@ def big_decimal(
         decimal_places=NUMERIC_SCALE,
         validators=validators,
     )
-
-
-class NameMixin(models.Model):
-    name = models.CharField(_("name"), max_length=255)
-
-    def __str__(self) -> str:
-        return self.name
-
-    class Meta:
-        abstract = True

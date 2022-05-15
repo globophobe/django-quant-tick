@@ -10,7 +10,7 @@ from cryptofeed_werks.controllers import HTTPX_ERRORS
 def get_coinbase_api_response(
     get_api_url: Callable,
     base_url: str,
-    timestamp_from: Optional[datetime],
+    timestamp_from: Optional[datetime] = None,
     pagination_id: Optional[str] = None,
     retry=30,
 ):

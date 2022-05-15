@@ -1,13 +1,13 @@
-from .aggregated_trades import AggregatedTrade
-from .api_clients import APIClient
+from .aggregated_trades import AggregatedTradeData
 from .candles import Candle
-from .symbols import Future, GlobalSymbol, Symbol
+from .series import Series, SeriesHistory
+from .symbols import GlobalSymbol, Symbol
 
 __all__ = [
-    "AggregatedTrade",
-    "APIClient",
+    "AggregatedTradeData",
     "Candle",
-    "Future",
     "GlobalSymbol",
+    "Series",
+    "SeriesHistory",
     "Symbol",
 ]

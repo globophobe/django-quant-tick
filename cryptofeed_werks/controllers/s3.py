@@ -18,7 +18,7 @@ from .base import BaseController
 
 def use_s3():
     date = get_current_time().date() - pd.Timedelta("2d")
-    return datetime.combine(date, datetime.time.min).replace(
+    return datetime.datetime.combine(date, datetime.time.min).replace(
         tzinfo=datetime.timezone.utc
     )
 
@@ -50,12 +50,15 @@ class ExchangeS3(BaseController):
     def filter_by_symbol(self, data_frame: DataFrame) -> DataFrame:
         """First, filter data_frame by symbol."""
         if "symbol" in data_frame.columns:
-            return data_frame[data_frame.symbol == self.symbol.name]
+            return data_frame[data_frame.symbol == self.symbol.api_symbol]
         else:
             return data_frame
 
     def parse_and_filter_by_timestamp(
-        self, data_frame: DataFrame, timestamp_from: datetime, timestamp_to: datetime
+        self,
+        data_frame: DataFrame,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
     ) -> DataFrame:
         """Second, parse timestamp and filter data_frame."""
         data_frame = utc_timestamp(data_frame)
@@ -71,15 +74,3 @@ class ExchangeS3(BaseController):
         data_frame = calculate_notional(data_frame)
         data_frame = calculate_tick_rule(data_frame)
         return data_frame[self.columns]
-
-
-class ExchangeMultiSymbolS3(BaseController):
-    def filter_by_symbol(self, data_frame: DataFrame) -> DataFrame:
-        """First, filter data_frame by multiple symbols."""
-        if "symbol" in data_frame.columns:
-            query = " | ".join(
-                [f'symbol == "{s["symbol"]}"' for s in self.active_symbols]
-            )
-            return data_frame.query(query)
-        else:
-            return data_frame

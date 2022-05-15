@@ -1,49 +1,34 @@
 from django.contrib import admin
 from django.contrib.auth.models import Group, User
-from django.db import models
 from rest_framework.authtoken.models import TokenProxy
-from semantic_admin import SemanticModelAdmin
+from semantic_admin import SemanticModelAdmin, SemanticTabularInline
 
-from .models import GlobalSymbol, Symbol
-from .utils import gettext_lazy as _
+from .models import GlobalSymbol, Series, Symbol
 
 admin.site.unregister(User)
 admin.site.unregister(Group)
 admin.site.unregister(TokenProxy)
 
 
+class SymbolInline(SemanticTabularInline):
+    model = Symbol
+    extra = 0
+
+
 @admin.register(GlobalSymbol)
-class GlobalSymbol(SemanticModelAdmin):
-    pass
+class GlobalSymbolAdmin(SemanticModelAdmin):
+    list_display = ("__str__",)
+    fields = ("name",)
+    inlines = (SymbolInline,)
+
+
+class SeriesInline(SemanticTabularInline):
+    model = Series
+    extra = 0
 
 
 @admin.register(Symbol)
-class Symbol(SemanticModelAdmin):
-    list_display = (
-        "__str__",
-        "global_symbol",
-        "symbol_type",
-        "min_volume",
-        "ok",
-    )
-    fields = (
-        "global_symbol",
-        ("exchange", "name"),
-        ("symbol_type", "min_volume"),
-        "ok",
-    )
-    readonly_fields = ("ok",)
-
-    def ok(self, obj: models.Model) -> bool:
-        return None
-
-    ok.short_description = _("ok")
-    ok.boolean = True
-
-    def get_queryset(self, request):
-        return (
-            super()
-            .get_queryset(request)
-            .select_related("global_symbol")
-            .prefetch_related("futures")
-        )
+class SymbolAdmin(SemanticModelAdmin):
+    list_display = ("__str__", "min_volume")
+    fields = (("global_symbol", "exchange", "api_symbol", "min_volume"),)
+    inlines = (SeriesInline,)

@@ -13,20 +13,27 @@ packages = [{ include = "cryptofeed_werks" }]
 
 [tool.poetry.dependencies]
 python = ">=3.8,<4.0"
-django-filter = "^21.1"
-djangorestframework = "^3.12.4"
-httpx = ">=0.17.0"
-pandas = "^1.2.0"
-psycopg2-binary = "^2.9.2"
+django-filter = "*"
+djangorestframework = "*"
+django-storages = "*"
+httpx = "*"
+pandas = "*"
+pyarrow = "*"
 
 [tool.poetry.dev-dependencies]
-django-semantic-admin = "^0.3.0"
-python-decouple = "^3.5"
-flake8 = "^3.8.4"
-black = "^20.8b1"
-isort = "^5.7.0"
-invoke = "^1.5.0"
-mkdocs = "^1.1.2"
+black = "*"
+channels = "*"
+django-semantic-admin = "*"
+django-storages = {version = "*", extras = ["google"]}
+flake8 = "*"
+invoke = "*"
+isort = "*"
+mkdocs = "*"
+psycopg2-binary = "*"
+python-decouple = "*"
+uvicorn = "*"
+whitenoise = "*"
+
 
 [tool.isort]
 known_first_party = ["cryptofeed_werks"]

@@ -1,7 +1,5 @@
 from uuid import uuid4
 
-import pandas as pd
-
 from cryptofeed_werks.constants import SeriesType
 from cryptofeed_werks.lib import aggregate_rows
 
@@ -88,29 +86,10 @@ class EventTimeAggregator:
         self.top_n = top_n
 
     def process_data_frame(self, data_frame, cache):
-        if self.futures:
-            samples = []
-            for symbol in data_frame.symbol.unique():
-                df = data_frame[data_frame.symbol == symbol]
-
-                data, cache = aggregate_thresh(
-                    df,
-                    cache,
-                    self.thresh_attr,
-                    self.thresh_value,
-                    top_n=self.top_n,
-                )
-                samples.append(data)
-            if all([isinstance(sample, pd.DataFrame) for sample in samples]):
-                data = pd.concat(samples)
-            else:
-                data = samples
-        else:
-            data, cache = aggregate_thresh(
-                data_frame,
-                cache,
-                self.thresh_attr,
-                self.thresh_value,
-                top_n=self.top_n,
-            )
-        return data, cache
+        return aggregate_thresh(
+            data_frame,
+            cache,
+            self.thresh_attr,
+            self.thresh_value,
+            top_n=self.top_n,
+        )
