@@ -61,6 +61,29 @@ class AggregatedTradeData(models.Model):
         """
         now = get_current_time()
         max_timestamp_to = get_min_time(now, value="1t")
+        for daily_timestamp_from, daily_timestamp_to, daily_existing in cls.iter_days(
+            symbol, timestamp_from, timestamp_to, reverse=reverse, retry=retry
+        ):
+            for hourly_timestamp_from, hourly_timestamp_to in cls.iter_hours(
+                daily_timestamp_from,
+                daily_timestamp_to,
+                max_timestamp_to,
+                daily_existing,
+                reverse=reverse,
+                retry=retry,
+            ):
+                yield hourly_timestamp_from, hourly_timestamp_to
+
+    @classmethod
+    def iter_days(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        reverse: bool = True,
+        retry: bool = False,
+    ):
+        """Iter days."""
         for daily_timestamp_from, daily_timestamp_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d", reverse=reverse
         ):
@@ -71,34 +94,43 @@ class AggregatedTradeData(models.Model):
             daily_delta = daily_timestamp_to - daily_timestamp_from
             daily_expected = int(daily_delta.total_seconds() / 60)
             if len(daily_existing) < daily_expected:
-                for hourly_timestamp_from, hourly_timestamp_to in iter_timeframe(
-                    daily_timestamp_from,
-                    daily_timestamp_to,
-                    value="1h",
+                yield daily_timestamp_from, daily_timestamp_to, daily_existing
+
+    @classmethod
+    def iter_hours(
+        cls,
+        daily_timestamp_from: datetime,
+        daily_timestamp_to: datetime,
+        max_timestamp_to: datetime,
+        daily_existing: List[datetime],
+        reverse: bool = True,
+        retry: bool = False,
+    ):
+        """Iter hours."""
+        for hourly_timestamp_from, hourly_timestamp_to in iter_timeframe(
+            daily_timestamp_from,
+            daily_timestamp_to,
+            value="1h",
+            reverse=reverse,
+        ):
+            # List comprehension for hourly.
+            hourly_existing = [
+                timestamp
+                for timestamp in daily_existing
+                if timestamp >= hourly_timestamp_from
+                and timestamp < hourly_timestamp_to
+            ]
+            hourly_delta = hourly_timestamp_to - hourly_timestamp_from
+            hourly_expected = int(hourly_delta.total_seconds() / 60)
+            if len(hourly_existing) < hourly_expected:
+                for start_time, end_time in iter_missing(
+                    hourly_timestamp_from,
+                    hourly_timestamp_to,
+                    hourly_existing,
                     reverse=reverse,
                 ):
-                    # List comprehension for hourly.
-                    hourly_existing = [
-                        timestamp
-                        for timestamp in daily_existing
-                        if timestamp >= hourly_timestamp_from
-                        and timestamp < hourly_timestamp_to
-                    ]
-                    hourly_delta = hourly_timestamp_to - hourly_timestamp_from
-                    hourly_expected = int(hourly_delta.total_seconds() / 60)
-                    if len(hourly_existing) < hourly_expected:
-                        for start_time, end_time in iter_missing(
-                            hourly_timestamp_from,
-                            hourly_timestamp_to,
-                            hourly_existing,
-                            reverse=reverse,
-                        ):
-                            end = (
-                                max_timestamp_to
-                                if end_time > max_timestamp_to
-                                else end_time
-                            )
-                            yield start_time, end
+                    end = max_timestamp_to if end_time > max_timestamp_to else end_time
+                    yield start_time, end
 
     @classmethod
     def get_missing(
@@ -191,7 +223,7 @@ class AggregatedTradeData(models.Model):
                 obj.uid = data_frame.iloc[0].uid
                 if obj.pk:
                     obj.data.delete()
-                obj.data = cls.get_content_file(data_frame)
+                obj.data = cls.prepare_data(data_frame)
             else:
                 obj.uid = ""
             obj.ok = all(validated.values())
@@ -232,15 +264,17 @@ class AggregatedTradeData(models.Model):
                         df, timestamp=timestamp, nanoseconds=0, is_filtered=True
                     )
                     obj.uid = summary.get("uid", "")
-                    obj.data = cls.get_content_file(df)
+                    obj.data = cls.prepare_data(df)
 
             obj.ok = validated.get(timestamp, False)
             obj.save()
 
     @classmethod
-    def get_content_file(cls, data_frame: DataFrame):
+    def prepare_data(cls, data_frame: DataFrame) -> ContentFile:
+        """Prepare data, exclude uid."""
         buffer = BytesIO()
-        data_frame.to_parquet(buffer, engine="auto", compression="snappy")
+        df = data_frame.drop(columns=["uid"])
+        df.to_parquet(buffer, engine="auto", compression="snappy")
         return ContentFile(buffer.getvalue(), "data.parquet")
 
     class Meta:

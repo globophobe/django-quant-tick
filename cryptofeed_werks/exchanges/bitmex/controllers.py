@@ -1,8 +1,6 @@
 from datetime import datetime
 from typing import Callable
 
-import pandas as pd
-
 from cryptofeed_werks.controllers import ExchangeREST, ExchangeS3, use_s3
 from cryptofeed_werks.models import Symbol
 
@@ -21,7 +19,7 @@ def bitmex_trades(
     if timestamp_to > use_s3():
         BitmexTradesREST(
             symbol,
-            timestamp_from=timestamp_from if timestamp_from < use_s3() else use_s3(),
+            timestamp_from=timestamp_from if timestamp_from > use_s3() else use_s3(),
             timestamp_to=timestamp_to,
             on_data_frame=on_data_frame,
             retry=retry,
@@ -31,7 +29,7 @@ def bitmex_trades(
         BitmexTradesS3(
             symbol,
             timestamp_from=timestamp_from,
-            timestamp_to=use_s3() - pd.Timedelta("1d"),
+            timestamp_to=use_s3(),
             on_data_frame=on_data_frame,
             retry=retry,
             verbose=verbose,

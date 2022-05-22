@@ -27,7 +27,6 @@ from .dataframe import (
     set_dtypes,
     set_type_decimal,
     strip_nanoseconds,
-    utc_timestamp,
 )
 from .download import gzip_downloader
 
@@ -57,6 +56,5 @@ __all__ = [
     "set_dtypes",
     "set_type_decimal",
     "strip_nanoseconds",
-    "utc_timestamp",
     "gzip_downloader",
 ]

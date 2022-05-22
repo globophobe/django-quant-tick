@@ -1,12 +1,10 @@
 from datetime import datetime
 from typing import Callable
 
-import pandas as pd
-
-from cryptofeed_werks.controllers import ExchangeREST, ExchangeS3, use_s3
+from cryptofeed_werks.controllers import ExchangeS3, use_s3
 from cryptofeed_werks.models import Symbol
 
-from .base import BybitRESTMixin, BybitS3Mixin
+from .base import BybitS3Mixin
 
 
 def bybit_trades(
@@ -14,28 +12,23 @@ def bybit_trades(
     timestamp_from: datetime,
     timestamp_to: datetime,
     on_data_frame: Callable,
+    retry: bool = False,
     verbose: bool = False,
 ):
-    if timestamp_to > use_s3():
-        BybitTrades(
-            symbol,
-            timestamp_from=timestamp_from if timestamp_from < use_s3() else use_s3(),
-            timestamp_to=timestamp_to,
-            on_data_frame=on_data_frame,
-            verbose=verbose,
-        ).main()
-    if timestamp_from < use_s3():
+    max_timestamp_to = use_s3()
+    print(
+        "Bybit no longer provides a paginated REST API for trades, "
+        f"{timestamp_to} modified to {max_timestamp_to}"
+    )
+    if timestamp_from < max_timestamp_to:
         BybitTradesS3(
             symbol,
             timestamp_from=timestamp_from,
-            timestamp_to=use_s3() - pd.Timedelta("1d"),
+            timestamp_to=max_timestamp_to,
             on_data_frame=on_data_frame,
+            retry=retry,
             verbose=verbose,
         ).main()
-
-
-class BybitTrades(BybitRESTMixin, ExchangeREST):
-    pass
 
 
 class BybitTradesS3(BybitS3Mixin, ExchangeS3):

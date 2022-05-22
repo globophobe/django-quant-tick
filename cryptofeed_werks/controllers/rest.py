@@ -172,9 +172,6 @@ class ExchangeREST(BaseController):
             validated = validate_data_frame(
                 timestamp_from, timestamp_to, filtered, candles
             )
-            import pdb
-
-            pdb.set_trace()
             self.on_data_frame(
                 self.symbol, timestamp_from, timestamp_to, filtered, validated=validated
             )

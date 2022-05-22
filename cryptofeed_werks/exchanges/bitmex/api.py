@@ -2,6 +2,7 @@ import json
 import time
 from datetime import datetime
 from decimal import Decimal
+from functools import partial
 from typing import Callable, List, Optional
 
 import httpx
@@ -26,12 +27,12 @@ def get_bitmex_api_url(
 
 def get_bitmex_api_pagination_id(
     timestamp: datetime, last_data: List[dict] = [], data: List[dict] = []
-):
+) -> str:
     """Get BitMEX API pagination_id."""
     return format_bitmex_api_timestamp(timestamp)
 
 
-def get_bitmex_api_timestamp(trade: dict):
+def get_bitmex_api_timestamp(trade: dict) -> datetime:
     """Get BitMEX API timestamp."""
     return parse_datetime(trade["timestamp"])
 
@@ -49,6 +50,13 @@ def get_bitmex_api_response(
     retry: int = 30,
 ):
     """Get BitMEX API response."""
+    retry_request = partial(
+        get_bitmex_api_response,
+        get_api_url,
+        base_url,
+        timestamp_from=timestamp_from,
+        pagination_id=pagination_id,
+    )
     try:
         url = get_api_url(
             base_url, timestamp_from=timestamp_from, pagination_id=pagination_id
@@ -56,29 +64,27 @@ def get_bitmex_api_response(
         response = httpx.get(url)
         if response.status_code == 200:
             remaining = response.headers["x-ratelimit-remaining"]
-            if remaining == 0:
-                timestamp = datetime.utcnow().timestamp()
-                reset = response.headers["x-ratelimit-reset"]
-                if reset > timestamp:
-                    sleep_duration = reset - timestamp
-                    print(f"Max requests, sleeping {sleep_duration} seconds")
-                    time.sleep(sleep_duration)
+            reset = response.headers["x-ratelimit-reset"]
+            if remaining and reset:
+                remaining = int(remaining)
+                reset = int(reset)
+                if remaining == 0:
+                    timestamp = datetime.utcnow().timestamp()
+                    if reset > timestamp:
+                        sleep_duration = reset - timestamp
+                        time.sleep(sleep_duration)
             result = response.read()
             return json.loads(result, parse_float=Decimal)
         elif response.status_code == 429:
-            retry = response.headers.get("Retry-After", 1)
-            time.sleep(int(retry))
+            sleep_duration = response.headers.get("Retry-After", 1)
+            print(f"HTTP 42, sleeping {sleep_duration} seconds")
+            time.sleep(int(sleep_duration))
+            return retry_request(retry=retry)
         else:
             response.raise_for_status()
     except HTTPX_ERRORS:
         if retry > 0:
             time.sleep(1)
             retry -= 1
-            return get_bitmex_api_response(
-                get_api_url,
-                base_url,
-                timestamp_from=timestamp_from,
-                pagination_id=pagination_id,
-                retry=retry,
-            )
+            return retry_request(retry=retry)
         raise

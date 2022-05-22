@@ -1,6 +1,5 @@
 import datetime
 from decimal import Decimal
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -10,8 +9,7 @@ from cryptofeed_werks.lib import candles_to_data_frame
 
 from .api import format_bitmex_api_timestamp, get_bitmex_api_timestamp
 from .candles import get_candles
-from .constants import S3_URL
-from .lib import calculate_index
+from .constants import S3_URL, XBTUSD
 from .trades import get_trades
 
 
@@ -65,9 +63,9 @@ class BitmexMixin:
 
 
 class BitmexRESTMixin(BitmexMixin):
-    def get_pagination_id(self, data: Optional[dict] = None) -> str:
+    def get_pagination_id(self, timestamp_to: datetime) -> str:
         """Get pagination_id."""
-        return format_bitmex_api_timestamp(self.timestamp_to)
+        return format_bitmex_api_timestamp(timestamp_to)
 
     def iter_api(self, timestamp_from: datetime, pagination_id: str):
         """Iterate Bitmex API."""
@@ -92,33 +90,15 @@ class BitmexS3Mixin(BitmexMixin):
         date_string = date.strftime("%Y%m%d")
         return f"{S3_URL}{date_string}.csv.gz"
 
-    @property
-    def get_columns(self) -> list:
-        """Get CSV file columns."""
-        return [
-            "trdMatchID",
-            "symbol",
-            "timestamp",
-            "price",
-            "tickDirection",
-            "foreignNotional",
-        ]
-
-    def parse_dataframe(self, data_frame: DataFrame) -> DataFrame:
-        """Parse data_frame."""
-        # No false positives.
-        # Source: https://pandas.pydata.org/pandas-docs/stable/user_guide/
-        # indexing.html#returning-a-view-versus-a-copy
-        pd.options.mode.chained_assignment = None
-        # Reset index.
-        data_frame = calculate_index(data_frame)
-        # Timestamp
+    def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
+        """Parse dtypes and strip unnecessary columns."""
         data_frame["timestamp"] = pd.to_datetime(
             data_frame["timestamp"], format="%Y-%m-%dD%H:%M:%S.%f"
         )
+        data_frame = data_frame.rename(columns={"trdMatchID": "uid"})
         # BitMEX XBTUSD size is volume. However, quanto contracts are not
-        data_frame = data_frame.rename(
-            columns={"trdMatchID": "uid", "foreignNotional": "volume"}
-        )
-        data_frame = calculate_index(data_frame)
-        return super().parse_dataframe(data_frame)
+        if self.symbol.api_symbol == XBTUSD:
+            data_frame = data_frame.rename(columns={"foreignNotional": "volume"})
+        else:
+            raise NotImplementedError
+        return super().parse_dtypes_and_strip_columns(data_frame)

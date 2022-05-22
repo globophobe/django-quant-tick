@@ -11,8 +11,7 @@ By filtering aggregated rows, for example only writing a row when an aggregated 
 
 # Why?
 
-Candlesticks aggregated by `django-cryptofeed-werks` are informationally dense. Such data can be useful for analyzing financial markets. As an example, refer to 
-["Low-Frequency Traders in a High-Frequency World: A Survival Guide"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2150876) and ["The Volume Clock: Insights into the High Frequency Paradigm"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2034858). Lopez de Prado recommends volume bars, however they are are computationally expensive to generate. 
+Candlesticks aggregated by `django-cryptofeed-werks` are informationally dense. Such data can be useful for analyzing financial markets. As an example, refer to ["Low-Frequency Traders in a High-Frequency World: A Survival Guide"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2150876) and ["The Volume Clock: Insights into the High Frequency Paradigm"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2034858). Lopez de Prado recommends volume bars, however they are are computationally expensive to generate.
 
 By filtering and aggregating trades, they can be computed faster, with little loss in precision.
 
@@ -36,13 +35,13 @@ Supported exchanges
 
 :white_check_mark: BitMEX REST API, and [S3](https://public.bitmex.com/) repository
 
-:white_check_mark: Bybit REST API, and [S3](https://public.bybit.com/) repository
+:white_check_mark: Bybit [S3](https://public.bybit.com/) repository
 
 :white_check_mark: Coinbase Pro REST API
 
 :white_check_mark: FTX REST API
 
-Note: Exchanges without paginated REST APIs will never be supported.
+Note: Exchanges without paginated REST APIs, or an S3 repository, will never be supported.
 
 For deployment, there are Dockerfiles. As well there are invoke tasks for rapid deployment to Google Cloud Run.
 

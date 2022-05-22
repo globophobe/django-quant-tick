@@ -1,6 +1,6 @@
 import datetime
 from decimal import Decimal
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 from pandas import DataFrame
@@ -12,7 +12,7 @@ ZERO = Decimal("0")
 
 
 def aggregate_rows(
-    df: pd.DataFrame,
+    df: DataFrame,
     timestamp: Optional[datetime.datetime] = None,
     nanoseconds: Optional[int] = None,
     open_price: Optional[Decimal] = None,
@@ -61,7 +61,7 @@ def get_volume_notional_ticks(data_frame: DataFrame):
     }
 
 
-def get_filtered_volume_notional_ticks(data_frame: pd.DataFrame):
+def get_filtered_volume_notional_ticks(data_frame: DataFrame):
     """Get volume notional and ticks from filtered data_frame."""
     return {
         "volume": data_frame.totalVolume.sum() or ZERO,
@@ -73,7 +73,8 @@ def get_filtered_volume_notional_ticks(data_frame: pd.DataFrame):
     }
 
 
-def is_sample(data_frame, first_index, last_index):
+def is_sample(data_frame: DataFrame, first_index: int, last_index: int) -> bool:
+    """Is the range a sample? Short-circuit logic for speed."""
     first_row = data_frame.loc[first_index]
     last_row = data_frame.loc[last_index]
     # For speed, short-circuit
@@ -88,9 +89,8 @@ def is_sample(data_frame, first_index, last_index):
     return True
 
 
-def aggregate_trades(data_frame):
-    """
-    Aggregate trades:
+def aggregate_trades(data_frame: DataFrame) -> DataFrame:
+    """Aggregate trades
 
     1) in the same direction, either buy or sell
     2) at the same timestamp, and nanoseconds
@@ -144,7 +144,7 @@ def aggregate_trades(data_frame):
     return aggregated
 
 
-def agg_trades(data_frame):
+def agg_trades(data_frame: DataFrame) -> Dict[str, Any]:
     first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
     timestamp = last_row.timestamp

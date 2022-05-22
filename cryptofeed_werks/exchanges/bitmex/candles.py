@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from functools import partial
-from typing import Optional
+from typing import List, Optional
 
 import pandas as pd
 
@@ -22,7 +22,7 @@ def get_candles(
     timestamp_to: datetime,
     bin_size: str = "1m",
     log_format: Optional[str] = None,
-):
+) -> List[dict]:
     """Get candles."""
     start_time = format_bitmex_api_timestamp(timestamp_from)
     params = f"symbol={symbol}&startTime={start_time}&binSize={bin_size}"

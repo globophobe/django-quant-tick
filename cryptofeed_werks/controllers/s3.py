@@ -4,14 +4,18 @@ import pandas as pd
 from pandas import DataFrame
 
 from cryptofeed_werks.lib import (
+    aggregate_trades,
     calculate_notional,
     calculate_tick_rule,
     get_current_time,
+    get_min_time,
     gzip_downloader,
     set_dtypes,
     strip_nanoseconds,
-    utc_timestamp,
+    validate_data_frame,
+    volume_filter_with_time_window,
 )
+from cryptofeed_werks.models import AggregatedTradeData
 
 from .base import BaseController
 
@@ -31,21 +35,85 @@ class ExchangeS3(BaseController):
         raise NotImplementedError
 
     @property
-    def get_columns(self) -> list:
+    def gzipped_csv_columns(self) -> list:
         """Get columns to load CSV file."""
-        raise NotImplementedError
+        return [
+            "timestamp",
+            "symbol",
+            "side",
+            "size",
+            "price",
+            "tickDirection",
+            "trdMatchID",
+            "grossValue",
+            "foreignNotional",
+        ]
+
+    @property
+    def columns(self) -> list:
+        return [
+            "uid",
+            "timestamp",
+            "nanoseconds",
+            "price",
+            "volume",
+            "notional",
+            "tickRule",
+        ]
 
     def main(self) -> None:
-        for timestamp_from, timestamp_to, is_complete in self.iter_timeframe:
-            date = timestamp_from.date()
+        now = get_current_time()
+        max_timestamp_to = get_min_time(now, value="1t")
+        for (
+            daily_timestamp_from,
+            daily_timestamp_to,
+            daily_existing,
+        ) in AggregatedTradeData.iter_days(
+            self.symbol,
+            self.timestamp_from,
+            self.timestamp_to,
+            reverse=True,
+            retry=self.retry,
+        ):
+            date = daily_timestamp_from.date()
             url = self.get_url(date)
-            data_frame = gzip_downloader(url, self.get_columns)
-            if data_frame is not None:
-                df = self.filter_by_symbol(data_frame)
-                if len(df):
-                    df = self.parse_and_filter_by_timestamp(df)
-                    df = self.parse_dtypes_and_strip_columns(df)
-                    self.on_data_frame(df, is_complete)
+            data_frame = gzip_downloader(url, self.gzipped_csv_columns)
+            data_frame = self.filter_by_symbol(data_frame)
+            if len(data_frame):
+                data_frame = self.parse_dtypes_and_strip_columns(data_frame)
+                for timestamp_from, timestamp_to in AggregatedTradeData.iter_hours(
+                    daily_timestamp_from,
+                    daily_timestamp_to,
+                    max_timestamp_to,
+                    daily_existing,
+                    reverse=True,
+                    retry=self.retry,
+                ):
+                    df = self.filter_by_timestamp(
+                        data_frame, timestamp_from, timestamp_to
+                    )
+                    candles = self.get_candles(timestamp_from, timestamp_to)
+                    # Are there any trades?
+                    if len(data_frame):
+                        aggregated = aggregate_trades(df)
+                        filtered = volume_filter_with_time_window(
+                            aggregated, min_volume=self.symbol.min_volume
+                        )
+                    else:
+                        filtered = pd.DataFrame([])
+                    validated = validate_data_frame(
+                        timestamp_from, timestamp_to, filtered, candles
+                    )
+                    self.on_data_frame(
+                        self.symbol,
+                        timestamp_from,
+                        timestamp_to,
+                        filtered,
+                        validated=validated,
+                    )
+            # Complete
+            else:
+                break
 
     def filter_by_symbol(self, data_frame: DataFrame) -> DataFrame:
         """First, filter data_frame by symbol."""
@@ -54,15 +122,13 @@ class ExchangeS3(BaseController):
         else:
             return data_frame
 
-    def parse_and_filter_by_timestamp(
+    def filter_by_timestamp(
         self,
         data_frame: DataFrame,
         timestamp_from: datetime.datetime,
         timestamp_to: datetime.datetime,
     ) -> DataFrame:
         """Second, parse timestamp and filter data_frame."""
-        data_frame = utc_timestamp(data_frame)
-        data_frame = strip_nanoseconds(data_frame)
         return data_frame[
             (data_frame.timestamp >= timestamp_from)
             & (data_frame.timestamp <= timestamp_to)
@@ -71,6 +137,7 @@ class ExchangeS3(BaseController):
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
         """Third, parse data_frame dtypes and strip unnecessary columns."""
         data_frame = set_dtypes(data_frame)
+        data_frame = strip_nanoseconds(data_frame)
         data_frame = calculate_notional(data_frame)
         data_frame = calculate_tick_rule(data_frame)
         return data_frame[self.columns]
