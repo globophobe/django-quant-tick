@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 import httpx
 
@@ -12,8 +12,8 @@ def get_coinbase_api_response(
     base_url: str,
     timestamp_from: Optional[datetime] = None,
     pagination_id: Optional[str] = None,
-    retry=30,
-):
+    retry: int = 30,
+) -> List[dict]:
     """Get Coinbase API response."""
     try:
         url = get_api_url(

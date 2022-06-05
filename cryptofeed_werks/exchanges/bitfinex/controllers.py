@@ -12,15 +12,21 @@ def bitfinex_trades(
     timestamp_from: datetime,
     timestamp_to: datetime,
     on_data_frame: Callable,
+    retry: bool = False,
     verbose: bool = False,
 ):
+    """Get Bitfinex trades."""
     BitfinexTrades(
         symbol,
         timestamp_from=timestamp_from,
         timestamp_to=timestamp_to,
+        on_data_frame=on_data_frame,
+        retry=retry,
         verbose=verbose,
     ).main()
 
 
 class BitfinexTrades(BitfinexMixin, ExchangeREST):
+    """Bitfinex trades."""
+
     pass

@@ -6,7 +6,7 @@ from pandas import Timestamp
 
 
 def get_current_time(tzinfo=timezone.utc):
-    """Get current time as UTC timezone."""
+    """Get current time."""
     return datetime.utcnow().replace(tzinfo=tzinfo)
 
 

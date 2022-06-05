@@ -77,7 +77,7 @@ def get_bitmex_api_response(
             return json.loads(result, parse_float=Decimal)
         elif response.status_code == 429:
             sleep_duration = response.headers.get("Retry-After", 1)
-            print(f"HTTP 42, sleeping {sleep_duration} seconds")
+            print(f"HTTP 429, sleeping {sleep_duration} seconds")
             time.sleep(int(sleep_duration))
             return retry_request(retry=retry)
         else:

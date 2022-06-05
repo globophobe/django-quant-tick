@@ -44,11 +44,11 @@ class BybitS3Mixin(BybitMixin):
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
         """Parse dtypes and strip unnecessary columns."""
         data_frame["timestamp"] = pd.to_datetime(data_frame["timestamp"], unit="s")
-        # Bybit is reversed.
-        # data_frame = data_frame.iloc[::-1]
-        # data_frame["index"] = data_frame.index.values[::-1]
         first_row = data_frame.iloc[0]
         last_row = data_frame.iloc[-1]
-        assert first_row.timestamp < last_row.timestamp
+        # Before 2021-12-06, Bybit is reversed.
+        if first_row.timestamp > last_row.timestamp:
+            data_frame = data_frame.iloc[::-1]
+            data_frame.reset_index(inplace=True)
         data_frame = data_frame.rename(columns={"trdMatchID": "uid", "size": "volume"})
         return super().parse_dtypes_and_strip_columns(data_frame)

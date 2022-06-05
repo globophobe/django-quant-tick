@@ -42,6 +42,7 @@ def get_candles(
         timestamp, _ = candle["timestamp"].split(".000Z")
         tstamp = datetime.fromisoformat(timestamp).replace(tzinfo=timezone.utc)
         candle["timestamp"] = tstamp - pd.Timedelta(bin_size)
+        candle["volume"] = candle["foreignNotional"]
         for key in (
             "symbol",
             "vwap",

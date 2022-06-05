@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
@@ -122,6 +123,12 @@ class WriteAggregregatedTradeDataTestCase(
     def setUp(self):
         super().setUp()
         self.timestamp_to = self.timestamp_from + pd.Timedelta("1t")
+        trades = [self.get_random_trade(timestamp=self.timestamp_from)]
+        data_frame = pd.DataFrame(trades)
+        aggregated = aggregate_trades(data_frame)
+        self.filtered = volume_filter_with_time_window(
+            aggregated, min_volume=None, window="1t"
+        )
 
     def tearDown(self):
         aggregate_trades = AggregatedTradeData.objects.select_related("symbol")
@@ -144,19 +151,13 @@ class WriteAggregregatedTradeDataTestCase(
 
     def test_write_aggregated_trade(self):
         """Write aggregated trade."""
-        trades = [self.get_random_trade(timestamp=self.timestamp_from)]
-        data_frame = pd.DataFrame(trades)
-        aggregated = aggregate_trades(data_frame)
-        filtered = volume_filter_with_time_window(
-            aggregated, min_volume=None, window="1t"
-        )
         AggregatedTradeData.write(
             self.symbol,
             self.timestamp_from,
             self.timestamp_to,
-            filtered,
+            self.filtered,
         )
-        row = filtered.iloc[0]
+        row = self.filtered.iloc[0]
         aggregated_trades = AggregatedTradeData.objects.all()
         self.assertEqual(aggregated_trades.count(), 1)
         aggregated_trade = aggregated_trades[0]
@@ -164,3 +165,29 @@ class WriteAggregregatedTradeDataTestCase(
         self.assertEqual(aggregated_trade.uid, row.uid)
         self.assertEqual(aggregated_trade.timestamp, row.timestamp)
         self.assertFalse(aggregated_trade.ok)
+
+    def test_retry_aggregated_trade(self):
+        """Retry aggregated trade."""
+        for i in range(2):
+            AggregatedTradeData.write(
+                self.symbol, self.timestamp_from, self.timestamp_to, self.filtered
+            )
+        aggregated_trades = AggregatedTradeData.objects.all()
+        self.assertEqual(aggregated_trades.count(), 1)
+        aggregated_trade = aggregated_trades[0]
+        _, filename = os.path.split(aggregated_trade.data.name)
+
+        storage = aggregated_trade.data.storage
+        exchange = aggregated_trade.symbol.exchange
+        symbol = aggregated_trade.symbol.symbol
+        sym = Path(exchange) / symbol
+        s = str(sym.resolve())
+
+        directories, _ = storage.listdir(s)
+        self.assertEqual(len(directories), 1)
+        directory = directories[0]
+        d = sym / directory
+        _, files = storage.listdir(d)
+        self.assertEqual(len(files), 1)
+        fname = files[0]
+        self.assertEqual(filename, fname)

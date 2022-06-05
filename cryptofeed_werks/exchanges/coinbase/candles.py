@@ -9,6 +9,7 @@ from .constants import API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
 
 
 def get_coinbase_candle_url(url, timestamp_from, pagination_id):
+    """Get Coinbase candle URL."""
     start = timestamp_from.replace(tzinfo=None).isoformat()
     url += f"&start={start}"
     if pagination_id:
@@ -17,7 +18,8 @@ def get_coinbase_candle_url(url, timestamp_from, pagination_id):
 
 
 def get_coinbase_candle_pagination_id(timestamp, last_data=[], data=[]):
-    """
+    """Get Coinbase candle pagination_id.
+
     Pagination details: https://docs.pro.coinbase.com/#pagination
     """
     if len(data):
@@ -25,6 +27,7 @@ def get_coinbase_candle_pagination_id(timestamp, last_data=[], data=[]):
 
 
 def get_coinbase_candle_timestamp(candle):
+    """Get Coinbase candle timestamp."""
     return datetime.fromtimestamp(candle[0]).replace(tzinfo=timezone.utc)
 
 

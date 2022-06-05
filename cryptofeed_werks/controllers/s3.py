@@ -78,8 +78,8 @@ class ExchangeS3(BaseController):
             date = daily_timestamp_from.date()
             url = self.get_url(date)
             data_frame = gzip_downloader(url, self.gzipped_csv_columns)
-            data_frame = self.filter_by_symbol(data_frame)
-            if len(data_frame):
+            if data_frame is not None:
+                data_frame = self.filter_by_symbol(data_frame)
                 data_frame = self.parse_dtypes_and_strip_columns(data_frame)
                 for timestamp_from, timestamp_to in AggregatedTradeData.iter_hours(
                     daily_timestamp_from,
@@ -94,7 +94,7 @@ class ExchangeS3(BaseController):
                     )
                     candles = self.get_candles(timestamp_from, timestamp_to)
                     # Are there any trades?
-                    if len(data_frame):
+                    if len(df):
                         aggregated = aggregate_trades(df)
                         filtered = volume_filter_with_time_window(
                             aggregated, min_volume=self.symbol.min_volume

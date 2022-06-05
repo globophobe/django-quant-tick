@@ -3,10 +3,13 @@ from decimal import Decimal
 from typing import Optional
 
 import numpy as np
+from pandas import DataFrame
 
-from cryptofeed_werks.models import Symbol
+from cryptofeed_werks.lib import candles_to_data_frame, timestamp_to_inclusive
 
-from .api import get_bitfinex_api_timestamp, get_trades
+from .api import format_bitfinex_api_timestamp, get_bitfinex_api_timestamp
+from .candles import get_candles
+from .trades import get_trades
 
 
 class BitfinexMixin:
@@ -21,13 +24,18 @@ class BitfinexMixin:
     PERIOD	int	Amount of time the funding transaction was for (funding tickers only)
     """
 
-    def get_pagination_id(self, data: Optional[dict] = None) -> int:
+    def get_pagination_id(self, timestamp_from: datetime) -> Optional[int]:
         """Get pagination_id."""
-        return int(self.timestamp_to.timestamp() * 1000)  # Millisecond
+        return format_bitfinex_api_timestamp(timestamp_from)
 
-    def iter_api(self, symbol: Symbol, pagination_id: int) -> list:
+    def iter_api(self, timestamp_from: datetime, pagination_id: int) -> list:
         """Iterate Bitfinex API."""
-        return get_trades(symbol, self.timestamp_from, pagination_id, self.log_format)
+        return get_trades(
+            self.symbol.api_symbol,
+            timestamp_from,
+            pagination_id,
+            log_format=self.log_format,
+        )
 
     def get_uid(self, trade: dict) -> str:
         """Get uid."""
@@ -74,3 +82,17 @@ class BitfinexMixin:
         """
         trades.sort(key=lambda x: x["index"], reverse=True)
         return super().get_data_frame(trades)
+
+    def get_candles(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> DataFrame:
+        """Get candles from Exchange API."""
+        ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1t")
+        candles = get_candles(
+            self.symbol.api_symbol,
+            timestamp_from,
+            ts_to,
+            time_frame="1m",
+            log_format=f"{self.log_format} validating",
+        )
+        return candles_to_data_frame(timestamp_from, timestamp_to, candles)

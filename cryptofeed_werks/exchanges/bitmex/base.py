@@ -9,7 +9,7 @@ from cryptofeed_werks.lib import candles_to_data_frame
 
 from .api import format_bitmex_api_timestamp, get_bitmex_api_timestamp
 from .candles import get_candles
-from .constants import S3_URL, XBTUSD
+from .constants import S3_URL
 from .trades import get_trades
 
 
@@ -95,10 +95,7 @@ class BitmexS3Mixin(BitmexMixin):
         data_frame["timestamp"] = pd.to_datetime(
             data_frame["timestamp"], format="%Y-%m-%dD%H:%M:%S.%f"
         )
-        data_frame = data_frame.rename(columns={"trdMatchID": "uid"})
-        # BitMEX XBTUSD size is volume. However, quanto contracts are not
-        if self.symbol.api_symbol == XBTUSD:
-            data_frame = data_frame.rename(columns={"foreignNotional": "volume"})
-        else:
-            raise NotImplementedError
+        data_frame = data_frame.rename(
+            columns={"trdMatchID": "uid", "foreignNotional": "volume"}
+        )
         return super().parse_dtypes_and_strip_columns(data_frame)

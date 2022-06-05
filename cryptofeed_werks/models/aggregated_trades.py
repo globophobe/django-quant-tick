@@ -35,7 +35,7 @@ def upload_to(instance, filename):
 class AggregatedTradeData(models.Model):
     symbol = models.ForeignKey(
         "cryptofeed_werks.Symbol",
-        related_name="candles",
+        related_name="aggregated_trade_data",
         on_delete=models.CASCADE,
     )
     timestamp = models.DateTimeField(_("timestamp"), db_index=True)
@@ -215,18 +215,30 @@ class AggregatedTradeData(models.Model):
         """Write hourly data to database."""
         params = {"symbol": symbol, "timestamp": timestamp, "is_hourly": True}
         try:
-            obj = AggregatedTradeData.objects.get(**params)
+            obj = cls.objects.get(**params)
         except AggregatedTradeData.DoesNotExist:
-            obj = AggregatedTradeData(**params)
+            obj = cls(**params)
         finally:
+            # Delete previously saved data.
+            if obj.pk:
+                obj.data.delete()
             if len(data_frame):
                 obj.uid = data_frame.iloc[0].uid
-                if obj.pk:
-                    obj.data.delete()
                 obj.data = cls.prepare_data(data_frame)
             else:
                 obj.uid = ""
-            obj.ok = all(validated.values())
+            values = validated.values()
+            all_true = all(values)
+            some_false = False in values
+            some_none = None in values
+            if all_true:
+                obj.ok = True
+            elif some_false:
+                obj.ok = False
+            elif some_none:
+                obj.ok = None
+            else:
+                raise NotImplementedError
             obj.save()
 
     @classmethod
@@ -250,9 +262,7 @@ class AggregatedTradeData(models.Model):
             if timestamp in existing:
                 obj = existing[timestamp]
             else:
-                obj = AggregatedTradeData(
-                    symbol=symbol, timestamp=timestamp, is_hourly=False
-                )
+                obj = cls(symbol=symbol, timestamp=timestamp, is_hourly=False)
 
             if len(data_frame):
                 df = data_frame[
@@ -266,7 +276,7 @@ class AggregatedTradeData(models.Model):
                     obj.uid = summary.get("uid", "")
                     obj.data = cls.prepare_data(df)
 
-            obj.ok = validated.get(timestamp, False)
+            obj.ok = validated.get(timestamp, None)
             obj.save()
 
     @classmethod
