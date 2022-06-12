@@ -2,10 +2,13 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
+from unittest.mock import patch
 
 import pandas as pd
 from django.test import TestCase
+from pandas import DataFrame
 
+from cryptofeed_werks.constants import Exchange
 from cryptofeed_werks.lib import (
     aggregate_trades,
     get_current_time,
@@ -13,6 +16,7 @@ from cryptofeed_werks.lib import (
     volume_filter_with_time_window,
 )
 from cryptofeed_werks.models import AggregatedTradeData, GlobalSymbol, Symbol
+from cryptofeed_werks.storage import convert_minute_to_hourly
 
 from .base import RandomTradeTestCase
 
@@ -22,7 +26,7 @@ class BaseAggregatedTradeTestCase(TestCase):
         self.timestamp_from = get_min_time(get_current_time(), "1d")
         global_symbol = GlobalSymbol.objects.create(name="global-symbol")
         self.symbol = Symbol.objects.create(
-            global_symbol=global_symbol, exchange="exchange", api_symbol="symbol"
+            global_symbol=global_symbol, exchange=Exchange.FTX, api_symbol="test"
         )
 
 
@@ -123,12 +127,12 @@ class WriteAggregregatedTradeDataTestCase(
     def setUp(self):
         super().setUp()
         self.timestamp_to = self.timestamp_from + pd.Timedelta("1t")
-        trades = [self.get_random_trade(timestamp=self.timestamp_from)]
+
+    def get_filtered(self, timestamp: datetime) -> DataFrame:
+        trades = [self.get_random_trade(timestamp=timestamp)]
         data_frame = pd.DataFrame(trades)
         aggregated = aggregate_trades(data_frame)
-        self.filtered = volume_filter_with_time_window(
-            aggregated, min_volume=None, window="1t"
-        )
+        return volume_filter_with_time_window(aggregated, min_volume=None, window="1t")
 
     def tearDown(self):
         aggregate_trades = AggregatedTradeData.objects.select_related("symbol")
@@ -151,13 +155,14 @@ class WriteAggregregatedTradeDataTestCase(
 
     def test_write_aggregated_trade(self):
         """Write aggregated trade."""
+        filtered = self.get_filtered(self.timestamp_from)
         AggregatedTradeData.write(
             self.symbol,
             self.timestamp_from,
             self.timestamp_to,
-            self.filtered,
+            filtered,
         )
-        row = self.filtered.iloc[0]
+        row = filtered.iloc[0]
         aggregated_trades = AggregatedTradeData.objects.all()
         self.assertEqual(aggregated_trades.count(), 1)
         aggregated_trade = aggregated_trades[0]
@@ -168,9 +173,10 @@ class WriteAggregregatedTradeDataTestCase(
 
     def test_retry_aggregated_trade(self):
         """Retry aggregated trade."""
+        filtered = self.get_filtered(self.timestamp_from)
         for i in range(2):
             AggregatedTradeData.write(
-                self.symbol, self.timestamp_from, self.timestamp_to, self.filtered
+                self.symbol, self.timestamp_from, self.timestamp_to, filtered
             )
         aggregated_trades = AggregatedTradeData.objects.all()
         self.assertEqual(aggregated_trades.count(), 1)
@@ -191,3 +197,33 @@ class WriteAggregregatedTradeDataTestCase(
         self.assertEqual(len(files), 1)
         fname = files[0]
         self.assertEqual(filename, fname)
+
+    @patch("cryptofeed_werks.storage.candles_api")
+    @patch("cryptofeed_werks.storage.validate_data_frame")
+    def test_convert_minute_to_hourly(self, mock_validate_data_frame, mock_candle_api):
+        """Convert minute to hourly."""
+        timestamp_from = get_min_time(self.timestamp_from, "1h")
+
+        data_frames = []
+        for minute in range(60):
+            ts_from = timestamp_from + pd.Timedelta(f"{minute}t")
+            ts_to = ts_from + pd.Timedelta("1t")
+            df = self.get_filtered(ts_from)
+            AggregatedTradeData.write(self.symbol, ts_from, ts_to, df)
+            data_frames.append(df)
+
+        mock_validate_data_frame.return_value = {
+            timestamp: True
+            for timestamp in [
+                self.timestamp_from + pd.Timedelta(f"{minute}t") for minute in range(60)
+            ]
+        }
+
+        convert_minute_to_hourly(self.symbol)
+
+        aggregated_trades = AggregatedTradeData.objects.all()
+        self.assertEqual(aggregated_trades.count(), 1)
+
+        filtered = pd.concat(data_frames).drop(columns=["uid"])
+        aggregated_trade = aggregated_trades[0]
+        self.assertTrue(aggregated_trade.data_frame.equals(filtered))

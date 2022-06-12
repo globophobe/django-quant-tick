@@ -1,3 +1,4 @@
-from .trades import TradeDataAPIView
+from .convert_to_hourly import ConvertToHourlyView
+from .trades import TradeView
 
-__all__ = ["TradeDataAPIView"]
+__all__ = ["TradeView", "ConvertToHourlyView"]

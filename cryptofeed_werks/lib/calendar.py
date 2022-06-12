@@ -36,7 +36,7 @@ def parse_period_from_to(
     now = get_current_time()
     tomorrow = now.date() + pd.Timedelta("1d")
     # timestamp_from
-    date_from = date.fromisoformat(date_from) if date_from else date(2010, 1, 1)
+    date_from = date.fromisoformat(date_from) if date_from else date(2009, 1, 3)
     time_from = time.fromisoformat(time_from) if time_from else time.min
     # timestamp_to
     date_to = date.fromisoformat(date_to) if date_to else tomorrow

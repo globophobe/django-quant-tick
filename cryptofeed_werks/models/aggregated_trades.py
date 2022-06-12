@@ -41,6 +41,7 @@ class AggregatedTradeData(models.Model):
     timestamp = models.DateTimeField(_("timestamp"), db_index=True)
     uid = models.CharField(_("uid"), blank=True, max_length=255)
     data = models.FileField(_("data"), blank=True, upload_to=upload_to)
+    stats = models.JSONField(_("stats"), null=True, blank=True)
     is_hourly = models.BooleanField(
         _("hourly"), null=True, default=False, db_index=True
     )
@@ -224,7 +225,9 @@ class AggregatedTradeData(models.Model):
                 obj.data.delete()
             if len(data_frame):
                 obj.uid = data_frame.iloc[0].uid
-                obj.data = cls.prepare_data(data_frame)
+                # UID not necessary for hourly data.
+                df = data_frame.drop(columns=["uid"])
+                obj.data = cls.prepare_data(df)
             else:
                 obj.uid = ""
             values = validated.values()
@@ -283,9 +286,14 @@ class AggregatedTradeData(models.Model):
     def prepare_data(cls, data_frame: DataFrame) -> ContentFile:
         """Prepare data, exclude uid."""
         buffer = BytesIO()
-        df = data_frame.drop(columns=["uid"])
-        df.to_parquet(buffer, engine="auto", compression="snappy")
+        data_frame.to_parquet(buffer, engine="auto", compression="snappy")
         return ContentFile(buffer.getvalue(), "data.parquet")
+
+    @property
+    def data_frame(self) -> DataFrame:
+        """Load data frame."""
+        if self.data.name:
+            return pd.read_parquet(self.data.open())
 
     class Meta:
         db_table = "cryptofeed_werks_aggregated_trade_data"

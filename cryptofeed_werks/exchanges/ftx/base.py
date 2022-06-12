@@ -3,10 +3,8 @@ from decimal import Decimal
 
 from pandas import DataFrame
 
-from cryptofeed_werks.lib import candles_to_data_frame, timestamp_to_inclusive
-
 from .api import format_ftx_api_timestamp
-from .candles import get_candles
+from .candles import ftx_candles
 from .trades import get_ftx_trades_timestamp, get_trades
 
 
@@ -60,12 +58,10 @@ class FTXMixin:
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
-        ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1t")
-        candles = get_candles(
+        return ftx_candles(
             self.symbol.api_symbol,
             timestamp_from,
-            format_ftx_api_timestamp(ts_to),
+            timestamp_to,
             resolution=60,
             log_format=f"{self.log_format} validating",
         )
-        return candles_to_data_frame(timestamp_from, timestamp_to, candles)

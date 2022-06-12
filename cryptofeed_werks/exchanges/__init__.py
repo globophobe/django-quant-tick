@@ -1,3 +1,3 @@
-from .api import api, exchange_api
+from .api import api, candles_api, trades_api
 
-__all__ = ["api", "exchange_api"]
+__all__ = ["api", "trades_api", "candles_api"]

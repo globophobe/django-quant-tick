@@ -4,9 +4,8 @@ from decimal import Decimal
 from pandas import DataFrame
 
 from cryptofeed_werks.controllers import IntegerPaginationMixin
-from cryptofeed_werks.lib import candles_to_data_frame, timestamp_to_inclusive
 
-from .candles import get_candles
+from .candles import coinbase_candles
 from .trades import get_coinbase_trades_timestamp, get_trades
 
 
@@ -60,12 +59,10 @@ class CoinbaseMixin(IntegerPaginationMixin):
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
-        ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1t")
-        candles = get_candles(
+        return coinbase_candles(
             self.symbol.api_symbol,
             timestamp_from,
-            ts_to.replace(tzinfo=None).isoformat(),
+            timestamp_to,
             granularity=60,
             log_format=f"{self.log_format} validating",
         )
-        return candles_to_data_frame(timestamp_from, timestamp_to, candles)

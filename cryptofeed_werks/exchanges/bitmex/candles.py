@@ -5,6 +5,7 @@ from typing import List, Optional
 import pandas as pd
 
 from cryptofeed_werks.controllers import iter_api
+from cryptofeed_werks.lib import candles_to_data_frame
 
 from .api import (
     format_bitmex_api_timestamp,
@@ -16,16 +17,18 @@ from .constants import API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
 from .trades import get_bitmex_api_response
 
 
-def get_candles(
-    symbol: str,
+def bitmex_candles(
+    api_symbol: str,
     timestamp_from: datetime,
     timestamp_to: datetime,
     bin_size: str = "1m",
     log_format: Optional[str] = None,
 ) -> List[dict]:
     """Get candles."""
-    start_time = format_bitmex_api_timestamp(timestamp_from)
-    params = f"symbol={symbol}&startTime={start_time}&binSize={bin_size}"
+    # Timestamp is at candle close.
+    ts_from = timestamp_from + pd.Timedelta(value="1t")
+    start_time = format_bitmex_api_timestamp(ts_from)
+    params = f"symbol={api_symbol}&startTime={start_time}&binSize={bin_size}"
     url = f"{API_URL}/trade/bucketed/?{params}"
     candles, _ = iter_api(
         url,
@@ -35,7 +38,7 @@ def get_candles(
         MAX_RESULTS,
         MIN_ELAPSED_PER_REQUEST,
         timestamp_from=timestamp_from,
-        pagination_id=timestamp_to,
+        pagination_id=format_bitmex_api_timestamp(timestamp_to),
         log_format=log_format,
     )
     for candle in candles:
@@ -52,4 +55,4 @@ def get_candles(
             "foreignNotional",
         ):
             del candle[key]
-    return candles
+    return candles_to_data_frame(timestamp_from, timestamp_to, candles)

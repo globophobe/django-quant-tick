@@ -1,14 +1,14 @@
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from cryptofeed_werks.exchanges import api
+from cryptofeed_werks.storage import convert_minute_to_hourly
 
 from .base import BaseSymbolView
 
 
-class TradeView(BaseSymbolView):
+class ConvertToHourlyView(BaseSymbolView):
     def get(self, request: Request, *args, **kwargs) -> Response:
-        """Get data for each symbol."""
+        """Convert data from minute to hourly."""
         for k in self.get_command_kwargs(request):
-            api(**k)
+            convert_minute_to_hourly(**k)
         return Response({"ok": True})

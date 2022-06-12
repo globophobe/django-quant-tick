@@ -6,16 +6,16 @@ from pandas import DataFrame
 from cryptofeed_werks.constants import Exchange
 from cryptofeed_werks.models import AggregatedTradeData, Symbol
 
-from .binance import binance_trades
-from .bitfinex import bitfinex_trades
-from .bitmex import bitmex_trades
-from .bybit import bybit_trades
-from .coinbase import coinbase_trades
-from .ftx import ftx_trades
+from .binance import binance_candles, binance_trades
+from .bitfinex import bitfinex_candles, bitfinex_trades
+from .bitmex import bitmex_candles, bitmex_trades
+from .bybit import bybit_candles, bybit_trades
+from .coinbase import coinbase_candles, coinbase_trades
+from .ftx import ftx_candles, ftx_trades
 
-# from .bitflyer import bitflyer_trades
-# from .upbit import UPBIT, upbit_trades
-# from .deribit import DERIBIT, deribit_trades
+# from .bitflyer import bitflyer_trades, bitflyer_candles
+# from .upbit import UPBIT, upbit_trades, upbit_candles
+# from .deribit import DERIBIT, deribit_trades, deribit_candles
 
 
 def api(
@@ -43,7 +43,7 @@ def api(
             validated=validated,
         )
 
-    exchange_api(
+    trades_api(
         symbol=symbol,
         timestamp_from=timestamp_from,
         timestamp_to=timestamp_to,
@@ -53,7 +53,7 @@ def api(
     )
 
 
-def exchange_api(
+def trades_api(
     symbol: Symbol,
     timestamp_from: datetime,
     timestamp_to: datetime,
@@ -61,7 +61,7 @@ def exchange_api(
     retry: bool = False,
     verbose: bool = False,
 ):
-    """Exchange API."""
+    """Trades API."""
     exchange = symbol.exchange
     kwargs = {
         "timestamp_from": timestamp_from,
@@ -88,3 +88,31 @@ def exchange_api(
         ftx_trades(symbol, **kwargs)
     # elif exchange == UPBIT:
     #     upbit_trades(**kwargs)
+
+
+def candles_api(symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime):
+    """Candles API."""
+    exchange = symbol.exchange
+    api_symbol = symbol.api_symbol
+    kwargs = {"timestamp_from": timestamp_from, "timestamp_to": timestamp_to}
+    if exchange == Exchange.BINANCE:
+        candles = binance_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.BITFINEX:
+        candles = bitfinex_candles(api_symbol, **kwargs)
+    # elif exchange == Exchange.BITFLYER:
+    #     bitflyer_trades(symbol, **kwargs)
+    elif exchange == Exchange.BITMEX:
+        candles = bitmex_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.BYBIT:
+        candles = bybit_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.COINBASE:
+        candles = coinbase_candles(api_symbol, **kwargs)
+    # elif exchange == DERIBIT:
+    #     deribit_trades(**kwargs)
+    elif exchange == Exchange.FTX:
+        candles = ftx_candles(api_symbol, **kwargs)
+    # elif exchange == UPBIT:
+    #     upbit_trades(**kwargs)
+    else:
+        raise NotImplementedError
+    return candles

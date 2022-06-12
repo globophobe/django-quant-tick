@@ -5,10 +5,8 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
-from cryptofeed_werks.lib import candles_to_data_frame
-
 from .api import format_bitmex_api_timestamp, get_bitmex_api_timestamp
-from .candles import get_candles
+from .candles import bitmex_candles
 from .constants import S3_URL
 from .trades import get_trades
 
@@ -51,15 +49,13 @@ class BitmexMixin:
     ) -> DataFrame:
         """Get candles from Exchange API."""
         # Timestamp is at candle close.
-        ts_from = timestamp_from + pd.Timedelta(value="1t")
-        candles = get_candles(
+        return bitmex_candles(
             self.symbol.api_symbol,
-            ts_from,
-            format_bitmex_api_timestamp(timestamp_to),
+            timestamp_from,
+            timestamp_to,
             bin_size="1m",
             log_format=f"{self.log_format} validating",
         )
-        return candles_to_data_frame(timestamp_from, timestamp_to, candles)
 
 
 class BitmexRESTMixin(BitmexMixin):

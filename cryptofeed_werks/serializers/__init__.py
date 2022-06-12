@@ -1,3 +1,4 @@
-from .trades import TradeDataParameterSerializer
+from .convert_to_hourly import ConvertToHourlyParameterSerializer
+from .trades import TradeParameterSerializer
 
-__all__ = ["TradeDataParameterSerializer"]
+__all__ = ["TradeParameterSerializer", "ConvertToHourlyParameterSerializer"]

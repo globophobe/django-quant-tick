@@ -16,9 +16,14 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from cryptofeed_werks.views import TradeDataAPIView
+from cryptofeed_werks.views import ConvertToHourlyView, TradeView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("trades/", TradeDataAPIView.as_view()),
+    path("trades/<str:exchange>/", TradeView.as_view(), name="trades"),
+    path(
+        "storage/<str:exchange>/",
+        ConvertToHourlyView.as_view(),
+        name="convert_to_hourly",
+    ),
 ]

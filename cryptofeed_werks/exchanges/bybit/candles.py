@@ -3,6 +3,7 @@ from functools import partial
 from typing import List, Optional
 
 from cryptofeed_werks.controllers import iter_api
+from cryptofeed_werks.lib import candles_to_data_frame
 
 from .api import get_bybit_api_response, get_bybit_api_url
 from .constants import API_URL, MIN_ELAPSED_PER_REQUEST
@@ -26,8 +27,8 @@ def get_bybit_candle_timestamp(candle: dict) -> None:
     return datetime.fromtimestamp(candle["open_time"]).replace(tzinfo=timezone.utc)
 
 
-def get_candles(
-    symbol: str,
+def bybit_candles(
+    api_symbol: str,
     timestamp_from: datetime,
     timestamp_to: datetime,
     interval: str = "1",
@@ -35,7 +36,7 @@ def get_candles(
     log_format: Optional[str] = None,
 ):
     ts_from = format_bybit_candle_timestamp(timestamp_from)
-    params = f"symbol={symbol}&from={ts_from}&interval={interval}&limit={limit}"
+    params = f"symbol={api_symbol}&from={ts_from}&interval={interval}&limit={limit}"
     url = f"{API_URL}/kline/list?{params}"
     candles, _ = iter_api(
         url,
@@ -52,4 +53,4 @@ def get_candles(
         candle["timestamp"] = get_bybit_candle_timestamp(candle)
         for key in ("symbol", "interval"):
             del candle[key]
-    return candles
+    return candles_to_data_frame(timestamp_from, timestamp_to, candles)

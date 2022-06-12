@@ -5,10 +5,8 @@ from typing import Optional
 import numpy as np
 from pandas import DataFrame
 
-from cryptofeed_werks.lib import candles_to_data_frame, timestamp_to_inclusive
-
 from .api import format_bitfinex_api_timestamp, get_bitfinex_api_timestamp
-from .candles import get_candles
+from .candles import bitfinex_candles
 from .trades import get_trades
 
 
@@ -87,12 +85,10 @@ class BitfinexMixin:
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
-        ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1t")
-        candles = get_candles(
+        return bitfinex_candles(
             self.symbol.api_symbol,
             timestamp_from,
-            ts_to,
+            timestamp_to,
             time_frame="1m",
             log_format=f"{self.log_format} validating",
         )
-        return candles_to_data_frame(timestamp_from, timestamp_to, candles)

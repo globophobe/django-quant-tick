@@ -3,6 +3,7 @@ from decimal import Decimal
 from functools import partial
 
 from cryptofeed_werks.controllers import iter_api
+from cryptofeed_werks.lib import candles_to_data_frame, timestamp_to_inclusive
 
 from .api import get_coinbase_api_response
 from .constants import API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
@@ -31,8 +32,13 @@ def get_coinbase_candle_timestamp(candle):
     return datetime.fromtimestamp(candle[0]).replace(tzinfo=timezone.utc)
 
 
-def get_candles(symbol, timestamp_from, timestamp_to, granularity=60, log_format=None):
-    url = f"{API_URL}/products/{symbol}/candles?granularity={granularity}"
+def coinbase_candles(
+    api_symbol, timestamp_from, timestamp_to, granularity=60, log_format=None
+):
+    """Get coinbase candles."""
+    url = f"{API_URL}/products/{api_symbol}/candles?granularity={granularity}"
+    ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1t")
+    pagination_id = ts_to.replace(tzinfo=None).isoformat()
     candles, _ = iter_api(
         url,
         get_coinbase_candle_pagination_id,
@@ -41,10 +47,10 @@ def get_candles(symbol, timestamp_from, timestamp_to, granularity=60, log_format
         MAX_RESULTS,
         MIN_ELAPSED_PER_REQUEST,
         timestamp_from=timestamp_from,
-        pagination_id=timestamp_to,
+        pagination_id=pagination_id,
         log_format=log_format,
     )
-    return [
+    c = [
         {
             "timestamp": datetime.fromtimestamp(candle[0]).replace(tzinfo=timezone.utc),
             "open": Decimal(str(candle[3])),
@@ -55,3 +61,4 @@ def get_candles(symbol, timestamp_from, timestamp_to, granularity=60, log_format
         }
         for candle in candles
     ]
+    return candles_to_data_frame(timestamp_from, timestamp_to, c)

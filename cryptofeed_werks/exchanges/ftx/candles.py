@@ -3,7 +3,11 @@ from functools import partial
 from typing import List, Optional
 
 from cryptofeed_werks.controllers import iter_api
-from cryptofeed_werks.lib import parse_datetime
+from cryptofeed_werks.lib import (
+    candles_to_data_frame,
+    parse_datetime,
+    timestamp_to_inclusive,
+)
 
 from .api import format_ftx_api_timestamp, get_ftx_api_response
 from .constants import API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
@@ -36,15 +40,16 @@ def get_ftx_candle_timestamp(candle) -> datetime:
     return parse_datetime(candle["startTime"])
 
 
-def get_candles(
-    symbol: str,
+def ftx_candles(
+    api_symbol: str,
     timestamp_from: datetime,
     timestamp_to: datetime,
     resolution: int = 60,
     log_format: Optional[str] = None,
 ):
     """Get candles."""
-    url = f"{API_URL}/markets/{symbol}/candles?resolution={resolution}"
+    ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1t")
+    url = f"{API_URL}/markets/{api_symbol}/candles?resolution={resolution}"
     candles, _ = iter_api(
         url,
         get_ftx_candle_pagination_id,
@@ -53,7 +58,7 @@ def get_candles(
         MAX_RESULTS,
         MIN_ELAPSED_PER_REQUEST,
         timestamp_from=timestamp_from,
-        pagination_id=timestamp_to,
+        pagination_id=format_ftx_api_timestamp(ts_to),
         log_format=log_format,
     )
     for candle in candles:
@@ -62,4 +67,4 @@ def get_candles(
         )
         for key in ("startTime", "time"):
             del candle[key]
-    return candles
+    return candles_to_data_frame(timestamp_from, timestamp_to, candles)

@@ -48,7 +48,7 @@ def aggregate_rows(
     return data
 
 
-def get_volume_notional_ticks(data_frame: DataFrame):
+def get_volume_notional_ticks(data_frame: DataFrame) -> dict:
     """Get volume notional and ticks from raw or aggregated data_frame."""
     buy_side = data_frame[data_frame.tickRule == 1]
     return {
@@ -61,7 +61,7 @@ def get_volume_notional_ticks(data_frame: DataFrame):
     }
 
 
-def get_filtered_volume_notional_ticks(data_frame: DataFrame):
+def get_filtered_volume_notional_ticks(data_frame: DataFrame) -> dict:
     """Get volume notional and ticks from filtered data_frame."""
     return {
         "volume": data_frame.totalVolume.sum() or ZERO,
@@ -174,7 +174,7 @@ def agg_trades(data_frame: DataFrame) -> Dict[str, Any]:
 
 def volume_filter_with_time_window(
     data_frame: DataFrame, min_volume: int = 1000, window: Optional[str] = "1t"
-) -> List[dict]:
+) -> DataFrame:
     """Volume filter, with time window."""
     samples = []
     if len(data_frame):
@@ -263,7 +263,7 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
 
 def aggregate_sum(
     data_frame: DataFrame, attrs: Union[List[str], str] = None, window: str = "1t"
-) -> bool:
+) -> DataFrame:
     """Aggregate sum over window."""
     samples = []
     if len(data_frame):

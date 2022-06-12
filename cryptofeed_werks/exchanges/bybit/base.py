@@ -4,9 +4,7 @@ import httpx
 import pandas as pd
 from pandas import DataFrame
 
-from cryptofeed_werks.lib import candles_to_data_frame
-
-from .candles import get_candles
+from .candles import bybit_candles
 from .constants import S3_URL
 
 
@@ -17,7 +15,7 @@ class BybitMixin:
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
-        candles = get_candles(
+        return bybit_candles(
             self.symbol.api_symbol,
             timestamp_from,
             timestamp_to,
@@ -25,7 +23,6 @@ class BybitMixin:
             limit=60,
             log_format=f"{self.log_format} validating",
         )
-        return candles_to_data_frame(timestamp_from, timestamp_to, candles)
 
 
 class BybitS3Mixin(BybitMixin):
