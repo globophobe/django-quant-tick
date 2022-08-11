@@ -1,13 +1,12 @@
 from .aggregated_trades import AggregatedTradeData
-from .candles import Candle
-from .series import Series, SeriesHistory
+from .candles import Candle, CandleData, CandleSymbol
 from .symbols import GlobalSymbol, Symbol
 
 __all__ = [
     "AggregatedTradeData",
     "Candle",
+    "CandleSymbol",
+    "CandleData",
     "GlobalSymbol",
-    "Series",
-    "SeriesHistory",
     "Symbol",
 ]

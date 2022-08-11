@@ -9,7 +9,7 @@ from django.test import TestCase
 from pandas import DataFrame
 
 
-class RandomTradeTestCase(TestCase):
+class RandomTradeTest(TestCase):
     def generate_random_trades(
         self,
         ticks: int,

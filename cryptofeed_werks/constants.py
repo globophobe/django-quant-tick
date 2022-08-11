@@ -5,6 +5,11 @@ try:
 except ImportError:
     from django.utils.translation import ugettext_lazy as _  # noqa
 
+# Similar to BigQuery BigNumeric
+# https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types#decimal_types
+NUMERIC_PRECISION = 76  # 76.6
+NUMERIC_SCALE = 38
+
 
 class Exchange(models.TextChoices):
     # ALPACA = "alpaca", "Alpaca"
@@ -19,8 +24,15 @@ class Exchange(models.TextChoices):
     # UPBIT = "upbit", "Upbit"
 
 
-class SamplingType(models.TextChoices):
+class CandleType(models.TextChoices):
     TIME = "time", _("time").capitalize()
     VOLUME = "volume", _("volume").capitalize()
     NOTIONAL = "notional", _("notional").capitalize()
     TICKS = "ticks", _("ticks").capitalize()
+
+
+class Frequency(models.IntegerChoices):
+    MINUTE = 1, _("minute").capitalize()
+    HOUR = 60, _("hour").capitalize()
+    DAY = 1440, _("day").capitalize()
+    WEEK = 10080, _("week").capitalize()

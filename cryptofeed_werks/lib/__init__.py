@@ -1,4 +1,5 @@
 from .aggregate import (
+    aggregate_ohlc,
     aggregate_rows,
     aggregate_sum,
     aggregate_trades,
@@ -33,6 +34,7 @@ from .download import gzip_downloader
 __all__ = [
     "aggregate_rows",
     "aggregate_trades",
+    "aggregate_ohlc",
     "aggregate_sum",
     "get_filtered_volume_notional_ticks",
     "volume_filter_with_time_window",

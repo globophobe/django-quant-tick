@@ -273,7 +273,7 @@ def aggregate_sum(
             attrs = [attrs]
         timestamp_from = data_frame.iloc[0].timestamp
         # Iterator is not inclusive of timestamp_to, so increase by 1.
-        timestamp_to = data_frame.iloc[-1].timestamp + pd.Timedelta(window or "1t")
+        timestamp_to = data_frame.iloc[-1].timestamp + pd.Timedelta(window)
         for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value=window):
             df = data_frame[
                 (data_frame.timestamp >= ts_from) & (data_frame.timestamp < ts_to)
@@ -286,3 +286,21 @@ def aggregate_sum(
                     sample[attr] = df[attr].sum()
                 samples.append(sample)
     return pd.DataFrame(samples).set_index("timestamp") if samples else pd.DataFrame()
+
+
+def aggregate_ohlc(data_frame: DataFrame) -> dict:
+    """Aggregate OHLC."""
+    price = data_frame.price
+    data = {
+        "open": price.iloc[0],
+        "high": price.max(),
+        "low": price.min(),
+        "close": price.iloc[-1],
+        "totalBuyVolume": data_frame.totalBuyVolume.sum(),
+        "totalVolume": data_frame.totalVolume.sum(),
+        "totalBuyNotional": data_frame.totalBuyNotional.sum(),
+        "totalNotional": data_frame.totalNotional.sum(),
+        "totalBuyTicks": int(data_frame.totalBuyTicks.sum()),
+        "totalTicks": int(data_frame.totalTicks.sum()),
+    }
+    return data

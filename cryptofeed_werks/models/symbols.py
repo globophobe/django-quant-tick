@@ -5,7 +5,7 @@ from cryptofeed_werks.utils import gettext_lazy as _
 
 
 class GlobalSymbol(models.Model):
-    name = models.CharField(_("name"), max_length=255)
+    name = models.CharField(_("name"), unique=True, max_length=255)
 
     def __str__(self) -> str:
         return self.name
@@ -32,6 +32,10 @@ class Symbol(models.Model):
 
     @property
     def symbol(self) -> str:
+        """Symbol.
+
+        Example, BTCUSD
+        """
         symbol = self.api_symbol
         for char in ("-", "/", "_"):
             symbol = symbol.replace(char, "")
@@ -41,12 +45,28 @@ class Symbol(models.Model):
         #     return symbol[3:] + symbol[:3]  # Reversed
         return symbol
 
+    @property
+    def upload_symbol(self) -> str:
+        """Upload symbol.
+
+        Example, BTCUSD-1000
+        """
+        parts = [self.symbol]
+        if self.min_volume:
+            parts.append(str(self.min_volume))
+        return "-".join(parts)
+
     def __str__(self) -> str:
-        exchange = self.get_exchange_display()
-        return f"{exchange} {self.symbol}"
+        """str.
+
+        Example, Coinbase BTCUSD spot 1000
+        """
+        parts = [self.get_exchange_display(), self.upload_symbol]
+        return " ".join(parts)
 
     class Meta:
         db_table = "cryptofeed_werks_symbol"
         ordering = ("exchange", "api_symbol")
+        unique_together = (("exchange", "api_symbol", "min_volume"),)
         verbose_name = _("symbol")
         verbose_name_plural = _("symbols")

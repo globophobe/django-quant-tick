@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 import pandas as pd
 from pandas import DataFrame
@@ -47,7 +47,7 @@ def validate_data_frame(
     timestamp_to: datetime,
     data_frame: DataFrame,
     candles: DataFrame,
-):
+) -> Optional[dict]:
     """Validate data_frame with candles from Exchange API."""
     if len(candles):
         if "notional" in candles.columns:

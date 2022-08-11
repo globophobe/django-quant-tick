@@ -11,10 +11,10 @@ from cryptofeed_werks.lib import (
     volume_filter_with_time_window,
 )
 
-from .base import RandomTradeTestCase
+from .base import RandomTradeTest
 
 
-class TradeAggregatorTest(RandomTradeTestCase):
+class TradeAggregatorTest(RandomTradeTest):
     def test_equal_symbols_and_timestamps_and_ticks(self):
         """Aggregated trades with equal symbols, timestamps, and ticks."""
         trades = [{"symbol": "A", "is_equal_timestamp": True, "ticks": [1, 1]}]
@@ -95,7 +95,7 @@ class TradeAggregatorTest(RandomTradeTestCase):
         self.assertEqual(len(data), 2)
 
 
-class VolumeFilterTest(RandomTradeTestCase):
+class VolumeFilterTest(RandomTradeTest):
     def assert_min_volume(self, df: DataFrame) -> None:
         """Assert minimum volume."""
         assert isinstance(df.timestamp, datetime)

@@ -1,4 +1,5 @@
-from .convert_to_hourly import ConvertToHourlyView
+from .candles import CandleView
+from .convert_aggregated_to_hourly import ConvertAggregatedToHourlyView
 from .trades import TradeView
 
-__all__ = ["TradeView", "ConvertToHourlyView"]
+__all__ = ["CandleView", "TradeView", "ConvertAggregatedToHourlyView"]

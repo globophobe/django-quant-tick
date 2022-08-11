@@ -1,37 +1,119 @@
+import os
+
 from django.db import models
 
+from cryptofeed_werks.constants import CandleType, Frequency
 from cryptofeed_werks.utils import gettext_lazy as _
 
-from .base import big_decimal
+from .base import BaseDataStorage
+
+
+def upload_data_to(instance: "CandleData", filename: str) -> str:
+    """Upload to."""
+    date = instance.timestamp.date().isoformat()
+    fname = instance.timestamp.time().strftime("%H%M")
+    _, ext = os.path.splitext(filename)
+    return f"candles/{instance.code_name}/{date}/{fname}{ext}"
+
+
+def upload_cache_to(instance: "CandleData", filename: str) -> str:
+    """Upload to."""
+    date = instance.timestamp.date().isoformat()
+    fname = instance.timestamp.time().strftime("%H%M")
+    _, ext = os.path.splitext(filename)
+    return f"candles/{instance.code_name}/{date}/cache/{fname}{ext}"
 
 
 class Candle(models.Model):
-    series = models.ForeignKey(
-        "cryptofeed_werks.Series",
-        related_name="candles",
-        on_delete=models.CASCADE,
+    code_name = models.SlugField(_("code name"), unique=True, max_length=255)
+    candle_type = models.CharField(
+        _("candle type"), choices=CandleType.choices, max_length=255
     )
-    timestamp = models.DateTimeField(_("timestamp"), db_index=True)
-    open = big_decimal("open", null=True)
-    high = big_decimal("high", null=True)
-    low = big_decimal("low", null=True)
-    close = big_decimal("close", null=True)
-    buy_volume = big_decimal("buy volume", null=True)
-    volume = big_decimal("volume", null=True)
-    buy_notional = big_decimal("buy notional", null=True)
-    notional = big_decimal("notional", null=True)
-    buy_ticks = models.PositiveIntegerField(_("buy ticks"), null=True)
-    ticks = models.PositiveIntegerField(_("ticks"), null=True)
-    data = models.JSONField(default=dict)
+    threshold = models.CharField(
+        _("threshold"),
+        help_text=_(
+            'For time-based candles, "1d", "4h", "1m", etc. '
+            "For dollar, volume, or tick candles, a numerical value. "
+            "Must be blank for candles with an adaptive threshold."
+        ),
+        max_length=255,
+        blank=True,
+    )
+    expected_number_of_candles = models.PositiveIntegerField(
+        _("expected number of candles"),
+        help_text=_(
+            "Not applicable to time-based candles. "
+            "The expected number of candles per day for adaptive thresholds."
+        ),
+        null=True,
+        blank=True,
+    )
+    moving_average_number_of_days = models.PositiveIntegerField(
+        _("moving average number of days"),
+        help_text=_(
+            "The number of days for the moving average for adaptive thresholds. "
+        ),
+        null=True,
+        blank=True,
+    )
+    is_ema = models.BooleanField(
+        "EMA", help_text=_("Is the moving average an EMA?"), default=False
+    )
+    cache_reset_frequency = models.PositiveIntegerField(
+        _("cache reset frequency"),
+        help_text=_(
+            "Not applicable to time-based candles. "
+            "If not blank, the cache will be reset to 0 at the start of each period. "
+        ),
+        choices=[
+            c for c in Frequency.choices if c[0] in (Frequency.DAY, Frequency.WEEK)
+        ],
+        null=True,
+        blank=True,
+    )
 
-    def __str__(self) -> str:
-        exchange = self.series.symbol.get_exchange_display()
-        symbol = self.series.symbol.symbol_display
-        timestamp = self.timestamp.replace(tzinfo=None).isoformat()
-        return f"{exchange} {symbol} {timestamp}"
+    def __str__(self):
+        return self.code_name
 
     class Meta:
         db_table = "cryptofeed_werks_candle"
-        ordering = ("timestamp",)
         verbose_name = _("candle")
         verbose_name_plural = _("candles")
+
+
+class CandleSymbol(models.Model):
+    candle = models.ForeignKey(
+        "cryptofeed_werks.Candle", on_delete=models.CASCADE, verbose_name=_("candle")
+    )
+    symbol = models.ForeignKey(
+        "cryptofeed_werks.Symbol", on_delete=models.CASCADE, verbose_name=_("symbol")
+    )
+    date_from = models.DateField(_("date from"), null=True)
+    date_to = models.DateField(_("date to"), null=True)
+
+    def __str__(self):
+        return str(self.symbol)
+
+    class Meta:
+        db_table = "cryptofeed_werks_candle_symbol"
+        unique_together = ("candle", "symbol")
+        verbose_name = _("symbol")
+        verbose_name_plural = _("symbols")
+
+
+class CandleData(BaseDataStorage):
+    candle = models.ForeignKey(
+        "cryptofeed_werks.Candle", related_name="data", on_delete=models.CASCADE
+    )
+    symbol = models.ForeignKey(
+        "cryptofeed_werks.Symbol", related_name="data", on_delete=models.CASCADE
+    )
+    timestamp = models.DateTimeField(_("timestamp"), db_index=True)
+    frequency = models.PositiveIntegerField(_("frequency"), choices=Frequency.choices)
+    data = models.FileField(_("data"), blank=True, upload_to=upload_data_to)
+    cache = models.FileField(_("data"), blank=True, upload_to=upload_cache_to)
+
+    class Meta:
+        db_table = "cryptofeed_werks_candle_data"
+        ordering = ("timestamp",)
+        verbose_name = verbose_name_plural = _("candle data")

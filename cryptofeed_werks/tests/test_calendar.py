@@ -16,7 +16,7 @@ from cryptofeed_werks.lib import (
 )
 
 
-class GetMinTimeTestCase(TestCase):
+class GetMinTimeTest(TestCase):
     def test_get_min_time_1d(self):
         """Get start of current day."""
         now = get_current_time()
@@ -27,7 +27,7 @@ class GetMinTimeTestCase(TestCase):
         )
 
 
-class GetNexttimeTestCase(TestCase):
+class GetNexttimeTest(TestCase):
     def test_get_next_minute(self):
         """Get start of next day."""
         now = get_current_time()
@@ -38,7 +38,7 @@ class GetNexttimeTestCase(TestCase):
         )
 
 
-class GetRangeTestCase(TestCase):
+class GetRangeTest(TestCase):
     def setUp(self):
         now = get_current_time()
         self.timestamp_from = get_min_time(now, value="1d")
@@ -59,7 +59,7 @@ class GetRangeTestCase(TestCase):
         self.assertEqual(values[0], self.timestamp_from)
 
 
-class IterWindowTestCase(TestCase):
+class IterWindowTest(TestCase):
     def setUp(self):
         one_day = pd.Timedelta("1d")
         self.now = get_current_time()
@@ -88,7 +88,7 @@ class IterWindowTestCase(TestCase):
         self.assertEqual(values[1][0], get_min_time(self.two_days_ago, value="1d"))
 
 
-class IterTimeframeTestCase(TestCase):
+class IterTimeframeTest(TestCase):
     def setUp(self):
         self.now = get_current_time()
 
@@ -175,7 +175,7 @@ class IterTimeframeTestCase(TestCase):
                 self.assertEqual(ts_from + pd.Timedelta("1d"), ts_to)
 
 
-class IterMissingTestCase(TestCase):
+class IterMissingTest(TestCase):
     def setUp(self):
         self.one_minute = pd.Timedelta("1t")
         self.timestamp_from = get_min_time(get_current_time(), "1d")

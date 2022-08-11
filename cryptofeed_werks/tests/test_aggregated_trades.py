@@ -8,7 +8,7 @@ import pandas as pd
 from django.test import TestCase
 from pandas import DataFrame
 
-from cryptofeed_werks.constants import Exchange
+from cryptofeed_werks.constants import Exchange, Frequency
 from cryptofeed_werks.lib import (
     aggregate_trades,
     get_current_time,
@@ -16,12 +16,12 @@ from cryptofeed_werks.lib import (
     volume_filter_with_time_window,
 )
 from cryptofeed_werks.models import AggregatedTradeData, GlobalSymbol, Symbol
-from cryptofeed_werks.storage import convert_minute_to_hourly
+from cryptofeed_werks.storage import convert_aggregated_to_hourly
 
-from .base import RandomTradeTestCase
+from .base import RandomTradeTest
 
 
-class BaseAggregatedTradeTestCase(TestCase):
+class BaseAggregatedTradeTest(TestCase):
     def setUp(self):
         self.timestamp_from = get_min_time(get_current_time(), "1d")
         global_symbol = GlobalSymbol.objects.create(name="global-symbol")
@@ -30,7 +30,7 @@ class BaseAggregatedTradeTestCase(TestCase):
         )
 
 
-class IterAllTestCase(BaseAggregatedTradeTestCase):
+class IterAllTest(BaseAggregatedTradeTest):
     def setUp(self):
         super().setUp()
         self.one_minute = pd.Timedelta("1t")
@@ -52,7 +52,10 @@ class IterAllTestCase(BaseAggregatedTradeTestCase):
     def test_iter_all_with_head(self):
         """First is OK."""
         AggregatedTradeData.objects.create(
-            symbol=self.symbol, timestamp=self.timestamp_from, ok=True
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.MINUTE,
+            ok=True,
         )
         values = self.get_values()
         self.assertEqual(len(values), 1)
@@ -62,7 +65,10 @@ class IterAllTestCase(BaseAggregatedTradeTestCase):
     def test_iter_all_with_one_aggregated_trade_ok(self):
         """Second is OK."""
         obj = AggregatedTradeData.objects.create(
-            symbol=self.symbol, timestamp=self.timestamp_from + self.one_minute, ok=True
+            symbol=self.symbol,
+            timestamp=self.timestamp_from + self.one_minute,
+            frequency=Frequency.MINUTE,
+            ok=True,
         )
         values = self.get_values()
         self.assertEqual(len(values), 2)
@@ -74,11 +80,15 @@ class IterAllTestCase(BaseAggregatedTradeTestCase):
     def test_iter_all_with_two_aggregated_trades_ok(self):
         """Second and fourth are OK."""
         obj_one = AggregatedTradeData.objects.create(
-            symbol=self.symbol, timestamp=self.timestamp_from + self.one_minute, ok=True
+            symbol=self.symbol,
+            timestamp=self.timestamp_from + self.one_minute,
+            frequency=Frequency.MINUTE,
+            ok=True,
         )
         obj_two = AggregatedTradeData.objects.create(
             symbol=self.symbol,
             timestamp=self.timestamp_from + (self.one_minute * 3),
+            frequency=Frequency.MINUTE,
             ok=True,
         )
         values = self.get_values()
@@ -93,7 +103,10 @@ class IterAllTestCase(BaseAggregatedTradeTestCase):
     def test_iter_all_with_tail(self):
         """Last is OK."""
         AggregatedTradeData.objects.create(
-            symbol=self.symbol, timestamp=self.timestamp_to - self.one_minute, ok=True
+            symbol=self.symbol,
+            timestamp=self.timestamp_to - self.one_minute,
+            frequency=Frequency.MINUTE,
+            ok=True,
         )
         values = self.get_values()
         self.assertEqual(len(values), 1)
@@ -103,7 +116,10 @@ class IterAllTestCase(BaseAggregatedTradeTestCase):
     def test_iter_all_with_retry_and_one_aggregated_trade_not_ok(self):
         """One is not OK."""
         AggregatedTradeData.objects.create(
-            symbol=self.symbol, timestamp=self.timestamp_from, ok=False
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.MINUTE,
+            ok=False,
         )
         values = self.get_values(retry=True)
         self.assertEqual(len(values), 1)
@@ -113,7 +129,10 @@ class IterAllTestCase(BaseAggregatedTradeTestCase):
     def test_iter_all_with_retry_and_one_aggregated_trade_missing(self):
         """One is missing."""
         AggregatedTradeData.objects.create(
-            symbol=self.symbol, timestamp=self.timestamp_from, ok=None
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.MINUTE,
+            ok=None,
         )
         values = self.get_values(retry=True)
         self.assertEqual(len(values), 1)
@@ -121,14 +140,13 @@ class IterAllTestCase(BaseAggregatedTradeTestCase):
         self.assertEqual(values[-1][1], self.timestamp_to)
 
 
-class WriteAggregregatedTradeDataTestCase(
-    RandomTradeTestCase, BaseAggregatedTradeTestCase
-):
+class WriteAggregregatedTradeDataTest(RandomTradeTest, BaseAggregatedTradeTest):
     def setUp(self):
         super().setUp()
         self.timestamp_to = self.timestamp_from + pd.Timedelta("1t")
 
     def get_filtered(self, timestamp: datetime) -> DataFrame:
+        """Get filtered."""
         trades = [self.get_random_trade(timestamp=timestamp)]
         data_frame = pd.DataFrame(trades)
         aggregated = aggregate_trades(data_frame)
@@ -143,14 +161,12 @@ class WriteAggregregatedTradeDataTestCase(
         for obj in aggregate_trades:
             storage = obj.data.storage
             exchange = obj.symbol.exchange
-            symbol = obj.symbol.symbol
-            sym = Path(exchange) / symbol
-            s = str(sym.resolve())
-            directories, _ = storage.listdir(s)
+            path = Path("trades") / exchange / obj.symbol.upload_symbol
+            directories, _ = storage.listdir(str(path.resolve()))
             for directory in directories:
-                d = sym / directory
-                storage.delete(str(d.resolve()))
-            storage.delete(s)
+                p = path / directory
+                storage.delete(str(p.resolve()))
+            storage.delete(path)
             storage.delete(exchange)
 
     def test_write_aggregated_trade(self):
@@ -182,17 +198,17 @@ class WriteAggregregatedTradeDataTestCase(
         self.assertEqual(aggregated_trades.count(), 1)
         aggregated_trade = aggregated_trades[0]
         _, filename = os.path.split(aggregated_trade.data.name)
+        self.assertEqual(filename.count("."), 1)
 
         storage = aggregated_trade.data.storage
         exchange = aggregated_trade.symbol.exchange
-        symbol = aggregated_trade.symbol.symbol
-        sym = Path(exchange) / symbol
-        s = str(sym.resolve())
+        path = Path("trades") / exchange / aggregated_trade.symbol.upload_symbol
+        p = str(path.resolve())
 
-        directories, _ = storage.listdir(s)
+        directories, _ = storage.listdir(p)
         self.assertEqual(len(directories), 1)
         directory = directories[0]
-        d = sym / directory
+        d = path / directory
         _, files = storage.listdir(d)
         self.assertEqual(len(files), 1)
         fname = files[0]
@@ -219,11 +235,11 @@ class WriteAggregregatedTradeDataTestCase(
             ]
         }
 
-        convert_minute_to_hourly(self.symbol)
+        convert_aggregated_to_hourly(self.symbol)
 
         aggregated_trades = AggregatedTradeData.objects.all()
         self.assertEqual(aggregated_trades.count(), 1)
 
         filtered = pd.concat(data_frames).drop(columns=["uid"])
         aggregated_trade = aggregated_trades[0]
-        self.assertTrue(aggregated_trade.data_frame.equals(filtered))
+        self.assertTrue(aggregated_trade.get_data_frame().equals(filtered))

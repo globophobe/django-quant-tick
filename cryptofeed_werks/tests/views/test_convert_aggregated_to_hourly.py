@@ -18,9 +18,12 @@ class ConvertToHourlyViewTest(BaseViewTest):
 
     def get_url(self, exchange: Exchange = Exchange.FTX) -> str:
         """Get URL."""
-        return reverse("convert_to_hourly", kwargs={"exchange": exchange})
+        return reverse("convert_aggregated_to_hourly", kwargs={"exchange": exchange})
 
-    @patch("cryptofeed_werks.views.convert_to_hourly.convert_minute_to_hourly")
+    @patch(
+        "cryptofeed_werks.views.convert_aggregated_to_hourly"
+        ".convert_aggregated_to_hourly"
+    )
     def test_exchange_default_all_symbols(self, mock_command):
         """If no symbol, default all symbols."""
         params = self.get_symbols(["test-1", "test-2"])
@@ -30,16 +33,19 @@ class ConvertToHourlyViewTest(BaseViewTest):
         mock_symbols = self.get_mock_symbols(mock_command)
         self.assertEqual(params["symbol"], mock_symbols)
 
-    @patch("cryptofeed_werks.views.convert_to_hourly.convert_minute_to_hourly")
+    @patch(
+        "cryptofeed_werks.views.convert_aggregated_to_hourly"
+        ".convert_aggregated_to_hourly"
+    )
     def test_one_symbol(self, mock_command):
         """One symbol."""
-        self.get_symbols("test-1")
-        params = self.get_symbols("test-2")
+        self.get_symbols(["test-1", "test-2"])
+        expected = ["test-2"]
 
-        self.client.get(self.url, params)
+        self.client.get(self.url, {"symbol": expected})
 
         mock_symbols = self.get_mock_symbols(mock_command)
-        self.assertEqual(params["symbol"], mock_symbols)
+        self.assertEqual(expected, mock_symbols)
 
     def test_nonexistant_exchange(self):
         """Exchange does not exist."""

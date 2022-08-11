@@ -1,13 +1,13 @@
 import os
 from datetime import datetime
-from io import BytesIO
 from typing import Dict, Generator, List, Optional, Tuple
 
 import pandas as pd
-from django.core.files.base import ContentFile
 from django.db import models
+from django.db.models import Q, QuerySet
 from pandas import DataFrame
 
+from cryptofeed_werks.constants import Frequency
 from cryptofeed_werks.lib import (
     aggregate_rows,
     get_current_time,
@@ -19,33 +19,104 @@ from cryptofeed_werks.lib import (
 )
 from cryptofeed_werks.utils import gettext_lazy as _
 
+from .base import BaseDataStorage
 from .symbols import Symbol
 
 
-def upload_to(instance, filename):
+def upload_to(instance: "AggregatedTradeData", filename: str) -> str:
     """Upload to."""
     exchange = instance.symbol.exchange
-    symbol = instance.symbol.symbol
+    upload_symbol = instance.symbol.upload_symbol
     date = instance.timestamp.date().isoformat()
     fname = instance.timestamp.time().strftime("%H%M")
     _, ext = os.path.splitext(filename)
-    return f"{exchange}/{symbol}/{date}/{fname}{ext}"
+    return f"trades/{exchange}/{upload_symbol}/{date}/{fname}{ext}"
 
 
-class AggregatedTradeData(models.Model):
+class AggregatedTradeDataQuerySet(models.QuerySet):
+    def filter_by_timestamp(
+        self,
+        timestamp_from: Optional[datetime] = None,
+        timestamp_to: Optional[datetime] = None,
+    ) -> QuerySet:
+        """Filter by timestamp."""
+        q = Q()
+        if timestamp_from:
+            q |= Q(timestamp__gte=timestamp_from)
+        if timestamp_to:
+            q |= Q(timestamp__lt=timestamp_to)
+        return self.filter(q)
+
+    def get_missing(
+        self, symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
+    ) -> List[datetime]:
+        """Get missing."""
+        existing = self.get_existing(symbol, timestamp_from, timestamp_to)
+        # Result from get_range may include timestamp_to,
+        # which will never be part of data_frame
+        if timestamp_to > timestamp_from:
+            timestamp_to -= pd.Timedelta("1t")
+        return [
+            timestamp
+            for timestamp in get_range(timestamp_from, timestamp_to)
+            if timestamp not in existing
+        ]
+
+    def get_existing(
+        self,
+        symbol: Symbol,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        retry: bool = False,
+    ) -> List[datetime]:
+        """Get existing."""
+        queryset = self.filter(
+            symbol=symbol,
+            timestamp__gte=timestamp_from,
+            timestamp__lt=timestamp_to,
+        )
+        if retry:
+            queryset = queryset.exclude(ok=False)
+        # List of 1m timestamps.
+        result = []
+        for item in queryset.values("timestamp", "frequency"):
+            timestamp = item["timestamp"]
+            frequency = item["frequency"]
+            if frequency == Frequency.HOUR:
+                result += [timestamp + pd.Timedelta(index) for index in range(60)]
+            else:
+                result.append(timestamp)
+        return sorted(result)
+
+    def get_last_uid(self, symbol: Symbol, timestamp: datetime) -> str:
+        """Get last uid."""
+        queryset = self.filter(symbol=symbol, timestamp__gte=timestamp)
+        obj = queryset.exclude(uid="").order_by("timestamp").first()
+        if obj:
+            return obj.uid
+
+
+class AggregatedTradeData(BaseDataStorage):
     symbol = models.ForeignKey(
-        "cryptofeed_werks.Symbol",
-        related_name="aggregated_trade_data",
-        on_delete=models.CASCADE,
+        "cryptofeed_werks.Symbol", related_name="aggregated", on_delete=models.CASCADE
     )
     timestamp = models.DateTimeField(_("timestamp"), db_index=True)
     uid = models.CharField(_("uid"), blank=True, max_length=255)
-    data = models.FileField(_("data"), blank=True, upload_to=upload_to)
-    stats = models.JSONField(_("stats"), null=True, blank=True)
-    is_hourly = models.BooleanField(
-        _("hourly"), null=True, default=False, db_index=True
+    frequency = models.PositiveIntegerField(
+        _("frequency"),
+        choices=[
+            c for c in Frequency.choices if c[0] in (Frequency.MINUTE, Frequency.HOUR)
+        ],
+        db_index=True,
     )
+    data = models.FileField(_("data"), blank=True, upload_to=upload_to)
     ok = models.BooleanField(_("ok"), null=True, default=False, db_index=True)
+    objects = AggregatedTradeDataQuerySet.as_manager()
+
+    def get_data_frame(self) -> Optional[DataFrame]:
+        """Get data frame."""
+        if self.data.name:
+            return pd.read_parquet(self.data.file)
 
     @classmethod
     def iter_all(
@@ -89,7 +160,7 @@ class AggregatedTradeData(models.Model):
             timestamp_from, timestamp_to, value="1d", reverse=reverse
         ):
             # Query for daily.
-            daily_existing = cls.get_existing(
+            daily_existing = cls.objects.get_existing(
                 symbol, daily_timestamp_from, daily_timestamp_to, retry=retry
             )
             daily_delta = daily_timestamp_to - daily_timestamp_from
@@ -134,59 +205,6 @@ class AggregatedTradeData(models.Model):
                     yield start_time, end
 
     @classmethod
-    def get_missing(
-        cls,
-        symbol: Symbol,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-    ) -> List[datetime]:
-        """Get missing."""
-        existing = cls.get_existing(symbol, timestamp_from, timestamp_to)
-        # Result from get_range may include timestamp_to,
-        # which will never be part of data_frame
-        if timestamp_to > timestamp_from:
-            timestamp_to -= pd.Timedelta("1t")
-        return [
-            timestamp
-            for timestamp in get_range(timestamp_from, timestamp_to)
-            if timestamp not in existing
-        ]
-
-    @classmethod
-    def get_existing(
-        cls,
-        symbol: Symbol,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-        retry: bool = False,
-    ) -> List[datetime]:
-        """Get existing."""
-        queryset = cls.objects.filter(
-            symbol=symbol,
-            timestamp__gte=timestamp_from,
-            timestamp__lt=timestamp_to,
-        )
-        if retry:
-            queryset = queryset.exclude(ok=False)
-        # List of 1m timestamps.
-        result = []
-        for item in queryset.values("timestamp", "is_hourly"):
-            timestamp = item["timestamp"]
-            if item["is_hourly"]:
-                result += [timestamp + pd.Timedelta(index) for index in range(60)]
-            else:
-                result.append(timestamp)
-        return sorted(result)
-
-    @classmethod
-    def get_last_uid(cls, symbol: Symbol, timestamp: datetime) -> str:
-        """Get last uid."""
-        queryset = cls.objects.filter(symbol=symbol, timestamp__gte=timestamp)
-        obj = queryset.exclude(uid="").order_by("timestamp").first()
-        if obj:
-            return obj.uid
-
-    @classmethod
     def write(
         cls,
         symbol: Symbol,
@@ -214,7 +232,11 @@ class AggregatedTradeData(models.Model):
         validated: Optional[Dict[datetime, bool]] = {},
     ) -> None:
         """Write hourly data to database."""
-        params = {"symbol": symbol, "timestamp": timestamp, "is_hourly": True}
+        params = {
+            "symbol": symbol,
+            "timestamp": timestamp,
+            "frequency": Frequency.HOUR,
+        }
         try:
             obj = cls.objects.get(**params)
         except AggregatedTradeData.DoesNotExist:
@@ -230,6 +252,7 @@ class AggregatedTradeData(models.Model):
                 obj.data = cls.prepare_data(df)
             else:
                 obj.uid = ""
+
             values = validated.values()
             all_true = all(values)
             some_false = False in values
@@ -254,18 +277,24 @@ class AggregatedTradeData(models.Model):
         validated: Optional[Dict[datetime, bool]] = {},
     ) -> None:
         """Write minute data to database."""
-        timestamps = cls.get_missing(symbol, timestamp_from, timestamp_to)
+        timestamps = cls.objects.get_missing(symbol, timestamp_from, timestamp_to)
         existing = {
             obj.timestamp: obj
             for obj in AggregatedTradeData.objects.filter(
-                symbol=symbol, timestamp__in=timestamps, is_hourly=False
+                symbol=symbol,
+                timestamp__in=timestamps,
+                frequency=Frequency.MINUTE,
             )
         }
         for timestamp in timestamps:
             if timestamp in existing:
                 obj = existing[timestamp]
             else:
-                obj = cls(symbol=symbol, timestamp=timestamp, is_hourly=False)
+                obj = cls(
+                    symbol=symbol,
+                    timestamp=timestamp,
+                    frequency=Frequency.MINUTE,
+                )
 
             if len(data_frame):
                 df = data_frame[
@@ -281,19 +310,6 @@ class AggregatedTradeData(models.Model):
 
             obj.ok = validated.get(timestamp, None)
             obj.save()
-
-    @classmethod
-    def prepare_data(cls, data_frame: DataFrame) -> ContentFile:
-        """Prepare data, exclude uid."""
-        buffer = BytesIO()
-        data_frame.to_parquet(buffer, engine="auto", compression="snappy")
-        return ContentFile(buffer.getvalue(), "data.parquet")
-
-    @property
-    def data_frame(self) -> DataFrame:
-        """Load data frame."""
-        if self.data.name:
-            return pd.read_parquet(self.data.open())
 
     class Meta:
         db_table = "cryptofeed_werks_aggregated_trade_data"

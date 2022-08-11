@@ -26,13 +26,13 @@ class TradeViewTest(BaseViewTest):
     @patch("cryptofeed_werks.views.trades.api")
     def test_one_symbol(self, mock_command):
         """One symbol."""
-        self.get_symbols("test-1")
-        params = self.get_symbols("test-2")
+        self.get_symbols(["test-1", "test-2"])
+        expected = ["test-2"]
 
-        self.client.get(self.url, params)
+        self.client.get(self.url, {"symbol": expected})
 
         mock_symbols = self.get_mock_symbols(mock_command)
-        self.assertEqual(params["symbol"], mock_symbols)
+        self.assertEqual(expected, mock_symbols)
 
     def test_nonexistant_exchange(self):
         """Exchange does not exist."""
