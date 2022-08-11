@@ -19,6 +19,7 @@ django-storages = "*"
 httpx = "*"
 pandas = "*"
 pyarrow = "*"
+randomname = "*"
 
 [tool.poetry.dev-dependencies]
 black = "*"
