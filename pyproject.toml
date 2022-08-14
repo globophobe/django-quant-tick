@@ -1,15 +1,15 @@
 [tool.poetry]
-name = "django-cryptofeed-werks"
+name = "django-quant-werks"
 version = "0.1.0"
-description = "Django Cryptofeed Werks aggregates candlesticks using tick data from financial exchanges"
+description = "Django Quant Werks collects and aggregates tick data from financial exchanges"
 authors = ["Alex <globophobe@gmail.com>"]
 readme = "README.md"
 license = "MIT"
-homepage = "https://github.com/globophobe/django-cryptofeed-werks"
-repository = "https://github.com/globophobe/django-cryptofeed-werks"
+homepage = "https://github.com/globophobe/django-quant-werks"
+repository = "https://github.com/globophobe/django-quant-werks"
 keywords = ["django", "cryptocurrency", "candles", "trading"]
 classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Independent"]
-packages = [{ include = "cryptofeed_werks" }]
+packages = [{ include = "quant_werks" }]
 
 [tool.poetry.dependencies]
 python = ">=3.8,<4.0"
@@ -38,7 +38,7 @@ whitenoise = "*"
 
 
 [tool.isort]
-known_first_party = ["cryptofeed_werks"]
+known_first_party = ["quant_werks"]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

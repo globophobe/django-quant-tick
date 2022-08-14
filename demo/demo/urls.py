@@ -16,7 +16,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from cryptofeed_werks.views import CandleView, ConvertAggregatedToHourlyView, TradeView
+from quant_werks.views import CandleView, ConvertAggregatedToHourlyView, TradeView
 
 urlpatterns = [
     path("admin/", admin.site.urls),

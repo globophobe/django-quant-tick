@@ -1,3 +1,5 @@
+import sys
+
 from decouple import config
 
 from .base import *  # noqa
@@ -19,3 +21,18 @@ DATABASES = {
         "TEST": {"NAME": f'test_{config("DATABASE_NAME")}'},
     }
 }
+
+if "test" not in sys.argv:
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+            },
+        },
+        "root": {
+            "handlers": ["console"],
+            "level": "INFO",
+        },
+    }

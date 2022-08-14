@@ -46,7 +46,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework.authtoken",
     # Main
-    "cryptofeed_werks",
+    "quant_werks",
 ]
 
 MIDDLEWARE = [
