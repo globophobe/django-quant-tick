@@ -31,7 +31,7 @@ ENV BIGQUERY_DATASET $BIGQUERY_DATASET
 
 ENV SENTRY_DSN $SENTRY_DSN
 
-ADD cryptofeed_werks /cryptofeed_werks/
+ADD quant_werks /quant_werks/
 ADD main.py /
 
 ADD requirements.txt /

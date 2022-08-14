@@ -1,6 +1,6 @@
 # What?
 
-Django Cryptofeed Werks aggregates candlesticks using tick data from financial exchanges. 
+Django Quant Werks collects and aggregates tick data from financial exchanges. 
 
 Raw ticks are aggregated if equal symbol, timestamp, nanoseconds and tick rule. As described in the accompanying project [cryptofeed-werks](https://github.com/globophobe/cryptofeed-werks), aggregating trades in this way can increase information, as they are either orders of size or stop loss cascades.
 
@@ -11,7 +11,7 @@ By filtering aggregated rows, for example only writing a row when an aggregated 
 
 # Why?
 
-Candlesticks aggregated by `django-cryptofeed-werks` are informationally dense. Such data can be useful for analyzing financial markets. As an example, refer to ["Low-Frequency Traders in a High-Frequency World: A Survival Guide"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2150876) and ["The Volume Clock: Insights into the High Frequency Paradigm"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2034858). Lopez de Prado recommends volume bars, however they are are computationally expensive to generate.
+Candlesticks aggregated by `django-quant-werks` are informationally dense. Such data can be useful for analyzing financial markets. As an example, refer to ["Low-Frequency Traders in a High-Frequency World: A Survival Guide"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2150876) and ["The Volume Clock: Insights into the High Frequency Paradigm"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2034858). Lopez de Prado recommends volume bars, however they are are computationally expensive to generate.
 
 By filtering and aggregating trades, they can be computed faster, with little loss in precision.
 
@@ -23,7 +23,7 @@ A database, preferably PostgreSQL, is required. Data is saved to the database af
 
 Candles are aggregated at 1 minute intervals, and validated with the exchange's historical candle API.
 
-[Notes](https://github.com/globophobe/django-cryptofeed-werks/blob/main/NOTES.md).
+[Notes](https://github.com/globophobe/django-quant-werks/blob/main/NOTES.md).
 
 
 Supported exchanges
@@ -49,10 +49,10 @@ For deployment, there are Dockerfiles. As well there are invoke tasks for rapid 
 Installation
 ------------
 
-For convenience, `django-cryptofeed-werks` can be installed from PyPI:
+For convenience, `django-quant-werks` can be installed from PyPI:
 
 ```
-pip install django-cryptofeed-werks
+pip install django-quant-werks
 ```
 
 Environment
