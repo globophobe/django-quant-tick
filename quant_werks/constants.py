@@ -1,9 +1,6 @@
 from django.db import models
 
-try:
-    from django.utils.translation import gettext_lazy as _  # Django >= 4
-except ImportError:
-    from django.utils.translation import ugettext_lazy as _  # noqa
+from quant_werks.utils import gettext_lazy as _
 
 # Similar to BigQuery BigNumeric
 # https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types#decimal_types
@@ -24,11 +21,10 @@ class Exchange(models.TextChoices):
     # UPBIT = "upbit", "Upbit"
 
 
-class CandleType(models.TextChoices):
-    TIME = "time", _("time").capitalize()
-    VOLUME = "volume", _("volume").capitalize()
-    NOTIONAL = "notional", _("notional").capitalize()
-    TICKS = "ticks", _("ticks").capitalize()
+class SymbolType(models.TextChoices):
+    SPOT = "spot", _("spot")
+    PERP = "perp", _("perp")
+    FUTURE = "future", _("future")
 
 
 class Frequency(models.IntegerChoices):
