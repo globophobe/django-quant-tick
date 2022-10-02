@@ -7,10 +7,10 @@ from rest_framework.response import Response
 
 from quant_werks.exchanges import api
 from quant_werks.models import AggregatedTradeData
-from quant_werks.serializers import CandleSerializer, TimeFrameSerializer
+from quant_werks.serializers import OHLCSerializer, TimeFrameSerializer
 
 
-class CandleView(ListAPIView):
+class BarView(ListAPIView):
     queryset = AggregatedTradeData.objects.all()
 
     def get_queryset(self) -> QuerySet:
@@ -34,7 +34,7 @@ class CandleView(ListAPIView):
 
     def get(self, request: Request, *args, **kwargs) -> Response:
         """Get hourly candles for symbol."""
-        serializer_class = CandleSerializer
+        serializer_class = OHLCSerializer
         for k in self.get_command_kwargs(request):
             api(**k)
         return Response({"ok": True})
