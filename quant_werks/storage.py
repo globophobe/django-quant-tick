@@ -19,7 +19,7 @@ def convert_aggregated_to_hourly(
     timestamp_to: Optional[datetime.datetime] = None,
     verbose: bool = False,
 ):
-    """Convert trade data aggregated by minute to hourly, to reduce file operations."""
+    """Convert trade data aggregated by minute to hourly."""
     queryset = AggregatedTradeData.objects.filter(symbol=symbol).filter_by_timestamp(
         timestamp_from, timestamp_to
     )
@@ -32,20 +32,25 @@ def convert_aggregated_to_hourly(
         minutes.append(minute)
 
     for hour, minutes in hours.items():
-        timestamps = [aggregated.timestamp for aggregated in minutes]
+        timestamps = [aggregated_data.timestamp for aggregated_data in minutes]
         values = set([timestamp.time().minute for timestamp in timestamps])
         is_complete = values == {i for i in range(Frequency.HOUR)}
         if is_complete:
             timestamp_from = timestamps[0]
             timestamp_to = timestamps[-1] + pd.Timedelta("1t")
             timestamps.sort()
-            data_frames = [
-                aggregated.get_data_frame()
-                for aggregated in minutes
-                if aggregated.data.name
-            ]
+            data_frames = {
+                aggregated_data: aggregated_data.get_data_frame()
+                for aggregated_data in minutes
+                if aggregated_data.file_data.name
+            }
+            for aggregated_data, data_frame in data_frames.items():
+                data_frame["uid"] = ""
+                # Set first index.
+                uid = data_frame.columns.get_loc("uid")
+                data_frame.iloc[:1, uid] = aggregated_data.uid
             if len(data_frames):
-                filtered = pd.concat(data_frames)
+                filtered = pd.concat(data_frames.values())
             else:
                 filtered = pd.DataFrame([])
             candles = candles_api(symbol, timestamp_from, timestamp_to)
@@ -53,15 +58,11 @@ def convert_aggregated_to_hourly(
                 timestamp_from, timestamp_to, filtered, candles
             )
             # Delete minutes
-            pks = [aggregated.pk for aggregated in minutes]
+            pks = [aggregated_data.pk for aggregated_data in minutes]
             AggregatedTradeData.objects.filter(pk__in=pks).delete()
             # Create hourly
             AggregatedTradeData.write(
-                symbol,
-                timestamp_from,
-                timestamp_to,
-                filtered,
-                validated=validated,
+                symbol, timestamp_from, timestamp_to, filtered, validated
             )
 
 
