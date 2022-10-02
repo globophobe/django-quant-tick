@@ -172,6 +172,19 @@ def agg_trades(data_frame: DataFrame) -> Dict[str, Any]:
     return data
 
 
+def filter_by_timestamp(
+    data_frame: DataFrame, timestamp_from: datetime, timestamp_to: datetime
+) -> DataFrame:
+    """Filter by timestamp."""
+    if len(data_frame):
+        return data_frame[
+            (data_frame.timestamp >= timestamp_from)
+            & (data_frame.timestamp < timestamp_to)
+        ]
+    else:
+        return pd.DataFrame([])
+
+
 def volume_filter_with_time_window(
     data_frame: DataFrame, min_volume: int = 1000, window: Optional[str] = "1t"
 ) -> DataFrame:
@@ -180,16 +193,14 @@ def volume_filter_with_time_window(
     if len(data_frame):
         timestamp_from = data_frame.iloc[0].timestamp
         # Iterator is not inclusive of timestamp_to, so increase by 1.
-        timestamp_to = data_frame.iloc[-1].timestamp + pd.Timedelta(window or "1t")
+        timestamp_to = data_frame.iloc[-1].timestamp + pd.Timedelta("1t")
         if window:
             # Chunk data_frame by window.
             iterator = iter_window(timestamp_from, timestamp_to, window)
         else:
             iterator = iter_once(timestamp_from, timestamp_to)
         for ts_from, ts_to in iterator:
-            df = data_frame[
-                (data_frame.timestamp >= ts_from) & (data_frame.timestamp < ts_to)
-            ]
+            df = filter_by_timestamp(data_frame, ts_from, ts_to)
             if len(df):
                 next_index = 0
                 df = df.reset_index()
