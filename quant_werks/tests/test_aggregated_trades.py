@@ -26,7 +26,10 @@ class BaseAggregatedTradeTest(TestCase):
         self.timestamp_from = get_min_time(get_current_time(), "1d")
         global_symbol = GlobalSymbol.objects.create(name="global-symbol")
         self.symbol = Symbol.objects.create(
-            global_symbol=global_symbol, exchange=Exchange.FTX, api_symbol="test"
+            global_symbol=global_symbol,
+            exchange=Exchange.FTX,
+            api_symbol="test",
+            should_aggregate_trades=True,
         )
 
 
@@ -159,14 +162,17 @@ class WriteAggregregatedTradeDataTest(RandomTradeTest, BaseAggregatedTradeTest):
             obj.delete()
         # Directories
         for obj in aggregate_trades:
-            storage = obj.data.storage
+            storage = obj.file_data.storage
             trades = Path("trades")
             exchange = obj.symbol.exchange
-            path = trades / exchange / obj.symbol.upload_symbol
+            symbol = obj.symbol.symbol
+            path = trades / exchange / symbol / "aggregated" / "0"
             directories, _ = storage.listdir(str(path.resolve()))
             for directory in directories:
                 storage.delete(path / directory)
             storage.delete(path)
+            storage.delete(trades / exchange / symbol / "aggregated")
+            storage.delete(trades / exchange / symbol)
             storage.delete(trades / exchange)
             storage.delete(trades)
 
@@ -174,10 +180,7 @@ class WriteAggregregatedTradeDataTest(RandomTradeTest, BaseAggregatedTradeTest):
         """Write aggregated trade."""
         filtered = self.get_filtered(self.timestamp_from)
         AggregatedTradeData.write(
-            self.symbol,
-            self.timestamp_from,
-            self.timestamp_to,
-            filtered,
+            self.symbol, self.timestamp_from, self.timestamp_to, filtered, {}
         )
         row = filtered.iloc[0]
         aggregated_trades = AggregatedTradeData.objects.all()
@@ -193,17 +196,18 @@ class WriteAggregregatedTradeDataTest(RandomTradeTest, BaseAggregatedTradeTest):
         filtered = self.get_filtered(self.timestamp_from)
         for i in range(2):
             AggregatedTradeData.write(
-                self.symbol, self.timestamp_from, self.timestamp_to, filtered
+                self.symbol, self.timestamp_from, self.timestamp_to, filtered, {}
             )
         aggregated_trades = AggregatedTradeData.objects.all()
         self.assertEqual(aggregated_trades.count(), 1)
         aggregated_trade = aggregated_trades[0]
-        _, filename = os.path.split(aggregated_trade.data.name)
+        _, filename = os.path.split(aggregated_trade.file_data.name)
         self.assertEqual(filename.count("."), 1)
 
-        storage = aggregated_trade.data.storage
+        storage = aggregated_trade.file_data.storage
         exchange = aggregated_trade.symbol.exchange
-        path = Path("trades") / exchange / aggregated_trade.symbol.upload_symbol
+        symbol = aggregated_trade.symbol.symbol
+        path = Path("trades") / exchange / symbol / "aggregated" / "0"
         p = str(path.resolve())
 
         directories, _ = storage.listdir(p)
@@ -217,8 +221,10 @@ class WriteAggregregatedTradeDataTest(RandomTradeTest, BaseAggregatedTradeTest):
 
     @patch("quant_werks.storage.candles_api")
     @patch("quant_werks.storage.validate_data_frame")
-    def test_convert_minute_to_hourly(self, mock_validate_data_frame, mock_candle_api):
-        """Convert minute to hourly."""
+    def test_convert_aggregated_to_hourly(
+        self, mock_validate_data_frame, mock_candle_api
+    ):
+        """Convert aggregated to hourly."""
         timestamp_from = get_min_time(self.timestamp_from, "1h")
 
         data_frames = []
@@ -226,8 +232,11 @@ class WriteAggregregatedTradeDataTest(RandomTradeTest, BaseAggregatedTradeTest):
             ts_from = timestamp_from + pd.Timedelta(f"{minute}t")
             ts_to = ts_from + pd.Timedelta("1t")
             df = self.get_filtered(ts_from)
-            AggregatedTradeData.write(self.symbol, ts_from, ts_to, df)
+            validated = {minute: True}
+            AggregatedTradeData.write(self.symbol, ts_from, ts_to, df, validated)
             data_frames.append(df)
+
+        first = AggregatedTradeData.objects.get(timestamp=timestamp_from)
 
         mock_validate_data_frame.return_value = {
             timestamp: True
@@ -243,4 +252,6 @@ class WriteAggregregatedTradeDataTest(RandomTradeTest, BaseAggregatedTradeTest):
 
         filtered = pd.concat(data_frames).drop(columns=["uid"])
         aggregated_trade = aggregated_trades[0]
+        self.assertEqual(aggregated_trade.uid, first.uid)
         self.assertTrue(aggregated_trade.get_data_frame().equals(filtered))
+        self.assertTrue(aggregated_trade.ok)
