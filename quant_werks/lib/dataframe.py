@@ -7,9 +7,11 @@ from pandas import DataFrame
 
 
 def strip_nanoseconds(data_frame: DataFrame) -> DataFrame:
-    """Strip nanoseconds."""
-    # Bitmex data is accurate to the nanosecond.
-    # However, data is typically only provided to the microsecond.
+    """Strip nanoseconds.
+
+    Bitmex data is accurate to the nanosecond.
+    However, data is typically only provided to the microsecond.
+    """
     data_frame["nanoseconds"] = data_frame.apply(
         lambda x: x.timestamp.nanosecond, axis=1
     )

@@ -1,6 +1,6 @@
 # What?
 
-Django Quant Werks collects and aggregates tick data from financial exchanges. 
+Django Quant Werks collects and optionally aggregates tick data from financial exchanges. 
 
 Raw ticks are aggregated if equal symbol, timestamp, nanoseconds and tick rule. As described in the accompanying project [cryptofeed-werks](https://github.com/globophobe/cryptofeed-werks), aggregating trades in this way can increase information, as they are either orders of size or stop loss cascades.
 
@@ -59,9 +59,3 @@ Environment
 -----------
 
 To use the scripts or deploy to GCP, rename `.env.sample` to `.env`, and add the required settings.
-
-
-Future Plans
-------------
-
-Allow use as an aggr historical data source as decribed by [aggr](https://github.com/Tucsky/aggr#implement-historical-data).

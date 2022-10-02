@@ -88,10 +88,7 @@ class BitmexS3Mixin(BitmexMixin):
 
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
         """Parse dtypes and strip unnecessary columns."""
-        data_frame["timestamp"] = pd.to_datetime(
-            data_frame["timestamp"], format="%Y-%m-%dD%H:%M:%S.%f"
-        )
-        data_frame = data_frame.rename(
-            columns={"trdMatchID": "uid", "foreignNotional": "volume"}
-        )
-        return super().parse_dtypes_and_strip_columns(data_frame)
+        df = data_frame.copy()
+        df["timestamp"] = pd.to_datetime(df["timestamp"], format="%Y-%m-%dD%H:%M:%S.%f")
+        df = df.rename(columns={"trdMatchID": "uid", "foreignNotional": "volume"})
+        return super().parse_dtypes_and_strip_columns(df)

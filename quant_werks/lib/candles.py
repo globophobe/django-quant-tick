@@ -64,6 +64,7 @@ def validate_data_frame(
         if len(data_frame):
             df = aggregate_sum(data_frame, attrs=total_key, window="1t")
             for row in df.itertuples():
+                k = key.title()
                 timestamp = row.Index
                 try:
                     candle = candles.loc[timestamp]
@@ -71,7 +72,15 @@ def validate_data_frame(
                 except KeyError:
                     validated[timestamp] = None
                 else:
-                    validated[timestamp] = is_decimal_close(row[1], candle[key])
+                    values = row[1], candle[key]
+                    is_close = is_decimal_close(values)
+                    if is_close:
+                        validated[timestamp] = is_close
+                    else:
+                        validated[timestamp] = {
+                            key: row[1],
+                            f"exchange{k}": candle[key],
+                        }
     # Candle and trade API data availability may differ
     else:
         validated = {

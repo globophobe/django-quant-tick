@@ -3,7 +3,7 @@ from rest_framework import serializers
 from .base import big_decimal
 
 
-class CandleSerializer(serializers.Serializer):
+class OHLCSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField()
     open = big_decimal()
     high = big_decimal()

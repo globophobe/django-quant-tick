@@ -4,7 +4,10 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 import quant_werks.models.aggregated_trades
-import quant_werks.models.candles
+
+
+def upload_to():
+    pass
 
 
 class Migration(migrations.Migration):
@@ -211,7 +214,7 @@ class Migration(migrations.Migration):
                     "cache",
                     models.FileField(
                         blank=True,
-                        upload_to=quant_werks.models.candles.upload_cache_to,
+                        upload_to=upload_to,
                         verbose_name="data",
                     ),
                 ),
@@ -219,7 +222,7 @@ class Migration(migrations.Migration):
                     "data",
                     models.FileField(
                         blank=True,
-                        upload_to=quant_werks.models.candles.upload_data_to,
+                        upload_to=upload_to,
                         verbose_name="data",
                     ),
                 ),
@@ -309,7 +312,7 @@ class Migration(migrations.Migration):
                     "data",
                     models.FileField(
                         blank=True,
-                        upload_to=quant_werks.models.aggregated_trades.upload_to,
+                        upload_to=quant_werks.models.aggregated_trades.upload_data_to,
                         verbose_name="data",
                     ),
                 ),

@@ -166,17 +166,21 @@ class ExchangeREST(BaseController):
                 self.assert_data_frame(
                     timestamp_from, timestamp_to, data_frame, valid_trades
                 )
-                aggregated = aggregate_trades(data_frame)
-                filtered = volume_filter_with_time_window(
-                    aggregated, min_volume=self.symbol.min_volume
-                )
+                if self.symbol.should_aggregate_trades:
+                    df = aggregate_trades(data_frame)
+                    if self.symbol.filter_aggregated_by:
+                        df = volume_filter_with_time_window(
+                            df, min_volume=self.symbol.min_volume
+                        )
             else:
-                filtered = pd.DataFrame([])
-            validated = validate_data_frame(
-                timestamp_from, timestamp_to, filtered, candles
-            )
+                df = pd.DataFrame([])
+            validated = validate_data_frame(timestamp_from, timestamp_to, df, candles)
             self.on_data_frame(
-                self.symbol, timestamp_from, timestamp_to, filtered, validated=validated
+                self.symbol,
+                timestamp_from,
+                timestamp_to,
+                df,
+                validated,
             )
             # Complete
             if is_last_iteration:
@@ -210,7 +214,7 @@ class ExchangeREST(BaseController):
         valid_trades = []
         for trade in trades:
             is_unique = trade["uid"] not in unique
-            is_within_partition = timestamp_from <= trade["timestamp"] <= timestamp_to
+            is_within_partition = timestamp_from <= trade["timestamp"] < timestamp_to
             if is_unique and is_within_partition:
                 valid_trades.append(trade)
                 unique.add(trade["uid"])
@@ -268,7 +272,7 @@ class ExchangeREST(BaseController):
                 timestamp_from
                 <= df.iloc[0].timestamp
                 <= df.iloc[-1].timestamp
-                <= timestamp_to
+                < timestamp_to
             )
 
 
@@ -277,7 +281,7 @@ class IntegerPaginationMixin:
 
     def get_pagination_id(self, timestamp_from: datetime) -> Optional[int]:
         """Get integer pagination_id."""
-        return AggregatedTradeData.get_last_uid(self.symbol, timestamp_from)
+        return AggregatedTradeData.objects.get_last_uid(self.symbol, timestamp_from)
 
 
 class SequentialIntegerMixin(IntegerPaginationMixin):

@@ -3,6 +3,7 @@ from .aggregate import (
     aggregate_rows,
     aggregate_sum,
     aggregate_trades,
+    filter_by_timestamp,
     get_filtered_volume_notional_ticks,
     volume_filter_with_time_window,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "aggregate_trades",
     "aggregate_ohlc",
     "aggregate_sum",
+    "filter_by_timestamp",
     "get_filtered_volume_notional_ticks",
     "volume_filter_with_time_window",
     "get_current_time",

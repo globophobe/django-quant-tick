@@ -6,6 +6,7 @@ from quant_werks.models import AggregatedTradeData
 
 @receiver(post_delete, sender=AggregatedTradeData)
 def post_delete_aggregated_trade_data(sender, **kwargs):
+    """Post delete aggregated trade data."""
     aggregated_trade = kwargs["instance"]
     # Clean up
-    aggregated_trade.data.delete(save=False)
+    aggregated_trade.file_data.delete(save=False)

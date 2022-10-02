@@ -7,7 +7,7 @@ readme = "README.md"
 license = "MIT"
 homepage = "https://github.com/globophobe/django-quant-werks"
 repository = "https://github.com/globophobe/django-quant-werks"
-keywords = ["django", "cryptocurrency", "candles", "trading"]
+keywords = ["django", "cryptocurrency", "candlesticks", "quant", "trading"]
 classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Independent"]
 packages = [{ include = "quant_werks" }]
 

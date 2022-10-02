@@ -23,6 +23,20 @@ DATABASES = {
     }
 }
 
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+}
+
 # GCP
 CREDENTIALS = (
     BASE_DIR.parents[0] / "keys" / config("GOOGLE_APPLICATION_CREDENTIALS")  # noqa

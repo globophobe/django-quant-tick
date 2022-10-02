@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import Dict, Generator, List, Optional, Tuple
+from typing import Generator, List, Optional, Tuple
 
 import pandas as pd
 from django.db import models
@@ -9,7 +9,7 @@ from pandas import DataFrame
 
 from quant_werks.constants import Frequency
 from quant_werks.lib import (
-    aggregate_rows,
+    filter_by_timestamp,
     get_current_time,
     get_min_time,
     get_next_time,
@@ -19,18 +19,29 @@ from quant_werks.lib import (
 )
 from quant_werks.utils import gettext_lazy as _
 
-from .base import BaseDataStorage
+from .base import AbstractDataStorage
 from .symbols import Symbol
 
 
-def upload_to(instance: "AggregatedTradeData", filename: str) -> str:
-    """Upload to."""
-    exchange = instance.symbol.exchange
-    upload_symbol = instance.symbol.upload_symbol
-    date = instance.timestamp.date().isoformat()
+def upload_data_to(instance: "AggregatedTradeData", filename: str) -> str:
+    """Upload data to.
+
+    Examples:
+
+    1. trades / coinbase / BTCUSD / raw / 2022-01-01 / 0000.parquet
+    2. trades / coinbase / BTCUSD / aggregated / 0 / 2022-01-01 / 0000.parquet
+    3. trades / coinbase / BTCUSD / aggregated / 1000 / 2022-01-01 / 0000.parquet
+    """
+    parts = ["trades", instance.symbol.exchange, instance.symbol.symbol]
+    if instance.symbol.should_aggregate_trades:
+        parts += ["aggregated", str(instance.symbol.significant_trade_filter)]
+    else:
+        parts.append("raw")
+    parts.append(instance.timestamp.date().isoformat())
     fname = instance.timestamp.time().strftime("%H%M")
     _, ext = os.path.splitext(filename)
-    return f"trades/{exchange}/{upload_symbol}/{date}/{fname}{ext}"
+    parts.append(f"{fname}{ext}")
+    return "/".join(parts)
 
 
 class AggregatedTradeDataQuerySet(models.QuerySet):
@@ -96,7 +107,7 @@ class AggregatedTradeDataQuerySet(models.QuerySet):
             return obj.uid
 
 
-class AggregatedTradeData(BaseDataStorage):
+class AggregatedTradeData(AbstractDataStorage):
     symbol = models.ForeignKey(
         "quant_werks.Symbol", related_name="aggregated", on_delete=models.CASCADE
     )
@@ -109,14 +120,10 @@ class AggregatedTradeData(BaseDataStorage):
         ],
         db_index=True,
     )
-    data = models.FileField(_("data"), blank=True, upload_to=upload_to)
+    file_data = models.FileField(_("file data"), blank=True, upload_to=upload_data_to)
+    json_data = models.JSONField(_("json data"), null=True)
     ok = models.BooleanField(_("ok"), null=True, default=False, db_index=True)
     objects = AggregatedTradeDataQuerySet.as_manager()
-
-    def get_data_frame(self) -> Optional[DataFrame]:
-        """Get data frame."""
-        if self.data.name:
-            return pd.read_parquet(self.data.file)
 
     @classmethod
     def iter_all(
@@ -211,60 +218,49 @@ class AggregatedTradeData(BaseDataStorage):
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
-        validated: Optional[Dict[datetime, bool]] = {},
+        validated: dict,
     ) -> None:
-        """Write to database."""
+        """Write data."""
         is_first_minute = timestamp_from.time().minute == 0
         is_hourly = timestamp_from == timestamp_to - pd.Timedelta("1h")
         if is_first_minute and is_hourly:
-            cls.write_hour(symbol, timestamp_from, data_frame, validated)
+            cls.write_hour(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                data_frame,
+                validated,
+            )
         else:
             cls.write_minutes(
-                symbol, timestamp_from, timestamp_to, data_frame, validated
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                data_frame,
+                validated,
             )
 
     @classmethod
     def write_hour(
         cls,
         symbol: Symbol,
-        timestamp: datetime,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
         data_frame: DataFrame,
-        validated: Optional[Dict[datetime, bool]] = {},
+        validated: dict,
     ) -> None:
-        """Write hourly data to database."""
+        """Write hourly data."""
         params = {
             "symbol": symbol,
-            "timestamp": timestamp,
+            "timestamp": timestamp_from,
             "frequency": Frequency.HOUR,
         }
         try:
             obj = cls.objects.get(**params)
-        except AggregatedTradeData.DoesNotExist:
+        except cls.DoesNotExist:
             obj = cls(**params)
         finally:
-            # Delete previously saved data.
-            if obj.pk:
-                obj.data.delete()
-            if len(data_frame):
-                obj.uid = data_frame.iloc[0].uid
-                # UID not necessary for hourly data.
-                df = data_frame.drop(columns=["uid"])
-                obj.data = cls.prepare_data(df)
-            else:
-                obj.uid = ""
-
-            values = validated.values()
-            all_true = all(values)
-            some_false = False in values
-            some_none = None in values
-            if all_true:
-                obj.ok = True
-            elif some_false:
-                obj.ok = False
-            elif some_none:
-                obj.ok = None
-            else:
-                raise NotImplementedError
+            cls.write_data_frame(obj, data_frame, validated)
             obj.save()
 
     @classmethod
@@ -274,13 +270,13 @@ class AggregatedTradeData(BaseDataStorage):
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
-        validated: Optional[Dict[datetime, bool]] = {},
+        validated: dict,
     ) -> None:
-        """Write minute data to database."""
+        """Write minute data."""
         timestamps = cls.objects.get_missing(symbol, timestamp_from, timestamp_to)
         existing = {
             obj.timestamp: obj
-            for obj in AggregatedTradeData.objects.filter(
+            for obj in cls.objects.filter(
                 symbol=symbol,
                 timestamp__in=timestamps,
                 frequency=Frequency.MINUTE,
@@ -295,23 +291,51 @@ class AggregatedTradeData(BaseDataStorage):
                     timestamp=timestamp,
                     frequency=Frequency.MINUTE,
                 )
-
-            if len(data_frame):
-                df = data_frame[
-                    (data_frame.timestamp >= timestamp)
-                    & (data_frame.timestamp < get_next_time(timestamp, "1t"))
-                ]
-                if len(df):
-                    summary = aggregate_rows(
-                        df, timestamp=timestamp, nanoseconds=0, is_filtered=True
-                    )
-                    obj.uid = summary.get("uid", "")
-                    obj.data = cls.prepare_data(df)
-
-            obj.ok = validated.get(timestamp, None)
+            cls.write_data_frame(
+                obj,
+                filter_by_timestamp(
+                    data_frame, timestamp, get_next_time(timestamp, "1t")
+                ),
+                {timestamp: validated.get(timestamp, None)},
+            )
             obj.save()
+
+    @classmethod
+    def write_data_frame(
+        cls,
+        obj: models.Model,
+        data_frame: DataFrame,
+        validated: DataFrame,
+    ) -> None:
+        # Delete previously saved data.
+        if obj.pk:
+            obj.file_data.delete()
+        if len(data_frame):
+            obj.uid = data_frame.iloc[0].uid
+            obj.file_data = cls.prepare_data(data_frame)
+        if len(validated):
+            values = validated.values()
+            all_true = all([v is True for v in values])
+            some_false = len([isinstance(v, dict) for v in values])
+            some_none = None in values
+            if all_true:
+                obj.ok = True
+            elif some_false or some_none:
+                if some_false:
+                    obj.ok = False
+                else:
+                    obj.ok = None
+                validation_failure = {
+                    timestamp.isoformat(): value
+                    for timestamp, value in validated.items()
+                    if value is None or isinstance(value, dict)
+                }
+                if validation_failure:
+                    obj.json_data = validation_failure
+            else:
+                raise NotImplementedError
 
     class Meta:
         db_table = "quant_werks_aggregated_trade_data"
         ordering = ("timestamp",)
-        verbose_name = verbose_name_plural = _("aggregated")
+        verbose_name = verbose_name_plural = _("aggregated trade data")
