@@ -47,7 +47,7 @@ class AbstractDataStorage(models.Model):
     def prepare_data(cls, data_frame: DataFrame) -> ContentFile:
         """Prepare data, exclude uid."""
         if "uid" in data_frame.columns:
-            data_frame.drop(columns=["uid"], inplace=True)
+            data_frame = data_frame.drop(columns=["uid"])
         data_frame.reset_index(drop=True)
         buffer = BytesIO()
         data_frame.to_parquet(buffer, engine="auto", compression="snappy")
