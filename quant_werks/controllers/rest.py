@@ -168,9 +168,9 @@ class ExchangeREST(BaseController):
                 )
                 if self.symbol.should_aggregate_trades:
                     df = aggregate_trades(data_frame)
-                    if self.symbol.filter_aggregated_by:
+                    if self.symbol.significant_trade_filter:
                         df = volume_filter_with_time_window(
-                            df, min_volume=self.symbol.min_volume
+                            df, min_volume=self.symbol.significant_trade_filter
                         )
             else:
                 df = pd.DataFrame([])
