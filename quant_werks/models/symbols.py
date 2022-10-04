@@ -66,7 +66,9 @@ class Symbol(models.Model):
         """
         parts = [self.get_exchange_display(), self.symbol]
         if self.should_aggregate_trades:
-            parts += ["aggregated", self.significant_trade_filter]
+            parts += ["aggregated", str(self.significant_trade_filter)]
+        else:
+            parts.append("raw")
         return " ".join(parts)
 
     class Meta:
