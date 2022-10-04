@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional
 
 import pandas as pd
@@ -59,7 +60,10 @@ def validate_data_frame(
         capitalized_key = key.capitalize()
         total_key = f"total{capitalized_key}"
         validated = {
-            candle.Index: candles[key].sum() == 0 for candle in candles.itertuples()
+            candle.Index: True
+            if (value := getattr(candle, key)) == Decimal("0")
+            else value
+            for candle in candles.itertuples()
         }
         if len(data_frame):
             df = aggregate_sum(data_frame, attrs=total_key, window="1t")
@@ -73,9 +77,9 @@ def validate_data_frame(
                     validated[timestamp] = None
                 else:
                     values = row[1], candle[key]
-                    is_close = is_decimal_close(values)
+                    is_close = is_decimal_close(*values)
                     if is_close:
-                        validated[timestamp] = is_close
+                        validated[timestamp] = True
                     else:
                         validated[timestamp] = {
                             key: row[1],
