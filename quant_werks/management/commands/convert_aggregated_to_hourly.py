@@ -1,5 +1,5 @@
 from quant_werks.management.base import BaseAggregatedTradeDataCommand
-from quant_werks.storage import convert_minute_aggregated_to_hourly
+from quant_werks.storage import convert_aggregated_to_hourly
 
 
 class Command(BaseAggregatedTradeDataCommand):
@@ -10,4 +10,4 @@ class Command(BaseAggregatedTradeDataCommand):
     def handle(self, *args, **options) -> None:
         kwargs = super().handle(*args, **options)
         if kwargs:
-            convert_minute_aggregated_to_hourly(**kwargs)
+            convert_aggregated_to_hourly(**kwargs)
