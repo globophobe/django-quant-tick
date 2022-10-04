@@ -14,22 +14,46 @@ class BaseAggregatedTradeDataCommand(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("exchange", type=Exchange, choices=Exchange.values)
         parser.add_argument("symbol")
-        parser.add_argument("min-volume", type=int)
+        parser.add_argument("--aggregate", type=bool)
         parser.add_argument("--date-to", type=str, default=None)
         parser.add_argument("--time-to", type=str, default=None)
         parser.add_argument("--date-from", type=str, default=None)
         parser.add_argument("--time-from", type=str, default=None)
+        parser.add_argument("--filter", type=int, default=0)
+
+    @classmethod
+    def get_symbol_display(
+        cls,
+        exchange: str,
+        symbol: str,
+        should_aggregate_trades: bool,
+        significant_trade_filter: int,
+    ) -> str:
+        """Get symbol display."""
+        parts = [exchange, symbol]
+        if should_aggregate_trades:
+            parts += ["aggregated", str(significant_trade_filter)]
+        else:
+            parts.append("raw")
+        return " ".join(parts)
 
     def handle(self, *args, **options) -> Optional[dict]:
         exchange = options["exchange"]
         symbol = options["symbol"]
-        min_volume = options["min-volume"]
+        should_aggregate_trades = options["aggregate"]
+        significant_trade_filter = options["filter"]
         try:
             symbol = Symbol.objects.get(
-                exchange=exchange, api_symbol=symbol, min_volume=min_volume
+                exchange=exchange,
+                api_symbol=symbol,
+                should_aggregate_trades=should_aggregate_trades,
+                significant_trade_filter=significant_trade_filter,
             )
         except Symbol.DoesNotExist:
-            logger.warn(f"{exchange} {symbol} {min_volume} not registered")
+            s = self.get_symbol_display(
+                exchange, symbol, should_aggregate_trades, significant_trade_filter
+            )
+            logger.warn(f"{s} not registered")
         else:
             timestamp_from, timestamp_to = parse_period_from_to(
                 date_from=options["date_from"],
