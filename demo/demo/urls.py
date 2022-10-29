@@ -16,15 +16,15 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from quant_werks.views import BarView, ConvertAggregatedToHourlyView, TradeView
+from quant_candles.views import CandleView, ConvertTradeDataToHourlyView, TradeView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("bars/", BarView.as_view(), name="bars"),
+    path("candles/", CandleView.as_view(), name="bars"),
     path("trades/<str:exchange>/", TradeView.as_view(), name="trades"),
     path(
         "trades/<str:exchange>/convert-to-hourly/",
-        ConvertAggregatedToHourlyView.as_view(),
-        name="convert_aggregated_to_hourly",
+        ConvertTradeDataToHourlyView.as_view(),
+        name="convert_trade_data_to_hourly",
     ),
 ]

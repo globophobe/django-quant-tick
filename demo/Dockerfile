@@ -31,7 +31,7 @@ ENV BIGQUERY_DATASET $BIGQUERY_DATASET
 
 ENV SENTRY_DSN $SENTRY_DSN
 
-ADD quant_werks /quant_werks/
+ADD quant_candles /quant_candles/
 ADD main.py /
 
 ADD requirements.txt /
