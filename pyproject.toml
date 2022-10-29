@@ -1,15 +1,15 @@
 [tool.poetry]
-name = "django-quant-werks"
-version = "0.1.0"
-description = "Django Quant Werks collects and aggregates tick data from financial exchanges"
+name = "django-quant-candles"
+version = "0.1.1"
+description = "Django Quant Candles downloads and aggregate candlesticks from tick data"
 authors = ["Alex <globophobe@gmail.com>"]
 readme = "README.md"
 license = "MIT"
-homepage = "https://github.com/globophobe/django-quant-werks"
-repository = "https://github.com/globophobe/django-quant-werks"
+homepage = "https://github.com/globophobe/django-quant-candles"
+repository = "https://github.com/globophobe/django-quant-candles"
 keywords = ["django", "cryptocurrency", "candlesticks", "quant", "trading"]
 classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Independent"]
-packages = [{ include = "quant_werks" }]
+packages = [{ include = "quant_candles" }]
 
 [tool.poetry.dependencies]
 python = ">=3.8,<4.0"
@@ -24,6 +24,7 @@ randomname = "*"
 [tool.poetry.dev-dependencies]
 black = "*"
 channels = "*"
+coverage = "*"
 django-semantic-admin = "*"
 django-storages = {version = "*", extras = ["google"]}
 flake8 = "*"
@@ -32,13 +33,14 @@ isort = "*"
 mkdocs = "*"
 psycopg2-binary = "*"
 python-decouple = "*"
+pyinfra = "*"
 telegram-send = "*"
 uvicorn = "*"
 whitenoise = "*"
 
 
 [tool.isort]
-known_first_party = ["quant_werks"]
+known_first_party = ["quant_candles"]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

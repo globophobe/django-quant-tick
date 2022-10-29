@@ -37,7 +37,7 @@ def create_user(ctx, username, password, proxy=False):
 @task
 def get_container_name(ctx, hostname="asia.gcr.io"):
     project_id = ctx.run("gcloud config get-value project").stdout.strip()
-    return f"{hostname}/{project_id}/django-quant-werks"
+    return f"{hostname}/{project_id}/django-quant-candles"
 
 
 def docker_secrets():
