@@ -1,10 +1,11 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Tuple
 from unittest.mock import patch
 
 import pandas as pd
+import time_machine
 from django.test import TestCase
 from pandas import DataFrame
 
@@ -38,6 +39,7 @@ class BaseTradeDataTest(TestCase):
         )
 
 
+@time_machine.travel(datetime(2009, 1, 3))
 class IterAllTest(BaseTradeDataTest):
     def setUp(self):
         super().setUp()
@@ -58,7 +60,20 @@ class IterAllTest(BaseTradeDataTest):
             )
         ]
 
-    def test_iter_all_with_head(self):
+    @patch(
+        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 3).replace(tzinfo=timezone.utc),
+    )
+    def test_iter_all_with_no_results(self, mock_get_max_timestamp_to):
+        """No results."""
+        values = self.get_values()
+        self.assertEqual(len(values), 0)
+
+    @patch(
+        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+    )
+    def test_iter_all_with_head(self, mock_get_max_timestamp_to):
         """First is OK."""
         TradeData.objects.create(
             symbol=self.symbol,
@@ -71,7 +86,11 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(values[0][0], self.timestamp_from + self.one_minute)
         self.assertEqual(values[-1][1], self.timestamp_to)
 
-    def test_iter_all_with_one_ok(self):
+    @patch(
+        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+    )
+    def test_iter_all_with_one_ok(self, mock_get_max_timestamp_to):
         """Second is OK."""
         obj = TradeData.objects.create(
             symbol=self.symbol,
@@ -86,7 +105,11 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(values[-1][0], self.timestamp_from)
         self.assertEqual(values[-1][1], obj.timestamp)
 
-    def test_iter_all_with_two_ok(self):
+    @patch(
+        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+    )
+    def test_iter_all_with_two_ok(self, mock_get_max_timestamp_to):
         """Second and fourth are OK."""
         obj_one = TradeData.objects.create(
             symbol=self.symbol,
@@ -109,7 +132,11 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(values[-1][0], self.timestamp_from)
         self.assertEqual(values[-1][1], obj_one.timestamp)
 
-    def test_iter_all_with_tail(self):
+    @patch(
+        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+    )
+    def test_iter_all_with_tail(self, mock_get_max_timestamp_to):
         """Last is OK."""
         TradeData.objects.create(
             symbol=self.symbol,
@@ -122,7 +149,11 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(values[0][0], self.timestamp_from)
         self.assertEqual(values[0][1], self.timestamp_to - self.one_minute)
 
-    def test_iter_all_with_retry_and_one_not_ok(self):
+    @patch(
+        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+    )
+    def test_iter_all_with_retry_and_one_not_ok(self, mock_get_max_timestamp_to):
         """One is not OK."""
         TradeData.objects.create(
             symbol=self.symbol,
@@ -135,7 +166,11 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(values[0][0], self.timestamp_from)
         self.assertEqual(values[-1][1], self.timestamp_to)
 
-    def test_iter_all_with_retry_and_one_missing(self):
+    @patch(
+        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+    )
+    def test_iter_all_with_retry_and_one_missing(self, mock_get_max_timestamp_to):
         """One is missing."""
         TradeData.objects.create(
             symbol=self.symbol,

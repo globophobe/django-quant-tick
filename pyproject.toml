@@ -35,6 +35,7 @@ psycopg2-binary = "*"
 python-decouple = "*"
 pyinfra = "*"
 telegram-send = "*"
+time-machine = "*"
 uvicorn = "*"
 whitenoise = "*"
 
