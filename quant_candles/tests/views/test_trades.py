@@ -9,7 +9,7 @@ from .base import BaseViewTest
 
 
 class TradeViewTest(BaseViewTest):
-    def get_url(self, exchange: Exchange = Exchange.FTX) -> str:
+    def get_url(self, exchange: Exchange = Exchange.COINBASE) -> str:
         """Get URL."""
         return reverse("trades", kwargs={"exchange": exchange})
 

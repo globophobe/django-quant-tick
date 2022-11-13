@@ -126,6 +126,11 @@ class TradeData(AbstractDataStorage):
     objects = TradeDataQuerySet.as_manager()
 
     @classmethod
+    def get_max_timestamp_to(cls) -> datetime:
+        """Get max timestamp to."""
+        return get_min_time(get_current_time(), value="1t")
+
+    @classmethod
     def iter_all(
         cls,
         symbol: Symbol,
@@ -138,15 +143,12 @@ class TradeData(AbstractDataStorage):
 
         1 day -> 24 hours -> 60 minutes or 10 minutes, etc.
         """
-        now = get_current_time()
-        max_timestamp_to = get_min_time(now, value="1t")
         for daily_timestamp_from, daily_timestamp_to, daily_existing in cls.iter_days(
             symbol, timestamp_from, timestamp_to, reverse=reverse, retry=retry
         ):
             for hourly_timestamp_from, hourly_timestamp_to in cls.iter_hours(
                 daily_timestamp_from,
                 daily_timestamp_to,
-                max_timestamp_to,
                 daily_existing,
                 reverse=reverse,
                 retry=retry,
@@ -180,7 +182,6 @@ class TradeData(AbstractDataStorage):
         cls,
         daily_timestamp_from: datetime,
         daily_timestamp_to: datetime,
-        max_timestamp_to: datetime,
         daily_existing: List[datetime],
         reverse: bool = True,
         retry: bool = False,
@@ -208,8 +209,10 @@ class TradeData(AbstractDataStorage):
                     hourly_existing,
                     reverse=reverse,
                 ):
+                    max_timestamp_to = cls.get_max_timestamp_to()
                     end = max_timestamp_to if end_time > max_timestamp_to else end_time
-                    yield start_time, end
+                    if start_time != end:
+                        yield start_time, end
 
     @classmethod
     def write(

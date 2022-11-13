@@ -29,7 +29,7 @@ class BaseViewTest(APITestCase):
         raise NotImplementedError
 
     def get_symbols(
-        self, symbols: Union[List[str], str], exchange: Exchange = Exchange.FTX
+        self, symbols: Union[List[str], str], exchange: Exchange = Exchange.COINBASE
     ) -> dict:
         """Get symbols."""
         if isinstance(symbols, str):

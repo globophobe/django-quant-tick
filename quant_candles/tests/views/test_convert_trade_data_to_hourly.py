@@ -9,7 +9,7 @@ from .base import BaseViewTest
 
 
 class ConvertToHourlyViewTest(BaseViewTest):
-    def get_url(self, exchange: Exchange = Exchange.FTX) -> str:
+    def get_url(self, exchange: Exchange = Exchange.COINBASE) -> str:
         """Get URL."""
         return reverse("convert_trade_data_to_hourly", kwargs={"exchange": exchange})
 
