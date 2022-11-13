@@ -11,11 +11,9 @@ from .bitfinex import bitfinex_candles, bitfinex_trades
 from .bitmex import bitmex_candles, bitmex_trades
 from .bybit import bybit_candles, bybit_trades
 from .coinbase import coinbase_candles, coinbase_trades
-from .ftx import ftx_candles, ftx_trades
 
 # from .bitflyer import bitflyer_trades, bitflyer_candles
 # from .upbit import UPBIT, upbit_trades, upbit_candles
-# from .deribit import DERIBIT, deribit_trades, deribit_candles
 
 
 def api(
@@ -82,10 +80,6 @@ def trades_api(
         bybit_trades(symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         coinbase_trades(symbol, **kwargs)
-    # elif exchange == DERIBIT:
-    #     deribit_trades(**kwargs)
-    elif exchange == Exchange.FTX:
-        ftx_trades(symbol, **kwargs)
     # elif exchange == UPBIT:
     #     upbit_trades(**kwargs)
 
@@ -107,10 +101,6 @@ def candles_api(symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
         candles = bybit_candles(api_symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         candles = coinbase_candles(api_symbol, **kwargs)
-    # elif exchange == DERIBIT:
-    #     deribit_trades(**kwargs)
-    elif exchange == Exchange.FTX:
-        candles = ftx_candles(api_symbol, **kwargs)
     # elif exchange == UPBIT:
     #     upbit_trades(**kwargs)
     else:

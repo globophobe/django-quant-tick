@@ -16,8 +16,6 @@ class Exchange(models.TextChoices):
     BITMEX = "bitmex", "BitMEX"
     BYBIT = "bybit", "Bybit"
     COINBASE = "coinbase", "Coinbase"
-    # DERIBIT = "deribit", "Deribit"
-    FTX = "ftx", "FTX"
     # UPBIT = "upbit", "Upbit"
 
 

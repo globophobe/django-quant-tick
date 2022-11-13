@@ -33,7 +33,7 @@ class BaseTradeDataTest(TestCase):
         """Get symbol."""
         return Symbol.objects.create(
             global_symbol=self.global_symbol,
-            exchange=Exchange.FTX,
+            exchange=Exchange.COINBASE,
             api_symbol=api_symbol,
             should_aggregate_trades=should_aggregate_trades,
         )

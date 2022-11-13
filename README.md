@@ -38,8 +38,6 @@ Supported exchanges
 
 :white_check_mark: Coinbase Pro REST API
 
-:white_check_mark: FTX REST API
-
 Note: Exchanges without paginated REST APIs or an S3 repository, will never be supported.
 
 For deployment, there are Dockerfiles. As well there are invoke tasks for rapid deployment to Google Cloud Run.
