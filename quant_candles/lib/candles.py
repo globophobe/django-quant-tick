@@ -30,11 +30,13 @@ def candles_to_data_frame(
         )
         try:
             assert not is_less_than_timestamp_from and not is_greater_than_timestamp_to
-        except AssertionError:
+        except AssertionError as e:
             if len(data_frame) == 1:
                 # Assert data_frame.timestamp == timestamp_from == timestamp_to
                 assert len(data_frame[data_frame.timestamp == timestamp_from]) == 1
                 assert len(data_frame[data_frame.timestamp == timestamp_to]) == 1
+            else:
+                raise e
         finally:
             df = data_frame.set_index("timestamp")
             # REST API, data is reverse order
