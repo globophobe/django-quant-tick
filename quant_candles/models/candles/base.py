@@ -9,6 +9,34 @@ from quant_candles.utils import gettext_lazy as _
 from ..base import AbstractCodeName, AbstractDataStorage, JSONField
 from ..trades import TradeData
 
+DAILY = "D"
+WEEKLY = "W"
+MONTHLY = "M"
+QUARTERLY = "Q"
+
+ERA_LENGTHS = (DAILY, WEEKLY, MONTHLY, QUARTERLY)
+
+
+def get_range(time_delta):
+    total_seconds = time_delta.total_seconds()
+    one_minute = 60.0
+    one_hour = 3600.0
+    if total_seconds < one_minute:
+        unit = "seconds"
+        step = total_seconds
+    elif total_seconds >= one_minute and total_seconds <= one_hour:
+        unit = "minutes"
+        step = total_seconds / one_minute
+    elif total_seconds > one_hour:
+        unit = "hours"
+        step = total_seconds / one_hour
+    else:
+        raise NotImplementedError
+    step = int(step)
+    assert total_seconds <= one_hour, f"{step} {unit} not supported"
+    assert 60 % step == 0, f"{step} not divisible by 60"
+    return unit, step
+
 
 def upload_to(instance: "CandleData", filename: str, is_cache: bool = False) -> str:
     """Upload to."""
