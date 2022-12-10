@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from functools import partial
 from typing import List, Optional
 
@@ -51,6 +52,8 @@ def bybit_candles(
     )
     for candle in candles:
         candle["timestamp"] = get_bybit_candle_timestamp(candle)
-        for key in ("symbol", "interval"):
+        candle["volume"] = Decimal(candle["volume"])
+        candle["notional"] = Decimal(candle["turnover"])
+        for key in ("symbol", "interval", "open_time", "turnover"):
             del candle[key]
     return candles_to_data_frame(timestamp_from, timestamp_to, candles)
