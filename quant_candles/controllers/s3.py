@@ -66,8 +66,6 @@ class ExchangeS3(BaseController):
         ]
 
     def main(self) -> None:
-        now = get_current_time()
-        max_timestamp_to = get_min_time(now, value="1t")
         for (
             daily_timestamp_from,
             daily_timestamp_to,
@@ -85,7 +83,6 @@ class ExchangeS3(BaseController):
                 for timestamp_from, timestamp_to in TradeData.iter_hours(
                     daily_timestamp_from,
                     daily_timestamp_to,
-                    max_timestamp_to,
                     daily_existing,
                     reverse=True,
                     retry=self.retry,
