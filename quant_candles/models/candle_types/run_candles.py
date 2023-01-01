@@ -1,12 +1,15 @@
+from typing import Iterable
+
 from quant_candles.utils import gettext_lazy as _
 
+from ..candles import Candle
 from ..trades import TradeData
-from .base import Candle
 
 
 class RunCandle(Candle):
     @classmethod
-    def on_aggregated(self, obj: TradeData) -> None:
+    def on_trades(cls, objs: Iterable[TradeData]) -> None:
+        """On trades."""
         pass
 
     class Meta:
