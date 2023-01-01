@@ -7,14 +7,34 @@ from pandas import Timestamp
 from quant_candles.constants import Frequency
 
 
+def parse_datetime(value: str, unit: str = "ns") -> datetime:
+    """Parse datetime with pandas for nanosecond accuracy."""
+    return pd.to_datetime(value, unit=unit).replace(tzinfo=timezone.utc)
+
+
+def to_pydatetime(timestamp: Timestamp) -> datetime:
+    """Timestamp to datetime."""
+    return timestamp.replace(nanosecond=0).to_pydatetime().replace(tzinfo=timezone.utc)
+
+
 def get_current_time(tzinfo=timezone.utc):
     """Get current time."""
     return datetime.utcnow().replace(tzinfo=tzinfo)
 
 
-def parse_datetime(value: str, unit: str = "ns") -> datetime:
-    """Parse datetime with pandas for nanosecond accuracy."""
-    return pd.to_datetime(value, unit=unit).replace(tzinfo=timezone.utc)
+def get_min_time(timestamp: datetime, value: str) -> datetime:
+    """Get minimum time."""
+    return to_pydatetime(pd.to_datetime(timestamp).floor(value))
+
+
+def get_next_time(timestamp: datetime, value: str) -> datetime:
+    """Get next time."""
+    return get_min_time(timestamp, value=value) + pd.Timedelta(value)
+
+
+def get_previous_time(timestamp: datetime, value: str) -> datetime:
+    """Get previous time."""
+    return get_min_time(timestamp, value=value) - pd.Timedelta(value)
 
 
 def timestamp_to_inclusive(
@@ -43,33 +63,13 @@ def parse_period_from_to(
     # timestamp_to
     date_to = date.fromisoformat(date_to) if date_to else tomorrow
     time_to = time.fromisoformat(time_to) if time_to else time.min
-    # UTC, please
+    # UTC, please.
     timestamp_from = datetime.combine(date_from, time_from).replace(tzinfo=timezone.utc)
     timestamp_to = datetime.combine(date_to, time_to).replace(tzinfo=timezone.utc)
-    # Sane defaults
+    # Sane defaults.
     timestamp_to = get_min_time(now, "1t") if timestamp_to >= now else timestamp_to
     timestamp_from = timestamp_to if timestamp_from > timestamp_to else timestamp_from
     return timestamp_from, timestamp_to
-
-
-def to_pydatetime(timestamp: Timestamp) -> datetime:
-    """Timestamp to datetime."""
-    return timestamp.replace(nanosecond=0).to_pydatetime().replace(tzinfo=timezone.utc)
-
-
-def get_min_time(timestamp: datetime, value: str) -> datetime:
-    """Get minimum time."""
-    return to_pydatetime(pd.to_datetime(timestamp).floor(value))
-
-
-def get_next_time(timestamp: datetime, value: str) -> datetime:
-    """Get next time."""
-    return get_min_time(timestamp, value=value) + pd.Timedelta(value)
-
-
-def get_previous_time(timestamp: datetime, value: str) -> datetime:
-    """Get previous time."""
-    return get_min_time(timestamp, value=value) - pd.Timedelta(value)
 
 
 def get_range(timestamp_from: datetime, timestamp_to: datetime, value: str = "1t"):
@@ -100,14 +100,13 @@ def get_missing(
     timestamp_from: datetime, timestamp_to: datetime, existing: List[datetime]
 ) -> List[datetime]:
     """Get missing."""
-    # Result from get_range may include timestamp_to,
-    # which will never be part of the range.
-    if timestamp_to > timestamp_from:
-        timestamp_to -= pd.Timedelta("1t")
     return [
         timestamp
         for timestamp in get_range(timestamp_from, timestamp_to)
         if timestamp not in existing
+        # Get missing result is assumed to not be inclusive.
+        # However, result from get_range is.
+        and timestamp != timestamp_to
     ]
 
 
@@ -166,7 +165,7 @@ def iter_timeframe(
         if timestamp_to != ts_to:
             tail = ts_to, timestamp_to
             timestamp_to = ts_to
-        # Chceck again, is there at least 1 day?
+        # Check again, is there at least 1 day?
         delta = ts_to - ts_from
         if delta >= step:
             for val in iter_window(ts_from, ts_to, value, reverse=reverse):
@@ -217,7 +216,7 @@ def iter_missing(
             next_start = values[next_index][0]
             total_minutes = one_minute * (counter + 1)
             if next_start == start + total_minutes:
-                # Don't increment next_index, b/c delete
+                # Don't increment next_index, as value will be deleted.
                 stop = values[next_index][1]
                 del values[next_index]
                 counter += 1
