@@ -116,7 +116,7 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
                 if is_last_iteration:
                     # If equal, one sample
                     if not is_sample(df, idx, index):
-                        # Aggregate from idx to end of data frame
+                        # Aggregate from idx to end of data frame.
                         sample = df.loc[idx:]
                         samples.append(agg_trades(sample))
                     # Otherwise, two samples.
@@ -130,16 +130,16 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
                         samples.append(agg_trades(sample))
                 # Is the last row equal to the current row?
                 elif is_sample(df, last_index, index):
-                    # Aggregate from idx to last_index
+                    # Aggregate from idx to last_index.
                     sample = df.loc[idx:last_index]
                     aggregated_sample = agg_trades(sample)
                     samples.append(aggregated_sample)
                     idx = index
-    # Only one trade in data_frame
+    # Only one trade in data_frame.
     elif len(df) == 1:
         aggregated_sample = agg_trades(df)
         samples.append(aggregated_sample)
-    # Assert volume equal
+    # Assert volume equal.
     aggregated = pd.DataFrame(samples)
     assert is_decimal_close(
         data_frame.volume.sum(), aggregated.volume.sum()
@@ -223,11 +223,10 @@ def volume_filter_with_time_window(
                 if next_index < total_rows:
                     sample = df.loc[next_index:]
                     samples.append(volume_filter(sample))
-    # Assert volume equal
     filtered = pd.DataFrame(samples)
-    assert is_decimal_close(
-        data_frame.volume.sum(), filtered.totalVolume.sum()
-    ), "Volume is not equal."
+    # Assert data_frame volume is close to filtered volume.
+    msg = "Volume is not close."
+    assert is_decimal_close(data_frame.volume.sum(), filtered.totalVolume.sum()), msg
     return filtered
 
 
@@ -347,13 +346,13 @@ def get_records(df: DataFrame) -> List[dict]:
     return data
 
 
-def get_next_cache(cache: dict, next_day: dict, top_n: int = 0) -> dict:
+def get_next_cache(cache: dict, values: dict, top_n: int = 0) -> dict:
     """Get next cache."""
-    if "nextDay" in cache:
-        previous_day = cache.pop("nextDay")
-        cache["nextDay"] = merge_cache(previous_day, next_day, top_n=top_n)
+    if "next" in cache:
+        previous_values = cache.pop("next")
+        cache["next"] = merge_cache(previous_values, values, top_n=top_n)
     else:
-        cache["nextDay"] = next_day
+        cache["next"] = values
     return cache
 
 
