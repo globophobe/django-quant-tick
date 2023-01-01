@@ -4,8 +4,12 @@ import django.core.serializers.json
 import django.db.models.deletion
 from django.db import migrations, models
 
-import quant_candles.models.candles.base
+import quant_candles.models.candles
 import quant_candles.models.trades
+
+
+def fake(*args):
+    return
 
 
 class Migration(migrations.Migration):
@@ -224,7 +228,7 @@ class Migration(migrations.Migration):
                     "file_data",
                     models.FileField(
                         blank=True,
-                        upload_to=quant_candles.models.candles.base.upload_data_to,
+                        upload_to=quant_candles.models.candles.upload_data_to,
                         verbose_name="file data",
                     ),
                 ),
@@ -240,7 +244,7 @@ class Migration(migrations.Migration):
                     "file_cache",
                     models.FileField(
                         blank=True,
-                        upload_to=quant_candles.models.candles.base.upload_cache_to,
+                        upload_to=fake,
                         verbose_name="file cache",
                     ),
                 ),
