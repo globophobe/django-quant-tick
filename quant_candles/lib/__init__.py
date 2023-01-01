@@ -35,6 +35,7 @@ from .dataframe import (
     set_type_decimal,
 )
 from .download import gzip_downloader
+from .experimental import calc_notional_exponent, calc_volume_exponent, get_histogram
 
 __all__ = [
     "aggregate_rows",
@@ -69,4 +70,7 @@ __all__ = [
     "set_dtypes",
     "set_type_decimal",
     "gzip_downloader",
+    "calc_notional_exponent",
+    "calc_volume_exponent",
+    "get_histogram",
 ]
