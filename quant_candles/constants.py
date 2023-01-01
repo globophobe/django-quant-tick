@@ -7,6 +7,12 @@ from quant_candles.utils import gettext_lazy as _
 NUMERIC_PRECISION = 76  # 76.6
 NUMERIC_SCALE = 38
 
+NOTIONAL = "notional"
+VOLUME = "volume"
+TICKS = "ticks"
+
+THRESH_ATTRS = (NOTIONAL, VOLUME, TICKS)
+
 
 class Exchange(models.TextChoices):
     # ALPACA = "alpaca", "Alpaca"
