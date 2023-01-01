@@ -73,7 +73,6 @@ class ExchangeS3(BaseController):
         ) in iterator.iter_days(
             self.timestamp_from,
             self.timestamp_to,
-            reverse=True,
             retry=self.retry,
         ):
             date = daily_timestamp_from.date()
@@ -83,7 +82,6 @@ class ExchangeS3(BaseController):
                     daily_timestamp_from,
                     daily_timestamp_to,
                     daily_existing,
-                    reverse=True,
                     retry=self.retry,
                 ):
                     df = filter_by_timestamp(data_frame, timestamp_from, timestamp_to)

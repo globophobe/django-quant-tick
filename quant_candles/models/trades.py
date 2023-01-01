@@ -40,6 +40,15 @@ def upload_data_to(instance: "TradeData", filename: str) -> str:
     return "/".join(parts)
 
 
+class TradeDataQuerySet(TimeFrameQuerySet):
+    def get_last_uid(self, symbol: Symbol, timestamp: datetime) -> str:
+        """Get last uid."""
+        queryset = self.filter(symbol=symbol, timestamp__gte=timestamp)
+        obj = queryset.exclude(uid="").order_by("timestamp").first()
+        if obj:
+            return obj.uid
+
+
 class TradeData(AbstractDataStorage):
     symbol = models.ForeignKey(
         "quant_candles.Symbol", related_name="aggregated", on_delete=models.CASCADE
@@ -56,7 +65,7 @@ class TradeData(AbstractDataStorage):
     file_data = models.FileField(_("file data"), blank=True, upload_to=upload_data_to)
     json_data = JSONField(_("json data"), null=True)
     ok = models.BooleanField(_("ok"), null=True, default=False, db_index=True)
-    objects = TimeFrameQuerySet.as_manager()
+    objects = TradeDataQuerySet.as_manager()
 
     @classmethod
     def write(

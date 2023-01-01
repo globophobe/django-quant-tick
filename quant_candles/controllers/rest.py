@@ -152,7 +152,6 @@ class ExchangeREST(BaseController):
         for timestamp_from, timestamp_to in TradeDataIterator(self.symbol).iter_all(
             self.timestamp_from,
             self.timestamp_to,
-            reverse=True,
             retry=self.retry,
         ):
             pagination_id = self.get_pagination_id(timestamp_to)
