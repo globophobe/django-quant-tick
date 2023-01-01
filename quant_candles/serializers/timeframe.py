@@ -13,10 +13,10 @@ class TimeFrameSerializer(serializers.Serializer):
 
     def validate(self, data: dict) -> dict:
         """Validate parameters."""
-        date_from = data.pop("date_from")
-        time_from = data.pop("time_from")
-        date_to = data.pop("date_to")
-        time_to = data.pop("time_to")
+        date_from = data.pop("date_from", None)
+        time_from = data.pop("time_from", None)
+        date_to = data.pop("date_to", None)
+        time_to = data.pop("time_to", None)
         if date_from is not None:
             date_from = date_from.isoformat()
         if time_from is not None:
