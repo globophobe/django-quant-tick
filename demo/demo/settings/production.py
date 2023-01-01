@@ -26,8 +26,17 @@ DATABASES = {
         "HOST": config("PRODUCTION_DATABASE_HOST"),
         "PORT": config("DATABASE_PORT"),
         "TEST": {"NAME": f'test_{config("DATABASE_NAME")}'},
-    }
+    },
+    "read_only": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",  # noqa
+    },
 }
+
+DATABASE_ROUTERS = [
+    "demo.db_routers.DefaultRouter",
+    "demo.db_routers.ReadOnlyRouter",
+]
 
 sentry_sdk.init(
     dsn=config("SENTRY_DSN"),
