@@ -1,22 +1,18 @@
 import os
 from datetime import datetime
-from typing import Generator, List, Optional, Tuple
 
 import pandas as pd
 from django.db import models
-from django.db.models import Q, QuerySet
 from pandas import DataFrame
 
 from quant_candles.constants import Frequency
 from quant_candles.lib import (
     filter_by_timestamp,
-    get_current_time,
-    get_min_time,
+    get_existing,
+    get_missing,
     get_next_time,
-    get_range,
-    iter_missing,
-    iter_timeframe,
 )
+from quant_candles.querysets import TimeFrameQuerySet
 from quant_candles.utils import gettext_lazy as _
 
 from .base import AbstractDataStorage, JSONField
@@ -44,69 +40,6 @@ def upload_data_to(instance: "TradeData", filename: str) -> str:
     return "/".join(parts)
 
 
-class TradeDataQuerySet(models.QuerySet):
-    def filter_by_timestamp(
-        self,
-        timestamp_from: Optional[datetime] = None,
-        timestamp_to: Optional[datetime] = None,
-    ) -> QuerySet:
-        """Filter by timestamp."""
-        q = Q()
-        if timestamp_from:
-            q |= Q(timestamp__gte=timestamp_from)
-        if timestamp_to:
-            q |= Q(timestamp__lt=timestamp_to)
-        return self.filter(q)
-
-    def get_missing(
-        self, symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
-    ) -> List[datetime]:
-        """Get missing."""
-        existing = self.get_existing(symbol, timestamp_from, timestamp_to)
-        # Result from get_range may include timestamp_to,
-        # which will never be part of data_frame
-        if timestamp_to > timestamp_from:
-            timestamp_to -= pd.Timedelta("1t")
-        return [
-            timestamp
-            for timestamp in get_range(timestamp_from, timestamp_to)
-            if timestamp not in existing
-        ]
-
-    def get_existing(
-        self,
-        symbol: Symbol,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-        retry: bool = False,
-    ) -> List[datetime]:
-        """Get existing."""
-        queryset = self.filter(
-            symbol=symbol,
-            timestamp__gte=timestamp_from,
-            timestamp__lt=timestamp_to,
-        )
-        if retry:
-            queryset = queryset.exclude(ok=False)
-        # List of 1m timestamps.
-        result = []
-        for item in queryset.values("timestamp", "frequency"):
-            timestamp = item["timestamp"]
-            frequency = item["frequency"]
-            if frequency == Frequency.HOUR:
-                result += [timestamp + pd.Timedelta(index) for index in range(60)]
-            else:
-                result.append(timestamp)
-        return sorted(result)
-
-    def get_last_uid(self, symbol: Symbol, timestamp: datetime) -> str:
-        """Get last uid."""
-        queryset = self.filter(symbol=symbol, timestamp__gte=timestamp)
-        obj = queryset.exclude(uid="").order_by("timestamp").first()
-        if obj:
-            return obj.uid
-
-
 class TradeData(AbstractDataStorage):
     symbol = models.ForeignKey(
         "quant_candles.Symbol", related_name="aggregated", on_delete=models.CASCADE
@@ -123,96 +56,7 @@ class TradeData(AbstractDataStorage):
     file_data = models.FileField(_("file data"), blank=True, upload_to=upload_data_to)
     json_data = JSONField(_("json data"), null=True)
     ok = models.BooleanField(_("ok"), null=True, default=False, db_index=True)
-    objects = TradeDataQuerySet.as_manager()
-
-    @classmethod
-    def get_max_timestamp_to(cls) -> datetime:
-        """Get max timestamp to."""
-        return get_min_time(get_current_time(), value="1t")
-
-    @classmethod
-    def iter_all(
-        cls,
-        symbol: Symbol,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-        reverse: bool = True,
-        retry: bool = False,
-    ) -> Generator[Tuple[datetime, datetime], None, None]:
-        """Iter all, by days in 1 hour chunks, further chunked by 1m intervals.
-
-        1 day -> 24 hours -> 60 minutes or 10 minutes, etc.
-        """
-        for daily_timestamp_from, daily_timestamp_to, daily_existing in cls.iter_days(
-            symbol, timestamp_from, timestamp_to, reverse=reverse, retry=retry
-        ):
-            for hourly_timestamp_from, hourly_timestamp_to in cls.iter_hours(
-                daily_timestamp_from,
-                daily_timestamp_to,
-                daily_existing,
-                reverse=reverse,
-                retry=retry,
-            ):
-                yield hourly_timestamp_from, hourly_timestamp_to
-
-    @classmethod
-    def iter_days(
-        cls,
-        symbol: Symbol,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-        reverse: bool = True,
-        retry: bool = False,
-    ):
-        """Iter days."""
-        for daily_timestamp_from, daily_timestamp_to in iter_timeframe(
-            timestamp_from, timestamp_to, value="1d", reverse=reverse
-        ):
-            # Query for daily.
-            daily_existing = cls.objects.get_existing(
-                symbol, daily_timestamp_from, daily_timestamp_to, retry=retry
-            )
-            daily_delta = daily_timestamp_to - daily_timestamp_from
-            daily_expected = int(daily_delta.total_seconds() / 60)
-            if len(daily_existing) < daily_expected:
-                yield daily_timestamp_from, daily_timestamp_to, daily_existing
-
-    @classmethod
-    def iter_hours(
-        cls,
-        daily_timestamp_from: datetime,
-        daily_timestamp_to: datetime,
-        daily_existing: List[datetime],
-        reverse: bool = True,
-        retry: bool = False,
-    ):
-        """Iter hours."""
-        for hourly_timestamp_from, hourly_timestamp_to in iter_timeframe(
-            daily_timestamp_from,
-            daily_timestamp_to,
-            value="1h",
-            reverse=reverse,
-        ):
-            # List comprehension for hourly.
-            hourly_existing = [
-                timestamp
-                for timestamp in daily_existing
-                if timestamp >= hourly_timestamp_from
-                and timestamp < hourly_timestamp_to
-            ]
-            hourly_delta = hourly_timestamp_to - hourly_timestamp_from
-            hourly_expected = int(hourly_delta.total_seconds() / 60)
-            if len(hourly_existing) < hourly_expected:
-                for start_time, end_time in iter_missing(
-                    hourly_timestamp_from,
-                    hourly_timestamp_to,
-                    hourly_existing,
-                    reverse=reverse,
-                ):
-                    max_timestamp_to = cls.get_max_timestamp_to()
-                    end = max_timestamp_to if end_time > max_timestamp_to else end_time
-                    if start_time != end:
-                        yield start_time, end
+    objects = TimeFrameQuerySet.as_manager()
 
     @classmethod
     def write(
@@ -275,7 +119,11 @@ class TradeData(AbstractDataStorage):
         validated: dict,
     ) -> None:
         """Write minute data."""
-        timestamps = cls.objects.get_missing(symbol, timestamp_from, timestamp_to)
+        queryset = cls.objects.filter(
+            symbol=symbol, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+        )
+        existing = get_existing(queryset.values("timestamp", "frequency"))
+        timestamps = get_missing(timestamp_from, timestamp_to, existing)
         existing = {
             obj.timestamp: obj
             for obj in cls.objects.filter(
@@ -308,7 +156,10 @@ class TradeData(AbstractDataStorage):
         data_frame: DataFrame,
         validated: DataFrame,
     ) -> None:
-        # Delete previously saved data.
+        """Write data frame.
+
+        Delete previously saved data.
+        """
         if obj.pk:
             obj.file_data.delete()
         if len(data_frame):
