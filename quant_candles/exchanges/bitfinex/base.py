@@ -78,17 +78,8 @@ class BitfinexMixin:
         REST API returns results unsorted
         Sort by uid, reversed
         """
-        trades.sort(key=lambda x: x["index"], reverse=True)
-        data_frame = super().get_data_frame(trades)
-        # A trade was out of order.
-        if (
-            self.symbol.api_symbol == "tBTCUSD"
-            and data_frame.uid.isin(["14690869"]).any()
-        ):
-            index = data_frame.index.tolist()
-            value = index.pop(-3)
-            data_frame = data_frame.reindex(index + [value])
-        return data_frame
+        # TODO: Verify Bitfinex API
+        return super().get_data_frame(trades)
 
     def get_candles(
         self, timestamp_from: datetime, timestamp_to: datetime
