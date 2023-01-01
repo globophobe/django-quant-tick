@@ -1,8 +1,7 @@
 from io import BytesIO
-from typing import Dict, List, Type
 
 import pandas as pd
-from django.contrib.contenttypes.models import ContentType
+import randomname
 from django.core.files.base import ContentFile
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
@@ -10,18 +9,6 @@ from pandas import DataFrame
 
 from quant_candles.constants import NUMERIC_PRECISION, NUMERIC_SCALE
 from quant_candles.utils import gettext_lazy as _
-
-
-def limit_choices_to_subclass(cls: Type[models.Model]) -> Dict[str, List[int]]:
-    """Limit choices to model subclass."""
-    ctypes = ContentType.objects.all()
-    ctype_models = [(ctype, ctype.model_class()) for ctype in ctypes]
-    pks = [
-        ctype.pk
-        for ctype, model in ctype_models
-        if model is not None and issubclass(model, cls) and model is not cls
-    ]
-    return {"pk__in": pks}
 
 
 def JSONField(name: str, **kwargs) -> models.JSONField:
@@ -44,6 +31,21 @@ class AbstractCodeName(models.Model):
 
     def __str__(self):
         return self.code_name
+
+    @classmethod
+    def get_random_name(cls) -> str:
+        """Get random name."""
+        name = randomname.get_name()
+        if cls.objects.filter(code_name=name).exists():
+            return cls.get_random_name()
+        else:
+            return name
+
+    def save(self, *args, **kwargs) -> models.Model:
+        """Save."""
+        if not self.pk and not self.code_name:
+            self.code_name = self.get_random_name()
+        return super().save(*args, **kwargs)
 
     class Meta:
         abstract = True

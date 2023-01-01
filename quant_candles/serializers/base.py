@@ -12,7 +12,7 @@ def big_decimal() -> serializers.DecimalField:
 
 
 class BaseParameterSerializer(serializers.Serializer):
-    time_ago = serializers.CharField(required=False)
+    time_ago = serializers.CharField(required=False, default="1d")
 
     def validate(self, data: dict) -> dict:
         """Validate."""

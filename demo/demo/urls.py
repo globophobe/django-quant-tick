@@ -20,7 +20,7 @@ from quant_candles.views import CandleView, ConvertTradeDataToHourlyView, TradeV
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("candles/", CandleView.as_view(), name="bars"),
+    path("candles/<str:code_name>/", CandleView.as_view(), name="candles"),
     path("trades/<str:exchange>/", TradeView.as_view(), name="trades"),
     path(
         "trades/<str:exchange>/convert-to-hourly/",

@@ -12,10 +12,10 @@ classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Indepen
 packages = [{ include = "quant_candles" }]
 
 [tool.poetry.dependencies]
-python = ">=3.8,<4.0"
+python = ">=3.8,<3.11"
 django-filter = "*"
+django-polymorphic = "*"
 djangorestframework = "*"
-django-storages = "*"
 httpx = "*"
 pandas = "*"
 pyarrow = "*"
@@ -23,17 +23,18 @@ randomname = "*"
 
 [tool.poetry.dev-dependencies]
 black = "*"
-channels = "*"
 coverage = "*"
 django-semantic-admin = "*"
 django-storages = {version = "*", extras = ["google"]}
 flake8 = "*"
 invoke = "*"
+ipdb = "*"
+ipython = "*"
 isort = "*"
+kedro = "*"
 mkdocs = "*"
 psycopg2-binary = "*"
 python-decouple = "*"
-python-telegram-bot = "*"
 time-machine = "*"
 uvicorn = "*"
 whitenoise = "*"

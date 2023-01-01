@@ -18,6 +18,7 @@ from quant_candles.lib import (
 from quant_candles.models import Symbol, TradeData
 
 from .base import BaseController
+from .iterators import TradeDataIterator
 
 logger = logging.getLogger(__name__)
 
@@ -147,12 +148,10 @@ class ExchangeREST(BaseController):
         """Get timestamp_to, omitting first incomplete candle."""
 
     def main(self) -> DataFrame:
-        """Main loop, with TradeData.iter_all"""
-        for timestamp_from, timestamp_to in TradeData.iter_all(
-            self.symbol,
+        """Main loop, with TradeDataIterator.iter_all"""
+        for timestamp_from, timestamp_to in TradeDataIterator(self.symbol).iter_all(
             self.timestamp_from,
             self.timestamp_to,
-            reverse=True,
             retry=self.retry,
         ):
             pagination_id = self.get_pagination_id(timestamp_to)
@@ -172,9 +171,17 @@ class ExchangeREST(BaseController):
                         df = volume_filter_with_time_window(
                             df, min_volume=self.symbol.significant_trade_filter
                         )
+                else:
+                    df = data_frame.drop(columns=["index"])
             else:
                 df = pd.DataFrame([])
-            validated = validate_data_frame(timestamp_from, timestamp_to, df, candles)
+            validated = validate_data_frame(
+                timestamp_from,
+                timestamp_to,
+                df,
+                candles,
+                self.symbol.should_aggregate_trades,
+            )
             self.on_data_frame(
                 self.symbol,
                 timestamp_from,

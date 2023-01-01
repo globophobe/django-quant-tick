@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from pandas import DataFrame
+
 from quant_candles.constants import SeriesType
 from quant_candles.lib import aggregate_rows
 
@@ -12,13 +14,17 @@ def get_initial_thresh_cache(thresh_attr, thresh_value, timestamp):
     }
 
 
-def get_next_cache(cache: dict, next_day: {}) -> dict:
+def get_next_cache(
+    data_frame: DataFrame, start: int, cache: dict, next_day: dict, top_n: int = 10
+) -> dict:
     """Get next cache."""
-    if "nextDay" in cache:
-        previous_day = cache.pop("nextDay")
-        cache["nextDay"] = merge_cache(previous_day, next_day)
-    else:
-        cache["nextDay"] = next_day
+    if not start - 1 == len(data_frame):
+        df = data_frame.loc[start:]
+        if "next" in cache:
+            previous = cache.pop("next")
+            cache["next"] = merge_cache(previous, next_day)
+        else:
+            cache["next"] = get_top_n(df)
     return cache
 
 

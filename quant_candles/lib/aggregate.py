@@ -1,9 +1,12 @@
 import datetime
 from decimal import Decimal
+from operator import itemgetter
 from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 from pandas import DataFrame
+
+from quant_candles.constants import NOTIONAL
 
 from .calendar import iter_once, iter_window
 from .dataframe import is_decimal_close
@@ -299,14 +302,14 @@ def aggregate_sum(
     return pd.DataFrame(samples).set_index("timestamp") if samples else pd.DataFrame()
 
 
-def aggregate_ohlc(data_frame: DataFrame) -> dict:
-    """Aggregate OHLC."""
-    price = data_frame.price
-    data = {
-        "open": price.iloc[0],
-        "high": price.max(),
-        "low": price.min(),
-        "close": price.iloc[-1],
+def aggregate_candle(data_frame: DataFrame) -> dict:
+    """Aggregate candle."""
+    last_row = data_frame.iloc[-1]
+    return {
+        "timestamp": last_row.timestamp,
+        "price": last_row.price,
+        "high": data_frame.price.max(),
+        "low": data_frame.price.min(),
         "totalBuyVolume": data_frame.totalBuyVolume.sum(),
         "totalVolume": data_frame.totalVolume.sum(),
         "totalBuyNotional": data_frame.totalBuyNotional.sum(),
@@ -314,4 +317,65 @@ def aggregate_ohlc(data_frame: DataFrame) -> dict:
         "totalBuyTicks": int(data_frame.totalBuyTicks.sum()),
         "totalTicks": int(data_frame.totalTicks.sum()),
     }
+
+
+def get_top_n(data_frame: DataFrame, top_n: int = 0) -> List[dict]:
+    """Get top N."""
+    index = data_frame[NOTIONAL].astype(float).nlargest(top_n).index
+    df = data_frame[data_frame.index.isin(index)]
+    return get_records(df)
+
+
+def get_records(df: DataFrame) -> List[dict]:
+    """Get records."""
+    data = df.to_dict("records")
+    data.sort(key=itemgetter("timestamp", "nanoseconds"))
+    for item in data:
+        for key in list(item):
+
+            if key not in (
+                "timestamp",
+                "nanoseconds",
+                "price",
+                "vwap",
+                "volume",
+                "notional",
+                "ticks",
+                "tickRule",
+            ):
+                del item[key]
     return data
+
+
+def get_next_cache(cache: dict, next_day: dict, top_n: int = 0) -> dict:
+    """Get next cache."""
+    if "nextDay" in cache:
+        previous_day = cache.pop("nextDay")
+        cache["nextDay"] = merge_cache(previous_day, next_day, top_n=top_n)
+    else:
+        cache["nextDay"] = next_day
+    return cache
+
+
+def merge_cache(previous: dict, current: dict, top_n: int = 0) -> dict:
+    """Merge cache."""
+    for key in (
+        "volume",
+        "buyVolume",
+        "notional",
+        "buyNotional",
+        "ticks",
+        "buyTicks",
+    ):
+        current[key] += previous[key]  # Add
+    # Top N
+    merged_top = previous["topN"] + current["topN"]
+    if len(merged_top):
+        # Sort by notional
+        merged_top.sort(key=lambda x: x[NOTIONAL], reverse=True)
+        # Slice top_n
+        m = merged_top[:top_n]
+        # Sort by timestamp, nanoseconds
+        m.sort(key=itemgetter("timestamp", "nanoseconds"))
+        current["topN"] = m
+    return current

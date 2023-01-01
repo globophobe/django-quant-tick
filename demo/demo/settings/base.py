@@ -41,7 +41,6 @@ INSTALLED_APPS = [
     # PostgreSQL
     "django.contrib.postgres",
     # 3rd party
-    "channels",
     "django_filters",
     "rest_framework",
     "rest_framework.authtoken",

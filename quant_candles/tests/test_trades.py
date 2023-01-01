@@ -10,6 +10,7 @@ from django.test import TestCase
 from pandas import DataFrame
 
 from quant_candles.constants import Exchange, Frequency
+from quant_candles.controllers import TradeDataIterator
 from quant_candles.lib import (
     aggregate_trades,
     get_current_time,
@@ -51,17 +52,15 @@ class IterAllTest(BaseTradeDataTest):
         """Get values."""
         return [
             value
-            for value in TradeData.iter_all(
-                symbol=self.symbol,
+            for value in TradeDataIterator(self.symbol).iter_all(
                 timestamp_from=self.timestamp_from,
                 timestamp_to=self.timestamp_to,
                 retry=retry,
-                reverse=True,
             )
         ]
 
     @patch(
-        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        "quant_candles.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 3).replace(tzinfo=timezone.utc),
     )
     def test_iter_all_with_no_results(self, mock_get_max_timestamp_to):
@@ -70,7 +69,7 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(len(values), 0)
 
     @patch(
-        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        "quant_candles.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
     )
     def test_iter_all_with_head(self, mock_get_max_timestamp_to):
@@ -87,7 +86,7 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(values[-1][1], self.timestamp_to)
 
     @patch(
-        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        "quant_candles.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
     )
     def test_iter_all_with_one_ok(self, mock_get_max_timestamp_to):
@@ -106,7 +105,7 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(values[-1][1], obj.timestamp)
 
     @patch(
-        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        "quant_candles.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
     )
     def test_iter_all_with_two_ok(self, mock_get_max_timestamp_to):
@@ -133,7 +132,7 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(values[-1][1], obj_one.timestamp)
 
     @patch(
-        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        "quant_candles.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
     )
     def test_iter_all_with_tail(self, mock_get_max_timestamp_to):
@@ -150,7 +149,7 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(values[0][1], self.timestamp_to - self.one_minute)
 
     @patch(
-        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        "quant_candles.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
     )
     def test_iter_all_with_retry_and_one_not_ok(self, mock_get_max_timestamp_to):
@@ -167,7 +166,7 @@ class IterAllTest(BaseTradeDataTest):
         self.assertEqual(values[-1][1], self.timestamp_to)
 
     @patch(
-        "quant_candles.models.trades.TradeData.get_max_timestamp_to",
+        "quant_candles.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
     )
     def test_iter_all_with_retry_and_one_missing(self, mock_get_max_timestamp_to):

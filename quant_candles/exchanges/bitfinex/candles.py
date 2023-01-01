@@ -48,7 +48,7 @@ def bitfinex_candles(
     limit = int(total_minutes) + 1
     max_results = limit if limit <= API_MAX_RESULTS else API_MAX_RESULTS
     url = f"{API_URL}/candles/trade:{time_frame}:{api_symbol}/hist?limit={max_results}"
-    candles, _ = iter_api(
+    results, _ = iter_api(
         url,
         get_bitfinex_candle_pagination_id,
         get_bitfinex_candle_timestamp,
@@ -59,15 +59,19 @@ def bitfinex_candles(
         pagination_id=format_bitfinex_api_timestamp(ts_to),
         log_format=log_format,
     )
-    c = [
+    candles = [
         {
-            "timestamp": get_bitfinex_candle_timestamp(candle),
-            "open": Decimal(candle[1]),
-            "high": Decimal(candle[3]),
-            "low": Decimal(candle[4]),
-            "close": Decimal(candle[2]),
-            "notional": Decimal(candle[5]),
+            "timestamp": get_bitfinex_candle_timestamp(result),
+            "open": Decimal(result[1]),
+            "high": Decimal(result[3]),
+            "low": Decimal(result[4]),
+            "close": Decimal(result[2]),
+            "notional": Decimal(result[5]),
         }
-        for candle in candles
+        for result in results
     ]
-    return candles_to_data_frame(timestamp_from, timestamp_to, c)
+    # Bitfinex API may return candles less than timestamp_from
+    filtered_candles = [
+        candle for candle in candles if candle["timestamp"] >= timestamp_from
+    ]
+    return candles_to_data_frame(timestamp_from, timestamp_to, filtered_candles)

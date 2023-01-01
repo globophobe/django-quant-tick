@@ -14,7 +14,7 @@ class BaseTradeDataCommand(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("exchange", type=Exchange, choices=Exchange.values)
         parser.add_argument("symbol")
-        parser.add_argument("--aggregate", type=bool)
+        parser.add_argument("--aggregate", type=bool, default=False)
         parser.add_argument("--date-to", type=str, default=None)
         parser.add_argument("--time-to", type=str, default=None)
         parser.add_argument("--date-from", type=str, default=None)

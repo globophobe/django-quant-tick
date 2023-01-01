@@ -30,11 +30,13 @@ def candles_to_data_frame(
         )
         try:
             assert not is_less_than_timestamp_from and not is_greater_than_timestamp_to
-        except AssertionError:
+        except AssertionError as e:
             if len(data_frame) == 1:
                 # Assert data_frame.timestamp == timestamp_from == timestamp_to
                 assert len(data_frame[data_frame.timestamp == timestamp_from]) == 1
                 assert len(data_frame[data_frame.timestamp == timestamp_to]) == 1
+            else:
+                raise e
         finally:
             df = data_frame.set_index("timestamp")
             # REST API, data is reverse order
@@ -49,6 +51,7 @@ def validate_data_frame(
     timestamp_to: datetime,
     data_frame: DataFrame,
     candles: DataFrame,
+    should_aggregate_trades: bool,
 ) -> Optional[dict]:
     """Validate data_frame with candles from Exchange API."""
     if len(candles):
@@ -58,8 +61,6 @@ def validate_data_frame(
             key = "volume"
         else:
             raise NotImplementedError
-        capitalized_key = key.capitalize()
-        total_key = f"total{capitalized_key}"
         validated = {
             candle.Index: True
             if (value := getattr(candle, key)) == Decimal("0")
@@ -67,7 +68,11 @@ def validate_data_frame(
             for candle in candles.itertuples()
         }
         if len(data_frame):
-            df = aggregate_sum(data_frame, attrs=total_key, window="1t")
+            capitalized_key = key.capitalize()
+            total_key = f"total{capitalized_key}"
+            # If there was a significant trade filter, total_key
+            attrs = total_key if total_key in data_frame.columns else key
+            df = aggregate_sum(data_frame, attrs=attrs, window="1t")
             for row in df.itertuples():
                 k = key.title()
                 timestamp = row.Index
