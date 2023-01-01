@@ -11,15 +11,14 @@ from quant_candles.lib import (
     calculate_tick_rule,
     filter_by_timestamp,
     get_current_time,
-    get_min_time,
     gzip_downloader,
     set_dtypes,
     validate_data_frame,
     volume_filter_with_time_window,
 )
-from quant_candles.models import TradeData
 
 from .base import BaseController
+from .iterators import TradeDataIterator
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +65,12 @@ class ExchangeS3(BaseController):
         ]
 
     def main(self) -> None:
+        iterator = TradeDataIterator(self.symbol)
         for (
             daily_timestamp_from,
             daily_timestamp_to,
             daily_existing,
-        ) in TradeData.iter_days(
-            self.symbol,
+        ) in iterator.iter_days(
             self.timestamp_from,
             self.timestamp_to,
             reverse=True,
@@ -80,7 +79,7 @@ class ExchangeS3(BaseController):
             date = daily_timestamp_from.date()
             data_frame = self.get_data_frame(date)
             if data_frame is not None:
-                for timestamp_from, timestamp_to in TradeData.iter_hours(
+                for timestamp_from, timestamp_to in iterator.iter_hours(
                     daily_timestamp_from,
                     daily_timestamp_to,
                     daily_existing,
@@ -97,10 +96,16 @@ class ExchangeS3(BaseController):
                                 df = volume_filter_with_time_window(
                                     df, min_volume=self.symbol.significant_trade_filter
                                 )
+                        else:
+                            df = data_frame.drop(columns=["index"])
                     else:
                         df = pd.DataFrame([])
                     validated = validate_data_frame(
-                        timestamp_from, timestamp_to, df, candles
+                        timestamp_from,
+                        timestamp_to,
+                        df,
+                        candles,
+                        self.symbol.should_aggregate_trades,
                     )
                     self.on_data_frame(
                         self.symbol,
