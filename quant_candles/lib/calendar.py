@@ -4,6 +4,8 @@ from typing import Generator, List, Optional, Tuple
 import pandas as pd
 from pandas import Timestamp
 
+from quant_candles.constants import Frequency
+
 
 def get_current_time(tzinfo=timezone.utc):
     """Get current time."""
@@ -65,6 +67,11 @@ def get_next_time(timestamp: datetime, value: str) -> datetime:
     return get_min_time(timestamp, value=value) + pd.Timedelta(value)
 
 
+def get_previous_time(timestamp: datetime, value: str) -> datetime:
+    """Get previous time."""
+    return get_min_time(timestamp, value=value) - pd.Timedelta(value)
+
+
 def get_range(timestamp_from: datetime, timestamp_to: datetime, value: str = "1t"):
     """Get timestamps in range, step by value."""
     ts_from_rounded = get_min_time(timestamp_from, value)
@@ -73,6 +80,34 @@ def get_range(timestamp_from: datetime, timestamp_to: datetime, value: str = "1t
         to_pydatetime(timestamp)
         for timestamp in pd.date_range(ts_from_rounded, ts_to_rounded, freq=value)
         if timestamp >= ts_from_rounded and timestamp <= timestamp_to
+    ]
+
+
+def get_existing(values: List, retry: bool = False) -> List[datetime]:
+    """Get existing."""
+    result = []  # List of 1m timestamps.
+    for item in values:
+        timestamp = item["timestamp"]
+        frequency = item["frequency"]
+        if frequency == Frequency.HOUR:
+            result += [timestamp + pd.Timedelta(index) for index in range(60)]
+        else:
+            result.append(timestamp)
+    return sorted(result)
+
+
+def get_missing(
+    timestamp_from: datetime, timestamp_to: datetime, existing: List[datetime]
+) -> List[datetime]:
+    """Get missing."""
+    # Result from get_range may include timestamp_to,
+    # which will never be part of the range.
+    if timestamp_to > timestamp_from:
+        timestamp_to -= pd.Timedelta("1t")
+    return [
+        timestamp
+        for timestamp in get_range(timestamp_from, timestamp_to)
+        if timestamp not in existing
     ]
 
 
