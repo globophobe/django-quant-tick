@@ -1,15 +1,19 @@
 import os
 from datetime import datetime
 from itertools import chain
+from typing import Tuple
 
+import pandas as pd
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.db.models import Q
+from pandas import DataFrame
 
 from quant_candles.constants import Frequency
 from quant_candles.utils import gettext_lazy as _
 
 from .base import AbstractCodeName, AbstractDataStorage, JSONField
+from .trades import TradeData
 
 
 def upload_data_to(instance: "CandleData", filename: str) -> str:
@@ -44,6 +48,39 @@ class Candle(AbstractCodeName):
             if issubclass(model_class, Candle) and model_class is not Candle
         ]
         return ContentType.objects.filter(pk__in=pks)
+
+    def get_initial_cache(self, **kwargs) -> dict:
+        """Get initial cache."""
+        raise NotImplementedError
+
+    def get_data_frame(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> DataFrame:
+        """Get data frame."""
+        trade_data = (
+            TradeData.objects.filter(
+                symbol__in=self.symbols.all(),
+                timestamp__gte=timestamp_from,
+                timestamp__lt=timestamp_to,
+            )
+            .select_related("symbol")
+            .only("symbol")
+        )
+        data_frames = []
+        for t in trade_data:
+            data_frame = t.get_data_frame()
+            data_frame.insert(2, "exchange", t.symbol.exchange)
+            data_frame.insert(3, "symbol", t.symbol.api_symbol)
+            data_frames.append(data_frame)
+        return (
+            pd.concat(data_frames)
+            .sort_values(["timestamp", "nanoseconds"])
+            .reset_index()
+        )
+
+    def aggregate(self, data_frame: DataFrame, cache: dict) -> Tuple[list, dict]:
+        """Aggregate."""
+        raise NotImplementedError
 
     def get_data(
         self, timestamp_from: datetime, timestamp_to: datetime, limit: int = 1000

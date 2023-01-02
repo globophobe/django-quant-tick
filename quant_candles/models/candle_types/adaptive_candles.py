@@ -2,11 +2,11 @@ from typing import Iterable
 
 from quant_candles.utils import gettext_lazy as _
 
-from ..candles import Candle
 from ..trades import TradeData
+from .constant_candles import ConstantCandle
 
 
-class AdaptiveCandle(Candle):
+class AdaptiveCandle(ConstantCandle):
     @classmethod
     def on_trades(cls, objs: Iterable[TradeData]) -> None:
         """On trades."""
