@@ -4,8 +4,6 @@ from typing import Generator, List, Optional, Tuple
 import pandas as pd
 from pandas import Timestamp
 
-from quant_candles.constants import Frequency
-
 
 def parse_datetime(value: str, unit: str = "ns") -> datetime:
     """Parse datetime with pandas for nanosecond accuracy."""
@@ -24,7 +22,9 @@ def get_current_time(tzinfo=timezone.utc):
 
 def get_min_time(timestamp: datetime, value: str) -> datetime:
     """Get minimum time."""
-    return to_pydatetime(pd.to_datetime(timestamp).floor(value))
+    step = value[-1]  # TODO: Refactor this.
+    ts = pd.to_datetime(timestamp).floor(f"1{step}")
+    return to_pydatetime(ts)
 
 
 def get_next_time(timestamp: datetime, value: str) -> datetime:
@@ -42,10 +42,10 @@ def get_next_monday(timestamp: datetime) -> datetime:
     ts = get_min_time(timestamp, value="1d")
     weekday = ts.date().weekday()
     if weekday != 0:
-        days = 0 - weekday % 7
+        days = 7 - weekday % 7
         return ts + pd.Timedelta(f"{days}d")
     else:
-        return ts
+        return ts + pd.Timedelta("7d")
 
 
 def timestamp_to_inclusive(
@@ -100,10 +100,7 @@ def get_existing(values: List, retry: bool = False) -> List[datetime]:
     for item in values:
         timestamp = item["timestamp"]
         frequency = item["frequency"]
-        if frequency == Frequency.HOUR:
-            result += [timestamp + pd.Timedelta(index) for index in range(60)]
-        else:
-            result.append(timestamp)
+        result += [timestamp + pd.Timedelta(index) for index in range(frequency)]
     return sorted(result)
 
 

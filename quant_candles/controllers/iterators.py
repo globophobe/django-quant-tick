@@ -34,10 +34,10 @@ class BaseTimeFrameIterator:
         1 day -> 24 hours -> 60 minutes or 10 minutes, etc.
         """
         for ts_from, ts_to, existing in self.iter_partition(
-            timestamp_from, timestamp_to, step=step, retry=retry
+            timestamp_from, timestamp_to, step, retry=retry
         ):
             for hourly_timestamp_from, hourly_timestamp_to in self.iter_hours(
-                ts_from, ts_to, existing, retry=retry
+                ts_from, ts_to, existing
             ):
                 yield hourly_timestamp_from, hourly_timestamp_to
 
@@ -65,31 +65,23 @@ class BaseTimeFrameIterator:
 
     def iter_hours(
         self,
-        daily_timestamp_from: datetime,
-        daily_timestamp_to: datetime,
-        daily_existing: List[datetime],
-        reverse: bool = True,
-        retry: bool = False,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        partition_existing: List[datetime],
     ):
         """Iter hours."""
-        for timestamp_from, timestamp_to in iter_timeframe(
-            daily_timestamp_from,
-            daily_timestamp_to,
-            value="1h",
-            reverse=reverse,
+        for ts_from, ts_to in iter_timeframe(
+            timestamp_from, timestamp_to, value="1h", reverse=self.reverse
         ):
             # List comprehension for hourly.
             existing = [
                 timestamp
-                for timestamp in daily_existing
-                if timestamp >= timestamp_from and timestamp < timestamp_to
+                for timestamp in partition_existing
+                if timestamp >= ts_from and timestamp < ts_to
             ]
             if not self.has_all_timestamps(timestamp_from, timestamp_to, existing):
                 for start_time, end_time in iter_missing(
-                    timestamp_from,
-                    timestamp_to,
-                    existing,
-                    reverse=reverse,
+                    ts_from, ts_to, existing, reverse=self.reverse
                 ):
                     max_timestamp_to = self.get_max_timestamp_to()
                     end = max_timestamp_to if end_time > max_timestamp_to else end_time
@@ -132,7 +124,7 @@ class CandleCacheIterator(BaseTimeFrameIterator):
         self.reverse = False
 
     def get_existing(
-        self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
+        self, timestamp_from: datetime, timestamp_to: datetime, **kwargs
     ) -> List[datetime]:
         """Get existing."""
         queryset = CandleCache.objects.filter(
@@ -140,23 +132,19 @@ class CandleCacheIterator(BaseTimeFrameIterator):
             timestamp__gte=timestamp_from,
             timestamp__lt=timestamp_to,
         )
-        if retry:
-            queryset = queryset.exclude(ok=False)
         return get_existing(queryset.values("timestamp", "frequency"))
 
     def can_process(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can process."""
-        return all(
-            [
-                self.has_all_timestamps(
-                    get_existing(
-                        TradeData.objects.filter(
-                            symbol=symbol,
-                            timestamp__gte=timestamp_from,
-                            timestamp__lt=timestamp_to,
-                        ).values("timestamp", "frequency")
-                    )
-                )
-                for symbol in self.candle.symbols.all()
-            ]
-        )
+        values = []
+        for symbol in self.candle.symbols.all():
+            trade_data = TradeData.objects.filter(
+                symbol=symbol,
+                timestamp__gte=timestamp_from,
+                timestamp__lt=timestamp_to,
+            )
+            existing = get_existing(trade_data.values("timestamp", "frequency"))
+            values.append(
+                self.has_all_timestamps(timestamp_from, timestamp_to, existing)
+            )
+        return all(values)
