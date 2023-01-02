@@ -69,26 +69,21 @@ class ExchangeS3(BaseController):
     def main(self) -> None:
         """Main."""
         iterator = TradeDataIterator(self.symbol)
-        for (
-            daily_timestamp_from,
-            daily_timestamp_to,
-            daily_existing,
-        ) in iterator.iter_days(
+        for (timestamp_from, timestamp_to, existing,) in iterator.iter_partition(
             self.timestamp_from,
             self.timestamp_to,
             retry=self.retry,
         ):
-            date = daily_timestamp_from.date()
+            date = timestamp_from.date()
             data_frame = self.get_data_frame(date)
             if data_frame is not None:
-                for timestamp_from, timestamp_to in iterator.iter_hours(
-                    daily_timestamp_from,
-                    daily_timestamp_to,
-                    daily_existing,
-                    retry=self.retry,
+                for ts_from, ts_to in iterator.iter_hours(
+                    timestamp_from,
+                    timestamp_to,
+                    existing,
                 ):
-                    df = filter_by_timestamp(data_frame, timestamp_from, timestamp_to)
-                    candles = self.get_candles(timestamp_from, timestamp_to)
+                    df = filter_by_timestamp(data_frame, ts_from, ts_to)
+                    candles = self.get_candles(ts_from, ts_to)
                     # Are there any trades?
                     if len(df):
                         if self.symbol.should_aggregate_trades:
@@ -102,18 +97,10 @@ class ExchangeS3(BaseController):
                     else:
                         df = pd.DataFrame([])
                     validated = validate_data_frame(
-                        timestamp_from,
-                        timestamp_to,
-                        df,
-                        candles,
-                        self.symbol.should_aggregate_trades,
+                        ts_from, ts_to, df, candles, self.symbol.should_aggregate_trades
                     )
                     self.on_data_frame(
-                        self.symbol,
-                        timestamp_from,
-                        timestamp_to,
-                        df,
-                        validated=validated,
+                        self.symbol, ts_from, ts_to, df, validated=validated
                     )
             # Complete
             else:
