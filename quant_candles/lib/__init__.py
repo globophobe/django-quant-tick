@@ -1,10 +1,8 @@
 from .aggregate import (
     aggregate_candle,
-    aggregate_rows,
     aggregate_sum,
     aggregate_trades,
     filter_by_timestamp,
-    get_filtered_volume_notional_ticks,
     get_next_cache,
     merge_cache,
     volume_filter_with_time_window,
@@ -38,12 +36,10 @@ from .download import gzip_downloader
 from .experimental import calc_notional_exponent, calc_volume_exponent, get_histogram
 
 __all__ = [
-    "aggregate_rows",
-    "aggregate_trades",
     "aggregate_candle",
     "aggregate_sum",
+    "aggregate_trades",
     "filter_by_timestamp",
-    "get_filtered_volume_notional_ticks",
     "get_next_cache",
     "merge_cache",
     "volume_filter_with_time_window",

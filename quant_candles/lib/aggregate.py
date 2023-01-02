@@ -14,68 +14,6 @@ from .dataframe import is_decimal_close
 ZERO = Decimal("0")
 
 
-def aggregate_rows(
-    df: DataFrame,
-    timestamp: Optional[datetime.datetime] = None,
-    nanoseconds: Optional[int] = None,
-    open_price: Optional[Decimal] = None,
-    is_filtered: bool = False,
-) -> dict:
-    """Aggregate rows of a data_frame."""
-    first_row = df.iloc[0]
-    last_row = df.iloc[-1]
-    high = df.price.max()
-    low = df.price.min()
-    if open_price:
-        if open_price > high:
-            high = open_price
-        if open_price < low:
-            low = open_price
-    else:
-        open_price = first_row.price
-    data = {
-        "uid": first_row.uid,
-        "timestamp": timestamp if timestamp else first_row.timestamp,
-        "nanoseconds": nanoseconds
-        if nanoseconds is not None
-        else first_row.nanoseconds,
-        "open": open_price,
-        "high": high,
-        "low": low,
-        "close": last_row.price,
-    }
-    if is_filtered:
-        data.update(get_filtered_volume_notional_ticks(df))
-    else:
-        data.update(get_volume_notional_ticks(df))
-    return data
-
-
-def get_volume_notional_ticks(data_frame: DataFrame) -> dict:
-    """Get volume notional and ticks from raw or aggregated data_frame."""
-    buy_side = data_frame[data_frame.tickRule == 1]
-    return {
-        "volume": data_frame.volume.sum() or ZERO,
-        "buyVolume": buy_side.volume.sum() or ZERO,
-        "notional": data_frame.notional.sum() or ZERO,
-        "buyNotional": buy_side.notional.sum() or ZERO,
-        "ticks": data_frame.ticks.sum(),
-        "buyTicks": buy_side.ticks.sum(),
-    }
-
-
-def get_filtered_volume_notional_ticks(data_frame: DataFrame) -> dict:
-    """Get volume notional and ticks from filtered data_frame."""
-    return {
-        "volume": data_frame.totalVolume.sum() or ZERO,
-        "buyVolume": data_frame.totalBuyVolume.sum() or ZERO,
-        "notional": data_frame.totalNotional.sum() or ZERO,
-        "buyNotional": data_frame.totalBuyNotional.sum() or ZERO,
-        "ticks": data_frame.totalTicks.sum(),
-        "buyTicks": data_frame.totalBuyTicks.sum(),
-    }
-
-
 def is_sample(data_frame: DataFrame, first_index: int, last_index: int) -> bool:
     """Is the range a sample? Short-circuit logic for speed."""
     first_row = data_frame.loc[first_index]
@@ -148,6 +86,7 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
 
 
 def agg_trades(data_frame: DataFrame) -> Dict[str, Any]:
+    """Aggregate trades."""
     first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
     timestamp = last_row.timestamp
@@ -301,24 +240,42 @@ def aggregate_sum(
     return pd.DataFrame(samples).set_index("timestamp") if samples else pd.DataFrame()
 
 
-def aggregate_candle(data_frame: DataFrame) -> dict:
+def aggregate_candle(
+    data_frame: DataFrame,
+    timestamp: Optional[datetime.datetime] = None,
+    top_n: Optional[int] = None,
+) -> dict:
     """Aggregate candle."""
+    first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
-    return {
-        "timestamp": last_row.timestamp,
-        "price": last_row.price,
-        "high": data_frame.price.max(),
-        "low": data_frame.price.min(),
-        "totalBuyVolume": data_frame.totalBuyVolume.sum(),
-        "totalVolume": data_frame.totalVolume.sum(),
-        "totalBuyNotional": data_frame.totalBuyNotional.sum(),
-        "totalNotional": data_frame.totalNotional.sum(),
-        "totalBuyTicks": int(data_frame.totalBuyTicks.sum()),
-        "totalTicks": int(data_frame.totalTicks.sum()),
+    high = data_frame.price.max()
+    low = data_frame.price.min()
+    data = {
+        "timestamp": timestamp if timestamp else first_row.timestamp,
+        "open": first_row.price,
+        "high": high,
+        "low": low,
+        "close": last_row.price,
+        "volume": get_sum(data_frame, "volume"),
+        "buyVolume": get_sum(data_frame, "buyVolume"),
+        "notional": get_sum(data_frame, "notional"),
+        "buyNotional": get_sum(data_frame, "buyNotional"),
+        "ticks": get_sum(data_frame, "ticks"),
+        "buyTicks": get_sum(data_frame, "buyTicks"),
     }
+    if top_n:
+        data["topN"] = get_top_n(data_frame, top_n)
+    return data
 
 
-def get_top_n(data_frame: DataFrame, top_n: int = 0) -> List[dict]:
+def get_sum(data_frame: DataFrame, key: str) -> Union[Decimal, int]:
+    """Get sum."""
+    total_key = "total" + key[0].capitalize() + key[1:]
+    k = total_key if "total_key" in data_frame.columns else key
+    return data_frame[k].sum() or ZERO
+
+
+def get_top_n(data_frame: DataFrame, top_n: int) -> List[dict]:
     """Get top N."""
     index = data_frame[NOTIONAL].astype(float).nlargest(top_n).index
     df = data_frame[data_frame.index.isin(index)]
