@@ -8,6 +8,10 @@ import pandas as pd
 from django.test import TestCase
 from pandas import DataFrame
 
+from quant_candles.constants import Exchange
+from quant_candles.lib import get_current_time, get_min_time
+from quant_candles.models import GlobalSymbol, Symbol
+
 
 class RandomTradeTest(TestCase):
     def generate_random_trades(
@@ -94,3 +98,20 @@ class RandomTradeTest(TestCase):
             ticks = item.pop("ticks")
             trades += self.generate_random_trades(ticks, prices=prices, **item)
         return pd.DataFrame(trades)
+
+
+class BaseSymbolTest(TestCase):
+    def setUp(self):
+        self.global_symbol = GlobalSymbol.objects.create(name="global-symbol")
+        self.timestamp_from = get_min_time(get_current_time(), "1d")
+
+    def get_symbol(
+        self, api_symbol: str = "test", should_aggregate_trades: bool = True
+    ) -> Symbol:
+        """Get symbol."""
+        return Symbol.objects.create(
+            global_symbol=self.global_symbol,
+            exchange=Exchange.COINBASE,
+            api_symbol=api_symbol,
+            should_aggregate_trades=should_aggregate_trades,
+        )

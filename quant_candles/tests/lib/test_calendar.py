@@ -7,6 +7,7 @@ from django.test import TestCase
 from quant_candles.lib import (
     get_current_time,
     get_min_time,
+    get_next_monday,
     get_next_time,
     get_range,
     iter_missing,
@@ -93,12 +94,14 @@ class IterTimeframeTest(TestCase):
         self.now = get_current_time()
 
     def get_values(
-        self, timestamp_from: datetime, timestamp_to: datetime
+        self, timestamp_from: datetime, timestamp_to: datetime, value: str = "1d"
     ) -> List[tuple]:
         """Get values for timeframe."""
         return [
             value
-            for value in iter_timeframe(timestamp_from, timestamp_to, reverse=True)
+            for value in iter_timeframe(
+                timestamp_from, timestamp_to, value=value, reverse=True
+            )
         ]
 
     def test_iter_timeframe_with_head_and_no_body(self):
@@ -173,6 +176,16 @@ class IterTimeframeTest(TestCase):
                 self.assertEqual(ts_to, timestamp_to)
             else:
                 self.assertEqual(ts_from + pd.Timedelta("1d"), ts_to)
+
+    def test_iter_timeframe_with_seven_day_step(self):
+        """From next Monday, to the Monday after next."""
+        timestamp = get_min_time(self.now, "1d")
+        next_monday = get_next_monday(timestamp)
+        monday_after_next = get_next_monday(next_monday)
+        values = self.get_values(next_monday, monday_after_next, value="7d")
+        self.assertEqual(len(values), 1)
+        self.assertEqual(values[0][0], next_monday)
+        self.assertEqual(values[0][1], monday_after_next)
 
 
 class IterMissingTest(TestCase):

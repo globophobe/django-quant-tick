@@ -11,7 +11,7 @@ from quant_candles.lib import (
     volume_filter_with_time_window,
 )
 
-from .base import RandomTradeTest
+from ..base import RandomTradeTest
 
 
 class TradeAggregatorTest(RandomTradeTest):
