@@ -1,18 +1,27 @@
 import math
+from decimal import Decimal
 from itertools import tee
+from typing import Generator, Iterable, List, Tuple
 
 import numpy as np
+from pandas import DataFrame
 
 QUANTILES = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
 
-def quantile_iterator(quantiles):
+def quantile_iterator(
+    quantiles: Iterable[float],
+) -> Generator[Tuple[float, float], None, None]:
+    """Quantile iterator."""
     a, b = tee(quantiles)
     next(b, None)
     return zip(a, b)
 
 
-def get_histogram(data_frame, quantiles=QUANTILES):
+def get_histogram(
+    data_frame: DataFrame, quantiles: Iterable[float] = QUANTILES
+) -> List[dict]:
+    """Get histogram."""
     histogram = []
     for index, quantiles in enumerate(quantile_iterator(quantiles)):
         is_last = index + 2 == len(quantiles)  # b/c iterate by 2
@@ -41,7 +50,10 @@ def get_histogram(data_frame, quantiles=QUANTILES):
     return histogram
 
 
-def calc_volume_exponent(volume, divisor=10, decimal_places=1):
+def calc_volume_exponent(
+    volume: int, divisor: int = 10, decimal_places: int = 1
+) -> int:
+    """Calculate volume exponent."""
     if volume > 0:
         is_round = volume % math.pow(divisor, decimal_places) == 0
         if is_round:
@@ -61,7 +73,10 @@ def calc_volume_exponent(volume, divisor=10, decimal_places=1):
         return 0
 
 
-def calc_notional_exponent(notional, divisor=0.1, decimal_places=1):
+def calc_notional_exponent(
+    notional: Decimal, divisor: float = 0.1, decimal_places: int = 1
+) -> int:
+    """Calculate notional exponent."""
     if notional > 0:
         # Not scientific notation, max 10 decimal places
         decimal = format(notional, f".{10}f").lstrip().rstrip("0")

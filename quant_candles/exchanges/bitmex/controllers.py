@@ -19,7 +19,7 @@ def bitmex_trades(
     on_data_frame: Callable,
     retry: bool = False,
     verbose: bool = False,
-):
+) -> None:
     """Get BitMEX trades."""
     if timestamp_to > use_s3():
         BitmexTradesREST(

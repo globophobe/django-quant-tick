@@ -23,12 +23,14 @@ class BaseController:
         self.verbose = verbose
 
     @property
-    def log_format(self):
+    def log_format(self) -> str:
+        """Log format."""
         symbol = str(self.symbol)
         return f"{symbol}: {{timestamp}}"
 
     @property
     def columns(self) -> list:
+        """Columns."""
         return [
             "uid",
             "timestamp",
@@ -41,6 +43,7 @@ class BaseController:
         ]
 
     def main(self):
+        """Main."""
         raise NotImplementedError
 
     def get_candles(

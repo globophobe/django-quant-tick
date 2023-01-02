@@ -19,7 +19,7 @@ def candles_to_data_frame(
 ) -> DataFrame:
     """Get candle data_frame."""
     data_frame = pd.DataFrame(candles)
-    # Maybe no candles
+    # Maybe, no candles.
     if len(data_frame) > 0:
         # Assert timestamp_from <= data_frame.timestamp < timestamp_to
         is_less_than_timestamp_from = (
@@ -39,7 +39,7 @@ def candles_to_data_frame(
                 raise e
         finally:
             df = data_frame.set_index("timestamp")
-            # REST API, data is reverse order
+            # REST API, data is reverse order.
             if reverse:
                 df = df.iloc[::-1]
             return df
@@ -78,7 +78,7 @@ def validate_data_frame(
                 timestamp = row.Index
                 try:
                     candle = candles.loc[timestamp]
-                # Candle may be missing from API result
+                # Candle may be missing from API result.
                 except KeyError:
                     validated[timestamp] = None
                 else:
@@ -93,7 +93,7 @@ def validate_data_frame(
                         else:
                             v = candle[key]
                         validated[timestamp] = {key: row[1], f"exchange{k}": v}
-    # Candle and trade API data availability may differ
+    # Candle and trade API data availability may differ.
     else:
         validated = {
             timestamp: None

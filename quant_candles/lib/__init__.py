@@ -1,10 +1,8 @@
 from .aggregate import (
     aggregate_candle,
-    aggregate_rows,
     aggregate_sum,
     aggregate_trades,
     filter_by_timestamp,
-    get_filtered_volume_notional_ticks,
     get_next_cache,
     merge_cache,
     volume_filter_with_time_window,
@@ -14,6 +12,7 @@ from .calendar import (
     get_existing,
     get_min_time,
     get_missing,
+    get_next_monday,
     get_next_time,
     get_previous_time,
     get_range,
@@ -35,14 +34,13 @@ from .dataframe import (
     set_type_decimal,
 )
 from .download import gzip_downloader
+from .experimental import calc_notional_exponent, calc_volume_exponent, get_histogram
 
 __all__ = [
-    "aggregate_rows",
-    "aggregate_trades",
     "aggregate_candle",
     "aggregate_sum",
+    "aggregate_trades",
     "filter_by_timestamp",
-    "get_filtered_volume_notional_ticks",
     "get_next_cache",
     "merge_cache",
     "volume_filter_with_time_window",
@@ -50,6 +48,7 @@ __all__ = [
     "get_existing",
     "get_min_time",
     "get_missing",
+    "get_next_monday",
     "get_next_time",
     "get_previous_time",
     "get_range",
@@ -69,4 +68,7 @@ __all__ = [
     "set_dtypes",
     "set_type_decimal",
     "gzip_downloader",
+    "calc_notional_exponent",
+    "calc_volume_exponent",
+    "get_histogram",
 ]

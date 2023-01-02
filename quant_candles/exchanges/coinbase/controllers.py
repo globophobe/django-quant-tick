@@ -39,6 +39,7 @@ class CoinbaseTrades(CoinbaseMixin, ExchangeREST):
         data_frame: DataFrame,
         trades: Optional[list] = None,
     ) -> None:
+        """Assert data frame."""
         super().assert_data_frame(timestamp_from, timestamp_to, data_frame, trades)
         # Missing orders.
         expected = len(trades) - 1

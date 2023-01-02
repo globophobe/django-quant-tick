@@ -6,6 +6,7 @@ from quant_candles.lib import get_current_time, get_min_time
 
 
 def big_decimal() -> serializers.DecimalField:
+    """Big decimal."""
     return serializers.DecimalField(
         max_digits=NUMERIC_PRECISION, decimal_places=NUMERIC_SCALE
     )

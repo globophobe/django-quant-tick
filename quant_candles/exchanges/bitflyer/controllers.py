@@ -19,7 +19,8 @@ def bitflyer_trades(
     timestamp_to: datetime,
     on_data_frame: Callable,
     verbose: bool = False,
-):
+) -> None:
+    """Get Bitflyer trades."""
     thirty_one_days_ago = datetime.combine(
         get_current_time().date() - pd.Timedelta("31d"), time.min
     )
@@ -43,4 +44,4 @@ def bitflyer_trades(
 
 
 class BitflyerTrades(BitflyerMixin, ExchangeREST):
-    pass
+    """Bitflyer trades."""

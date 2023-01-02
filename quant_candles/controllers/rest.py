@@ -76,6 +76,7 @@ def iter_api(
 
 
 def get_api_max_requests_reset(seconds: int) -> float:
+    """Get API max requests reset."""
     return time.time() + seconds
 
 

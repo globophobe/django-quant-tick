@@ -1,7 +1,8 @@
-import datetime
 import logging
 import os
 import time
+from datetime import datetime, timedelta
+from typing import List, Optional
 
 import httpx
 
@@ -20,22 +21,27 @@ from .constants import (
 logger = logging.getLogger(__name__)
 
 
-def get_binance_api_sleep_duration():
+def get_binance_api_sleep_duration() -> float:
+    """Get Binance API sleep duration."""
     now = get_current_time()
     current_minute = now.replace(second=0, microsecond=0)
-    next_minute = current_minute + datetime.timedelta(minutes=1)
+    next_minute = current_minute + timedelta(minutes=1)
     delta = next_minute - now
     return delta.total_seconds()
 
 
-def get_binance_api_url(url, pagination_id):
+def get_binance_api_url(url: str, pagination_id: int) -> str:
+    """Get Binance API url."""
     if pagination_id:
         return url + f"&fromId={pagination_id}"
     return url
 
 
-def get_binance_api_pagination_id(timestamp, last_data=[], data=[]):
-    # Like bybit, binance pagination feels like an IQ test
+def get_binance_api_pagination_id(
+    timestamp: datetime, last_data: list = [], data: list = []
+) -> int:
+    """Get Binance API pagination_id."""
+    # Like bybit, binance pagination feels like an IQ test.
     if len(data):
         last_trade = data[-1]
         last_id = last_trade["id"]
@@ -44,18 +50,25 @@ def get_binance_api_pagination_id(timestamp, last_data=[], data=[]):
         if last_id == 1:
             return None
         # Calculated pagination_id will be negative if remaining trades is
-        # less than MAX_RESULTS
+        # less than MAX_RESULTS.
         elif pagination_id <= 0:
             return 1
         else:
             return pagination_id
 
 
-def get_binance_api_timestamp(trade):
+def get_binance_api_timestamp(trade: dict) -> datetime:
+    """Get Binance API timestamp."""
     return parse_datetime(trade["time"], unit="ms")
 
 
-def get_trades(symbol, timestamp_from, pagination_id, log_format=None):
+def get_trades(
+    symbol: str,
+    timestamp_from: datetime,
+    pagination_id: int,
+    log_format: Optional[str] = None,
+) -> List[dict]:
+    """Get trades."""
     url = f"{API_URL}/historicalTrades?symbol={symbol}&limit={MAX_RESULTS}"
     os.environ[BINANCE_MAX_WEIGHT] = str(1195)
     result = iter_api(
@@ -73,7 +86,10 @@ def get_trades(symbol, timestamp_from, pagination_id, log_format=None):
     return result
 
 
-def get_binance_api_response(url, pagination_id=None, retry=30):
+def get_binance_api_response(
+    url: str, pagination_id: Optional[int] = None, retry: int = 30
+) -> List[dict]:
+    """Get Binance API response."""
     try:
         headers = {"X-MBX-APIKEY": os.environ.get(BINANCE_API_KEY, None)}
         response = httpx.get(get_binance_api_url(url, pagination_id), headers=headers)

@@ -1,16 +1,20 @@
 import logging
 import os
 from tempfile import NamedTemporaryFile
+from typing import Iterable
 
 import httpx
 import pandas as pd
+from pandas import DataFrame
 
 logger = logging.getLogger(__name__)
 
 
-def gzip_downloader(url, columns):
-    # Streaming downloads with boto3 and httpx gave many EOFErrors
-    # No problem if not streaming
+def gzip_downloader(url: str, columns: Iterable[str]) -> DataFrame:
+    """GZIP downloader.
+
+    Streaming downloads gave many EOFErrors, so regular download.
+    """
     response = httpx.get(url)
     if response.status_code == 200:
         temp_file = NamedTemporaryFile()
@@ -19,7 +23,7 @@ def gzip_downloader(url, columns):
             temp.write(response.content)
             size = os.path.getsize(filename)
             if size > 0:
-                # Extract
+                # Extract gzip.
                 return pd.read_csv(
                     filename,
                     usecols=columns,
