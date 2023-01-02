@@ -14,7 +14,7 @@ def bitfinex_trades(
     on_data_frame: Callable,
     retry: bool = False,
     verbose: bool = False,
-):
+) -> None:
     """Get Bitfinex trades."""
     BitfinexTrades(
         symbol,
@@ -28,5 +28,3 @@ def bitfinex_trades(
 
 class BitfinexTrades(BitfinexMixin, ExchangeREST):
     """Bitfinex trades."""
-
-    pass

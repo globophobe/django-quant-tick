@@ -29,48 +29,39 @@ class BaseTimeFrameIterator:
         step: str = "1d",
         retry: bool = False,
     ) -> Generator[Tuple[datetime, datetime], None, None]:
-        """Iter all, by days in 1 hour chunks, further chunked by 1m intervals.
+        """Iter all, default by days in 1 hour chunks, further chunked by 1m intervals.
 
         1 day -> 24 hours -> 60 minutes or 10 minutes, etc.
         """
-        for daily_timestamp_from, daily_timestamp_to, daily_existing in self.iter_days(
+        for ts_from, ts_to, existing in self.iter_partition(
             timestamp_from, timestamp_to, step=step, retry=retry
         ):
             for hourly_timestamp_from, hourly_timestamp_to in self.iter_hours(
-                daily_timestamp_from,
-                daily_timestamp_to,
-                daily_existing,
-                retry=retry,
+                ts_from, ts_to, existing, retry=retry
             ):
                 yield hourly_timestamp_from, hourly_timestamp_to
 
-    def iter_days(
+    def iter_partition(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
         step: str = "1d",
         retry: bool = False,
     ):
-        """Iter days."""
-        for daily_timestamp_from, daily_timestamp_to in iter_timeframe(
+        """Iter partition."""
+        for ts_from, ts_to in iter_timeframe(
             timestamp_from, timestamp_to, step, reverse=self.reverse
         ):
-            # Query for daily.
-            daily_existing = self.get_existing(
-                daily_timestamp_from, daily_timestamp_to, retry=retry
-            )
-            daily_delta = daily_timestamp_to - daily_timestamp_from
-            daily_expected = int(daily_delta.total_seconds() / 60)
-            if len(daily_existing) < daily_expected:
-                yield daily_timestamp_from, daily_timestamp_to, daily_existing
+            existing = self.get_existing(ts_from, ts_to, retry=retry)
+            delta = ts_to - ts_from
+            expected = int(delta.total_seconds() / 60)
+            if len(existing) < expected:
+                if self.can_process(ts_from, ts_to):
+                    yield ts_from, ts_to, existing
 
-    def has_all_timestamps(
-        self, timestamp_from: datetime, timestamp_to: datetime, existing: List[datetime]
-    ) -> bool:
-        """Has all timestamps."""
-        delta = timestamp_to - timestamp_from
-        expected = int(delta.total_seconds() / 60)
-        return len(existing) == expected
+    def can_process(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+        """Can process."""
+        return True
 
     def iter_hours(
         self,
@@ -103,12 +94,15 @@ class BaseTimeFrameIterator:
                     max_timestamp_to = self.get_max_timestamp_to()
                     end = max_timestamp_to if end_time > max_timestamp_to else end_time
                     if start_time != end:
-                        if self.can_process(start_time, end):
-                            yield start_time, end_time
+                        yield start_time, end_time
 
-    def can_process(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can process."""
-        return True
+    def has_all_timestamps(
+        self, timestamp_from: datetime, timestamp_to: datetime, existing: List[datetime]
+    ) -> bool:
+        """Has all timestamps."""
+        delta = timestamp_to - timestamp_from
+        expected = int(delta.total_seconds() / 60)
+        return len(existing) == expected
 
 
 class TradeDataIterator(BaseTimeFrameIterator):
@@ -155,7 +149,13 @@ class CandleCacheIterator(BaseTimeFrameIterator):
         return all(
             [
                 self.has_all_timestamps(
-                    TradeData.get_existing(symbol), timestamp_from, timestamp_to
+                    get_existing(
+                        TradeData.objects.filter(
+                            symbol=symbol,
+                            timestamp__gte=timestamp_from,
+                            timestamp__lt=timestamp_to,
+                        ).values("timestamp", "frequency")
+                    )
                 )
                 for symbol in self.candle.symbols.all()
             ]

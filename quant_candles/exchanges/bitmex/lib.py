@@ -1,7 +1,9 @@
 import numpy as np
+from pandas import DataFrame
 
 
-def calculate_index(data_frame):
+def calculate_index(data_frame: DataFrame) -> DataFrame:
+    """Calculate index."""
     symbols = data_frame.symbol.unique()
     data_frame["index"] = np.nan  # B/C pandas index
     for symbol in symbols:

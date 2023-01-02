@@ -13,7 +13,8 @@ def binance_trades(
     timestamp_to: datetime,
     on_data_frame: Callable,
     verbose: bool = False,
-):
+) -> None:
+    """Get Binance trades."""
     BinanceTrades(
         symbol,
         timestamp_from=timestamp_from,
@@ -24,4 +25,4 @@ def binance_trades(
 
 
 class BinanceTrades(BinanceMixin, ExchangeREST):
-    pass
+    """Binance trades."""

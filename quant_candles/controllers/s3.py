@@ -23,7 +23,8 @@ from .iterators import TradeDataIterator
 logger = logging.getLogger(__name__)
 
 
-def use_s3():
+def use_s3() -> datetime:
+    """Use S3."""
     date = get_current_time().date() - pd.Timedelta("2d")
     return datetime.datetime.combine(date, datetime.time.min).replace(
         tzinfo=datetime.timezone.utc
@@ -39,7 +40,7 @@ class ExchangeS3(BaseController):
 
     @property
     def gzipped_csv_columns(self) -> list:
-        """Get columns to load CSV file."""
+        """Get column names of CSV file."""
         return [
             "timestamp",
             "symbol",
@@ -54,6 +55,7 @@ class ExchangeS3(BaseController):
 
     @property
     def columns(self) -> list:
+        """Columns."""
         return [
             "uid",
             "timestamp",
@@ -65,6 +67,7 @@ class ExchangeS3(BaseController):
         ]
 
     def main(self) -> None:
+        """Main."""
         iterator = TradeDataIterator(self.symbol)
         for (
             daily_timestamp_from,

@@ -2,7 +2,7 @@ import json
 import time
 from datetime import datetime
 from decimal import Decimal
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 import httpx
 
@@ -20,7 +20,7 @@ from .constants import (
 )
 
 
-def get_bybit_api_url(url, timestamp_from: datetime):
+def get_bybit_api_url(url: str, timestamp_from: datetime) -> str:
     """Get Bybit API url."""
     return url
 
@@ -31,7 +31,8 @@ def get_bybit_api_response(
     timestamp_from: Optional[datetime] = None,
     pagination_id: Optional[str] = None,
     retry: int = 30,
-):
+) -> List[dict]:
+    """Get Bybit API response."""
     throttle_api_requests(
         BYBIT_MAX_REQUESTS_RESET,
         BYBIT_TOTAL_REQUESTS,

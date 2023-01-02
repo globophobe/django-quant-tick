@@ -17,7 +17,8 @@ def bybit_trades(
     on_data_frame: Callable,
     retry: bool = False,
     verbose: bool = False,
-):
+) -> None:
+    """Get Bybit trades."""
     max_timestamp_to = use_s3()
     if timestamp_to > max_timestamp_to:
         timestamp_to = max_timestamp_to
@@ -37,4 +38,4 @@ def bybit_trades(
 
 
 class BybitTradesS3(BybitS3Mixin, ExchangeS3):
-    pass
+    """Bybit trades S3."""

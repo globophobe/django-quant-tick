@@ -33,6 +33,43 @@ def get_range(time_delta):
     return unit, step
 
 
+def aggregate_candles(
+    data_frame,
+    timestamp_from,
+    timestamp_to,
+    time_delta,
+    top_n=0,
+    cache={},
+    as_dict=False,
+    return_cache=True,
+):
+    samples = []
+    period = pendulum.period(timestamp_from, timestamp_to)
+    unit, step = get_range(time_delta)
+    for index, start in enumerate(period.range(unit, step)):
+        end = start + pd.Timedelta(f"{step}{unit}")
+        df = data_frame[(data_frame.timestamp >= start) & (data_frame.timestamp < end)]
+        # Maybe trades
+        if len(df):
+            if "symbol" in df.columns:
+                symbols = df.symbol.unique()
+                assert len(symbols) == 1
+                open_price = cache[symbols[0]]
+            else:
+                open_price = cache["open"]
+            sample = aggregate_rows(
+                df,
+                # Open timestamp, or won't be in partition
+                timestamp=start,
+                open_price=open_price,
+                top_n=top_n,
+            )
+            cache["open"] = sample["close"]
+            samples.append(sample)
+    data = pd.DataFrame(samples) if not top_n and not as_dict else samples
+    return data, cache if return_cache else data
+
+
 def get_initial_thresh_cache(thresh_attr, thresh_value, timestamp):
     return {
         "era": timestamp,
@@ -43,8 +80,13 @@ def get_initial_thresh_cache(thresh_attr, thresh_value, timestamp):
 
 
 def get_cache_for_frequency(
-    cache: dict, timestamp: datetime.datetime, era_length, thresh_attr, thresh_value
-):
+    cache: dict,
+    timestamp: datetime.datetime,
+    era_length: Frequency,
+    thresh_attr: str,
+    thresh_value: int,
+) -> dict:
+    """Get cache for frequency."""
     if not isinstance(cache["era"], datetime.date):
         date = cache["era"].date()
     else:
@@ -85,9 +127,9 @@ def aggregate_thresh(
         if cache[thresh_attr] >= thresh_value:
             df = data_frame.loc[start:index]
             sample = aggregate_rows(df)
-            if "nextDay" in cache:
-                previous = cache.pop("nextDay")
-                sample = merge_cache(previous, sample, top_n=top_n)
+            if "next" in cache:
+                previous_values = cache.pop("next")
+                sample = merge_cache(previous_values, sample, top_n=top_n)
             samples.append(sample)
             # Reinitialize cache
             cache[thresh_attr] = 0

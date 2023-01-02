@@ -1,6 +1,6 @@
 from datetime import datetime
 from functools import partial
-from typing import Optional
+from typing import List, Optional
 
 from quant_candles.controllers import iter_api
 from quant_candles.lib import parse_datetime
@@ -23,7 +23,8 @@ def get_coinbase_trades_url(
 def get_coinbase_trades_pagination_id(
     timestamp: datetime, last_data: list = [], data: list = []
 ) -> Optional[int]:
-    """
+    """Get Coinbase trades pagination_id.
+
     Pagination details: https://docs.pro.coinbase.com/#pagination
     """
     if len(data):
@@ -31,6 +32,7 @@ def get_coinbase_trades_pagination_id(
 
 
 def get_coinbase_trades_timestamp(trade: dict) -> datetime:
+    """Get Coinbase trades timestamp."""
     return parse_datetime(trade["time"])
 
 
@@ -39,7 +41,8 @@ def get_trades(
     timestamp_from: datetime,
     pagination_id: int,
     log_format: Optional[str] = None,
-):
+) -> List[dict]:
+    """Get trades."""
     url = f"{API_URL}/products/{symbol}/trades"
     return iter_api(
         url,

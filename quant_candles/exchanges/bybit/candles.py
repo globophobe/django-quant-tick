@@ -23,7 +23,7 @@ def get_bybit_candle_pagination_id(
     """Get Bybit candle pagination_id."""
 
 
-def get_bybit_candle_timestamp(candle: dict) -> None:
+def get_bybit_candle_timestamp(candle: dict) -> datetime:
     """Get Bybit candle timestamp."""
     return datetime.fromtimestamp(candle["open_time"]).replace(tzinfo=timezone.utc)
 
@@ -35,7 +35,8 @@ def bybit_candles(
     interval: str = "1",
     limit: int = 60,
     log_format: Optional[str] = None,
-):
+) -> List[dict]:
+    """Get Bybit candles."""
     ts_from = format_bybit_candle_timestamp(timestamp_from)
     params = f"symbol={api_symbol}&from={ts_from}&interval={interval}&limit={limit}"
     url = f"{API_URL}/kline/list?{params}"

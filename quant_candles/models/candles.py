@@ -35,9 +35,9 @@ class Candle(AbstractCodeName):
 
     @classmethod
     def get_content_types(cls) -> list:
-        """Subclass contenttypes."""
+        """Get content types."""
         pks = [
-            ctype.pk
+            ctype
             for ctype, model_class in [
                 (ctype, ctype.model_class()) for ctype in ContentType.objects.all()
             ]
