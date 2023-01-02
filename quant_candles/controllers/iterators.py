@@ -79,7 +79,7 @@ class BaseTimeFrameIterator:
                 for timestamp in partition_existing
                 if timestamp >= ts_from and timestamp < ts_to
             ]
-            if not self.has_all_timestamps(timestamp_from, timestamp_to, existing):
+            if not self.has_all_timestamps(ts_from, ts_to, existing):
                 for start_time, end_time in iter_missing(
                     ts_from, ts_to, existing, reverse=self.reverse
                 ):
