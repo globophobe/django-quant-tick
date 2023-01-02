@@ -37,6 +37,17 @@ def get_previous_time(timestamp: datetime, value: str) -> datetime:
     return get_min_time(timestamp, value=value) - pd.Timedelta(value)
 
 
+def get_next_monday(timestamp: datetime) -> datetime:
+    """Get next Monday."""
+    ts = get_min_time(timestamp, value="1d")
+    weekday = ts.date().weekday()
+    if weekday != 0:
+        days = 0 - weekday % 7
+        return ts + pd.Timedelta(f"{days}d")
+    else:
+        return ts
+
+
 def timestamp_to_inclusive(
     timestamp_from: datetime, timestamp_to: datetime, value: str = "1t"
 ):
