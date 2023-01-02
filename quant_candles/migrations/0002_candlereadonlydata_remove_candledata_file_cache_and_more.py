@@ -163,4 +163,16 @@ class Migration(migrations.Migration):
                 "ordering": ("timestamp",),
             },
         ),
+        migrations.CreateModel(
+            name="TimeBasedCandle",
+            fields=[],
+            options={
+                "verbose_name": "time based candle",
+                "verbose_name_plural": "time based candles",
+                "proxy": True,
+                "indexes": [],
+                "constraints": [],
+            },
+            bases=("quant_candles.candle",),
+        ),
     ]
