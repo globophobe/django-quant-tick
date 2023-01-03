@@ -53,6 +53,10 @@ class Candle(AbstractCodeName):
         """Get initial cache."""
         raise NotImplementedError
 
+    def aggregate(self, data_frame: DataFrame, cache: dict) -> Tuple[list, dict]:
+        """Aggregate."""
+        raise NotImplementedError
+
     def get_data_frame(
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
@@ -77,10 +81,6 @@ class Candle(AbstractCodeName):
             .sort_values(["timestamp", "nanoseconds"])
             .reset_index()
         )
-
-    def aggregate(self, data_frame: DataFrame, cache: dict) -> Tuple[list, dict]:
-        """Aggregate."""
-        raise NotImplementedError
 
     def get_data(
         self, timestamp_from: datetime, timestamp_to: datetime, limit: int = 1000
