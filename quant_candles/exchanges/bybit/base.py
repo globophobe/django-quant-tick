@@ -1,5 +1,6 @@
+import datetime
 import logging
-from datetime import datetime, timezone
+from datetime import timezone
 
 import httpx
 import pandas as pd
@@ -15,7 +16,7 @@ class BybitMixin:
     """Bybit mixin."""
 
     def get_candles(
-        self, timestamp_from: datetime, timestamp_to: datetime
+        self, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
         return bybit_candles(
@@ -31,7 +32,7 @@ class BybitMixin:
 class BybitS3Mixin(BybitMixin):
     """Bybit S3 mixin."""
 
-    def get_url(self, date):
+    def get_url(self, date: datetime.date) -> str:
         """Get URL."""
         symbol = self.symbol.api_symbol
         directory = f"{S3_URL}{symbol}/"
