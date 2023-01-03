@@ -7,6 +7,7 @@ from .base import *  # noqa
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
+IS_LOCAL = True
 
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
