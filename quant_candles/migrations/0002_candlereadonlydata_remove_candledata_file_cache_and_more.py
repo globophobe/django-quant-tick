@@ -175,4 +175,19 @@ class Migration(migrations.Migration):
             },
             bases=("quant_candles.candle",),
         ),
+        migrations.RemoveField(
+            model_name="candle",
+            name="content_type",
+        ),
+        migrations.AddField(
+            model_name="candle",
+            name="polymorphic_ctype",
+            field=models.ForeignKey(
+                editable=False,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="polymorphic_%(app_label)s.%(class)s_set+",
+                to="contenttypes.contenttype",
+            ),
+        ),
     ]
