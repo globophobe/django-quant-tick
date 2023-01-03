@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Generator, List, Tuple
+from typing import Generator, List, Optional, Tuple
 
 from django.db import models
 
@@ -7,10 +7,29 @@ from quant_candles.lib import (
     get_current_time,
     get_existing,
     get_min_time,
+    has_timestamps,
     iter_missing,
     iter_timeframe,
 )
 from quant_candles.models import Candle, CandleCache, Symbol, TradeData
+
+
+def aggregate_candles(
+    candle: Candle,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    json_cache: Optional[dict] = None,
+    file_cache: Optional[dict] = None,
+) -> None:
+    """Aggregate candles."""
+    for ts_from, ts_to in CandleCacheIterator.iter_all(timestamp_from, timestamp_to):
+        data_frame = candle.get_data_frame(ts_from, ts_to)
+        json_cache, file_cache = candle.get_cache(json_cache, file_cache, ts_from)
+        candle_data, json_cache, file_cache = candle.aggregate(
+            data_frame, json_cache, file_cache
+        )
+        candle.write_cache(ts_from, ts_to, json_cache, file_cache)
+        candle.write_data(ts_from, ts_to, candle_data)
 
 
 class BaseTimeFrameIterator:
@@ -53,9 +72,7 @@ class BaseTimeFrameIterator:
             timestamp_from, timestamp_to, step, reverse=self.reverse
         ):
             existing = self.get_existing(ts_from, ts_to, retry=retry)
-            delta = ts_to - ts_from
-            expected = int(delta.total_seconds() / 60)
-            if len(existing) < expected:
+            if not has_timestamps(ts_from, ts_to, existing):
                 if self.can_process(ts_from, ts_to):
                     yield ts_from, ts_to, existing
 
@@ -79,7 +96,7 @@ class BaseTimeFrameIterator:
                 for timestamp in partition_existing
                 if timestamp >= ts_from and timestamp < ts_to
             ]
-            if not self.has_all_timestamps(ts_from, ts_to, existing):
+            if not has_timestamps(ts_from, ts_to, existing):
                 for start_time, end_time in iter_missing(
                     ts_from, ts_to, existing, reverse=self.reverse
                 ):
@@ -87,14 +104,6 @@ class BaseTimeFrameIterator:
                     end = max_timestamp_to if end_time > max_timestamp_to else end_time
                     if start_time != end:
                         yield start_time, end_time
-
-    def has_all_timestamps(
-        self, timestamp_from: datetime, timestamp_to: datetime, existing: List[datetime]
-    ) -> bool:
-        """Has all timestamps."""
-        delta = timestamp_to - timestamp_from
-        expected = int(delta.total_seconds() / 60)
-        return len(existing) == expected
 
 
 class TradeDataIterator(BaseTimeFrameIterator):
@@ -136,15 +145,4 @@ class CandleCacheIterator(BaseTimeFrameIterator):
 
     def can_process(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can process."""
-        values = []
-        for symbol in self.candle.symbols.all():
-            trade_data = TradeData.objects.filter(
-                symbol=symbol,
-                timestamp__gte=timestamp_from,
-                timestamp__lt=timestamp_to,
-            )
-            existing = get_existing(trade_data.values("timestamp", "frequency"))
-            values.append(
-                self.has_all_timestamps(timestamp_from, timestamp_to, existing)
-            )
-        return all(values)
+        return self.candle.can_aggregate(timestamp_from, timestamp_to)

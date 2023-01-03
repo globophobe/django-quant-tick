@@ -2,6 +2,7 @@ import logging
 
 from django.core.management.base import BaseCommand, CommandParser
 
+from quant_candles.controllers import aggregate_candles
 from quant_candles.lib import parse_period_from_to
 from quant_candles.models import Candle
 
@@ -37,3 +38,4 @@ class Command(BaseCommand):
                 date_to=options["date_to"],
                 time_to=options["time_to"],
             )
+            aggregate_candles(candle, timestamp_from, timestamp_to)
