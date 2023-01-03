@@ -146,10 +146,6 @@ class CandleCacheIteratorTest(BaseCandleCacheIteratorTest):
         self.assertEqual(values[0][1], self.timestamp_to - self.one_minute)
 
 
-@patch(
-    "quant_candles.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
-    return_value=datetime(2009, 1, 31).replace(tzinfo=timezone.utc),
-)
 class CandleCacheWeeklyIteratorTest(BaseCandleCacheIteratorTest):
     def setUp(self):
         super().setUp()
@@ -157,7 +153,7 @@ class CandleCacheWeeklyIteratorTest(BaseCandleCacheIteratorTest):
         self.timestamp_to = get_next_monday(self.timestamp_from)
         self.one_hour = pd.Timedelta("1h")
 
-    def test_iter_all_with_seven_day_step(self, mock_get_max_timestamp_to):
+    def test_iter_all_with_seven_day_step(self):
         """From Monday, to Monday after next."""
         TradeData.objects.create(
             symbol=self.symbol,
@@ -171,9 +167,7 @@ class CandleCacheWeeklyIteratorTest(BaseCandleCacheIteratorTest):
         self.assertEqual(values[-1][0], self.timestamp_to - self.one_hour)
         self.assertEqual(values[-1][1], self.timestamp_to)
 
-    def test_iter_all_with_seven_day_step_and_missing_trade_data(
-        self, mock_get_max_timestamp_to
-    ):
+    def test_iter_all_with_seven_day_step_and_missing_trade_data(self):
         """From Monday, to Monday after next. Trade data is missing, so no values."""
         TradeData.objects.create(
             symbol=self.symbol,
