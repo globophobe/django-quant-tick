@@ -28,13 +28,15 @@ Candles are aggregated at 1 minute intervals, and validated with the exchange's 
 Supported exchanges
 -------------------
 
-:white_medium_square: Binance REST API (requires API key)
+:white_medium_square: Binance REST API (requires API key, which requires KYC)
+* <em>Code was working, but I did not complete KYC, and as a resident of Japan am not currently able to do so. I cannot verify it's current state.</em>
 
 :white_check_mark: Bitfinex REST API
 
 :white_check_mark: BitMEX REST API, and [S3](https://public.bitmex.com/) repository
 
 :white_check_mark: Bybit [S3](https://public.bybit.com/) repository
+* <em> Unfortunately, Bybit no longer provides a paginated REST API.</em>
 
 :white_check_mark: Coinbase Pro REST API
 
