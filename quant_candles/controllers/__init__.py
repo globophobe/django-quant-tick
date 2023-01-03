@@ -1,5 +1,5 @@
 from .constants import HTTPX_ERRORS
-from .iterators import CandleCacheIterator, TradeDataIterator
+from .iterators import CandleCacheIterator, TradeDataIterator, aggregate_candles
 from .rest import (
     ExchangeREST,
     IntegerPaginationMixin,

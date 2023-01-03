@@ -1,15 +1,18 @@
 import os
 from datetime import datetime
+from io import BytesIO
 from itertools import chain
-from typing import Tuple
+from typing import List, Optional, Tuple
 
 import pandas as pd
-from django.contrib.contenttypes.models import ContentType
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from pandas import DataFrame
+from polymorphic.models import PolymorphicModel
 
 from quant_candles.constants import Frequency
+from quant_candles.lib import get_existing, has_timestamps
 from quant_candles.utils import gettext_lazy as _
 
 from .base import AbstractCodeName, AbstractDataStorage, JSONField
@@ -25,32 +28,48 @@ def upload_data_to(instance: "CandleData", filename: str) -> str:
     return f"{prefix}/{fname}{ext}"
 
 
-class Candle(AbstractCodeName):
+class Candle(AbstractCodeName, PolymorphicModel):
     symbols = models.ManyToManyField(
         "quant_candles.Symbol",
         db_table="quant_candles_candle_symbol",
         verbose_name=_("symbol"),
     )
-    content_type = models.ForeignKey(ContentType, on_delete=models.SET_NULL, null=True)
     date_from = models.DateField(_("date from"), null=True)
     date_to = models.DateField(_("date to"), null=True)
     json_data = JSONField(_("json data"), default=dict)
     is_active = models.BooleanField(_("active"), default=True)
 
-    @classmethod
-    def get_content_types(cls) -> list:
-        """Get content types."""
-        pks = [
-            ctype
-            for ctype, model_class in [
-                (ctype, ctype.model_class()) for ctype in ContentType.objects.all()
-            ]
-            if issubclass(model_class, Candle) and model_class is not Candle
-        ]
-        return ContentType.objects.filter(pk__in=pks)
-
     def get_initial_cache(self, **kwargs) -> dict:
         """Get initial cache."""
+        raise NotImplementedError
+
+    def get_last_cache(self, timestamp: datetime) -> dict:
+        """Get cache."""
+        return (
+            CandleCache.objects.filter(candle=self, timestamp__lt=timestamp)
+            .only("timestamp", "json_data")
+            .first()
+        )
+
+    def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+        """Can aggregate."""
+        values = []
+        for symbol in self.symbols.all():
+            trade_data = (
+                TradeData.objects.filter(
+                    symbol=symbol,
+                    timestamp__gte=timestamp_from,
+                    timestamp__lt=timestamp_to,
+                )
+                .only("timestamp", "frequency")
+                .values("timestamp", "frequency")
+            )
+            existing = get_existing(trade_data)
+            values.append(has_timestamps(timestamp_from, timestamp_to, existing))
+        return all(values)
+
+    def aggregate(self, data_frame: DataFrame, cache: dict) -> Tuple[list, dict]:
+        """Aggregate."""
         raise NotImplementedError
 
     def get_data_frame(
@@ -78,10 +97,6 @@ class Candle(AbstractCodeName):
             .reset_index()
         )
 
-    def aggregate(self, data_frame: DataFrame, cache: dict) -> Tuple[list, dict]:
-        """Aggregate."""
-        raise NotImplementedError
-
     def get_data(
         self, timestamp_from: datetime, timestamp_to: datetime, limit: int = 1000
     ) -> list:
@@ -103,6 +118,64 @@ class Candle(AbstractCodeName):
         )
         candle_read_only_data = candle_read_only_data[: limit - candle_data.count()]
         return list(chain(candle_data, candle_read_only_data))
+
+    def write_cache(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        json_data: Optional[dict] = None,
+        file_data: Optional[BytesIO] = None,
+    ):
+        """Write cache.
+
+        Delete previously saved data.
+        """
+        queryset = CandleCache.objects.filter(
+            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_from
+        )
+        queryset.delete()
+        delta = timestamp_to - timestamp_from
+        frequency = (
+            Frequency.HOUR
+            if delta.total_seconds() == Frequency.HOUR
+            else Frequency.MINUTE
+        )
+        CandleCache.objects.create(
+            candle=self,
+            timestamp=timestamp_from,
+            frequency=frequency,
+            json_data=json_data,
+            file_data=file_data,
+        )
+
+    def write_data(
+        self, timestamp_from: datetime, timestamp_to: datetime, json_data: List[dict]
+    ) -> None:
+        """Write data.
+
+        Delete previously saved data.
+        """
+        query = (
+            Q(candle=self)
+            & Q(timestamp__gte=timestamp_from)
+            & Q(timestamp__lt=timestamp_to)
+        )
+        if settings.IS_LOCAL:
+            CandleReadOnlyData.objects.filter(query).delete()
+        else:
+            CandleData.objects.filter(query).delete()
+        candle_data = []
+        for j in json_data:
+            timestamp = j.pop("timestamp")
+            kwargs = {"candle": self, "timestamp": timestamp, "json_data": j}
+            if settings.IS_LOCAL:
+                candle_data.append(CandleReadOnlyData(**kwargs))
+            else:
+                candle_data.append(CandleData(**kwargs))
+        if settings.IS_LOCAL:
+            CandleReadOnlyData.objects.bulk_create(candle_data)
+        else:
+            CandleData.objects.bulk_create(candle_data)
 
     class Meta:
         db_table = "quant_candles_candle"

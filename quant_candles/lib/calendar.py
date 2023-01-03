@@ -48,6 +48,15 @@ def get_next_monday(timestamp: datetime) -> datetime:
         return ts + pd.Timedelta("7d")
 
 
+def has_timestamps(
+    timestamp_from: datetime, timestamp_to: datetime, existing: List[datetime]
+) -> bool:
+    """Has timestamps?"""
+    delta = timestamp_to - timestamp_from
+    expected = int(delta.total_seconds() / 60)
+    return len(existing) == expected
+
+
 def timestamp_to_inclusive(
     timestamp_from: datetime, timestamp_to: datetime, value: str = "1t"
 ):
