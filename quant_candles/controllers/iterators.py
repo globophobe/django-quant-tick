@@ -1,4 +1,5 @@
 from datetime import datetime
+from io import BytesIO
 from typing import Generator, List, Optional, Tuple
 
 from django.db import models
@@ -18,17 +19,18 @@ def aggregate_candles(
     candle: Candle,
     timestamp_from: datetime,
     timestamp_to: datetime,
+    step: str = "1d",
     json_cache: Optional[dict] = None,
-    file_cache: Optional[dict] = None,
+    file_cache: Optional[BytesIO] = None,
 ) -> None:
     """Aggregate candles."""
     for ts_from, ts_to in CandleCacheIterator(candle).iter_all(
-        timestamp_from, timestamp_to
+        timestamp_from, timestamp_to, step
     ):
         data_frame = candle.get_data_frame(ts_from, ts_to)
-        json_cache, file_cache = candle.get_cache(json_cache, file_cache, ts_from)
+        json_cache, file_cache = candle.get_cache(ts_from, json_cache, file_cache)
         candle_data, json_cache, file_cache = candle.aggregate(
-            data_frame, json_cache, file_cache
+            ts_from, ts_to, data_frame, json_cache, file_cache
         )
         candle.write_cache(ts_from, ts_to, json_cache, file_cache)
         candle.write_data(ts_from, ts_to, candle_data)
@@ -54,7 +56,7 @@ class BaseTimeFrameIterator:
 
         1 day -> 24 hours -> 60 minutes or 10 minutes, etc.
         """
-        for ts_from, ts_to, existing in self.iter_partition(
+        for ts_from, ts_to, existing in self.iter_range(
             timestamp_from, timestamp_to, step, retry=retry
         ):
             for hourly_timestamp_from, hourly_timestamp_to in self.iter_hours(
@@ -62,14 +64,14 @@ class BaseTimeFrameIterator:
             ):
                 yield hourly_timestamp_from, hourly_timestamp_to
 
-    def iter_partition(
+    def iter_range(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
         step: str = "1d",
         retry: bool = False,
     ):
-        """Iter partition."""
+        """Iter range."""
         for ts_from, ts_to in iter_timeframe(
             timestamp_from, timestamp_to, step, reverse=self.reverse
         ):
