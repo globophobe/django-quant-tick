@@ -22,7 +22,9 @@ def aggregate_candles(
     file_cache: Optional[dict] = None,
 ) -> None:
     """Aggregate candles."""
-    for ts_from, ts_to in CandleCacheIterator.iter_all(timestamp_from, timestamp_to):
+    for ts_from, ts_to in CandleCacheIterator(candle).iter_all(
+        timestamp_from, timestamp_to
+    ):
         data_frame = candle.get_data_frame(ts_from, ts_to)
         json_cache, file_cache = candle.get_cache(json_cache, file_cache, ts_from)
         candle_data, json_cache, file_cache = candle.aggregate(
