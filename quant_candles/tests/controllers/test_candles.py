@@ -4,16 +4,22 @@ from unittest.mock import patch
 
 import pandas as pd
 import time_machine
+from django.test import TestCase
 
 from quant_candles.constants import Frequency
-from quant_candles.controllers import CandleCacheIterator
+from quant_candles.controllers import CandleCacheIterator, aggregate_candles
 from quant_candles.lib import get_current_time, get_next_monday
-from quant_candles.models import Candle, CandleCache, TradeData
+from quant_candles.models import (
+    Candle,
+    CandleCache,
+    CandleData,
+    CandleReadOnlyData,
+    TradeData,
+)
 
-from ..base import BaseSymbolTest
+from ..base import BaseSymbolTest, BaseWriteTradeDataTest
 
 
-@time_machine.travel(datetime(2009, 1, 3))
 class BaseCandleCacheIteratorTest(BaseSymbolTest):
     def setUp(self):
         super().setUp()
@@ -33,7 +39,16 @@ class BaseCandleCacheIteratorTest(BaseSymbolTest):
         ]
 
 
-class CandleCacheIteratorTest(BaseCandleCacheIteratorTest):
+class BaseCandleCacheWeeklyIteratorTest(BaseCandleCacheIteratorTest):
+    def setUp(self):
+        super().setUp()
+        self.timestamp_from = get_next_monday(get_current_time())
+        self.timestamp_to = get_next_monday(self.timestamp_from)
+        self.one_hour = pd.Timedelta("1h")
+
+
+@time_machine.travel(datetime(2009, 1, 3))
+class CandleCacheIteratorTest(BaseCandleCacheIteratorTest, TestCase):
     def setUp(self):
         super().setUp()
         self.one_minute = pd.Timedelta("1t")
@@ -146,13 +161,8 @@ class CandleCacheIteratorTest(BaseCandleCacheIteratorTest):
         self.assertEqual(values[0][1], self.timestamp_to - self.one_minute)
 
 
-class CandleCacheWeeklyIteratorTest(BaseCandleCacheIteratorTest):
-    def setUp(self):
-        super().setUp()
-        self.timestamp_from = get_next_monday(get_current_time())
-        self.timestamp_to = get_next_monday(self.timestamp_from)
-        self.one_hour = pd.Timedelta("1h")
-
+@time_machine.travel(datetime(2009, 1, 3))
+class CandleCacheWeeklyIteratorTest(BaseCandleCacheWeeklyIteratorTest, TestCase):
     def test_iter_all_with_seven_day_step(self):
         """From Monday, to Monday after next."""
         TradeData.objects.create(
@@ -176,3 +186,20 @@ class CandleCacheWeeklyIteratorTest(BaseCandleCacheIteratorTest):
         )
         values = self.get_values(step="7d")
         self.assertEqual(len(values), 0)
+
+
+class AggregateCandleWeeklyTest(
+    BaseWriteTradeDataTest, BaseCandleCacheWeeklyIteratorTest, TestCase
+):
+    databases = {"default", "read_only"}
+
+    def test_aggregate_candles_with_weekly_cache_reset(self):
+        """Aggregate candles, with weekly cache reset."""
+        trade_data = TradeData(
+            symbol=self.symbol, timestamp=self.timestamp_from, frequency=Frequency.WEEK
+        )
+        # Save single file to speed up test.
+        TradeData.write_data_frame(
+            trade_data, self.get_filtered(self.timestamp_from), pd.DataFrame([])
+        )
+        aggregate_candles(self.candle, self.timestamp_from, self.timestamp_to)

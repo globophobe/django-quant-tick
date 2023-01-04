@@ -2,13 +2,14 @@ from unittest.mock import patch
 
 from django.urls import reverse
 from rest_framework import status
+from rest_framework.test import APITestCase
 
 from quant_candles.constants import Exchange
 
-from .base import BaseViewTest
+from .base import BaseTradeViewTest
 
 
-class ConvertToHourlyViewTest(BaseViewTest):
+class ConvertToHourlyViewTest(BaseTradeViewTest, APITestCase):
     def get_url(self, exchange: Exchange = Exchange.COINBASE) -> str:
         """Get URL."""
         return reverse("convert_trade_data_to_hourly", kwargs={"exchange": exchange})

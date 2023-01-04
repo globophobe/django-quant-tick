@@ -1,6 +1,3 @@
-import logging
-
-from django.contrib.auth import get_user_model
 from django.db import models
 from django.urls import reverse
 from rest_framework import status
@@ -9,15 +6,14 @@ from rest_framework.test import APITestCase
 from quant_candles.lib import get_current_time, get_min_time, get_previous_time
 from quant_candles.models import Candle, CandleData, CandleReadOnlyData
 
+from .base import BaseViewTest
 
-class CandleViewTest(APITestCase):
+
+class CandleViewTest(BaseViewTest, APITestCase):
     databases = {"default", "read_only"}
 
     def setUp(self):
-        User = get_user_model()
-        user = User.objects.create(username="test")
-        self.client.force_authenticate(user)
-
+        super().setUp()
         now = get_current_time()
         self.timestamp = get_min_time(now, "1t")
 

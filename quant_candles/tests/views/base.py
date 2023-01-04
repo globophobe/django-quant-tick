@@ -3,17 +3,21 @@ from typing import List, Union
 from unittest.mock import MagicMock
 
 from django.contrib.auth import get_user_model
-from rest_framework.test import APITestCase
 
 from quant_candles.constants import Exchange
 from quant_candles.models import GlobalSymbol, Symbol
 
 
-class BaseViewTest(APITestCase):
+class BaseViewTest:
     def setUp(self):
         User = get_user_model()
         user = User.objects.create(username="test")
         self.client.force_authenticate(user)
+
+
+class BaseTradeViewTest(BaseViewTest):
+    def setUp(self):
+        super().setUp()
         self.url = self.get_url()
 
         logger = logging.getLogger("django.request")

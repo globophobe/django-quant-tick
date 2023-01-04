@@ -2,7 +2,7 @@ from datetime import datetime, time, timezone
 from typing import List
 
 import pandas as pd
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from quant_candles.lib import (
     get_current_time,
@@ -17,7 +17,7 @@ from quant_candles.lib import (
 )
 
 
-class GetMinTimeTest(TestCase):
+class GetMinTimeTest(SimpleTestCase):
     def test_get_min_time_1d(self):
         """Get start of current day."""
         now = get_current_time()
@@ -28,7 +28,7 @@ class GetMinTimeTest(TestCase):
         )
 
 
-class GetNexttimeTest(TestCase):
+class GetNexttimeTest(SimpleTestCase):
     def test_get_next_minute(self):
         """Get start of next day."""
         now = get_current_time()
@@ -39,7 +39,7 @@ class GetNexttimeTest(TestCase):
         )
 
 
-class GetRangeTest(TestCase):
+class GetRangeTest(SimpleTestCase):
     def setUp(self):
         now = get_current_time()
         self.timestamp_from = get_min_time(now, value="1d")
@@ -60,7 +60,7 @@ class GetRangeTest(TestCase):
         self.assertEqual(values[0], self.timestamp_from)
 
 
-class IterWindowTest(TestCase):
+class IterWindowTest(SimpleTestCase):
     def setUp(self):
         one_day = pd.Timedelta("1d")
         self.now = get_current_time()
@@ -89,7 +89,7 @@ class IterWindowTest(TestCase):
         self.assertEqual(values[1][0], get_min_time(self.two_days_ago, value="1d"))
 
 
-class IterTimeframeTest(TestCase):
+class IterTimeframeTest(SimpleTestCase):
     def setUp(self):
         self.now = get_current_time()
 
@@ -188,7 +188,7 @@ class IterTimeframeTest(TestCase):
         self.assertEqual(values[0][1], monday_after_next)
 
 
-class IterMissingTest(TestCase):
+class IterMissingTest(SimpleTestCase):
     def setUp(self):
         self.one_minute = pd.Timedelta("1t")
         self.timestamp_from = get_min_time(get_current_time(), "1d")

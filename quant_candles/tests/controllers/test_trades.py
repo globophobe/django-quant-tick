@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pandas as pd
 import time_machine
+from django.test import TestCase
 
 from quant_candles.constants import Frequency
 from quant_candles.controllers import TradeDataIterator
@@ -13,7 +14,7 @@ from ..base import BaseSymbolTest
 
 
 @time_machine.travel(datetime(2009, 1, 3))
-class TradeDataIteratorTest(BaseSymbolTest):
+class TradeDataIteratorTest(BaseSymbolTest, TestCase):
     def setUp(self):
         super().setUp()
         self.one_minute = pd.Timedelta("1t")

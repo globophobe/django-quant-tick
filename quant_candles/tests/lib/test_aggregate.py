@@ -2,6 +2,7 @@ import random
 from datetime import datetime
 
 import pandas as pd
+from django.test import SimpleTestCase
 from pandas import DataFrame
 
 from quant_candles.lib import (
@@ -11,10 +12,10 @@ from quant_candles.lib import (
     volume_filter_with_time_window,
 )
 
-from ..base import RandomTradeTest
+from ..base import BaseRandomTradeTest
 
 
-class TradeAggregatorTest(RandomTradeTest):
+class TradeAggregatorTest(BaseRandomTradeTest, SimpleTestCase):
     def test_equal_symbols_and_timestamps_and_ticks(self):
         """Aggregated trades with equal symbols, timestamps, and ticks."""
         trades = [{"symbol": "A", "is_equal_timestamp": True, "ticks": [1, 1]}]
@@ -95,7 +96,7 @@ class TradeAggregatorTest(RandomTradeTest):
         self.assertEqual(len(data), 2)
 
 
-class VolumeFilterTest(RandomTradeTest):
+class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
     def assert_min_volume(self, df: DataFrame) -> None:
         """Assert minimum volume."""
         assert isinstance(df.timestamp, datetime)
