@@ -39,17 +39,36 @@ class Candle(AbstractCodeName, PolymorphicModel):
     json_data = JSONField(_("json data"), default=dict)
     is_active = models.BooleanField(_("active"), default=True)
 
-    def get_initial_cache(self, **kwargs) -> dict:
+    def get_initial_cache(self, **kwargs) -> Tuple[Optional[dict], Optional[BytesIO]]:
         """Get initial cache."""
         raise NotImplementedError
 
-    def get_last_cache(self, timestamp: datetime) -> dict:
+    def get_last_cache(
+        self, timestamp: datetime
+    ) -> Tuple[Optional[dict], Optional[BytesIO]]:
         """Get cache."""
-        return (
+        candle_cache = (
             CandleCache.objects.filter(candle=self, timestamp__lt=timestamp)
             .only("timestamp", "json_data")
             .first()
         )
+        if candle_cache:
+            file_data = (
+                candle_cache.get_file_data() if candle_cache.file_data.name else None
+            )
+            return candle_cache.json_data, file_data
+        return None, None
+
+    def get_cache(
+        self,
+        timestamp: datetime,
+        json_data: Optional[dict] = None,
+        file_data: Optional[BytesIO] = None,
+    ) -> Tuple[Optional[dict], Optional[BytesIO]]:
+        """Get cache."""
+        if json_data is None and file_data is None:
+            return self.get_last_cache(timestamp)
+        return json_data, file_data
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
@@ -68,7 +87,12 @@ class Candle(AbstractCodeName, PolymorphicModel):
             values.append(has_timestamps(timestamp_from, timestamp_to, existing))
         return all(values)
 
-    def aggregate(self, data_frame: DataFrame, cache: dict) -> Tuple[list, dict]:
+    def aggregate(
+        self,
+        data_frame: DataFrame,
+        json_data: dict,
+        file_data: Optional[BytesIO] = None,
+    ) -> Tuple[list, dict]:
         """Aggregate."""
         raise NotImplementedError
 
@@ -88,14 +112,18 @@ class Candle(AbstractCodeName, PolymorphicModel):
         data_frames = []
         for t in trade_data:
             data_frame = t.get_data_frame()
-            data_frame.insert(2, "exchange", t.symbol.exchange)
-            data_frame.insert(3, "symbol", t.symbol.api_symbol)
-            data_frames.append(data_frame)
-        return (
-            pd.concat(data_frames)
-            .sort_values(["timestamp", "nanoseconds"])
-            .reset_index()
-        )
+            if data_frame is not None:
+                data_frame.insert(2, "exchange", t.symbol.exchange)
+                data_frame.insert(3, "symbol", t.symbol.api_symbol)
+                data_frames.append(data_frame)
+        if data_frames:
+            return (
+                pd.concat(data_frames)
+                .sort_values(["timestamp", "nanoseconds"])
+                .reset_index()
+            )
+        else:
+            return pd.DataFrame([])
 
     def get_data(
         self, timestamp_from: datetime, timestamp_to: datetime, limit: int = 1000
@@ -155,23 +183,20 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
         Delete previously saved data.
         """
-        query = (
-            Q(candle=self)
-            & Q(timestamp__gte=timestamp_from)
-            & Q(timestamp__lt=timestamp_to)
-        )
+        query = Q(timestamp__gte=timestamp_from) & Q(timestamp__lt=timestamp_to)
         if settings.IS_LOCAL:
-            CandleReadOnlyData.objects.filter(query).delete()
+            CandleReadOnlyData.objects.filter(Q(candle_id=self.id) & query).delete()
         else:
-            CandleData.objects.filter(query).delete()
+            CandleData.objects.filter(Q(candle=self) & query).delete()
         candle_data = []
         for j in json_data:
             timestamp = j.pop("timestamp")
-            kwargs = {"candle": self, "timestamp": timestamp, "json_data": j}
+            kwargs = {"timestamp": timestamp, "json_data": j}
             if settings.IS_LOCAL:
-                candle_data.append(CandleReadOnlyData(**kwargs))
+                c = CandleReadOnlyData(candle_id=self.id, **kwargs)
             else:
-                candle_data.append(CandleData(**kwargs))
+                c = CandleData(candle=self, **kwargs)
+            candle_data.append(c)
         if settings.IS_LOCAL:
             CandleReadOnlyData.objects.bulk_create(candle_data)
         else:

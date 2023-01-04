@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import Iterable, Tuple
+from io import BytesIO
+from typing import Optional, Tuple
 
 from pandas import DataFrame
 
@@ -8,16 +9,12 @@ from quant_candles.lib import aggregate_candle, get_next_cache, merge_cache
 from quant_candles.utils import gettext_lazy as _
 
 from ..candles import Candle
-from ..trades import TradeData
 
 
 class ConstantCandle(Candle):
-    @classmethod
-    def on_trades(cls, objs: Iterable[TradeData]) -> None:
-        """On trades."""
-        pass
-
-    def get_initial_cache(self, timestamp: datetime) -> dict:
+    def get_initial_cache(
+        self, timestamp: datetime, **kwargs
+    ) -> Tuple[Optional[dict], Optional[BytesIO]]:
         """Get initial cache."""
         return {
             "date": timestamp.date(),
@@ -26,49 +23,60 @@ class ConstantCandle(Candle):
             "value": 0,
         }
 
-    def get_cache_for_frequency(
-        self, cache: dict, timestamp: datetime, frequency: Frequency
-    ) -> dict:
-        """Get cache for frequency."""
-        next_date = timestamp.date()
-        initial_cache = self.get_initial_cache(timestamp)
+    def get_cache(
+        self,
+        timestamp: datetime,
+        json_data: Optional[dict] = None,
+        file_data: Optional[BytesIO] = None,
+    ) -> Tuple[Optional[dict], Optional[BytesIO]]:
+        """Get cache."""
+        json_data, file_data = super().get_cache()
+        frequency = self.json_data["frequency"]
+        date = timestamp.date()
         # Reset cache for new era
         if frequency == Frequency.DAILY:
-            if cache["date"] != next_date:
-                return initial_cache
+            if json_data["date"] != date:
+                return self.get_initial_cache(timestamp)
         elif frequency == Frequency.WEEKLY:
-            if next_date.weekday() == 0:
-                return initial_cache
+            if date.weekday() == 0:
+                return self.get_initial_cache(timestamp)
         else:
             raise NotImplementedError
-        return cache
+        return json_data, file_data
 
-    def aggregate(self, data_frame: DataFrame, cache: dict) -> Tuple[list, dict]:
+    def aggregate(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        data_frame: DataFrame,
+        json_data: Optional[dict] = None,
+        file_data: Optional[BytesIO] = None,
+    ) -> Tuple[list, Optional[dict], Optional[BytesIO]]:
         """Aggregate."""
         start = 0
-        samples = []
+        data = []
         thresh_attr = self.json_data["thresh_attr"]
         thresh_value = self.json_data["thresh_value"]
         top_n = self.json_data["top_n"]
         for index, row in data_frame.iterrows():
-            cache[thresh_attr] += row[thresh_attr]
-            if cache[thresh_attr] >= thresh_value:
+            json_data[thresh_attr] += row[thresh_attr]
+            if json_data[thresh_attr] >= thresh_value:
                 df = data_frame.loc[start:index]
-                sample = aggregate_candle(df, top_n)
-                if "next" in cache:
-                    previous = cache.pop("next")
-                    sample = merge_cache(previous, sample, top_n=top_n)
-                samples.append(sample)
+                candle = aggregate_candle(df, top_n)
+                if "next" in json_data:
+                    previous = json_data.pop("next")
+                    candle = merge_cache(previous, candle, top_n=top_n)
+                data.append(candle)
                 # Reinitialize cache
-                cache[thresh_attr] = 0
+                json_data[thresh_attr] = 0
                 # Next index
                 start = index + 1
         # Cache
         is_last_row = start == len(data_frame)
         if not is_last_row:
             df = data_frame.loc[start:]
-            cache = get_next_cache(df, cache, top_n=top_n)
-        return samples, cache
+            json_data = get_next_cache(df, json_data, top_n)
+        return data, json_data, file_data
 
     class Meta:
         proxy = True

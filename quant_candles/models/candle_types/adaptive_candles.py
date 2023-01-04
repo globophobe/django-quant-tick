@@ -1,16 +1,23 @@
-from typing import Iterable
+from datetime import datetime
+from io import BytesIO
+from typing import Optional, Tuple
 
 from quant_candles.utils import gettext_lazy as _
 
-from ..trades import TradeData
 from .constant_candles import ConstantCandle
 
 
 class AdaptiveCandle(ConstantCandle):
-    @classmethod
-    def on_trades(cls, objs: Iterable[TradeData]) -> None:
-        """On trades."""
-        pass
+    def get_initial_cache(
+        self, timestamp: datetime, **kwargs
+    ) -> Tuple[Optional[dict], Optional[BytesIO]]:
+        """Get initial cache."""
+        return {
+            "date": timestamp.date(),
+            "thresh_attr": self.json_data["thresh_attr"],
+            "thresh_value": self.json_data["thresh_attr"],
+            "value": 0,
+        }
 
     class Meta:
         proxy = True
