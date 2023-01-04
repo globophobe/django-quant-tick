@@ -1,79 +1,34 @@
-from typing import Iterable, Tuple
+from datetime import datetime
+from io import BytesIO
+from typing import Optional, Tuple
 
 from pandas import DataFrame
 
-from quant_candles.constants import Frequency
-from quant_candles.lib import aggregate_candle, get_next_cache, merge_cache
+from quant_candles.lib import aggregate_candle, filter_by_timestamp, iter_window
 from quant_candles.utils import gettext_lazy as _
 
 from ..candles import Candle
-from ..trades import TradeData
 
 
 class TimeBasedCandle(Candle):
-    @classmethod
-    def on_trades(cls, objs: Iterable[TradeData]) -> None:
-        """On trades."""
-        pass
-
-    def get_range(self, time_delta) -> Tuple[str, int]:
-        """Get range."""
-        total_seconds = time_delta.total_seconds()
-        one_minute = 60.0
-        one_hour = 3600.0
-        if total_seconds < one_minute:
-            unit = "seconds"
-            step = total_seconds
-        elif total_seconds >= one_minute and total_seconds <= one_hour:
-            unit = "minutes"
-            step = total_seconds / one_minute
-        elif total_seconds > one_hour:
-            unit = "hours"
-            step = total_seconds / one_hour
-        else:
-            raise NotImplementedError
-        step = int(step)
-        assert total_seconds <= one_hour, f"{step} {unit} not supported"
-        assert 60 % step == 0, f"{step} not divisible by 60"
-        return unit, step
-
-    def aggregate_candles(
-        data_frame,
-        timestamp_from,
-        timestamp_to,
-        time_delta,
-        top_n=0,
-        cache={},
-        as_dict=False,
-        return_cache=True,
-    ):
-        samples = []
-        period = pendulum.period(timestamp_from, timestamp_to)
-        unit, step = get_range(time_delta)
-        for index, start in enumerate(period.range(unit, step)):
-            end = start + pd.Timedelta(f"{step}{unit}")
-            df = data_frame[
-                (data_frame.timestamp >= start) & (data_frame.timestamp < end)
-            ]
-            # Maybe trades
+    def aggregate(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        data_frame: DataFrame,
+        json_data: Optional[dict] = None,
+        file_data: Optional[BytesIO] = None,
+    ) -> Tuple[list, Optional[dict], Optional[BytesIO]]:
+        """Aggregate."""
+        data = []
+        window = self.json_data["window"]
+        top_n = self.json_data.get("top_n", 0)
+        for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, window):
+            df = filter_by_timestamp(data_frame, ts_from, ts_to)
             if len(df):
-                if "symbol" in df.columns:
-                    symbols = df.symbol.unique()
-                    assert len(symbols) == 1
-                    open_price = cache[symbols[0]]
-                else:
-                    open_price = cache["open"]
-                sample = aggregate_rows(
-                    df,
-                    # Open timestamp, or won't be in partition
-                    timestamp=start,
-                    open_price=open_price,
-                    top_n=top_n,
-                )
-                cache["open"] = sample["close"]
-                samples.append(sample)
-        data = pd.DataFrame(samples) if not top_n and not as_dict else samples
-        return data, cache if return_cache else data
+                candle = aggregate_candle(df, ts_from, top_n)
+                data.append(candle)
+        return data, json_data, file_data
 
     class Meta:
         proxy = True

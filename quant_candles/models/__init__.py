@@ -1,4 +1,10 @@
-from .candle_types import AdaptiveCandle, ConstantCandle, ImbalanceCandle, RunCandle
+from .candle_types import (
+    AdaptiveCandle,
+    ConstantCandle,
+    ImbalanceCandle,
+    RunCandle,
+    TimeBasedCandle,
+)
 from .candles import Candle, CandleCache, CandleData, CandleReadOnlyData
 from .symbols import GlobalSymbol, Symbol
 from .trades import TradeData
@@ -8,6 +14,7 @@ __all__ = [
     "ConstantCandle",
     "ImbalanceCandle",
     "RunCandle",
+    "TimeBasedCandle",
     "Candle",
     "CandleCache",
     "CandleData",
