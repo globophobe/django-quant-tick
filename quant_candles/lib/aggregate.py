@@ -271,7 +271,7 @@ def aggregate_candle(
 def get_sum(data_frame: DataFrame, key: str) -> Union[Decimal, int]:
     """Get sum."""
     total_key = "total" + key[0].capitalize() + key[1:]
-    k = total_key if "total_key" in data_frame.columns else key
+    k = total_key if total_key in data_frame.columns else key
     return data_frame[k].sum() or ZERO
 
 
