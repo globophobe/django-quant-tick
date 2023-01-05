@@ -124,9 +124,18 @@ class BaseSymbolTest:
 
 
 class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
-    def get_filtered(self, timestamp: datetime, nanoseconds: int = 0) -> DataFrame:
+    def get_filtered(
+        self,
+        timestamp: datetime,
+        nanoseconds: int = 0,
+        notional: Optional[Decimal] = None,
+    ) -> DataFrame:
         """Get filtered."""
-        trades = [self.get_random_trade(timestamp=timestamp, nanoseconds=nanoseconds)]
+        trades = [
+            self.get_random_trade(
+                timestamp=timestamp, nanoseconds=nanoseconds, notional=notional
+            )
+        ]
         data_frame = pd.DataFrame(trades)
         aggregated = aggregate_trades(data_frame)
         return volume_filter_with_time_window(aggregated, min_volume=None, window="1t")
