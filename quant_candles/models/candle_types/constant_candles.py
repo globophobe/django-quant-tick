@@ -37,8 +37,8 @@ class ConstantCandle(Candle):
         """Get initial cache."""
         data = {
             "date": timestamp.date(),
-            "thresh_attr": self.json_data["thresh_attr"],
-            "thresh_value": 0,
+            "sample_type": self.json_data["sample_type"],
+            "sample_value": 0,
         }
         return data, None
 
@@ -71,28 +71,42 @@ class ConstantCandle(Candle):
         """Aggregate."""
         start = 0
         data = []
-        thresh_attr = get_key(data_frame, self.json_data["thresh_attr"])
-        thresh_value = self.json_data["thresh_value"]
-        top_n = self.json_data.get("top_n", 0)
+        topN = self.json_data.get("topN", 0)
+        key = get_key(data_frame, self.json_data["sample_type"])
         for index, row in data_frame.iterrows():
-            cache_data["thresh_value"] += row[thresh_attr]
-            if cache_data["thresh_value"] >= thresh_value:
+            cache_data["sample_value"] += row[key]
+            if self.should_aggregate_candle(data_frame, cache_data, cache_data_frame):
                 df = data_frame.loc[start:index]
-                candle = aggregate_candle(df, top_n)
+                candle = aggregate_candle(
+                    df, sample_type=self.json_data["sample_type"], top_n=topN
+                )
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
-                    candle = merge_cache(previous, candle, top_n=top_n)
+                    candle = merge_cache(
+                        previous, candle, self.json_data["sample_type"], topN
+                    )
                 data.append(candle)
                 # Reinitialize cache
-                cache_data["thresh_value"] = 0
+                cache_data["sample_value"] = 0
                 # Next index
                 start = index + 1
         # Cache
         is_last_row = start == len(data_frame)
         if not is_last_row:
             df = data_frame.loc[start:]
-            cache_data = get_next_cache(df, cache_data, top_n)
+            cache_data = get_next_cache(
+                df, cache_data, cache_data_frame, self.json_data["sample_type"], topN
+            )
         return data, cache_data, cache_data_frame
+
+    def should_aggregate_candle(
+        self,
+        data_frame: DataFrame,
+        cache_data: dict,
+        cache_data_frame: Optional[DataFrame] = None,
+    ) -> bool:
+        """Should aggregate candle."""
+        return cache_data["sample_value"] >= self.json_data["sample_value"]
 
     class Meta:
         proxy = True

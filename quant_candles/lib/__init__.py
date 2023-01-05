@@ -25,6 +25,7 @@ from .calendar import (
     parse_datetime,
     parse_period_from_to,
     timestamp_to_inclusive,
+    to_pydatetime,
 )
 from .candles import candles_to_data_frame, validate_data_frame
 from .dataframe import (
@@ -63,6 +64,7 @@ __all__ = [
     "parse_datetime",
     "parse_period_from_to",
     "timestamp_to_inclusive",
+    "to_pydatetime",
     "candles_to_data_frame",
     "validate_data_frame",
     "assert_type_decimal",

@@ -35,7 +35,7 @@ class TimeBasedCandle(Candle):
         for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, window):
             df = filter_by_timestamp(data_frame, ts_from, ts_to)
             if len(df):
-                candle = aggregate_candle(df, ts_from, top_n)
+                candle = aggregate_candle(df, timestamp=ts_from, top_n=top_n)
                 data.append(candle)
         return data, None, None
 

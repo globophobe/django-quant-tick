@@ -243,6 +243,7 @@ def aggregate_sum(
 def aggregate_candle(
     data_frame: DataFrame,
     timestamp: Optional[datetime.datetime] = None,
+    sample_type: Optional[SampleType] = None,
     top_n: Optional[int] = None,
 ) -> dict:
     """Aggregate candle."""
@@ -263,8 +264,8 @@ def aggregate_candle(
         "ticks": get_sum(data_frame, "ticks"),
         "buyTicks": get_sum(data_frame, "buyTicks"),
     }
-    if top_n:
-        data["topN"] = get_top_n(data_frame, top_n)
+    if sample_type and top_n:
+        data["topN"] = get_top_n(data_frame, sample_type, top_n)
     return data
 
 
@@ -280,9 +281,9 @@ def get_sum(data_frame: DataFrame, key: str) -> Union[Decimal, int]:
     return data_frame[k].sum() or ZERO
 
 
-def get_top_n(data_frame: DataFrame, top_n: int) -> List[dict]:
+def get_top_n(data_frame: DataFrame, sample_type: SampleType, top_n: int) -> List[dict]:
     """Get top N."""
-    index = data_frame[SampleType.NOTIONAL].astype(float).nlargest(top_n).index
+    index = data_frame[sample_type].astype(float).nlargest(top_n).index
     df = data_frame[data_frame.index.isin(index)]
     return get_records(df)
 
@@ -295,6 +296,8 @@ def get_records(df: DataFrame) -> List[dict]:
         for key in list(item):
 
             if key not in (
+                "exchange",
+                "symbol",
                 "timestamp",
                 "nanoseconds",
                 "price",
@@ -308,17 +311,28 @@ def get_records(df: DataFrame) -> List[dict]:
     return data
 
 
-def get_next_cache(cache: dict, values: dict, top_n: int = 0) -> dict:
+def get_next_cache(
+    data_frame: DataFrame,
+    cache_data: dict,
+    cache_data_frame: Optional[DataFrame] = None,
+    sample_type: Optional[SampleType] = None,
+    top_n: int = 0,
+) -> dict:
     """Get next cache."""
-    if "next" in cache:
-        previous_values = cache.pop("next")
-        cache["next"] = merge_cache(previous_values, values, top_n=top_n)
+    values = aggregate_candle(data_frame)
+    if "next" in cache_data:
+        previous_values = cache_data.pop("next")
+        cache_data["next"] = merge_cache(
+            previous_values, values, sample_type, top_n=top_n
+        )
     else:
-        cache["next"] = values
-    return cache
+        cache_data["next"] = values
+    return cache_data
 
 
-def merge_cache(previous: dict, current: dict, top_n: int = 0) -> dict:
+def merge_cache(
+    previous: dict, current: dict, sample_type: SampleType, top_n: int = 0
+) -> dict:
     """Merge cache."""
     for key in (
         "volume",
@@ -330,10 +344,10 @@ def merge_cache(previous: dict, current: dict, top_n: int = 0) -> dict:
     ):
         current[key] += previous[key]  # Add
     # Top N
-    merged_top = previous["topN"] + current["topN"]
+    merged_top = previous.get("topN", []) + current.get("topN", [])
     if len(merged_top):
-        # Sort by notional
-        merged_top.sort(key=lambda x: x[SampleType.NOTIONAL], reverse=True)
+        # Sort by sample_type
+        merged_top.sort(key=lambda x: x[sample_type], reverse=True)
         # Slice top_n
         m = merged_top[:top_n]
         # Sort by timestamp, nanoseconds
