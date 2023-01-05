@@ -1,5 +1,4 @@
 from datetime import datetime
-from io import BytesIO
 from typing import Optional, Tuple
 
 from pandas import DataFrame
@@ -11,14 +10,24 @@ from ..candles import Candle
 
 
 class TimeBasedCandle(Candle):
+    def initialize(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        step: str = "1d",
+        retry: bool = False,
+    ) -> Tuple[datetime, datetime, Optional[dict], Optional[DataFrame]]:
+        """Get cache."""
+        return timestamp_from, timestamp_to, None, None
+
     def aggregate(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
-        json_data: Optional[dict] = None,
-        file_data: Optional[BytesIO] = None,
-    ) -> Tuple[list, Optional[dict], Optional[BytesIO]]:
+        cache_data: dict,
+        cache_data_frame: Optional[DataFrame] = None,
+    ) -> Tuple[list, Optional[dict], Optional[DataFrame]]:
         """Aggregate."""
         data = []
         window = self.json_data["window"]
@@ -28,7 +37,7 @@ class TimeBasedCandle(Candle):
             if len(df):
                 candle = aggregate_candle(df, ts_from, top_n)
                 data.append(candle)
-        return data, json_data, file_data
+        return data, None, None
 
     class Meta:
         proxy = True

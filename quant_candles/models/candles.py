@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-from io import BytesIO
 from itertools import chain
 from typing import List, Optional, Tuple
 
@@ -39,36 +38,30 @@ class Candle(AbstractCodeName, PolymorphicModel):
     json_data = JSONField(_("json data"), default=dict)
     is_active = models.BooleanField(_("active"), default=True)
 
-    def get_initial_cache(self, **kwargs) -> Tuple[Optional[dict], Optional[BytesIO]]:
+    def initialize(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        step: str = "1d",
+        retry: bool = False,
+    ) -> Tuple[datetime, datetime, Optional[dict], Optional[DataFrame]]:
+        """Initialize."""
+        return timestamp_from, timestamp_to, None, None
+
+    def get_initial_cache(
+        self, timestamp: datetime
+    ) -> Tuple[Optional[dict], Optional[DataFrame]]:
         """Get initial cache."""
         raise NotImplementedError
-
-    def get_last_cache(
-        self, timestamp: datetime
-    ) -> Tuple[Optional[dict], Optional[BytesIO]]:
-        """Get cache."""
-        candle_cache = (
-            CandleCache.objects.filter(candle=self, timestamp__lt=timestamp)
-            .only("timestamp", "json_data")
-            .first()
-        )
-        if candle_cache:
-            file_data = (
-                candle_cache.get_file_data() if candle_cache.file_data.name else None
-            )
-            return candle_cache.json_data, file_data
-        return None, None
 
     def get_cache(
         self,
         timestamp: datetime,
-        json_data: Optional[dict] = None,
-        file_data: Optional[BytesIO] = None,
-    ) -> Tuple[Optional[dict], Optional[BytesIO]]:
+        data: Optional[dict] = None,
+        data_frame: Optional[DataFrame] = None,
+    ) -> Tuple[Optional[dict], Optional[DataFrame]]:
         """Get cache."""
-        if json_data is None and file_data is None:
-            return self.get_last_cache(timestamp)
-        return json_data, file_data
+        return data, data_frame
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
@@ -89,10 +82,12 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
     def aggregate(
         self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
         data_frame: DataFrame,
-        json_data: dict,
-        file_data: Optional[BytesIO] = None,
-    ) -> Tuple[list, dict]:
+        cache_data: dict,
+        cache_data_frame: Optional[DataFrame] = None,
+    ) -> Tuple[list, Optional[dict], Optional[DataFrame]]:
         """Aggregate."""
         raise NotImplementedError
 
@@ -151,8 +146,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
-        json_data: Optional[dict] = None,
-        file_data: Optional[BytesIO] = None,
+        data: Optional[dict] = None,
+        data_frame: Optional[DataFrame] = None,
     ):
         """Write cache.
 
@@ -172,8 +167,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
             candle=self,
             timestamp=timestamp_from,
             frequency=frequency,
-            json_data=json_data,
-            file_data=file_data,
+            json_data=data,
+            file_data=data_frame,
         )
 
     def write_data(

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 from pandas import DataFrame
 
-from quant_candles.constants import NOTIONAL
+from quant_candles.constants import SampleType
 
 from .calendar import iter_once, iter_window
 from .dataframe import is_decimal_close
@@ -268,16 +268,21 @@ def aggregate_candle(
     return data
 
 
+def get_key(data_frame: DataFrame, key: str) -> str:
+    """Get key."""
+    total_key = "total" + key[0].capitalize() + key[1:]
+    return total_key if total_key in data_frame.columns else key
+
+
 def get_sum(data_frame: DataFrame, key: str) -> Union[Decimal, int]:
     """Get sum."""
-    total_key = "total" + key[0].capitalize() + key[1:]
-    k = total_key if total_key in data_frame.columns else key
+    k = get_key(data_frame, key)
     return data_frame[k].sum() or ZERO
 
 
 def get_top_n(data_frame: DataFrame, top_n: int) -> List[dict]:
     """Get top N."""
-    index = data_frame[NOTIONAL].astype(float).nlargest(top_n).index
+    index = data_frame[SampleType.NOTIONAL].astype(float).nlargest(top_n).index
     df = data_frame[data_frame.index.isin(index)]
     return get_records(df)
 
@@ -328,7 +333,7 @@ def merge_cache(previous: dict, current: dict, top_n: int = 0) -> dict:
     merged_top = previous["topN"] + current["topN"]
     if len(merged_top):
         # Sort by notional
-        merged_top.sort(key=lambda x: x[NOTIONAL], reverse=True)
+        merged_top.sort(key=lambda x: x[SampleType.NOTIONAL], reverse=True)
         # Slice top_n
         m = merged_top[:top_n]
         # Sort by timestamp, nanoseconds

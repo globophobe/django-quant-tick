@@ -1,6 +1,7 @@
 from datetime import datetime
-from io import BytesIO
 from typing import Optional, Tuple
+
+from pandas import DataFrame
 
 from quant_candles.utils import gettext_lazy as _
 
@@ -10,7 +11,7 @@ from .constant_candles import ConstantCandle
 class AdaptiveCandle(ConstantCandle):
     def get_initial_cache(
         self, timestamp: datetime, **kwargs
-    ) -> Tuple[Optional[dict], Optional[BytesIO]]:
+    ) -> Tuple[Optional[dict], Optional[DataFrame]]:
         """Get initial cache."""
         return {
             "date": timestamp.date(),

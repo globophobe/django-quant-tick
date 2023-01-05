@@ -1,8 +1,9 @@
 from datetime import datetime
-from io import BytesIO
-from typing import Generator, List, Optional, Tuple
+from typing import Generator, List, Tuple
 
+from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 from quant_candles.lib import (
     get_current_time,
@@ -12,7 +13,14 @@ from quant_candles.lib import (
     iter_missing,
     iter_timeframe,
 )
-from quant_candles.models import Candle, CandleCache, Symbol, TradeData
+from quant_candles.models import (
+    Candle,
+    CandleCache,
+    CandleData,
+    CandleReadOnlyData,
+    Symbol,
+    TradeData,
+)
 
 
 def aggregate_candles(
@@ -20,20 +28,23 @@ def aggregate_candles(
     timestamp_from: datetime,
     timestamp_to: datetime,
     step: str = "1d",
-    json_cache: Optional[dict] = None,
-    file_cache: Optional[BytesIO] = None,
+    retry: bool = False,
 ) -> None:
     """Aggregate candles."""
+    initial = candle.initialize(timestamp_from, timestamp_to, step, retry)
+    min_timestamp_from, max_timestamp_to, cache_data, cache_data_frame = initial
     for ts_from, ts_to in CandleCacheIterator(candle).iter_all(
-        timestamp_from, timestamp_to, step
+        min_timestamp_from, max_timestamp_to, step, retry=retry
     ):
         data_frame = candle.get_data_frame(ts_from, ts_to)
-        json_cache, file_cache = candle.get_cache(ts_from, json_cache, file_cache)
-        candle_data, json_cache, file_cache = candle.aggregate(
-            ts_from, ts_to, data_frame, json_cache, file_cache
+        cache_data, cache_data_frame = candle.get_cache(
+            ts_from, cache_data, cache_data_frame
         )
-        candle.write_cache(ts_from, ts_to, json_cache, file_cache)
-        candle.write_data(ts_from, ts_to, candle_data)
+        data, cache_data, cache_data_frame = candle.aggregate(
+            ts_from, ts_to, data_frame, cache_data, cache_data_frame
+        )
+        candle.write_cache(ts_from, ts_to, cache_data, cache_data_frame)
+        candle.write_data(ts_from, ts_to, data)
 
 
 class BaseTimeFrameIterator:
@@ -77,11 +88,11 @@ class BaseTimeFrameIterator:
         ):
             existing = self.get_existing(ts_from, ts_to, retry=retry)
             if not has_timestamps(ts_from, ts_to, existing):
-                if self.can_process(ts_from, ts_to):
+                if self.can_iter(ts_from, ts_to):
                     yield ts_from, ts_to, existing
 
-    def can_process(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can process."""
+    def can_iter(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+        """Can iter."""
         return True
 
     def iter_hours(
@@ -137,16 +148,25 @@ class CandleCacheIterator(BaseTimeFrameIterator):
         self.reverse = False
 
     def get_existing(
-        self, timestamp_from: datetime, timestamp_to: datetime, **kwargs
+        self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
     ) -> List[datetime]:
-        """Get existing."""
-        queryset = CandleCache.objects.filter(
-            candle=self.candle,
-            timestamp__gte=timestamp_from,
-            timestamp__lt=timestamp_to,
-        )
-        return get_existing(queryset.values("timestamp", "frequency"))
+        """Get existing.
 
-    def can_process(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can process."""
+        Retry only locally, as the SQLite database not modifiable in Docker image.
+        """
+        query = Q(timestamp__gte=timestamp_from) & Q(timestamp__lt=timestamp_to)
+        candle_cache = CandleCache.objects.filter(Q(candle=self.candle) & query)
+        if settings.IS_LOCAL and retry:
+            candle_data = CandleData.objects.filter(Q(candle=self.candle) & query)
+            candle_read_only_data = CandleReadOnlyData.objects.filter(
+                Q(candle_id=self.candle.id) & query
+            )
+            for queryset in (candle_cache, candle_data, candle_read_only_data):
+                queryset.delete()
+            return []
+        else:
+            return get_existing(candle_cache.values("timestamp", "frequency"))
+
+    def can_iter(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+        """Can iter."""
         return self.candle.can_aggregate(timestamp_from, timestamp_to)
