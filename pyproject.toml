@@ -27,18 +27,17 @@ coverage = "*"
 django-semantic-admin = "*"
 django-storages = {version = "*", extras = ["google"]}
 flake8 = "*"
+google-cloud-workflows = "*"
+google-cloud-scheduler = "*"
 invoke = "*"
 ipdb = "*"
 ipython = "*"
 isort = "*"
-kedro = "*"
-mkdocs = "*"
 psycopg2-binary = "*"
 python-decouple = "*"
 time-machine = "*"
 uvicorn = "*"
 whitenoise = "*"
-
 
 [tool.isort]
 known_first_party = ["quant_candles"]
