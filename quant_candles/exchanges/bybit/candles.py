@@ -7,9 +7,17 @@ from quant_candles.controllers import iter_api
 from quant_candles.lib import candles_to_data_frame
 
 from .api import get_bybit_api_response, get_bybit_api_url
-from .constants import API_URL, MIN_ELAPSED_PER_REQUEST
+from .constants import API_URL, INVERSE_CONTRACTS, MIN_ELAPSED_PER_REQUEST
 
 MAX_RESULTS = 200
+
+
+def get_bybit_candle_api_url(api_symbol: str) -> str:
+    """Get Bybit candle API url."""
+    if api_symbol in INVERSE_CONTRACTS:
+        return f"{API_URL}/v2/public/kline/list"
+    else:
+        return f"{API_URL}/public/linear/kline"
 
 
 def format_bybit_candle_timestamp(timestamp: datetime) -> float:
@@ -39,9 +47,9 @@ def bybit_candles(
     """Get Bybit candles."""
     ts_from = format_bybit_candle_timestamp(timestamp_from)
     params = f"symbol={api_symbol}&from={ts_from}&interval={interval}&limit={limit}"
-    url = f"{API_URL}/kline/list?{params}"
+    url = get_bybit_candle_api_url(api_symbol)
     candles, _ = iter_api(
-        url,
+        f"{url}?{params}",
         get_bybit_candle_pagination_id,
         get_bybit_candle_timestamp,
         partial(get_bybit_api_response, get_bybit_api_url),
@@ -54,7 +62,7 @@ def bybit_candles(
     for candle in candles:
         candle["timestamp"] = get_bybit_candle_timestamp(candle)
         candle["volume"] = Decimal(candle["volume"])
-        candle["notional"] = Decimal(candle["turnover"])
-        for key in ("symbol", "interval", "open_time", "turnover"):
+        keys = ("timestamp", "open", "high", "low", "close", "volume", "notional")
+        for key in [key for key in candle if key not in keys]:
             del candle[key]
     return candles_to_data_frame(timestamp_from, timestamp_to, candles)
