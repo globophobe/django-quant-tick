@@ -103,13 +103,13 @@ def get_range(timestamp_from: datetime, timestamp_to: datetime, value: str = "1t
     ]
 
 
-def get_existing(values: List, retry: bool = False) -> List[datetime]:
+def get_existing(values: List) -> List[datetime]:
     """Get existing."""
     result = []  # List of 1m timestamps.
     for item in values:
         timestamp = item["timestamp"]
         frequency = item["frequency"]
-        result += [timestamp + pd.Timedelta(index) for index in range(frequency)]
+        result += [timestamp + pd.Timedelta(f"{index}t") for index in range(frequency)]
     return sorted(result)
 
 
