@@ -115,14 +115,19 @@ def agg_trades(data_frame: DataFrame) -> Dict[str, Any]:
 
 
 def filter_by_timestamp(
-    data_frame: DataFrame, timestamp_from: datetime, timestamp_to: datetime
+    data_frame: DataFrame,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    inclusive: bool = False,
 ) -> DataFrame:
     """Filter by timestamp."""
     if len(data_frame):
-        return data_frame[
-            (data_frame.timestamp >= timestamp_from)
-            & (data_frame.timestamp < timestamp_to)
-        ]
+        lower_bound = data_frame.timestamp >= timestamp_from
+        if inclusive:
+            upper_bound = data_frame.timestamp <= timestamp_to
+        else:
+            upper_bound = data_frame.timestamp < timestamp_to
+        return data_frame[lower_bound & upper_bound]
     else:
         return pd.DataFrame([])
 

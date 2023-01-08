@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
-from .aggregate import aggregate_sum
+from .aggregate import aggregate_sum, filter_by_timestamp
 from .calendar import get_range
 from .dataframe import is_decimal_close
 
@@ -19,31 +19,16 @@ def candles_to_data_frame(
 ) -> DataFrame:
     """Get candle data_frame."""
     data_frame = pd.DataFrame(candles)
-    # Maybe, no candles.
-    if len(data_frame) > 0:
-        # Assert timestamp_from <= data_frame.timestamp < timestamp_to
-        is_less_than_timestamp_from = (
-            len(data_frame[data_frame.timestamp < timestamp_from]) > 0
-        )
-        is_greater_than_timestamp_to = (
-            len(data_frame[data_frame.timestamp >= timestamp_to]) > 0
-        )
-        try:
-            assert not is_less_than_timestamp_from and not is_greater_than_timestamp_to
-        except AssertionError as e:
-            if len(data_frame) == 1:
-                # Assert data_frame.timestamp == timestamp_from == timestamp_to
-                assert len(data_frame[data_frame.timestamp == timestamp_from]) == 1
-                assert len(data_frame[data_frame.timestamp == timestamp_to]) == 1
-            else:
-                raise e
-        finally:
-            df = data_frame.set_index("timestamp")
-            # REST API, data is reverse order.
-            if reverse:
-                df = df.iloc[::-1]
-            return df
-    return data_frame
+    df = filter_by_timestamp(
+        data_frame,
+        timestamp_from,
+        timestamp_to,
+        inclusive=timestamp_from == timestamp_to,
+    )
+    if len(df):
+        df.set_index("timestamp", inplace=True)
+    # REST API, data is reverse order.
+    return df.iloc[::-1] if reverse else df
 
 
 def validate_data_frame(
