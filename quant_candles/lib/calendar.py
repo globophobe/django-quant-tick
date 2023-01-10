@@ -37,28 +37,6 @@ def get_previous_time(timestamp: datetime, value: str) -> datetime:
     return get_min_time(timestamp, value=value) - pd.Timedelta(value)
 
 
-def get_next_monday(timestamp: datetime) -> datetime:
-    """Get next Monday."""
-    ts = get_min_time(timestamp, value="1d")
-    weekday = ts.date().weekday()
-    if weekday != 0:
-        days = 7 - weekday % 7
-        return ts + pd.Timedelta(f"{days}d")
-    else:
-        return ts + pd.Timedelta("7d")
-
-
-def get_previous_monday(timestamp: datetime) -> datetime:
-    """Get previous Monday."""
-    ts = get_min_time(timestamp, value="1d")
-    weekday = ts.date().weekday()
-    if weekday != 0:
-        days = weekday - 7 % 7
-        return ts + pd.Timedelta(f"{days}d")
-    else:
-        return ts - pd.Timedelta("7d")
-
-
 def has_timestamps(
     timestamp_from: datetime, timestamp_to: datetime, existing: List[datetime]
 ) -> bool:
