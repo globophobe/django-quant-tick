@@ -11,7 +11,7 @@ from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
 from quant_candles.constants import Frequency
-from quant_candles.lib import get_existing, has_timestamps
+from quant_candles.lib import get_existing, has_timestamps, parse_datetime
 from quant_candles.utils import gettext_lazy as _
 
 from .base import AbstractCodeName, AbstractDataStorage, JSONField
@@ -31,7 +31,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
     symbols = models.ManyToManyField(
         "quant_candles.Symbol",
         db_table="quant_candles_candle_symbol",
-        verbose_name=_("symbol"),
+        verbose_name=_("symbols"),
     )
     date_from = models.DateField(_("date from"), null=True)
     date_to = models.DateField(_("date to"), null=True)
@@ -39,29 +39,92 @@ class Candle(AbstractCodeName, PolymorphicModel):
     is_active = models.BooleanField(_("active"), default=True)
 
     def initialize(
-        self,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-        step: str = "1d",
-        retry: bool = False,
-    ) -> Tuple[datetime, datetime, Optional[dict], Optional[DataFrame]]:
+        self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
+    ) -> Tuple[datetime, datetime, Optional[dict]]:
         """Initialize."""
-        return timestamp_from, timestamp_to, None, None
+        if self.date_from:
+            min_timestamp_from = parse_datetime(self.date_from)
+            ts_from = (
+                min_timestamp_from
+                if timestamp_from < min_timestamp_from
+                else timestamp_from
+            )
+        else:
+            ts_from = timestamp_from
+        if self.date_to:
+            max_timestamp_to = parse_datetime(self.date_to)
+            ts_to = (
+                max_timestamp_to if timestamp_to < max_timestamp_to else timestamp_to
+            )
+        else:
+            ts_to = timestamp_to
+        # Get last cache.
+        # Subtract 1 hour, as either Frequency.HOUR or Frequency.MINUTE
+        candle_cache = (
+            CandleCache.objects.filter(
+                candle=self,
+                timestamp__gte=ts_from - pd.Timedelta("1h"),
+            )
+            .order_by("-timestamp")
+            .only("timestamp", "json_data")
+            .first()
+        )
+        if candle_cache:
+            if not retry:
+                timestamp = candle_cache.timestamp
+                ts_from = timestamp if timestamp > ts_from else ts_from
+            data = candle_cache.json_data
+        else:
+            data = self.get_initial_cache(ts_from)
+        return ts_from, ts_to, data
 
-    def get_initial_cache(
-        self, timestamp: datetime
-    ) -> Tuple[Optional[dict], Optional[DataFrame]]:
+    def get_initial_cache(self, timestamp: datetime) -> Optional[dict]:
         """Get initial cache."""
-        raise NotImplementedError
+        return None
 
-    def get_cache(
-        self,
-        timestamp: datetime,
-        data: Optional[dict] = None,
-        data_frame: Optional[DataFrame] = None,
-    ) -> Tuple[Optional[dict], Optional[DataFrame]]:
-        """Get cache."""
-        return data, data_frame
+    def get_cache_data(
+        self, timestamp: datetime, data: Optional[dict] = None
+    ) -> Optional[dict]:
+        """Get cache data."""
+        return data
+
+    def get_data_frame(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> DataFrame:
+        """Get data frame."""
+        trade_data = (
+            TradeData.objects.filter(
+                symbol__in=self.symbols.all(),
+                timestamp__gte=timestamp_from,
+                timestamp__lt=timestamp_to,
+            )
+            .select_related("symbol")
+            .only("symbol", "file_data")
+        )
+        data_frames = []
+        for symbol in self.symbols.all():
+            target = sorted(
+                [obj for obj in trade_data if obj.symbol == symbol],
+                key=lambda obj: obj.timestamp,
+            )
+            dfs = []
+            for t in target:
+                df = t.get_data_frame()
+                if df is not None:
+                    dfs.append(df)
+            if dfs:
+                df = pd.concat(dfs)
+                df.insert(2, "exchange", symbol.exchange)
+                df.insert(3, "symbol", symbol.api_symbol)
+                data_frames.append(df)
+        if data_frames:
+            return (
+                pd.concat(data_frames)
+                .sort_values(["timestamp", "nanoseconds"])
+                .reset_index()
+            )
+        else:
+            return pd.DataFrame([])
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
@@ -85,40 +148,10 @@ class Candle(AbstractCodeName, PolymorphicModel):
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
-        cache_data: dict,
-        cache_data_frame: Optional[DataFrame] = None,
-    ) -> Tuple[list, Optional[dict], Optional[DataFrame]]:
+        cache_data: Optional[dict] = None,
+    ) -> Tuple[list, Optional[dict]]:
         """Aggregate."""
         raise NotImplementedError
-
-    def get_data_frame(
-        self, timestamp_from: datetime, timestamp_to: datetime
-    ) -> DataFrame:
-        """Get data frame."""
-        trade_data = (
-            TradeData.objects.filter(
-                symbol__in=self.symbols.all(),
-                timestamp__gte=timestamp_from,
-                timestamp__lt=timestamp_to,
-            )
-            .select_related("symbol")
-            .only("symbol")
-        )
-        data_frames = []
-        for t in trade_data:
-            data_frame = t.get_data_frame()
-            if data_frame is not None:
-                data_frame.insert(2, "exchange", t.symbol.exchange)
-                data_frame.insert(3, "symbol", t.symbol.api_symbol)
-                data_frames.append(data_frame)
-        if data_frames:
-            return (
-                pd.concat(data_frames)
-                .sort_values(["timestamp", "nanoseconds"])
-                .reset_index()
-            )
-        else:
-            return pd.DataFrame([])
 
     def get_data(
         self, timestamp_from: datetime, timestamp_to: datetime, limit: int = 1000
@@ -164,11 +197,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             else Frequency.MINUTE
         )
         CandleCache.objects.create(
-            candle=self,
-            timestamp=timestamp_from,
-            frequency=frequency,
-            json_data=data,
-            file_data=data_frame,
+            candle=self, timestamp=timestamp_from, frequency=frequency, json_data=data
         )
 
     def write_data(
@@ -211,7 +240,6 @@ class CandleCache(AbstractDataStorage):
     frequency = models.PositiveIntegerField(
         _("frequency"), choices=Frequency.choices, db_index=True
     )
-    file_data = models.FileField(_("file data"), blank=True, upload_to=upload_data_to)
     json_data = JSONField(_("json data"), null=True)
 
     class Meta:

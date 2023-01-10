@@ -55,6 +55,7 @@ class QuantCandlesDecoder(JSONDecoder):
 
 
 def JSONField(name: str, **kwargs) -> models.JSONField:
+    """JSON."""
     if "encoder" not in kwargs:
         kwargs["encoder"] = QuantCandlesEncoder
     if "decoder" not in kwargs:

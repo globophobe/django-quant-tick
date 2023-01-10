@@ -10,34 +10,29 @@ from ..candles import Candle
 
 
 class TimeBasedCandle(Candle):
-    def initialize(
-        self,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-        step: str = "1d",
-        retry: bool = False,
-    ) -> Tuple[datetime, datetime, Optional[dict], Optional[DataFrame]]:
-        """Get cache."""
-        return timestamp_from, timestamp_to, None, None
-
     def aggregate(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
-        cache_data: dict,
+        cache_data: Optional[dict] = None,
         cache_data_frame: Optional[DataFrame] = None,
-    ) -> Tuple[list, Optional[dict], Optional[DataFrame]]:
+    ) -> Tuple[list, Optional[dict]]:
         """Aggregate."""
         data = []
         window = self.json_data["window"]
-        top_n = self.json_data.get("top_n", 0)
         for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, window):
             df = filter_by_timestamp(data_frame, ts_from, ts_to)
             if len(df):
-                candle = aggregate_candle(df, timestamp=ts_from, top_n=top_n)
+                candle = self.aggregate_candle(ts_from, df)
                 data.append(candle)
-        return data, None, None
+        return data, cache_data
+
+    def aggregate_candle(self, timestamp: datetime, data_frame: DataFrame) -> dict:
+        """Aggregate candle."""
+        return aggregate_candle(
+            data_frame, timestamp, top_n=self.json_data.get("top_n", 0)
+        )
 
     class Meta:
         proxy = True

@@ -1,66 +1,45 @@
 from datetime import datetime
-from typing import Optional, Tuple
 
-from pandas import DataFrame
+import pandas as pd
 
 from quant_candles.utils import gettext_lazy as _
 
-from ..candles import CandleCache
 from .constant_candles import ConstantCandle
 
 
 class AdaptiveCandle(ConstantCandle):
-    def initialize(
-        self,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-        step: str,
-        retry: bool = False,
-    ) -> Tuple[datetime, datetime, Optional[dict], Optional[DataFrame]]:
-        """Initialize."""
-        candle_cache = (
-            CandleCache.objects.filter(candle=self, timestamp__lt=timestamp_from)
-            .only("timestamp", "json_data")
-            .first()
-        )
-        if candle_cache:
-            data = candle_cache.json_data
-            data_frame = candle_cache.get_data_frame()
-        else:
-            data, data_frame = self.get_initial_cache(timestamp_from)
-        return timestamp_from, timestamp_to, data, data_frame
+    """Constant candle.
 
-    def get_initial_cache(
-        self, timestamp: datetime
-    ) -> Tuple[Optional[dict], Optional[DataFrame]]:
+    For example, 1 candle when:
+    * Ticks exceed the 7 day moving average, with a target of 24 candles a day.
+    * Volume exceeds the 50 day moving average, with a target of 6 candles a day.
+    """
+
+    def get_initial_cache(self, timestamp: datetime) -> dict:
         """Get initial cache."""
-        data = {
-            "date": timestamp.date(),
-            "thresh_attr": self.json_data["thresh_attr"],
-            "moving_average_length": self.json_data["moving_average_length"],
-            "is_ema": self.json_data["is_ema"],
-        }
-        return data, None
+        return {"date": timestamp.date(), "target_value": None, "sample_value": 0}
 
-    def get_cache(
-        self,
-        timestamp: datetime,
-        data: Optional[dict] = None,
-        data_frame: Optional[DataFrame] = None,
-    ) -> Tuple[Optional[dict], Optional[DataFrame]]:
-        """Get cache."""
-        # TODO: Fix me.
-        return super().get_cache(timestamp, data, data_frame)
+    def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
+        """Get cache data frame."""
+        data = super().get_cache_data(timestamp, data)
+        date = timestamp.date()
+        is_same_day = data["date"] == date
+        has_target_value = data.get("target_value") is not None
+        # Reset .
+        if not is_same_day or not has_target_value:
+            days = self.json_data["moving_average_number_of_days"]
+            delta = pd.Timedelta(f"{days}d")
+            candles = self.daily_candle.get_data(timestamp - delta, timestamp)
+            sample_type = self.json_data["sample_type"]
+            total = sum([c["json_data"][sample_type] for c in candles])
+            data["target_value"] = (
+                total / days / self.json_data["target_candles_per_day"]
+            )
+        return data
 
-    def should_aggregate_candle(
-        self,
-        data_frame: DataFrame,
-        cache_data: dict,
-        cache_data_frame: Optional[DataFrame] = None,
-    ) -> bool:
+    def should_aggregate_candle(self, data: dict) -> bool:
         """Should aggregate candle."""
-        # TODO: Fix me.
-        return cache_data["sample_value"] >= self.json_data["sample_value"]
+        return data["sample_value"] >= data["target_value"]
 
     class Meta:
         proxy = True
