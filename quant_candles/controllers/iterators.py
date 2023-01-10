@@ -27,23 +27,6 @@ from quant_candles.models import (
 )
 
 
-def aggregate_daily_candles(
-    candle: Candle,
-    timestamp_from: datetime,
-    timestamp_to: datetime,
-    retry: bool = False,
-) -> None:
-    """Aggregate daily candles."""
-    days = candle.json_data["moving_average_number_of_days"]
-    ts_from = timestamp_from - pd.Timedelta(f"{days}d")
-    aggregate_candles(
-        candle.daily_candle,
-        get_min_time(ts_from, value="1d"),
-        get_min_time(timestamp_to),
-        retry=retry,
-    )
-
-
 def aggregate_candles(
     candle: Candle,
     timestamp_from: datetime,
