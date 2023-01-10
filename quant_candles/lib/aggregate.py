@@ -8,7 +8,7 @@ from pandas import DataFrame
 
 from quant_candles.constants import SampleType
 
-from .calendar import iter_once, iter_window
+from .calendar import iter_once, iter_window, to_pydatetime
 from .dataframe import is_decimal_close
 
 ZERO = Decimal("0")
@@ -202,16 +202,16 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
                 "ticks": None,
             }
         )
-    buy_df = df[df.tickRule == 1]
+    buy_side = df[df.tickRule == 1]
     data.update(
         {
             "high": df.price.max(),
             "low": df.price.min(),
-            "totalBuyVolume": buy_df.volume.sum() or ZERO,
+            "totalBuyVolume": buy_side.volume.sum() or ZERO,
             "totalVolume": df.volume.sum() or ZERO,
-            "totalBuyNotional": buy_df.notional.sum() or ZERO,
+            "totalBuyNotional": buy_side.notional.sum() or ZERO,
             "totalNotional": df.notional.sum() or ZERO,
-            "totalBuyTicks": buy_df.ticks.sum(),
+            "totalBuyTicks": buy_side.ticks.sum(),
             "totalTicks": df.ticks.sum(),
         }
     )
@@ -262,32 +262,23 @@ def aggregate_candle(
         "high": high,
         "low": low,
         "close": last_row.price,
-        "volume": get_sum(data_frame, "volume"),
-        "buyVolume": get_sum(data_frame, "buyVolume"),
-        "notional": get_sum(data_frame, "notional"),
-        "buyNotional": get_sum(data_frame, "buyNotional"),
-        "ticks": get_sum(data_frame, "ticks"),
-        "buyTicks": get_sum(data_frame, "buyTicks"),
+        "volume": data_frame.totalVolume.sum(),
+        "buyVolume": data_frame.totalBuyVolume.sum(),
+        "notional": data_frame.totalNotional.sum(),
+        "buyNotional": data_frame.totalBuyNotional.sum(),
+        "ticks": int(data_frame.totalTicks.sum()),
+        "buyTicks": int(data_frame.totalBuyTicks.sum()),
     }
     if sample_type and top_n:
         data["topN"] = get_top_n(data_frame, sample_type, top_n)
     return data
 
 
-def get_key(data_frame: DataFrame, key: str) -> str:
-    """Get key."""
-    total_key = "total" + key[0].capitalize() + key[1:]
-    return total_key if total_key in data_frame.columns else key
-
-
-def get_sum(data_frame: DataFrame, key: str) -> Union[Decimal, int]:
-    """Get sum."""
-    k = get_key(data_frame, key)
-    return data_frame[k].sum() or ZERO
-
-
 def get_top_n(data_frame: DataFrame, sample_type: SampleType, top_n: int) -> List[dict]:
-    """Get top N."""
+    """Get top N.
+
+    Only trade data with tick rule is considered.
+    """
     index = data_frame[sample_type].astype(float).nlargest(top_n).index
     df = data_frame[data_frame.index.isin(index)]
     return get_records(df)
@@ -299,14 +290,12 @@ def get_records(df: DataFrame) -> List[dict]:
     data.sort(key=itemgetter("timestamp", "nanoseconds"))
     for item in data:
         for key in list(item):
-
             if key not in (
                 "exchange",
                 "symbol",
                 "timestamp",
                 "nanoseconds",
                 "price",
-                "vwap",
                 "volume",
                 "notional",
                 "ticks",
@@ -316,46 +305,40 @@ def get_records(df: DataFrame) -> List[dict]:
     return data
 
 
-def get_next_cache(
-    data_frame: DataFrame,
-    cache_data: dict,
-    cache_data_frame: Optional[DataFrame] = None,
-    sample_type: Optional[SampleType] = None,
-    top_n: int = 0,
-) -> dict:
-    """Get next cache."""
-    values = aggregate_candle(data_frame)
-    if "next" in cache_data:
-        previous_values = cache_data.pop("next")
-        cache_data["next"] = merge_cache(
-            previous_values, values, sample_type, top_n=top_n
-        )
-    else:
-        cache_data["next"] = values
-    return cache_data
-
-
-def merge_cache(
-    previous: dict, current: dict, sample_type: SampleType, top_n: int = 0
-) -> dict:
-    """Merge cache."""
-    for key in (
-        "volume",
-        "buyVolume",
-        "notional",
-        "buyNotional",
-        "ticks",
-        "buyTicks",
-    ):
-        current[key] += previous[key]  # Add
-    # Top N
-    merged_top = previous.get("topN", []) + current.get("topN", [])
-    if len(merged_top):
-        # Sort by sample_type
-        merged_top.sort(key=lambda x: x[sample_type], reverse=True)
-        # Slice top_n
-        m = merged_top[:top_n]
-        # Sort by timestamp, nanoseconds
-        m.sort(key=itemgetter("timestamp", "nanoseconds"))
-        current["topN"] = m
-    return current
+def get_runs(data_frame: DataFrame) -> List[dict]:
+    """Get runs."""
+    runs = []
+    run = []
+    direction = None
+    # Filtered data may not have volume.
+    df = data_frame[data_frame.volume > 0]
+    for row in df.itertuples():
+        if direction is None:
+            direction = row.tickRule
+            run.append(row)
+        elif row.tickRule == direction:
+            run.append(row)
+        else:
+            direction = row.tickRule
+            runs.append(run)
+            run = [row]
+    for index, run in enumerate(runs):
+        data = {
+            "tsFrom": to_pydatetime(run[0].timestamp),
+            "tsTo": to_pydatetime(run[-1].timestamp),
+        }
+        for sample_type in SampleType.values:
+            value = sum([getattr(r, sample_type) for r in run])
+            if sample_type == SampleType.TICK.value:
+                value = int(value)
+            data[sample_type] = value * int(run[0].tickRule)
+        bins = [1_000, 10_000, 50_000, 100_000]
+        for index, b in enumerate(bins):
+            next_index = index + 1
+            if (next_index) <= len(bins):
+                next_b = bins[next_index]
+                data[b] = len([r for r in run if r.volume >= b and r.volume < next_b])
+            else:
+                data[b] = len([r for r in run if r.volume >= b])
+        runs[index] = data
+    return pd.DataFrame(runs)

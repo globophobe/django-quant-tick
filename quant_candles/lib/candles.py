@@ -86,3 +86,18 @@ def validate_data_frame(
             if timestamp >= timestamp_from and timestamp < timestamp_to
         }
     return validated
+
+
+def sum_validation(data: List[dict]) -> dict:
+    """Sum validation."""
+    validation = {}
+    for d in data:
+        for key, value in d.items():
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    validation.setdefault(k, v)
+                    validation[k] += v
+            elif value is None:
+                validation.setdefault(None, 0)
+                validation[None] += 1
+    return validation
