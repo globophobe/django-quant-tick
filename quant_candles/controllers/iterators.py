@@ -75,7 +75,7 @@ class BaseTimeFrameIterator:
         Accordingly, aggregations with step greater than 1 day should use daily candles,
         and not trade data.
         """
-        for ts_from, ts_to, existing in self.iter_range(
+        for ts_from, ts_to, existing in self.iter_days(
             timestamp_from, timestamp_to, retry=retry
         ):
             if self.can_iter_hours():
@@ -86,28 +86,20 @@ class BaseTimeFrameIterator:
             else:
                 yield timestamp_from, timestamp_to
 
-    def can_iter_hours(self) -> bool:
-        """Can iter hours."""
-        return True
-
-    def iter_range(
+    def iter_days(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
         retry: bool = False,
     ):
-        """Iter range."""
+        """Iter days."""
         for ts_from, ts_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d", reverse=self.reverse
         ):
             existing = self.get_existing(ts_from, ts_to, retry=retry)
             if not has_timestamps(ts_from, ts_to, existing):
-                if self.can_iter_range(ts_from, ts_to):
+                if self.can_iter_days(ts_from, ts_to):
                     yield ts_from, ts_to, existing
-
-    def can_iter_range(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can iter range."""
-        return True
 
     def iter_hours(
         self,
@@ -134,6 +126,20 @@ class BaseTimeFrameIterator:
                     if start_time != end:
                         yield start_time, end_time
 
+    def get_existing(
+        self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
+    ) -> List[datetime]:
+        """Get existing."""
+        raise NotImplementedError
+
+    def can_iter_days(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+        """Can iter range."""
+        return True
+
+    def can_iter_hours(self) -> bool:
+        """Can iter hours."""
+        return True
+
 
 class TradeDataIterator(BaseTimeFrameIterator):
     def __init__(self, symbol: Symbol) -> None:
@@ -156,10 +162,6 @@ class TradeDataIterator(BaseTimeFrameIterator):
 
 
 class TradeDataSummaryIterator(TradeDataIterator):
-    def can_iter_hours(self) -> bool:
-        """Can iter hours."""
-        return False
-
     def get_existing(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
     ) -> List[datetime]:
@@ -171,8 +173,12 @@ class TradeDataSummaryIterator(TradeDataIterator):
             queryset = queryset.exclude(ok=False)
         return get_existing(queryset.values("timestamp", "frequency"))
 
-    def can_iter_range(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can iter range."""
+    def can_iter_hours(self) -> bool:
+        """Can iter hours."""
+        return False
+
+    def can_iter_days(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+        """Can iter days."""
         trade_data = (
             TradeData.objects.filter(
                 symbol=self.symbol,
@@ -191,16 +197,6 @@ class CandleCacheIterator(BaseTimeFrameIterator):
         self.candle = candle
         # Candle data iterates from past to present.
         self.reverse = False
-
-    def can_iter_hours(self) -> bool:
-        """Can iter hours."""
-        is_time_based_candle = isinstance(self.candle, TimeBasedCandle)
-        if is_time_based_candle:
-            window = self.candle.json_data["window"]
-            total_minutes = pd.Timedelta(window).total_seconds() / 60
-            if int(total_minutes) > Frequency.HOUR.value:
-                return False
-        return True
 
     def get_existing(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
@@ -222,6 +218,16 @@ class CandleCacheIterator(BaseTimeFrameIterator):
         else:
             return get_existing(candle_cache.values("timestamp", "frequency"))
 
-    def can_iter_range(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can iter range."""
+    def can_iter_days(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+        """Can iter days."""
         return self.candle.can_aggregate(timestamp_from, timestamp_to)
+
+    def can_iter_hours(self) -> bool:
+        """Can iter hours."""
+        is_time_based_candle = isinstance(self.candle, TimeBasedCandle)
+        if is_time_based_candle:
+            window = self.candle.json_data["window"]
+            total_minutes = pd.Timedelta(window).total_seconds() / 60
+            if int(total_minutes) > Frequency.HOUR.value:
+                return False
+        return True

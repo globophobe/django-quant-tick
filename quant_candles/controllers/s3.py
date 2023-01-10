@@ -69,7 +69,7 @@ class ExchangeS3(BaseController):
     def main(self) -> None:
         """Main."""
         iterator = TradeDataIterator(self.symbol)
-        for timestamp_from, timestamp_to, existing in iterator.iter_range(
+        for timestamp_from, timestamp_to, existing in iterator.iter_days(
             self.timestamp_from,
             self.timestamp_to,
             retry=self.retry,
