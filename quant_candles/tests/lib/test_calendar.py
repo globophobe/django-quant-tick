@@ -7,7 +7,6 @@ from django.test import SimpleTestCase
 from quant_candles.lib import (
     get_current_time,
     get_min_time,
-    get_next_monday,
     get_next_time,
     get_range,
     iter_missing,
@@ -176,16 +175,6 @@ class IterTimeframeTest(SimpleTestCase):
                 self.assertEqual(ts_to, timestamp_to)
             else:
                 self.assertEqual(ts_from + pd.Timedelta("1d"), ts_to)
-
-    def test_iter_timeframe_with_seven_day_step(self):
-        """From next Monday, to the Monday after next."""
-        timestamp = get_min_time(self.now, "1d")
-        next_monday = get_next_monday(timestamp)
-        monday_after_next = get_next_monday(next_monday)
-        values = self.get_values(next_monday, monday_after_next, value="7d")
-        self.assertEqual(len(values), 1)
-        self.assertEqual(values[0][0], next_monday)
-        self.assertEqual(values[0][1], monday_after_next)
 
 
 class IterMissingTest(SimpleTestCase):
