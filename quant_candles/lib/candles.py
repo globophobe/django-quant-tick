@@ -52,14 +52,14 @@ def validate_data_frame(
             else value
             for candle in candles.itertuples()
         }
+        k = key.title()
+        capitalized_key = key.capitalize()
+        total_key = f"total{capitalized_key}"
         if len(data_frame):
-            capitalized_key = key.capitalize()
-            total_key = f"total{capitalized_key}"
             # If there was a significant trade filter, total_key
             attrs = total_key if total_key in data_frame.columns else key
             df = aggregate_sum(data_frame, attrs=attrs, window="1t")
             for row in df.itertuples():
-                k = key.title()
                 timestamp = row.Index
                 try:
                     candle = candles.loc[timestamp]
@@ -78,7 +78,10 @@ def validate_data_frame(
                         else:
                             v = candle[key]
                         validated[timestamp] = {key: row[1], f"exchange{k}": v}
-    # Candle and trade API data availability may differ.
+        # Candle and trade API data availability may differ.
+        for timestamp, v in validated.items():
+            if isinstance(v, Decimal):
+                validated[timestamp] = {key: Decimal("0"), f"exchange{k}": v}
     else:
         validated = {
             timestamp: None
