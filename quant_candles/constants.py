@@ -7,12 +7,6 @@ from quant_candles.utils import gettext_lazy as _
 NUMERIC_PRECISION = 76  # 76.6
 NUMERIC_SCALE = 38
 
-NOTIONAL = "notional"
-VOLUME = "volume"
-TICKS = "ticks"
-
-THRESH_ATTRS = (NOTIONAL, VOLUME, TICKS)
-
 
 class Exchange(models.TextChoices):
     # ALPACA = "alpaca", "Alpaca"
@@ -29,6 +23,12 @@ class SymbolType(models.TextChoices):
     SPOT = "spot", _("spot")
     PERP = "perp", _("perp")
     FUTURE = "future", _("future")
+
+
+class SampleType(models.TextChoices):
+    VOLUME = "volume", _("volume")
+    NOTIONAL = "notional", _("notional")
+    TICK = "ticks", _("tick")  # Pluralized to match data frame.
 
 
 class Frequency(models.IntegerChoices):

@@ -1,16 +1,14 @@
-from typing import Iterable
-
 from quant_candles.utils import gettext_lazy as _
 
 from ..candles import Candle
-from ..trades import TradeData
 
 
 class ImbalanceCandle(Candle):
-    @classmethod
-    def on_trades(cls, objs: Iterable[TradeData]) -> None:
-        """On trades."""
-        pass
+    """Imbalance candle.
+
+    For example, 1 candle when:
+    * Ticks exceed 1 standard deviation of the 7 day average tick imbalance.
+    """
 
     class Meta:
         proxy = True

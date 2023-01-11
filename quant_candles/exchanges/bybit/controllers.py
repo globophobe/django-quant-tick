@@ -21,11 +21,11 @@ def bybit_trades(
     """Get Bybit trades."""
     max_timestamp_to = use_s3()
     if timestamp_to > max_timestamp_to:
-        timestamp_to = max_timestamp_to
         logger.info(
             "Bybit no longer provides a paginated REST API for trades, "
             f"{timestamp_to} modified to {max_timestamp_to}"
         )
+        timestamp_to = max_timestamp_to
     if timestamp_from < max_timestamp_to:
         BybitTradesS3(
             symbol,

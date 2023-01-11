@@ -1,5 +1,11 @@
+import decimal
+from datetime import date
+from decimal import Decimal
 from io import BytesIO
+from json import JSONDecoder
+from typing import Any
 
+import numpy as np
 import pandas as pd
 import randomname
 from django.core.files.base import ContentFile
@@ -8,12 +14,52 @@ from django.db import models
 from pandas import DataFrame
 
 from quant_candles.constants import NUMERIC_PRECISION, NUMERIC_SCALE
+from quant_candles.lib import to_pydatetime
 from quant_candles.utils import gettext_lazy as _
 
 
+class QuantCandlesEncoder(DjangoJSONEncoder):
+    def default(self, obj: Any):
+        """Default."""
+        if isinstance(obj, np.int64):
+            return int(obj)
+        return super().default(obj)
+
+
+def quant_candles_json_decoder(data: dict) -> dict:
+    """Quant candles JSON decoder."""
+    for key, value in data.items():
+        if isinstance(data[key], str):
+            try:
+                data[key] = Decimal(value)
+            except decimal.InvalidOperation:
+                pass
+        if isinstance(data[key], str):
+            try:
+                data[key] = date.fromisoformat(value)
+            except (TypeError, ValueError):
+                pass
+        if isinstance(data[key], str):
+            try:
+                data[key] = to_pydatetime(pd.to_datetime(value))
+            except (TypeError, ValueError):
+                pass
+    return data
+
+
+class QuantCandlesDecoder(JSONDecoder):
+    def __init__(self, *args, **kwargs):
+        if "object_hook" not in kwargs:
+            kwargs["object_hook"] = quant_candles_json_decoder
+        super().__init__(*args, **kwargs)
+
+
 def JSONField(name: str, **kwargs) -> models.JSONField:
+    """JSON."""
     if "encoder" not in kwargs:
-        kwargs["encoder"] = DjangoJSONEncoder
+        kwargs["encoder"] = QuantCandlesEncoder
+    if "decoder" not in kwargs:
+        kwargs["decoder"] = QuantCandlesDecoder
     return models.JSONField(name, **kwargs)
 
 

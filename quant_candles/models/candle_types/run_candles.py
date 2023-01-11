@@ -1,16 +1,14 @@
-from typing import Iterable
-
 from quant_candles.utils import gettext_lazy as _
 
 from ..candles import Candle
-from ..trades import TradeData
 
 
 class RunCandle(Candle):
-    @classmethod
-    def on_trades(cls, objs: Iterable[TradeData]) -> None:
-        """On trades."""
-        pass
+    """Run candle.
+
+    For example, 1 candle when:
+    * Ticks exceed 1 standard deviation of the 7 day moving average of tick runs.
+    """
 
     class Meta:
         proxy = True

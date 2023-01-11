@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
-from .aggregate import aggregate_sum
+from .aggregate import aggregate_sum, filter_by_timestamp
 from .calendar import get_range
 from .dataframe import is_decimal_close
 
@@ -19,31 +19,16 @@ def candles_to_data_frame(
 ) -> DataFrame:
     """Get candle data_frame."""
     data_frame = pd.DataFrame(candles)
-    # Maybe, no candles.
-    if len(data_frame) > 0:
-        # Assert timestamp_from <= data_frame.timestamp < timestamp_to
-        is_less_than_timestamp_from = (
-            len(data_frame[data_frame.timestamp < timestamp_from]) > 0
-        )
-        is_greater_than_timestamp_to = (
-            len(data_frame[data_frame.timestamp >= timestamp_to]) > 0
-        )
-        try:
-            assert not is_less_than_timestamp_from and not is_greater_than_timestamp_to
-        except AssertionError as e:
-            if len(data_frame) == 1:
-                # Assert data_frame.timestamp == timestamp_from == timestamp_to
-                assert len(data_frame[data_frame.timestamp == timestamp_from]) == 1
-                assert len(data_frame[data_frame.timestamp == timestamp_to]) == 1
-            else:
-                raise e
-        finally:
-            df = data_frame.set_index("timestamp")
-            # REST API, data is reverse order.
-            if reverse:
-                df = df.iloc[::-1]
-            return df
-    return data_frame
+    df = filter_by_timestamp(
+        data_frame,
+        timestamp_from,
+        timestamp_to,
+        inclusive=timestamp_from == timestamp_to,
+    )
+    if len(df):
+        df.set_index("timestamp", inplace=True)
+    # REST API, data is reverse order.
+    return df.iloc[::-1] if reverse else df
 
 
 def validate_data_frame(
@@ -67,14 +52,14 @@ def validate_data_frame(
             else value
             for candle in candles.itertuples()
         }
+        k = key.title()
+        capitalized_key = key.capitalize()
+        total_key = f"total{capitalized_key}"
         if len(data_frame):
-            capitalized_key = key.capitalize()
-            total_key = f"total{capitalized_key}"
             # If there was a significant trade filter, total_key
             attrs = total_key if total_key in data_frame.columns else key
             df = aggregate_sum(data_frame, attrs=attrs, window="1t")
             for row in df.itertuples():
-                k = key.title()
                 timestamp = row.Index
                 try:
                     candle = candles.loc[timestamp]
@@ -93,7 +78,10 @@ def validate_data_frame(
                         else:
                             v = candle[key]
                         validated[timestamp] = {key: row[1], f"exchange{k}": v}
-    # Candle and trade API data availability may differ.
+        # Candle and trade API data availability may differ.
+        for timestamp, v in validated.items():
+            if isinstance(v, Decimal):
+                validated[timestamp] = {key: Decimal("0"), f"exchange{k}": v}
     else:
         validated = {
             timestamp: None
@@ -101,3 +89,18 @@ def validate_data_frame(
             if timestamp >= timestamp_from and timestamp < timestamp_to
         }
     return validated
+
+
+def sum_validation(data: List[dict]) -> dict:
+    """Sum validation."""
+    validation = {}
+    for d in data:
+        for key, value in d.items():
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    validation.setdefault(k, v)
+                    validation[k] += v
+            elif value is None:
+                validation.setdefault(None, 0)
+                validation[None] += 1
+    return validation

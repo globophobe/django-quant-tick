@@ -49,7 +49,7 @@ class BitmexMixin:
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
-        # Timestamp is at candle close.
+        # Timestamp is candle close.
         return bitmex_candles(
             self.symbol.api_symbol,
             timestamp_from,

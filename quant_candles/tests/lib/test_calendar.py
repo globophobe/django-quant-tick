@@ -2,12 +2,11 @@ from datetime import datetime, time, timezone
 from typing import List
 
 import pandas as pd
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from quant_candles.lib import (
     get_current_time,
     get_min_time,
-    get_next_monday,
     get_next_time,
     get_range,
     iter_missing,
@@ -17,7 +16,7 @@ from quant_candles.lib import (
 )
 
 
-class GetMinTimeTest(TestCase):
+class GetMinTimeTest(SimpleTestCase):
     def test_get_min_time_1d(self):
         """Get start of current day."""
         now = get_current_time()
@@ -28,7 +27,7 @@ class GetMinTimeTest(TestCase):
         )
 
 
-class GetNexttimeTest(TestCase):
+class GetNexttimeTest(SimpleTestCase):
     def test_get_next_minute(self):
         """Get start of next day."""
         now = get_current_time()
@@ -39,7 +38,7 @@ class GetNexttimeTest(TestCase):
         )
 
 
-class GetRangeTest(TestCase):
+class GetRangeTest(SimpleTestCase):
     def setUp(self):
         now = get_current_time()
         self.timestamp_from = get_min_time(now, value="1d")
@@ -60,7 +59,7 @@ class GetRangeTest(TestCase):
         self.assertEqual(values[0], self.timestamp_from)
 
 
-class IterWindowTest(TestCase):
+class IterWindowTest(SimpleTestCase):
     def setUp(self):
         one_day = pd.Timedelta("1d")
         self.now = get_current_time()
@@ -89,7 +88,7 @@ class IterWindowTest(TestCase):
         self.assertEqual(values[1][0], get_min_time(self.two_days_ago, value="1d"))
 
 
-class IterTimeframeTest(TestCase):
+class IterTimeframeTest(SimpleTestCase):
     def setUp(self):
         self.now = get_current_time()
 
@@ -177,18 +176,8 @@ class IterTimeframeTest(TestCase):
             else:
                 self.assertEqual(ts_from + pd.Timedelta("1d"), ts_to)
 
-    def test_iter_timeframe_with_seven_day_step(self):
-        """From next Monday, to the Monday after next."""
-        timestamp = get_min_time(self.now, "1d")
-        next_monday = get_next_monday(timestamp)
-        monday_after_next = get_next_monday(next_monday)
-        values = self.get_values(next_monday, monday_after_next, value="7d")
-        self.assertEqual(len(values), 1)
-        self.assertEqual(values[0][0], next_monday)
-        self.assertEqual(values[0][1], monday_after_next)
 
-
-class IterMissingTest(TestCase):
+class IterMissingTest(SimpleTestCase):
     def setUp(self):
         self.one_minute = pd.Timedelta("1t")
         self.timestamp_from = get_min_time(get_current_time(), "1d")

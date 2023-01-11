@@ -3,15 +3,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+from django.test import TestCase
 
 from quant_candles.lib import get_min_time
 from quant_candles.models import TradeData
 from quant_candles.storage import convert_trade_data_to_hourly
 
-from .base import BaseWriteTradeDataTest
+from ..base import BaseWriteTradeDataTest
 
 
-class WriteTradeDataTest(BaseWriteTradeDataTest):
+class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
     def setUp(self):
         super().setUp()
         self.timestamp_to = self.timestamp_from + pd.Timedelta("1t")

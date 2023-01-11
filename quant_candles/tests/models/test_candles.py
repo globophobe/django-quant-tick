@@ -1,16 +1,18 @@
 import string
 
 import pandas as pd
+from django.test import TestCase
 
 from quant_candles.constants import Exchange
 from quant_candles.models import Candle, Symbol, TradeData
 
-from .base import BaseWriteTradeDataTest
+from ..base import BaseWriteTradeDataTest
 
 
-class CandleTest(BaseWriteTradeDataTest):
+class CandleTest(BaseWriteTradeDataTest, TestCase):
     def setUp(self):
         super().setUp()
+        self.timestamp_to = self.timestamp_from + pd.Timedelta("1t")
         self.candle = Candle.objects.create()
 
     def get_symbol(self, name: str, exchange: Exchange = Exchange.COINBASE) -> Symbol:

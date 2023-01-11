@@ -228,7 +228,7 @@ class Migration(migrations.Migration):
                     "file_data",
                     models.FileField(
                         blank=True,
-                        upload_to=quant_candles.models.candles.upload_data_to,
+                        upload_to=fake,
                         verbose_name="file data",
                     ),
                 ),
@@ -288,7 +288,7 @@ class Migration(migrations.Migration):
                     "file_data",
                     models.FileField(
                         blank=True,
-                        upload_to=quant_candles.models.trades.upload_data_to,
+                        upload_to=quant_candles.models.trades.upload_trade_data_to,
                         verbose_name="file data",
                     ),
                 ),

@@ -37,17 +37,6 @@ def get_previous_time(timestamp: datetime, value: str) -> datetime:
     return get_min_time(timestamp, value=value) - pd.Timedelta(value)
 
 
-def get_next_monday(timestamp: datetime) -> datetime:
-    """Get next Monday."""
-    ts = get_min_time(timestamp, value="1d")
-    weekday = ts.date().weekday()
-    if weekday != 0:
-        days = 7 - weekday % 7
-        return ts + pd.Timedelta(f"{days}d")
-    else:
-        return ts + pd.Timedelta("7d")
-
-
 def has_timestamps(
     timestamp_from: datetime, timestamp_to: datetime, existing: List[datetime]
 ) -> bool:
@@ -103,13 +92,13 @@ def get_range(timestamp_from: datetime, timestamp_to: datetime, value: str = "1t
     ]
 
 
-def get_existing(values: List, retry: bool = False) -> List[datetime]:
+def get_existing(values: List) -> List[datetime]:
     """Get existing."""
     result = []  # List of 1m timestamps.
     for item in values:
         timestamp = item["timestamp"]
         frequency = item["frequency"]
-        result += [timestamp + pd.Timedelta(index) for index in range(frequency)]
+        result += [timestamp + pd.Timedelta(f"{index}t") for index in range(frequency)]
     return sorted(result)
 
 

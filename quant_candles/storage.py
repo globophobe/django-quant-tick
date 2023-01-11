@@ -9,7 +9,7 @@ from quant_candles.constants import Frequency
 from quant_candles.exchanges import candles_api
 from quant_candles.lib import iter_timeframe, validate_data_frame
 from quant_candles.models import Symbol, TradeData
-from quant_candles.models.trades import upload_data_to
+from quant_candles.models.trades import upload_trade_data_to
 from quant_candles.utils import gettext_lazy as _
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,7 @@ def clean_unlinked_trade_data_files(
 
             dummy = TradeData(symbol=symbol, timestamp=daily_timestamp_from)
             storage = dummy.file_data.storage
-            directory, __ = os.path.split(upload_data_to(dummy, "dummy.parquet"))
+            directory, __ = os.path.split(upload_trade_data_to(dummy, "dummy.parquet"))
             __, filenames = storage.listdir(directory)
 
             should_delete = [
