@@ -275,11 +275,14 @@ def aggregate_candle(
 
 
 def get_top_n(data_frame: DataFrame, sample_type: SampleType, top_n: int) -> List[dict]:
-    """Get top N.
-
-    Only trade data with tick rule is considered.
-    """
-    index = data_frame[sample_type].astype(float).nlargest(top_n).index
+    """Get top N."""
+    # Filtered data may not have volume.
+    index = (
+        data_frame[data_frame.volume > 0][sample_type]
+        .astype(float)
+        .nlargest(top_n)
+        .index
+    )
     df = data_frame[data_frame.index.isin(index)]
     return get_records(df)
 
