@@ -3,7 +3,7 @@ from .iterators import (
     CandleCacheIterator,
     TradeDataIterator,
     aggregate_candles,
-    aggregate_trade_data_summary,
+    aggregate_trade_summary,
 )
 from .rest import (
     ExchangeREST,
@@ -20,7 +20,7 @@ __all__ = [
     "CandleCacheIterator",
     "TradeDataIterator",
     "aggregate_candles",
-    "aggregate_trade_data_summary",
+    "aggregate_trade_summary",
     "ExchangeREST",
     "IntegerPaginationMixin",
     "SequentialIntegerMixin",

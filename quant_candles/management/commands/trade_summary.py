@@ -1,6 +1,6 @@
 from django.core.management.base import CommandParser
 
-from quant_candles.controllers import aggregate_trade_data_summary
+from quant_candles.controllers import aggregate_trade_summary
 from quant_candles.management.base import BaseTradeDataCommand
 
 
@@ -15,4 +15,4 @@ class Command(BaseTradeDataCommand):
         kwargs = super().handle(*args, **options)
         if kwargs:
             kwargs["retry"] = options["retry"]
-            aggregate_trade_data_summary(**kwargs)
+            aggregate_trade_summary(**kwargs)

@@ -30,13 +30,13 @@ from quant_candles.models import (
 logger = logging.getLogger(__name__)
 
 
-def aggregate_trade_data_summary(
+def aggregate_trade_summary(
     symbol: Symbol,
     timestamp_from: datetime,
     timestamp_to: datetime,
     retry: bool = False,
 ):
-    """Aggregate trade data summary."""
+    """Aggregate trade summary."""
     for ts_from, ts_to in iter_timeframe(
         timestamp_from, timestamp_to, value="1d", reverse=True
     ):
