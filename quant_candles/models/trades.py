@@ -51,7 +51,7 @@ def upload_trade_data_summary_to(instance: "TradeDataSummary", filename: str) ->
 
     1. trades / coinbase / BTCUSD / summary / 2022-01-01.parquet
     """
-    parts = ["trades", instance.symbol.exchange, instance.symbol.symbol]
+    parts = ["trades", instance.symbol.exchange, instance.symbol.symbol, "summary"]
     fname = instance.date.isoformat()
     _, ext = os.path.splitext(filename)
     parts.append(f"{fname}{ext}")
@@ -223,7 +223,7 @@ class TradeData(AbstractDataStorage):
         verbose_name = verbose_name_plural = _("trade data")
 
 
-class TradeDataSummary:
+class TradeDataSummary(AbstractDataStorage):
     symbol = models.ForeignKey(
         "quant_candles.Symbol",
         related_name="trade_data_summary",
@@ -252,7 +252,7 @@ class TradeDataSummary:
             if data_frame is not None:
                 data_frames.append(data_frame)
         if data_frames:
-            obj, _ = TradeDataSummary.objects.get_or_create(symbol=symbol, date=date)
+            obj, _ = cls.objects.get_or_create(symbol=symbol, date=date)
             df = pd.concat(data_frames).reset_index()
             data = {
                 "candle": aggregate_candle(df, timestamp_from),
@@ -260,7 +260,8 @@ class TradeDataSummary:
                     [t.json_data for t in trade_data if t.json_data is not None]
                 ),
             }
-            cls.write(obj, data, get_runs(df))
+            run_df = get_runs(df)
+            cls.write(obj, data, run_df)
 
     @classmethod
     def write(cls, obj: "TradeDataSummary", data: dict, data_frame: DataFrame) -> None:
