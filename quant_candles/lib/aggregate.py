@@ -327,6 +327,9 @@ def get_runs(
             direction = row.tickRule
             runs.append(run)
             run = [row]
+    if len(run):
+        runs.append(run)
+    # Result.
     result = []
     for index, run in enumerate(runs):
         timestamp = run[0].timestamp
