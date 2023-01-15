@@ -1,6 +1,7 @@
 import random
 from datetime import datetime, timezone
 from decimal import Decimal
+from itertools import chain
 from pathlib import Path
 from typing import List, Optional
 from uuid import uuid4
@@ -16,7 +17,7 @@ from quant_candles.lib import (
     get_min_time,
     volume_filter_with_time_window,
 )
-from quant_candles.models import GlobalSymbol, Symbol, TradeData
+from quant_candles.models import GlobalSymbol, Symbol, TradeData, TradeDataSummary
 
 
 class BaseRandomTradeTest:
@@ -128,12 +129,16 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         self,
         timestamp: datetime,
         nanoseconds: int = 0,
+        price: Optional[Decimal] = None,
         notional: Optional[Decimal] = None,
     ) -> DataFrame:
         """Get filtered."""
         trades = [
             self.get_random_trade(
-                timestamp=timestamp, nanoseconds=nanoseconds, notional=notional
+                timestamp=timestamp,
+                nanoseconds=nanoseconds,
+                price=price,
+                notional=notional,
             )
         ]
         data_frame = pd.DataFrame(trades)
@@ -141,9 +146,10 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         return volume_filter_with_time_window(aggregated, min_volume=None, window="1t")
 
     def tearDown(self):
+        trade_data_summary = TradeDataSummary.objects.all()
         trade_data = TradeData.objects.select_related("symbol")
         # Files
-        for obj in trade_data:
+        for obj in list(chain(trade_data_summary, trade_data)):
             obj.delete()
         # Directories
         symbols = Symbol.objects.all()
@@ -152,17 +158,18 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
             exchange = obj.exchange
             symbol = obj.symbol
             head = trades / exchange / symbol
-            if obj.should_aggregate_trades:
-                tail = Path("aggregated") / str(obj.significant_trade_filter)
-            else:
-                tail = "raw"
-            path = head / tail
-            directories, _ = default_storage.listdir(str(path.resolve()))
-            for directory in directories:
-                default_storage.delete(path / directory)
-            default_storage.delete(path)
-            if obj.should_aggregate_trades:
-                default_storage.delete(trades / exchange / symbol / "aggregated")
+            paths = [
+                head / "summary",
+                head / "raw",
+                head / "aggregated" / str(obj.significant_trade_filter),
+                head / "aggregated",
+            ]
+            for path in paths:
+                if path.exists():
+                    directories, _ = default_storage.listdir(str(path.resolve()))
+                    for directory in directories:
+                        default_storage.delete(path / directory)
+                    default_storage.delete(path)
             default_storage.delete(trades / exchange / symbol)
         for exchange in [symbol.exchange for symbol in symbols]:
             default_storage.delete(trades / exchange)

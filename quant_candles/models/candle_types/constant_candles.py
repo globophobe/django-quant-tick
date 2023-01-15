@@ -30,9 +30,9 @@ class ConstantCandle(Candle):
         is_same_day = data["date"] == date
         # Reset cache.
         if not is_same_day:
-            if reset == Frequency.DAY:
+            if reset == Frequency.DAY.value:
                 data = self.get_initial_cache(timestamp)
-            elif reset == Frequency.WEEK and date.weekday() == 0:
+            elif reset == Frequency.WEEK.value and date.weekday() == 0:
                 data = self.get_initial_cache(timestamp)
         return data
 
