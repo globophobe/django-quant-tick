@@ -16,7 +16,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from quant_candles.views import CandleView, ConvertTradeDataToHourlyView, TradeView
+from quant_candles.views import (
+    CandleView,
+    ConvertTradeDataToHourlyView,
+    TradeSummaryView,
+    TradeView,
+)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -26,5 +31,10 @@ urlpatterns = [
         "trades/<str:exchange>/convert-to-hourly/",
         ConvertTradeDataToHourlyView.as_view(),
         name="convert_trade_data_to_hourly",
+    ),
+    path(
+        "trades/<str:exchange>/summary/",
+        TradeSummaryView.as_view(),
+        name="trade_summary",
     ),
 ]
