@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from typing import Generator, List, Tuple
 
@@ -25,6 +26,34 @@ from quant_candles.models import (
     TradeData,
     TradeDataSummary,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def aggregate_trade_data_summary(
+    symbol: Symbol,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    retry: bool = False,
+):
+    """Aggregate trade data summary."""
+    for ts_from, ts_to in iter_timeframe(
+        timestamp_from, timestamp_to, value="1d", reverse=True
+    ):
+        date = ts_from.date()
+        has_trade_data_summary = (
+            TradeDataSummary.objects.filter(symbol=symbol, date=date).exists()
+            if not retry
+            else False
+        )
+        has_trade_data = TradeData.objects.has_timestamps(symbol, ts_from, ts_to)
+        if not has_trade_data_summary and has_trade_data:
+            TradeDataSummary.aggregate(symbol, date)
+            logger.info(
+                "{symbol} summary: {date}".format(
+                    **{"symbol": str(symbol), "date": date}
+                )
+            )
 
 
 def aggregate_candles(
