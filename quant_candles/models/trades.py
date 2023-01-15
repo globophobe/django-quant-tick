@@ -14,7 +14,8 @@ from quant_candles.lib import (
     get_missing,
     get_next_time,
     get_runs,
-    sum_validation,
+    get_validation_summary,
+    has_timestamps,
 )
 from quant_candles.querysets import TimeFrameQuerySet
 from quant_candles.utils import gettext_lazy as _
@@ -59,6 +60,22 @@ def upload_trade_data_summary_to(instance: "TradeDataSummary", filename: str) ->
 
 
 class TradeDataQuerySet(TimeFrameQuerySet):
+    def has_timestamps(
+        self, symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
+    ) -> bool:
+        """Has timestamps."""
+        trade_data = (
+            TradeData.objects.filter(
+                symbol=symbol,
+                timestamp__gte=timestamp_from,
+                timestamp__lt=timestamp_to,
+            )
+            .only("timestamp", "frequency")
+            .values("timestamp", "frequency")
+        )
+        existing = get_existing(trade_data.values("timestamp", "frequency"))
+        return has_timestamps(timestamp_from, timestamp_to, existing)
+
     def get_last_uid(self, symbol: Symbol, timestamp: datetime.datetime) -> str:
         """Get last uid."""
         queryset = self.filter(symbol=symbol, timestamp__gte=timestamp)
