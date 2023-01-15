@@ -17,6 +17,11 @@ def django_settings(ctx, proxy=False):
 
 
 @task
+def coverage(ctx):
+    ctx.run("coverage run --source=../ manage.py test quant_candles; coverage report")
+
+
+@task
 def start_proxy(ctx):
     host = config("PRODUCTION_DATABASE_HOST")
     port = config("PROXY_DATABASE_PORT")

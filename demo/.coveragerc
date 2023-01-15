@@ -1,0 +1,8 @@
+[run]
+omit =
+    ../quant_candles/migrations/*
+    ../quant_candles/tests/*
+    ../quant_candles/setup.py
+[report]
+skip_covered = true
+show_missing = true
