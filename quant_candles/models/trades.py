@@ -256,10 +256,11 @@ class TradeDataSummary(AbstractDataStorage):
             df = pd.concat(data_frames).reset_index()
             data = {
                 "candle": aggregate_candle(df, timestamp_from),
-                "validation": sum_validation(
-                    [t.json_data for t in trade_data if t.json_data is not None]
-                ),
             }
+            validation_summary = get_validation_summary(
+                [t.json_data for t in trade_data if t.json_data is not None]
+            )
+            data.update({"ok": True if not validation_summary else validation_summary})
             run_df = get_runs(df)
             cls.write(obj, data, run_df)
 

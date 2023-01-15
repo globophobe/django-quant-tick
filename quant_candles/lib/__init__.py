@@ -26,7 +26,7 @@ from .calendar import (
     timestamp_to_inclusive,
     to_pydatetime,
 )
-from .candles import candles_to_data_frame, sum_validation, validate_data_frame
+from .candles import candles_to_data_frame, get_validation_summary, validate_data_frame
 from .dataframe import (
     assert_type_decimal,
     calculate_notional,
@@ -65,7 +65,7 @@ __all__ = [
     "timestamp_to_inclusive",
     "to_pydatetime",
     "candles_to_data_frame",
-    "sum_validation",
+    "get_validation_summary",
     "validate_data_frame",
     "assert_type_decimal",
     "calculate_notional",
