@@ -35,14 +35,13 @@ class AdaptiveCandle(ConstantCandle):
     def get_trade_data_summary(self, timestamp: datetime) -> bool:
         """Get trade data summary."""
         days = self.json_data["moving_average_number_of_days"]
-        date_from = get_min_time(timestamp, value="1d")
-        date_from = date_from - pd.Timedelta(f"{days}d")
-        return TradeDataSummary.objects.filter(date__gte=date_from, date__lt=date_from)
+        ts = get_min_time(timestamp, value="1d") - pd.Timedelta(f"{days}d")
+        return TradeDataSummary.objects.filter(
+            date__gte=ts.date(), date__lt=timestamp.date()
+        )
 
     def get_target_value(self, timestamp: datetime) -> Decimal:
         """Get target value."""
-        sample_type = self.json_data["sample_type"]
-        s = sample_type.capitalize()
         days = self.json_data["moving_average_number_of_days"]
         trade_data_summary = (
             self.get_trade_data_summary(timestamp)
@@ -50,7 +49,8 @@ class AdaptiveCandle(ConstantCandle):
             .values("json_data")
             .order_by("-date")
         )
-        total = sum([t["json_data"]["candle"][f"total{s}"] for t in trade_data_summary])
+        sample_type = self.json_data["sample_type"]
+        total = sum([t["json_data"]["candle"][sample_type] for t in trade_data_summary])
         return total / days / self.json_data["target_candles_per_day"]
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
