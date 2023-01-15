@@ -1,0 +1,21 @@
+main:
+  params: [args]
+  steps:
+    - trades:
+        parallel:
+          for:
+            value: exchange
+            in: ["bitfinex", "bitmex", "coinbase"]
+            steps:
+              - getTrades:
+                  call: http.post
+                  args:
+                    url: ${"https://example.com/trades/" + exchange + "/"}
+              - convertTradeDataToHourly:
+                  call: http.post
+                  args:
+                    url: ${"https://example.com/trades/" + exchange + "/convert-to-hourly/"}
+              - getTradeDataSummary:
+                  call: http.post
+                  args:
+                    url: ${"https://example.com/trades/" + exchange + "/summary/"}
