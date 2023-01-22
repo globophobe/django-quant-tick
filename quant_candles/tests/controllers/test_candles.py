@@ -481,7 +481,7 @@ class ConstantNotionalHourFrequencyCandleTest(
     def get_candle(self) -> Candle:
         """Get candle."""
         return ConstantCandle.objects.create(
-            json_data={"sample_type": SampleType.NOTIONAL.value, "sample_value": 1}
+            json_data={"sample_type": SampleType.NOTIONAL.value, "target_value": 1}
         )
 
     def write_trade_data(

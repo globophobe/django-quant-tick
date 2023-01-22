@@ -296,4 +296,5 @@ class TradeDataSummary(AbstractDataStorage):
     class Meta:
         db_table = "quant_candles_trade_data_summary"
         ordering = ("date",)
+        unique_together = (("symbol", "date"),)
         verbose_name = verbose_name_plural = _("trade data summary")
