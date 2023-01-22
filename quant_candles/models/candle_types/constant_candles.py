@@ -2,13 +2,14 @@ from datetime import datetime
 from typing import Optional, Tuple
 
 import pandas as pd
+from django.conf import settings
 from pandas import DataFrame
 
 from quant_candles.constants import Frequency
 from quant_candles.lib import aggregate_candle, get_next_cache, merge_cache
 from quant_candles.utils import gettext_lazy as _
 
-from ..candles import Candle, CandleCache
+from ..candles import Candle, CandleCache, CandleData, CandleReadOnlyData
 
 
 class ConstantCandle(Candle):
@@ -31,10 +32,25 @@ class ConstantCandle(Candle):
         is_same_day = data["date"] == date
         # Reset cache.
         if not is_same_day:
-            if reset == Frequency.DAY.value:
-                data = self.get_initial_cache(timestamp)
-            elif reset == Frequency.WEEK.value and date.weekday() == 0:
-                data = self.get_initial_cache(timestamp)
+            is_daily_reset = reset == Frequency.DAY.value
+            is_weekly_reset = reset == Frequency.WEEK.value and date.weekday() == 0
+            if is_daily_reset or is_weekly_reset:
+                if "next" in data:
+                    ts = timestamp - pd.Timedelta("1us")
+                    if settings.IS_LOCAL:
+                        candle_data = CandleReadOnlyData(
+                            candle_id=self.id, timestamp=ts
+                        )
+                    else:
+                        candle_data = CandleData(candle=self, timestamp=ts)
+                    d = data["next"]
+                    d["incomplete"] = True
+                    candle_data.json_data = d
+                    candle_data.save()
+                if is_daily_reset:
+                    data = self.get_initial_cache(timestamp)
+                elif is_weekly_reset:
+                    data = self.get_initial_cache(timestamp)
         return data
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
