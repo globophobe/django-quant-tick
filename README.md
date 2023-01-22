@@ -29,14 +29,14 @@ Supported exchanges
 -------------------
 
 :white_medium_square: Binance REST API (requires API key, which requires KYC)
-* <em style="font-size: 0.9em">This was working, but I did not complete KYC, and as a resident of Japan am not currently able to do so. Other exchanges validate trade data downloaded from exchanges using candle data provided by exchanges. However, that feature is incomplete for this integration.</em>
+* <em style="font-size: 0.9em">Other exchanges validate trade data downloaded from exchanges using candle data provided by exchanges. However, I did not complete KYC, and as a resident of Japan am not currently able to do so. Support is incomplete.</em>
 
 :white_check_mark: Bitfinex REST API
 
 :white_check_mark: BitMEX REST API, and [S3](https://public.bitmex.com/) repository
 
 :white_check_mark: Bybit [S3](https://public.bybit.com/) repository. 
-* <em style="font-size: 0.9em">The REST API is no longer paginated, so acquiring data may be delayed 24 hours or more.</em>
+* <em style="font-size: 0.9em">The REST API is no longer paginated, so data may be delayed 24 hours or more.</em>
 
 :white_check_mark: Coinbase Pro REST API
 
