@@ -10,12 +10,13 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCandleCommand):
-    help = "Create candles from trade data"
+    help = "Create candles from trade data."
 
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
         return Candle.objects.filter(is_active=True)
 
     def handle(self, *args, **options) -> None:
+        """Run command."""
         kwargs = super().handle(*args, **options)
         aggregate_candles(**kwargs)
