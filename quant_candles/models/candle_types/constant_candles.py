@@ -76,7 +76,7 @@ class ConstantCandle(Candle):
 
     def should_aggregate_candle(self, data: dict) -> bool:
         """Should aggregate candle."""
-        return data["sample_value"] >= self.json_data["sample_value"]
+        return data["sample_value"] >= self.json_data["target_value"]
 
     class Meta:
         proxy = True
