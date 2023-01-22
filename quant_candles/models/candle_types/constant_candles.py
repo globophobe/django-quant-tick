@@ -62,19 +62,23 @@ class ConstantCandle(Candle):
         """Aggregate."""
         start = 0
         data = []
-        top_n = self.json_data.get("topN", 0)
+        runs_n = self.json_data.get("runsN", None)
+        top_n = self.json_data.get("topN", None)
         column = "total" + self.json_data["sample_type"].title()
         for index, row in data_frame.iterrows():
             cache_data["sample_value"] += row[column]
             if self.should_aggregate_candle(cache_data):
                 df = data_frame.loc[start:index]
                 candle = aggregate_candle(
-                    df, sample_type=self.json_data["sample_type"], top_n=top_n
+                    df,
+                    sample_type=self.json_data["sample_type"],
+                    runs_n=runs_n,
+                    top_n=top_n,
                 )
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
                     candle = merge_cache(
-                        previous, candle, self.json_data["sample_type"], top_n
+                        previous, candle, self.json_data["sample_type"], runs_n, top_n
                     )
                 data.append(candle)
                 # Reinitialize cache
@@ -86,7 +90,7 @@ class ConstantCandle(Candle):
         if not is_last_row:
             df = data_frame.loc[start:]
             cache_data = get_next_cache(
-                df, cache_data, self.json_data["sample_type"], top_n
+                df, cache_data, self.json_data["sample_type"], runs_n, top_n
             )
         return data, cache_data
 

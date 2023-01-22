@@ -12,14 +12,17 @@ def get_next_cache(
     data_frame: DataFrame,
     cache_data: dict,
     sample_type: Optional[SampleType] = None,
-    top_n: int = 0,
+    runs_n: Optional[int] = None,
+    top_n: Optional[int] = None,
 ) -> dict:
     """Get next cache."""
-    values = aggregate_candle(data_frame)
+    values = aggregate_candle(
+        data_frame, sample_type=sample_type, runs_n=runs_n, top_n=top_n
+    )
     if "next" in cache_data:
         previous_values = cache_data.pop("next")
         cache_data["next"] = merge_cache(
-            previous_values, values, sample_type, top_n=top_n
+            previous_values, values, sample_type, runs_n, top_n
         )
     else:
         cache_data["next"] = values
@@ -27,7 +30,11 @@ def get_next_cache(
 
 
 def merge_cache(
-    previous: dict, current: dict, sample_type: SampleType, top_n: int = 0
+    previous: dict,
+    current: dict,
+    sample_type: SampleType,
+    runs_n: Optional[int] = None,
+    top_n: Optional[int] = None,
 ) -> dict:
     """Merge cache."""
     for key in (
@@ -39,14 +46,16 @@ def merge_cache(
         "buyTicks",
     ):
         current[key] += previous[key]  # Add
-    # Top N
-    merged_top = previous.get("topN", []) + current.get("topN", [])
-    if len(merged_top):
-        # Sort by sample_type
-        merged_top.sort(key=lambda x: x[sample_type], reverse=True)
-        # Slice top_n
-        m = merged_top[:top_n]
-        # Sort by timestamp, nanoseconds
-        m.sort(key=itemgetter("timestamp", "nanoseconds"))
-        current["topN"] = m
+    if runs_n is not None:
+        current["runs"] = previous.get("runs", []) + current.get("runs", [])
+    if top_n is not None:
+        merged_top = previous.get("topN", []) + current.get("topN", [])
+        if len(merged_top):
+            # Sort by sample_type
+            merged_top.sort(key=lambda x: x[sample_type], reverse=True)
+            # Slice top_n
+            m = merged_top[:top_n]
+            # Sort by timestamp, nanoseconds
+            m.sort(key=itemgetter("timestamp", "nanoseconds"))
+            current["topN"] = m
     return current

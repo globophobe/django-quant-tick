@@ -278,8 +278,10 @@ class TradeDataSummary(AbstractDataStorage):
                 [t.json_data for t in trade_data if t.json_data is not None]
             )
             data.update({"ok": True if not validation_summary else validation_summary})
-            run_df = get_runs(df)
-            cls.write(obj, data, run_df)
+            runs = get_runs(df)
+            runs_df = pd.DataFrame(runs)
+            assert df.volume.sum() == runs_df.volume.abs().sum(), "Volume is not equal."
+            cls.write(obj, data, runs_df)
 
     @classmethod
     def write(cls, obj: "TradeDataSummary", data: dict, data_frame: DataFrame) -> None:

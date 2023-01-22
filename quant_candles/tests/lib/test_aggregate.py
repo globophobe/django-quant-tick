@@ -236,7 +236,7 @@ class GetRunsTest(BaseRandomTradeTest, SimpleTestCase):
         data_frame = pd.DataFrame([up])
         runs = get_runs(data_frame)
         self.assertEqual(len(runs), 1)
-        self.assertEqual(runs.iloc[0].ticks, 1)
+        self.assertEqual(runs[0]["ticks"], 1)
 
     def test_one_up_tick_and_one_down_tick(self):
         """One up tick, and one down tick."""
@@ -245,8 +245,16 @@ class GetRunsTest(BaseRandomTradeTest, SimpleTestCase):
         data_frame = pd.DataFrame([up, down])
         runs = get_runs(data_frame)
         self.assertEqual(len(runs), 2)
-        self.assertEqual(runs.iloc[0].ticks, 1)
-        self.assertEqual(runs.iloc[1].ticks, -1)
+        self.assertEqual(runs[0]["ticks"], 1)
+        self.assertEqual(runs[1]["ticks"], -1)
+
+    def test_one_up_tick_and_one_down_tick_with_runs_N(self):
+        """One up tick and one down tick, with runs N of 2."""
+        up = self.get_random_trade(tick_rule=1)
+        down = self.get_random_trade(tick_rule=-1)
+        data_frame = pd.DataFrame([up, down])
+        runs = get_runs(data_frame, runs_n=2)
+        self.assertEqual(len(runs), 0)
 
     def test_two_up_ticks_and_one_down_tick(self):
         """Two up ticks and one down tick."""
@@ -255,8 +263,17 @@ class GetRunsTest(BaseRandomTradeTest, SimpleTestCase):
         data_frame = pd.DataFrame(([up] * 2) + [down])
         runs = get_runs(data_frame)
         self.assertEqual(len(runs), 2)
-        self.assertEqual(runs.iloc[0].ticks, 2)
-        self.assertEqual(runs.iloc[1].ticks, -1)
+        self.assertEqual(runs[0]["ticks"], 2)
+        self.assertEqual(runs[1]["ticks"], -1)
+
+    def test_two_up_ticks_and_one_down_tick_with_runs_N(self):
+        """Two up ticks and one down tick, with runs N of 2."""
+        up = self.get_random_trade(tick_rule=1)
+        down = self.get_random_trade(tick_rule=-1)
+        data_frame = pd.DataFrame(([up] * 2) + [down])
+        runs = get_runs(data_frame, runs_n=2)
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["ticks"], 2)
 
     def test_bins(self):
         """Bins 1, 2, 3."""
@@ -268,4 +285,4 @@ class GetRunsTest(BaseRandomTradeTest, SimpleTestCase):
         runs = get_runs(data_frame, bins=[1, 2, 3])
         self.assertEqual(len(runs), 1)
         for i in range(3):
-            self.assertEqual(runs.iloc[0][f"volume{i + 1}"], 1)
+            self.assertEqual(runs[0][f"volume{i + 1}"], 1)
