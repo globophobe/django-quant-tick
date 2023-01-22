@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
+import pandas as pd
 from pandas import DataFrame
 
 from quant_candles.controllers import SequentialIntegerMixin
@@ -58,3 +59,9 @@ class BinanceMixin(SequentialIntegerMixin):
         expected = len(trades) - 1
         diff = data_frame["index"].diff().dropna()
         assert abs(diff.sum()) == expected
+
+    def get_candles(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> DataFrame:
+        """Get candles from Exchange API."""
+        return pd.DataFrame([])
