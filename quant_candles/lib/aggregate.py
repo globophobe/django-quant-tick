@@ -79,9 +79,8 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
         samples.append(aggregated_sample)
     # Assert volume equal.
     aggregated = pd.DataFrame(samples)
-    assert is_decimal_close(
-        data_frame.volume.sum(), aggregated.volume.sum()
-    ), "Volume is not equal."
+    error = "Volume is not equal."
+    assert is_decimal_close(data_frame.volume.sum(), aggregated.volume.sum()), error
     return aggregated
 
 
@@ -249,6 +248,7 @@ def aggregate_candle(
     data_frame: DataFrame,
     timestamp: Optional[datetime.datetime] = None,
     sample_type: Optional[SampleType] = None,
+    runs_n: Optional[int] = None,
     top_n: Optional[int] = None,
 ) -> dict:
     """Aggregate candle."""
@@ -269,7 +269,11 @@ def aggregate_candle(
         "ticks": int(data_frame.totalTicks.sum()),
         "buyTicks": int(data_frame.totalBuyTicks.sum()),
     }
-    if sample_type and top_n:
+    if runs_n is not None:
+        runs = get_runs(data_frame, runs_n)
+        if runs:
+            data["runs"] = runs
+    if sample_type and top_n is not None:
         data["topN"] = get_top_n(data_frame, sample_type, top_n)
     return data
 
@@ -309,7 +313,9 @@ def get_records(df: DataFrame) -> List[dict]:
 
 
 def get_runs(
-    data_frame: DataFrame, bins: List[int] = [1_000, 10_000, 50_000, 100_000]
+    data_frame: DataFrame,
+    runs_n: int = 0,
+    bins: List[int] = [1_000, 10_000, 50_000, 100_000],
 ) -> List[dict]:
     """Get runs."""
     runs = []
@@ -325,9 +331,10 @@ def get_runs(
             run.append(row)
         else:
             direction = row.tickRule
-            runs.append(run)
+            if len(run) >= runs_n:
+                runs.append(run)
             run = [row]
-    if len(run):
+    if run and len(run) >= runs_n:
         runs.append(run)
     # Result.
     result = []
@@ -345,7 +352,7 @@ def get_runs(
             data[sample_type] = value * int(run[0].tickRule)
         data.update(get_bins(run, bins))
         result.append(data)
-    return pd.DataFrame(result)
+    return result
 
 
 def get_bins(run: List[tuple], bins: List[int]):

@@ -31,7 +31,10 @@ class TimeBasedCandle(Candle):
     def aggregate_candle(self, timestamp: datetime, data_frame: DataFrame) -> dict:
         """Aggregate candle."""
         return aggregate_candle(
-            data_frame, timestamp, top_n=self.json_data.get("top_n", 0)
+            data_frame,
+            timestamp,
+            runs_n=self.json_data.get("runs_n", None),
+            top_n=self.json_data.get("top_n", None),
         )
 
     class Meta:

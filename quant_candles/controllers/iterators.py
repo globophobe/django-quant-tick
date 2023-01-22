@@ -76,6 +76,11 @@ def aggregate_candles(
         data, cache_data = candle.aggregate(ts_from, ts_to, data_frame, cache_data)
         candle.write_cache(ts_from, ts_to, cache_data)
         candle.write_data(ts_from, ts_to, data)
+        logger.info(
+            "Candle {candle}: {timestamp}".format(
+                **{"candle": str(candle), "timestamp": ts_to.replace(tzinfo=None)}
+            )
+        )
 
 
 class BaseTimeFrameIterator:

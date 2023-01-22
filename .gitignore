@@ -1,5 +1,6 @@
 *.pyc
 *.sqlite3
+*.sqlite-journal
 .env
 .coverage
 cloud-tools/
