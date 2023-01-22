@@ -1,6 +1,5 @@
 FROM python:3.10-slim-bullseye
 
-ARG POETRY_EXPORT
 ARG SECRET_KEY
 ARG SENTRY_DSN
 
@@ -19,6 +18,7 @@ ENV DATABASE_PASSWORD $DATABASE_PASSWORD
 ENV PRODUCTION_DATABASE_HOST $PRODUCTION_DATABASE_HOST
 ENV DATABASE_PORT $DATABASE_PORT
 
+COPY README.md /
 COPY pyproject.toml /
 copy poetry.lock /
 COPY quant_candles/ /quant_candles
@@ -27,13 +27,11 @@ COPY demo/static /demo/static
 COPY demo/templates /demo/templates
 COPY demo/db.sqlite3 /demo/db.sqlite3
 
-RUN apt-get update \
-    && pip install --no-cache-dir wheel \
-    && pip install poetry \
+RUN pip install poetry \
+    && poetry config installer.max-workers 10 \
+    && poetry config virtualenvs.create false \
     && poetry install \
-    && apt-get clean  \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm $WHEEL
+    && rm -rf ~/.cache
 
 # Start the server
 ENTRYPOINT ["gunicorn", "--chdir", "/demo", "--bind", "0.0.0.0:8080", "demo.wsgi:application"]
