@@ -17,6 +17,11 @@ def django_settings(ctx, proxy=False):
 
 
 @task
+def coverage(ctx):
+    ctx.run("coverage run --source=../ manage.py test quant_candles; coverage report")
+
+
+@task
 def start_proxy(ctx):
     host = config("PRODUCTION_DATABASE_HOST")
     port = config("PROXY_DATABASE_PORT")
@@ -45,3 +50,26 @@ def docker_secrets():
         f'{secret}="{config(secret)}"' for secret in ("SECRET_KEY", "SENTRY_DSN")
     ]
     return " ".join([f"--build-arg {build_arg}" for build_arg in build_args])
+
+
+@task
+def build_container(ctx, hostname="asia.gcr.io"):
+    ctx.run("echo yes | python manage.py collectstatic")
+    name = get_container_name(ctx, hostname=hostname)
+    with ctx.cd(".."):
+        cmd = " ".join(
+            [
+                "docker build",
+                docker_secrets(),
+                f"--no-cache --file=Dockerfile --tag={name} .",
+            ]
+        )
+        ctx.run(cmd)
+
+
+@task
+def push_container(ctx, hostname="asia.gcr.io"):
+    name = get_container_name(ctx, hostname=hostname)
+    # Push
+    cmd = f"docker push {name}"
+    ctx.run(cmd)

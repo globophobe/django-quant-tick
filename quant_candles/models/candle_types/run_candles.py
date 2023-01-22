@@ -1,9 +1,9 @@
 from quant_candles.utils import gettext_lazy as _
 
-from ..candles import Candle
+from .imbalance_candles import ImbalanceCandle
 
 
-class RunCandle(Candle):
+class RunCandle(ImbalanceCandle):
     """Run candle.
 
     For example, 1 candle when:

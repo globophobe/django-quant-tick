@@ -308,7 +308,9 @@ def get_records(df: DataFrame) -> List[dict]:
     return data
 
 
-def get_runs(data_frame: DataFrame) -> List[dict]:
+def get_runs(
+    data_frame: DataFrame, bins: List[int] = [1_000, 10_000, 50_000, 100_000]
+) -> List[dict]:
     """Get runs."""
     runs = []
     run = []
@@ -325,23 +327,36 @@ def get_runs(data_frame: DataFrame) -> List[dict]:
             direction = row.tickRule
             runs.append(run)
             run = [row]
+    if len(run):
+        runs.append(run)
+    # Result.
+    result = []
     for index, run in enumerate(runs):
+        timestamp = run[0].timestamp
+        delta = run[-1].timestamp - timestamp
         data = {
-            "tsFrom": to_pydatetime(run[0].timestamp),
-            "tsTo": to_pydatetime(run[-1].timestamp),
+            "timestamp": to_pydatetime(timestamp),
+            "duration": delta.total_seconds() or 0,
         }
         for sample_type in SampleType.values:
             value = sum([getattr(r, sample_type) for r in run])
             if sample_type == SampleType.TICK.value:
                 value = int(value)
             data[sample_type] = value * int(run[0].tickRule)
-        bins = [1_000, 10_000, 50_000, 100_000]
-        for index, b in enumerate(bins):
-            next_index = index + 1
-            if (next_index) <= len(bins):
-                next_b = bins[next_index]
-                data[b] = len([r for r in run if r.volume >= b and r.volume < next_b])
-            else:
-                data[b] = len([r for r in run if r.volume >= b])
-        runs[index] = data
-    return pd.DataFrame(runs)
+        data.update(get_bins(run, bins))
+        result.append(data)
+    return pd.DataFrame(result)
+
+
+def get_bins(run: List[tuple], bins: List[int]):
+    """Get bins."""
+    data = {}
+    for index, b in enumerate(bins):
+        next_index = index + 1
+        c = f"volume{b}"
+        if (next_index) < len(bins):
+            next_b = bins[next_index]
+            data[c] = len([r for r in run if r.volume >= b and r.volume < next_b])
+        else:
+            data[c] = len([r for r in run if r.volume >= b])
+    return data

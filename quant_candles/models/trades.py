@@ -14,7 +14,8 @@ from quant_candles.lib import (
     get_missing,
     get_next_time,
     get_runs,
-    sum_validation,
+    get_validation_summary,
+    has_timestamps,
 )
 from quant_candles.querysets import TimeFrameQuerySet
 from quant_candles.utils import gettext_lazy as _
@@ -51,7 +52,7 @@ def upload_trade_data_summary_to(instance: "TradeDataSummary", filename: str) ->
 
     1. trades / coinbase / BTCUSD / summary / 2022-01-01.parquet
     """
-    parts = ["trades", instance.symbol.exchange, instance.symbol.symbol]
+    parts = ["trades", instance.symbol.exchange, instance.symbol.symbol, "summary"]
     fname = instance.date.isoformat()
     _, ext = os.path.splitext(filename)
     parts.append(f"{fname}{ext}")
@@ -65,6 +66,22 @@ class TradeDataQuerySet(TimeFrameQuerySet):
         obj = queryset.exclude(uid="").order_by("timestamp").first()
         if obj:
             return obj.uid
+
+    def has_timestamps(
+        self, symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
+    ) -> bool:
+        """Has timestamps."""
+        trade_data = (
+            TradeData.objects.filter(
+                symbol=symbol,
+                timestamp__gte=timestamp_from,
+                timestamp__lt=timestamp_to,
+            )
+            .only("timestamp", "frequency")
+            .values("timestamp", "frequency")
+        )
+        existing = get_existing(trade_data.values("timestamp", "frequency"))
+        return has_timestamps(timestamp_from, timestamp_to, existing)
 
 
 class TradeData(AbstractDataStorage):
@@ -223,7 +240,7 @@ class TradeData(AbstractDataStorage):
         verbose_name = verbose_name_plural = _("trade data")
 
 
-class TradeDataSummary:
+class TradeDataSummary(AbstractDataStorage):
     symbol = models.ForeignKey(
         "quant_candles.Symbol",
         related_name="trade_data_summary",
@@ -252,15 +269,17 @@ class TradeDataSummary:
             if data_frame is not None:
                 data_frames.append(data_frame)
         if data_frames:
-            obj, _ = TradeDataSummary.objects.get_or_create(symbol=symbol, date=date)
+            obj, _ = cls.objects.get_or_create(symbol=symbol, date=date)
             df = pd.concat(data_frames).reset_index()
             data = {
                 "candle": aggregate_candle(df, timestamp_from),
-                "validation": sum_validation(
-                    [t.json_data for t in trade_data if t.json_data is not None]
-                ),
             }
-            cls.write(obj, data, get_runs(df))
+            validation_summary = get_validation_summary(
+                [t.json_data for t in trade_data if t.json_data is not None]
+            )
+            data.update({"ok": True if not validation_summary else validation_summary})
+            run_df = get_runs(df)
+            cls.write(obj, data, run_df)
 
     @classmethod
     def write(cls, obj: "TradeDataSummary", data: dict, data_frame: DataFrame) -> None:

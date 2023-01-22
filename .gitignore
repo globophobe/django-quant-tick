@@ -4,5 +4,6 @@
 .coverage
 cloud-tools/
 dist/
-data/
+static/
+media/
 keys/

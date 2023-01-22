@@ -1,5 +1,10 @@
 from .constants import HTTPX_ERRORS
-from .iterators import CandleCacheIterator, TradeDataIterator, aggregate_candles
+from .iterators import (
+    CandleCacheIterator,
+    TradeDataIterator,
+    aggregate_candles,
+    aggregate_trade_summary,
+)
 from .rest import (
     ExchangeREST,
     IntegerPaginationMixin,
@@ -14,6 +19,8 @@ __all__ = [
     "HTTPX_ERRORS",
     "CandleCacheIterator",
     "TradeDataIterator",
+    "aggregate_candles",
+    "aggregate_trade_summary",
     "ExchangeREST",
     "IntegerPaginationMixin",
     "SequentialIntegerMixin",

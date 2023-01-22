@@ -9,6 +9,7 @@ class Command(BaseTradeDataCommand):
     help = "Clean storage, and decrease storage frequency."
 
     def handle(self, *args, **options) -> None:
+        """Run command."""
         kwargs = super().handle(*args, **options)
         if kwargs:
             clean_trade_data_with_non_existing_files(**kwargs)

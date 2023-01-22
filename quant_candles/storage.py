@@ -19,7 +19,6 @@ def convert_trade_data_to_hourly(
     symbol: Symbol,
     timestamp_from: Optional[datetime.datetime] = None,
     timestamp_to: Optional[datetime.datetime] = None,
-    verbose: bool = False,
 ):
     """Convert trade data aggregated by minute to hourly."""
     queryset = TradeData.objects.filter(symbol=symbol).filter_by_timestamp(
@@ -53,7 +52,11 @@ def convert_trade_data_to_hourly(
                 filtered = pd.DataFrame([])
             candles = candles_api(symbol, timestamp_from, timestamp_to)
             validated = validate_data_frame(
-                timestamp_from, timestamp_to, filtered, candles
+                timestamp_from,
+                timestamp_to,
+                filtered,
+                candles,
+                symbol.should_aggregate_trades,
             )
             # Delete minutes
             pks = [aggregated_data.pk for aggregated_data in minutes]

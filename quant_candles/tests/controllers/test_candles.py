@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 import time_machine
+from django.db.models.functions import TruncDate
 from django.test import TestCase, override_settings
 from pandas import DataFrame
 
@@ -18,8 +19,10 @@ from quant_candles.models import (
     CandleData,
     CandleReadOnlyData,
     ConstantCandle,
+    Symbol,
     TimeBasedCandle,
     TradeData,
+    TradeDataSummary,
 )
 
 from ..base import BaseSymbolTest, BaseWriteTradeDataTest
@@ -689,31 +692,248 @@ class ConstantNotionalHourFrequencyCandleTest(
 @time_machine.travel(datetime(2009, 1, 4))
 @patch(
     "quant_candles.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
-    return_value=datetime(2009, 1, 18).replace(tzinfo=timezone.utc),
+    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
 )
 class AdaptiveNotionalCandleTest(
-    BaseDayIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
+    BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
 ):
 
     databases = {"default", "read_only"}
+
+    def setUp(self):
+        super().setUp()
+        self.create_trade_data_summary(self.timestamp_from)
 
     def get_candle(self) -> Candle:
         """Get candle."""
         return AdaptiveCandle.objects.create(
             json_data={
                 "sample_type": SampleType.NOTIONAL.value,
-                "moving_average_number_of_days": 7,
-                "target_candles_per_day": 24,
+                "moving_average_number_of_days": 1,
+                "target_candles_per_day": 1,
                 "cache_reset": Frequency.WEEK.value,
             }
         )
 
-    def write_trade_data(self, data_frame: DataFrame) -> None:
-        """Write trade data.
-
-        For speed, write data with Frequency.DAY
-        """
-        trade_data = TradeData(
-            symbol=self.symbol, timestamp=self.january_5th, frequency=Frequency.DAY
+    def create_trade_data_summary(
+        self, timestamp: datetime, notional: Decimal = Decimal("1")
+    ) -> None:
+        """Create trade data summary."""
+        ts = get_min_time(timestamp, value="1d")
+        one_day_ago = ts - pd.Timedelta("1d")
+        filtered = self.get_filtered(one_day_ago, notional=notional)
+        trade_data = TradeData.objects.create(
+            symbol=self.symbol, timestamp=one_day_ago, frequency=Frequency.DAY
         )
-        TradeData.write_data_frame(trade_data, data_frame, validated={})
+        TradeData.write_data_frame(trade_data, filtered, pd.DataFrame([]))
+        for symbol in Symbol.objects.all():
+            dates = (
+                TradeData.objects.filter(symbol=symbol)
+                .values("timestamp")
+                .annotate(date=TruncDate("timestamp"))
+                .values_list("date", flat=True)
+                .distinct()
+                # Not distinct without order_by.
+                .order_by()
+            )
+            for date in dates:
+                TradeDataSummary.aggregate(symbol, date)
+
+    def write_trade_data(
+        self, timestamp_from: datetime, timestamp_to: datetime, data_frame: DataFrame
+    ) -> None:
+        """Write trade data."""
+        TradeData.write(
+            self.symbol, timestamp_from, timestamp_to, data_frame, validated={}
+        )
+
+    def test_no_candles_from_trade_in_the_first_hour(self, mock_get_max_timestamp_to):
+        """No candles with one trade with insufficent notional in the first hour."""
+        expected = Decimal("0.5")
+        filtered = self.get_filtered(self.timestamp_from, notional=expected)
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        self.assertFalse(CandleReadOnlyData.objects.exists())
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 1)
+        self.assertEqual(candle_cache[0].json_data["sample_value"], expected)
+
+    def test_one_candle_from_trade_in_the_first_hour(self, mock_get_max_timestamp_to):
+        """One candle from a trade in the first hour."""
+        filtered = self.get_filtered(self.timestamp_from, notional=1)
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        candle_data = CandleReadOnlyData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+
+    def test_one_candle_from_trade_in_the_first_hour_with_retry(
+        self, mock_get_max_timestamp_to
+    ):
+        """One candle from a trade in the first hour with retry."""
+        filtered = self.get_filtered(self.timestamp_from, notional=1)
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+        for i in range(2):
+            aggregate_candles(
+                self.candle,
+                self.timestamp_from,
+                self.one_hour_from_now,
+                retry=bool(i),
+            )
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 1)
+        candle_data = CandleReadOnlyData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+
+    def test_one_candle_from_one_trade_in_the_first_hour_then_two_trades_with_retry(
+        self, mock_get_max_timestamp_to
+    ):
+        """One candle from a trade in the first hour, then two trades with retry."""
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        for i in range(2):
+            retry = bool(i)
+            if retry:
+                missing_trade = self.get_filtered(
+                    self.timestamp_from, notional=Decimal("0.5")
+                )
+                filtered = pd.concat([filtered, missing_trade])
+            self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+            aggregate_candles(
+                self.candle, self.timestamp_from, self.one_hour_from_now, retry=True
+            )
+        self.assertEqual(TradeData.objects.count(), 2)
+        self.assertEqual(CandleCache.objects.count(), 1)
+        candle_read_only_data = CandleReadOnlyData.objects.all()
+        self.assertEqual(candle_read_only_data.count(), 1)
+        self.assertEqual(candle_read_only_data[0].timestamp, self.timestamp_from)
+
+    @override_settings(IS_LOCAL=False)
+    def test_one_candle_from_trade_in_the_first_hour_not_read_only(
+        self, mock_get_max_timestamp_to
+    ):
+        """One candle from a trade in the first hour, which is not read only."""
+        filtered = self.get_filtered(self.timestamp_from, notional=1)
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+
+    def test_one_candle_from_two_trades_in_the_first_hour_with_topN(
+        self, mock_get_max_timestamp_to
+    ):
+        """One candle from two trades in the first hour with topN."""
+        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal("0.25"))
+        filtered_2 = self.get_filtered(
+            self.timestamp_from, nanoseconds=1, notional=Decimal("0.75")
+        )
+        filtered = pd.concat([filtered_1, filtered_2])
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+        self.candle.json_data["topN"] = 1
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        candle_data = CandleReadOnlyData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+        top_n = candle_data[0].json_data["topN"]
+        self.assertEqual(len(top_n), 1)
+        self.assertEqual(top_n[0]["timestamp"], filtered_2.iloc[0].timestamp)
+        self.assertEqual(top_n[0]["nanoseconds"], filtered_2.iloc[0].nanoseconds)
+
+    def test_one_candle_from_trade_in_the_first_and_second_hour(
+        self, mock_get_max_timestamp_to
+    ):
+        """One candle from a trade in the first and second hour."""
+        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal("0.5"))
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=Decimal("0.5"))
+        self.write_trade_data(
+            self.one_hour_from_now, self.two_hours_from_now, filtered_2
+        )
+        aggregate_candles(self.candle, self.one_hour_from_now, self.two_hours_from_now)
+        candle_data = CandleReadOnlyData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.one_hour_from_now)
+        data_frame = self.candle.get_data_frame(
+            self.timestamp_from, self.two_hours_from_now
+        )
+        data = candle_data[0].json_data
+        self.assertEqual(data["notional"], data_frame["totalNotional"].sum())
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 2)
+        self.assertIn("next", candle_cache[0].json_data)
+        self.assertNotIn("next", candle_cache[1].json_data)
+
+    def test_one_candle_from_trade_in_the_first_and_second_hour_with_topN(
+        self, mock_get_max_timestamp_to
+    ):
+        """One candle from a trade in the first and second hour, with topN."""
+        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal("0.5"))
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=Decimal("0.75"))
+        self.write_trade_data(
+            self.one_hour_from_now, self.two_hours_from_now, filtered_2
+        )
+        self.candle.json_data["topN"] = 1
+        aggregate_candles(self.candle, self.one_hour_from_now, self.two_hours_from_now)
+        candle_data = CandleReadOnlyData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.one_hour_from_now)
+        data_frame = self.candle.get_data_frame(
+            self.timestamp_from, self.two_hours_from_now
+        )
+        data = candle_data[0].json_data
+        self.assertEqual(data["notional"], data_frame["totalNotional"].sum())
+        topN = data["topN"]
+        self.assertEqual(len(topN), 1)
+        self.assertEqual(topN[0]["timestamp"], filtered_2.iloc[0].timestamp)
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 2)
+        self.assertIn("next", candle_cache[0].json_data)
+        self.assertNotIn("next", candle_cache[1].json_data)
+
+    def test_two_candles_from_trades_in_the_first_and_second_hour(
+        self, mock_get_max_timestamp_to
+    ):
+        """Two candles, one in the first hour, and another in the second hour."""
+        filtered_1 = self.get_filtered(self.timestamp_from, notional=1)
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
+        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=1)
+        self.write_trade_data(
+            self.one_hour_from_now, self.two_hours_from_now, filtered_2
+        )
+        aggregate_candles(self.candle, self.timestamp_from, self.two_hours_from_now)
+        candle_data = CandleReadOnlyData.objects.all()
+        self.assertEqual(candle_data.count(), 2)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+        self.assertEqual(candle_data[1].timestamp, self.one_hour_from_now)
+
+    def test_two_candles_from_trades_in_first_and_third_hour(
+        self, mock_get_max_timestamp_to
+    ):
+        """
+        Two candles, one in the first hour, and another in the third hour.
+        No trades, no candle, in the second hour.
+        """
+        self.write_trade_data(
+            self.timestamp_from,
+            self.one_hour_from_now,
+            self.get_filtered(self.timestamp_from, notional=1),
+        )
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.one_hour_from_now,
+            frequency=Frequency.HOUR,
+        )
+        self.write_trade_data(
+            self.two_hours_from_now,
+            self.three_hours_from_now,
+            self.get_filtered(self.two_hours_from_now, notional=1),
+        )
+        aggregate_candles(self.candle, self.timestamp_from, self.three_hours_from_now)
+        candle_data = CandleReadOnlyData.objects.all()
+        self.assertEqual(candle_data.count(), 2)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+        self.assertEqual(candle_data[1].timestamp, self.two_hours_from_now)

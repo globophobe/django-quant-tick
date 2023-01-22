@@ -11,15 +11,22 @@ from quant_candles.models import Candle, Symbol
 logger = logging.getLogger(__name__)
 
 
-class BaseTradeDataCommand(BaseCommand):
+class BaseTimeFrameCommand(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
-        parser.add_argument("exchange", type=Exchange, choices=Exchange.values)
-        parser.add_argument("symbol")
-        parser.add_argument("--aggregate", type=bool, default=False)
+        """Add arguments."""
         parser.add_argument("--date-to", type=str, default=None)
         parser.add_argument("--time-to", type=str, default=None)
         parser.add_argument("--date-from", type=str, default=None)
         parser.add_argument("--time-from", type=str, default=None)
+
+
+class BaseTradeDataCommand(BaseTimeFrameCommand):
+    def add_arguments(self, parser: CommandParser) -> None:
+        """Add arguments."""
+        super().add_arguments(parser)
+        parser.add_argument("exchange", type=Exchange, choices=Exchange.values)
+        parser.add_argument("symbol")
+        parser.add_argument("--aggregate", type=bool, default=False)
         parser.add_argument("--filter", type=int, default=0)
 
     @classmethod
@@ -69,12 +76,13 @@ class BaseTradeDataCommand(BaseCommand):
             }
 
 
-class BaseCandleCommand(BaseCommand):
+class BaseCandleCommand(BaseTimeFrameCommand):
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
         raise NotImplementedError
 
     def add_arguments(self, parser: CommandParser) -> None:
+        """Add arguments."""
         super().add_arguments(parser)
         queryset = self.get_queryset()
         parser.add_argument(
@@ -82,13 +90,10 @@ class BaseCandleCommand(BaseCommand):
             type=str,
             choices=queryset.values_list("code_name", flat=True),
         )
-        parser.add_argument("--date-to", type=str, default=None)
-        parser.add_argument("--time-to", type=str, default=None)
-        parser.add_argument("--date-from", type=str, default=None)
-        parser.add_argument("--time-from", type=str, default=None)
         parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> None:
+        """Run command."""
         name = options["name"]
         try:
             candle = Candle.objects.get(code_name=name)

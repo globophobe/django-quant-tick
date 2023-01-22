@@ -1,5 +1,4 @@
 from .candles import CandleView
-from .convert_trade_data_to_hourly import ConvertTradeDataToHourlyView
-from .trades import TradeView
+from .quant_candles import QuantCandleView
 
-__all__ = ["CandleView", "TradeView", "ConvertTradeDataToHourlyView"]
+__all__ = ["CandleView", "QuantCandleView"]

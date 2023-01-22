@@ -91,8 +91,8 @@ def validate_data_frame(
     return validated
 
 
-def sum_validation(data: List[dict]) -> dict:
-    """Sum validation."""
+def get_validation_summary(data: List[dict]) -> dict:
+    """Get validation summary."""
     validation = {}
     for d in data:
         for key, value in d.items():
