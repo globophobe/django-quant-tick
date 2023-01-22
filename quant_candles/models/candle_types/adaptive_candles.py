@@ -53,7 +53,13 @@ class AdaptiveCandle(ConstantCandle):
         )
         total_symbols = self.symbols.all().count()
         sample_type = self.json_data["sample_type"]
-        total = sum([t["json_data"]["candle"][sample_type] for t in trade_data_summary])
+        total = sum(
+            [
+                t["json_data"]["candle"][sample_type]
+                for t in trade_data_summary
+                if t["json_data"] is not None
+            ]
+        )
         return total / total_symbols / days / self.json_data["target_candles_per_day"]
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
