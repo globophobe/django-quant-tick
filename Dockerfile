@@ -1,6 +1,5 @@
 FROM python:3.10-slim-bullseye
 
-ARG WHEEL
 ARG POETRY_EXPORT
 ARG SECRET_KEY
 ARG SENTRY_DSN
@@ -22,7 +21,7 @@ ENV DATABASE_PORT $DATABASE_PORT
 
 COPY pyproject.toml /
 copy poetry.lock /
-COPY dist/$WHEEL /
+COPY quant_candles/ /quant_candles
 COPY demo/demo /demo/demo
 COPY demo/static /demo/static
 COPY demo/templates /demo/templates
@@ -31,9 +30,7 @@ COPY demo/db.sqlite3 /demo/db.sqlite3
 RUN apt-get update \
     && pip install --no-cache-dir wheel \
     && pip install poetry \
-    && pip install $WHEEL \
     && poetry install \
-    && pip install sentry-sdk \
     && apt-get clean  \
     && rm -rf /var/lib/apt/lists/* \
     && rm $WHEEL
