@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import Optional, Tuple
 
+import pandas as pd
 from pandas import DataFrame
 
 from quant_candles.constants import Frequency
 from quant_candles.lib import aggregate_candle, get_next_cache, merge_cache
 from quant_candles.utils import gettext_lazy as _
 
-from ..candles import Candle
+from ..candles import Candle, CandleCache
 
 
 class ConstantCandle(Candle):
@@ -35,6 +36,21 @@ class ConstantCandle(Candle):
             elif reset == Frequency.WEEK.value and date.weekday() == 0:
                 data = self.get_initial_cache(timestamp)
         return data
+
+    def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+        """Can aggregate."""
+        can_agg = super().can_aggregate(timestamp_from, timestamp_to)
+        last_candle_cache = CandleCache.objects.filter(
+            candle=self,
+            timestamp__gte=timestamp_from - pd.Timedelta("1h"),
+            timestamp__lt=timestamp_from,
+        )
+        # Don't aggregate without last cache, if not first iteration.
+        has_candle_cache = (
+            last_candle_cache.exists()
+            or not CandleCache.objects.filter(candle=self).exists()
+        )
+        return can_agg and has_candle_cache
 
     def aggregate(
         self,

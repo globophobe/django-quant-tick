@@ -55,9 +55,9 @@ class AdaptiveCandle(ConstantCandle):
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
-        has_trade_data = super().can_aggregate(timestamp_from, timestamp_to)
+        can_agg = super().can_aggregate(timestamp_from, timestamp_to)
         trade_data_summary = self.get_trade_data_summary(timestamp_from)
-        return has_trade_data and trade_data_summary.exists()
+        return can_agg and trade_data_summary.exists()
 
     def should_aggregate_candle(self, data: dict) -> bool:
         """Should aggregate candle."""

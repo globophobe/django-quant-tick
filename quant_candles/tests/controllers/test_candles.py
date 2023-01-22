@@ -688,6 +688,23 @@ class ConstantNotionalHourFrequencyCandleTest(
         self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
         self.assertEqual(candle_data[1].timestamp, self.two_hours_from_now)
 
+    def test_no_candles_without_prior_cache(self, mock_get_max_timestamp_to):
+        """No candles without prior cache."""
+        CandleCache.objects.create(
+            candle=self.candle, timestamp=self.timestamp_from, frequency=Frequency.HOUR
+        )
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.two_hours_from_now,
+            frequency=Frequency.HOUR,
+        )
+        aggregate_candles(
+            self.candle, self.two_hours_from_now, self.three_hours_from_now
+        )
+        self.assertFalse(CandleReadOnlyData.objects.exists())
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 1)
+
 
 @time_machine.travel(datetime(2009, 1, 4))
 @patch(
