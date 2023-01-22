@@ -12,13 +12,13 @@ class CandleView(ListAPIView):
 
     def get(self, request: Request, *args, **kwargs) -> Response:
         """Get candles."""
-        parameter_serializer = CandleParameterSerializer(data=request.data)
-        parameter_serializer.is_valid(raise_exception=True)
-        parameter_data = parameter_serializer.validated_data
+        serializer = CandleParameterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        params = serializer.validated_data
         candle = self.get_object()
         data = candle.get_data(
-            parameter_data["timestamp_from"],
-            parameter_data["timestamp_to"],
-            limit=parameter_data["limit"],
+            params["timestamp_from"],
+            params["timestamp_to"],
+            limit=params["limit"],
         )
         return Response(CandleSerializer(data, many=True).data)

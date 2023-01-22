@@ -1,12 +1,8 @@
 from .candles import CandleParameterSerializer, CandleSerializer
-from .convert_timeframe import ConvertTimeFrameSerializer
-from .timeframe import TimeFrameSerializer
-from .trades import TradeParameterSerializer
+from .quant_candles import QuantCandleParameterSerializer
 
 __all__ = [
     "CandleParameterSerializer",
     "CandleSerializer",
-    "ConvertTimeFrameSerializer",
-    "TimeFrameSerializer",
-    "TradeParameterSerializer",
+    "QuantCandleParameterSerializer",
 ]

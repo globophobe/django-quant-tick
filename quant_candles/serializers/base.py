@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from quant_candles.constants import NUMERIC_PRECISION, NUMERIC_SCALE
 from quant_candles.lib import get_current_time, get_min_time
+from quant_candles.utils import gettext_lazy as _
 
 
 def big_decimal() -> serializers.DecimalField:
@@ -14,6 +15,13 @@ def big_decimal() -> serializers.DecimalField:
 
 class BaseParameterSerializer(serializers.Serializer):
     time_ago = serializers.CharField(required=False, default="1d")
+
+    def validate_time_ago(self, value: str) -> pd.Timedelta:
+        """Validate time ago."""
+        try:
+            return pd.Timedelta(value)
+        except ValueError:
+            raise serializers.ValidationError(_(f"Cannot parse {value}."))
 
     def validate(self, data: dict) -> dict:
         """Validate."""
