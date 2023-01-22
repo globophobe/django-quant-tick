@@ -14,7 +14,7 @@ class Command(BaseCandleCommand):
 
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
-        return Candle.objects.filter(is_active=True)
+        return Candle.objects.filter(is_active=True).prefetch_related("symbols")
 
     def handle(self, *args, **options) -> None:
         """Run command."""
