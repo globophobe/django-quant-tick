@@ -280,7 +280,9 @@ class TradeDataSummary(AbstractDataStorage):
             data.update({"ok": True if not validation_summary else validation_summary})
             runs = get_runs(df)
             runs_df = pd.DataFrame(runs)
-            assert df.volume.sum() == runs_df.volume.abs().sum(), "Volume is not equal."
+            if len(runs_df):
+                error = "Volume is not equal."
+                assert df.volume.sum() == runs_df.volume.abs().sum(), error
             cls.write(obj, data, runs_df)
 
     @classmethod
