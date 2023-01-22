@@ -35,8 +35,9 @@ ipython = "*"
 isort = "*"
 psycopg2-binary = "*"
 python-decouple = "*"
+sentry-sdk = "*"
 time-machine = "*"
-uvicorn = "*"
+gunicorn = "*"
 whitenoise = "*"
 
 [tool.isort]
