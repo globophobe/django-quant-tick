@@ -60,6 +60,13 @@ def upload_trade_data_summary_to(instance: "TradeDataSummary", filename: str) ->
 
 
 class TradeDataQuerySet(TimeFrameQuerySet):
+    def get_last_uid(self, symbol: Symbol, timestamp: datetime.datetime) -> str:
+        """Get last uid."""
+        queryset = self.filter(symbol=symbol, timestamp__gte=timestamp)
+        obj = queryset.exclude(uid="").order_by("timestamp").first()
+        if obj:
+            return obj.uid
+
     def has_timestamps(
         self, symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
     ) -> bool:
@@ -75,13 +82,6 @@ class TradeDataQuerySet(TimeFrameQuerySet):
         )
         existing = get_existing(trade_data.values("timestamp", "frequency"))
         return has_timestamps(timestamp_from, timestamp_to, existing)
-
-    def get_last_uid(self, symbol: Symbol, timestamp: datetime.datetime) -> str:
-        """Get last uid."""
-        queryset = self.filter(symbol=symbol, timestamp__gte=timestamp)
-        obj = queryset.exclude(uid="").order_by("timestamp").first()
-        if obj:
-            return obj.uid
 
 
 class TradeData(AbstractDataStorage):
