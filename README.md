@@ -29,7 +29,7 @@ Supported exchanges
 -------------------
 
 :white_medium_square: Binance REST API (requires API key, which requires KYC)
-* <em style="font-size: 0.9em">Other exchanges validate trade data downloaded from exchanges using candle data provided by exchanges. However, I did not complete KYC, and as a resident of Japan am not currently able to do so. Support is incomplete.</em>
+* <em style="font-size: 0.9em">Other exchanges validate trade data downloaded from exchanges using candle data provided by exchanges. However, I did not complete KYC, and as a resident of Japan am not currently able to do so. Pull requests are welcome.</em>
 
 :white_check_mark: Bitfinex REST API
 
