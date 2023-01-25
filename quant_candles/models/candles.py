@@ -130,16 +130,12 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Can aggregate."""
         values = []
         for symbol in self.symbols.all():
-            trade_data = (
-                TradeData.objects.filter(
-                    symbol=symbol,
-                    timestamp__gte=timestamp_from,
-                    timestamp__lt=timestamp_to,
-                )
-                .only("timestamp", "frequency")
-                .values("timestamp", "frequency")
+            trade_data = TradeData.objects.filter(
+                symbol=symbol,
+                timestamp__gte=timestamp_from,
+                timestamp__lt=timestamp_to,
             )
-            existing = get_existing(trade_data)
+            existing = get_existing(trade_data.values("timestamp", "frequency"))
             values.append(has_timestamps(timestamp_from, timestamp_to, existing))
         return all(values)
 
