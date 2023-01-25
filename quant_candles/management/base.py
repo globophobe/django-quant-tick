@@ -110,4 +110,5 @@ class BaseCandleCommand(BaseTimeFrameCommand):
                 "candle": candle,
                 "timestamp_from": timestamp_from,
                 "timestamp_to": timestamp_to,
+                "retry": options["retry"],
             }
