@@ -241,12 +241,18 @@ class CandleCacheIterator(BaseTimeFrameIterator):
         """
         query = Q(timestamp__gte=timestamp_from) & Q(timestamp__lt=timestamp_to)
         candle_cache = CandleCache.objects.filter(Q(candle=self.candle) & query)
+        candle_data = CandleData.objects.filter(Q(candle=self.candle) & query)
+        # Local
         if settings.IS_LOCAL and retry:
-            candle_data = CandleData.objects.filter(Q(candle=self.candle) & query)
             candle_read_only_data = CandleReadOnlyData.objects.filter(
                 Q(candle_id=self.candle.id) & query
             )
             for queryset in (candle_cache, candle_data, candle_read_only_data):
+                queryset.delete()
+            return []
+        # Cloud
+        elif retry:
+            for queryset in (candle_cache, candle_data):
                 queryset.delete()
             return []
         else:
