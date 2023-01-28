@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pandas as pd
 from django.test import TestCase
 
-from quant_candles.lib import get_min_time
+from quant_candles.lib import get_min_time, get_next_time
 from quant_candles.models import TradeData
 from quant_candles.storage import convert_trade_data_to_hourly
 
@@ -116,7 +116,9 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             ]
         }
 
-        convert_trade_data_to_hourly(symbol)
+        convert_trade_data_to_hourly(
+            symbol, timestamp_from, get_next_time(timestamp_from, value="1h")
+        )
 
         trades = TradeData.objects.all()
         self.assertEqual(trades.count(), 1)
