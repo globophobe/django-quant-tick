@@ -4,7 +4,6 @@ from typing import Generator, List, Tuple
 
 import pandas as pd
 from django.conf import settings
-from django.db import models
 from django.db.models import Q
 
 from quant_candles.constants import Frequency
@@ -84,8 +83,7 @@ def aggregate_candles(
 
 
 class BaseTimeFrameIterator:
-    def __init__(self, obj: models.Model) -> None:
-        self.obj = obj
+    def __init__(self) -> None:
         self.reverse = None
 
     def get_max_timestamp_to(self) -> datetime:
