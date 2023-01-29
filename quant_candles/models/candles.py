@@ -115,7 +115,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             if dfs:
                 df = pd.concat(dfs)
                 df.insert(2, "exchange", symbol.exchange)
-                df.insert(3, "symbol", symbol.api_symbol)
+                df.insert(3, "symbol", symbol.symbol)
                 data_frames.append(df)
         if data_frames:
             return (
