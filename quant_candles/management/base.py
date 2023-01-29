@@ -86,21 +86,17 @@ class BaseCandleCommand(BaseTimeFrameCommand):
         """Add arguments."""
         super().add_arguments(parser)
         queryset = self.get_queryset()
+        choices = queryset.values_list("code_name", flat=True)
         parser.add_argument(
-            "name",
-            type=str,
-            choices=queryset.values_list("code_name", flat=True),
+            "--code-name", type=str, choices=choices, default=choices, nargs="+"
         )
         parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> None:
         """Run command."""
-        name = options["name"]
-        try:
-            candle = Candle.objects.get(code_name=name)
-        except Candle.DoesNotExist:
-            logger.warn(f"{name} not registered")
-        else:
+        code_name = options["code_name"]
+        candles = Candle.objects.filter(code_name__in=code_name)
+        for candle in candles:
             timestamp_from, timestamp_to = parse_period_from_to(
                 date_from=options["date_from"],
                 time_from=options["time_from"],
@@ -113,12 +109,14 @@ class BaseCandleCommand(BaseTimeFrameCommand):
                 "timestamp_to": timestamp_to,
                 "retry": options["retry"],
             }
+        else:
+            name = ", ".join(code_name)
+            logger.warn(f"{name} not registered")
 
 
 class BaseQuantCandleCommand(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
-        super().add_arguments(parser)
         parser.add_argument(
             "--exchange", type=Exchange, default=Exchange.values, nargs="+"
         )
