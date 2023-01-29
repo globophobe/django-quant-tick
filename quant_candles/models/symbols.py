@@ -43,6 +43,7 @@ class Symbol(models.Model):
         ),
         default=0,
     )
+    currency_divisor = models.PositiveIntegerField(_("currency divisor"), default=1)
 
     @property
     def symbol(self) -> str:

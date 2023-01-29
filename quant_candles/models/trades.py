@@ -296,7 +296,13 @@ class TradeDataSummary(AbstractDataStorage):
                 [t.json_data for t in trade_data if t.json_data is not None]
             )
             data.update({"ok": True if not validation_summary else validation_summary})
-            runs = get_runs(df)
+            runs = get_runs(
+                df,
+                bins=[
+                    int(b * symbol.currency_divisor)
+                    for b in (1_000, 10_000, 50_000, 100_000)
+                ],
+            )
             runs_df = pd.DataFrame(runs)
             if len(runs_df):
                 error = "Volume is not equal."
