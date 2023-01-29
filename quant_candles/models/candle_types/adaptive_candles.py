@@ -20,7 +20,11 @@ class AdaptiveCandle(ConstantCandle):
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
         """Get initial cache."""
-        return {"date": timestamp.date(), "target_value": None, "sample_value": 0}
+        cache = {}
+        if "cache_reset" in self.json_data:
+            cache["date"] = timestamp.date()
+        cache.update({"target_value": None, "sample_value": 0})
+        return cache
 
     def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
         """Get cache data frame."""

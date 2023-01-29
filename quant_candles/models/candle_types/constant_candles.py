@@ -23,34 +23,42 @@ class ConstantCandle(Candle):
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
         """Get initial cache."""
-        return {"date": timestamp.date(), "sample_value": 0}
+        cache = {}
+        if "cache_reset" in self.json_data:
+            cache["date"] = timestamp.date()
+        cache["sample_value"] = 0
+        return cache
 
     def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
         """Get cache data."""
-        reset = self.json_data.get("cache_reset")
-        date = timestamp.date()
-        is_same_day = data["date"] == date
+        cache_date = data.get("date")
+        cache_reset = self.json_data.get("cache_reset")
         # Reset cache.
-        if not is_same_day:
-            is_daily_reset = reset == Frequency.DAY.value
-            is_weekly_reset = reset == Frequency.WEEK.value and date.weekday() == 0
-            if is_daily_reset or is_weekly_reset:
-                if "next" in data:
-                    ts = timestamp - pd.Timedelta("1us")
-                    if settings.IS_LOCAL:
-                        candle_data = CandleReadOnlyData(
-                            candle_id=self.id, timestamp=ts
-                        )
-                    else:
-                        candle_data = CandleData(candle=self, timestamp=ts)
-                    d = data["next"]
-                    d["incomplete"] = True
-                    candle_data.json_data = d
-                    candle_data.save()
-                if is_daily_reset:
-                    data = self.get_initial_cache(timestamp)
-                elif is_weekly_reset:
-                    data = self.get_initial_cache(timestamp)
+        if cache_date:
+            date = timestamp.date()
+            is_same_day = cache_date == date
+            if not is_same_day:
+                is_daily_reset = cache_reset == Frequency.DAY.value
+                is_weekly_reset = (
+                    cache_reset == Frequency.WEEK.value and date.weekday() == 0
+                )
+                if is_daily_reset or is_weekly_reset:
+                    if "next" in data:
+                        ts = timestamp - pd.Timedelta("1us")
+                        if settings.IS_LOCAL:
+                            candle_data = CandleReadOnlyData(
+                                candle_id=self.id, timestamp=ts
+                            )
+                        else:
+                            candle_data = CandleData(candle=self, timestamp=ts)
+                        d = data["next"]
+                        d["incomplete"] = True
+                        candle_data.json_data = d
+                        candle_data.save()
+                    if is_daily_reset:
+                        data = self.get_initial_cache(timestamp)
+                    elif is_weekly_reset:
+                        data = self.get_initial_cache(timestamp)
         return data
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
