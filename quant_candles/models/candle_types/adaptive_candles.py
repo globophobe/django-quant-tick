@@ -36,8 +36,8 @@ class AdaptiveCandle(ConstantCandle):
             data["target_value"] = self.get_target_value(timestamp)
         return data
 
-    def get_trade_data_summary(self, timestamp: datetime) -> bool:
-        """Get trade data summary."""
+    def get_trade_data_summary_for_target_value(self, timestamp: datetime) -> bool:
+        """Get trade data summary for target value."""
         days = self.json_data["moving_average_number_of_days"]
         ts = get_min_time(timestamp, value="1d") - pd.Timedelta(f"{days}d")
         return TradeDataSummary.objects.filter(
@@ -50,7 +50,7 @@ class AdaptiveCandle(ConstantCandle):
         """Get target value."""
         days = self.json_data["moving_average_number_of_days"]
         trade_data_summary = (
-            self.get_trade_data_summary(timestamp)
+            self.get_trade_data_summary_for_target_value(timestamp)
             .only("json_data")
             .values("json_data")
             .order_by("-date")
@@ -69,7 +69,9 @@ class AdaptiveCandle(ConstantCandle):
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
         can_agg = super().can_aggregate(timestamp_from, timestamp_to)
-        trade_data_summary = self.get_trade_data_summary(timestamp_from)
+        trade_data_summary = self.get_trade_data_summary_for_target_value(
+            timestamp_from
+        )
         return can_agg and trade_data_summary.exists()
 
     def should_aggregate_candle(self, data: dict) -> bool:

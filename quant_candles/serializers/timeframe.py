@@ -31,3 +31,14 @@ class TimeFrameSerializer(serializers.Serializer):
         data["timestamp_from"] = timestamp_from
         data["timestamp_to"] = timestamp_to
         return data
+
+
+class LimitSerializer(TimeFrameSerializer):
+    limit = serializers.IntegerField(
+        required=False, min_value=1, max_value=10000, default=10000
+    )
+
+
+class DataSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField()
+    data = serializers.JSONField(source="json_data")

@@ -11,11 +11,19 @@ from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
 from quant_candles.constants import Frequency
-from quant_candles.lib import get_existing, has_timestamps, parse_datetime
+from quant_candles.lib import (
+    filter_by_timestamp,
+    get_current_time,
+    get_existing,
+    get_min_time,
+    get_runs,
+    has_timestamps,
+    parse_datetime,
+)
 from quant_candles.utils import gettext_lazy as _
 
 from .base import AbstractCodeName, AbstractDataStorage, JSONField
-from .trades import TradeData
+from .trades import TradeData, TradeDataSummary
 
 
 def upload_data_to(instance: "CandleData", filename: str) -> str:
@@ -150,7 +158,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         raise NotImplementedError
 
     def get_data(
-        self, timestamp_from: datetime, timestamp_to: datetime, limit: int = 1000
+        self, timestamp_from: datetime, timestamp_to: datetime, limit: int = 10000
     ) -> list:
         """Get data."""
         timeframe_query = Q(timestamp__gte=timestamp_from) & Q(
@@ -170,6 +178,62 @@ class Candle(AbstractCodeName, PolymorphicModel):
         )
         candle_read_only_data = candle_read_only_data[: limit - candle_data.count()]
         return list(chain(candle_data, candle_read_only_data))
+
+    def get_trade_data_summary(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        runs_n: int = 0,
+        limit: int = 10000,
+    ) -> list:
+        """Get trade data summary."""
+        symbols = self.symbols.all()
+        total_symbols = len(symbols)
+        data_frame = pd.DataFrame([])
+        this_morning_at_midnight = get_min_time(get_current_time(), value="1t")
+        for symbol in symbols:
+            if timestamp_to > this_morning_at_midnight:
+                trade_data = TradeData.objects.filter(
+                    symbol=symbol, timestamp__gte=this_morning_at_midnight
+                )
+                for t in trade_data.only("file_data"):
+                    df = t.get_data_frame()
+                    if df is not None and len(df):
+                        runs = get_runs(
+                            df,
+                            bins=[
+                                int(b * symbol.currency_divisor)
+                                for b in (1_000, 10_000, 50_000, 100_000)
+                            ],
+                        )
+                        runs_df = pd.DataFrame(runs)
+                        if len(symbols) > 1:
+                            runs_df.insert(2, "exchange", symbol.exchange)
+                            runs_df.insert(3, "symbol", symbol.symbol)
+                        data_frame = pd.concat([data_frame, runs_df])
+        if len(data_frame) < limit:
+            one_day = pd.Timedelta("1d")
+            date = timestamp_to.date()
+            while date >= timestamp_from.date():
+                for symbol in symbols:
+                    trade_data_summary = (
+                        TradeDataSummary.objects.only("file_data")
+                        .filter(symbol=symbol, date=date)
+                        .distinct()
+                    )
+                    for t in trade_data_summary:
+                        df = t.get_data_frame()
+                        if df is not None and len(df):
+                            if total_symbols > 1:
+                                df.insert(2, "exchange", symbol.exchange)
+                                df.insert(3, "symbol", symbol.symbol)
+                            data_frame = pd.concat([data_frame, df])
+                if len(data_frame) < limit:
+                    date -= one_day
+                else:
+                    break
+        df = data_frame.reset_index(inplace=True).sort_values(["timestamp"])
+        return filter_by_timestamp(df, timestamp_from, timestamp_to, inclusive=True)
 
     def write_cache(
         self,
