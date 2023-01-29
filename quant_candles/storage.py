@@ -1,24 +1,100 @@
 import datetime
 import logging
 import os
+from copy import copy
 from typing import Optional
 
 import pandas as pd
 
 from quant_candles.constants import Frequency
 from quant_candles.exchanges import candles_api
-from quant_candles.lib import iter_timeframe, validate_data_frame
-from quant_candles.models import Symbol, TradeData
+from quant_candles.lib import (
+    get_existing,
+    get_min_time,
+    get_next_time,
+    has_timestamps,
+    iter_timeframe,
+    merge_cache,
+    validate_data_frame,
+)
+from quant_candles.models import Candle, CandleCache, Symbol, TradeData
 from quant_candles.models.trades import upload_trade_data_to
 from quant_candles.utils import gettext_lazy as _
 
 logger = logging.getLogger(__name__)
 
 
+def convert_candle_cache_to_daily(candle: Candle):
+    """Convert candle cache, by minute or hour, to daily.
+
+    * Convert, from past to present, in order.
+    """
+    candle_cache = CandleCache.objects.filter(
+        candle=candle,
+    )
+    daily = candle_cache.filter(frequency=Frequency.DAY.value).only("timestamp").first()
+    if daily:
+        timestamp_from = daily.timestamp
+    else:
+        any_cache = candle_cache.only("timestamp").first()
+        if any_cache:
+            timestamp_from = any_cache.timestamp
+        else:
+            timestamp_from = None
+    if timestamp_from:
+        timestamp_to = candle_cache.only("timestamp").last().timestamp
+        for daily_ts_from, daily_ts_to in iter_timeframe(
+            get_min_time(timestamp_from, value="1d"),
+            get_next_time(timestamp_to, value="1d"),
+            value="1d",
+        ):
+            delta = daily_ts_to - daily_ts_from
+            total_minutes = delta.total_seconds() / Frequency.HOUR.value
+            if total_minutes == Frequency.DAY.value:
+                target_cache = CandleCache.objects.filter(
+                    candle=candle,
+                    timestamp__gte=daily_ts_from,
+                    timestamp__lt=daily_ts_to,
+                    frequency__in=(Frequency.HOUR.value, Frequency.MINUTE.value),
+                )
+                existing = get_existing(candle_cache.values("timestamp", "frequency"))
+                if has_timestamps(daily_ts_from, daily_ts_to, existing):
+                    target = list(target_cache.values_list("json_data", flat=True))
+                    cache = copy(target[0])
+                    for next_cache in target[1:]:
+                        cache["sample_value"] = next_cache["sample_value"]
+                        if "next" in cache and "next" in next_cache:
+                            cache["next"] = merge_cache(
+                                cache["next"],
+                                next_cache["next"],
+                                candle.json_data["sample_type"],
+                                candle.json_data.get("runs_n"),
+                                candle.json_data.get("top_n"),
+                            )
+                        elif "next" in next_cache:
+                            cache["next"] = next_cache["next"]
+                    candle_cache.delete()
+                    daily_candle_cache, created = CandleCache.objects.get_or_create(
+                        candle=candle,
+                        timestamp=daily_ts_from,
+                        frequency=Frequency.DAY,
+                    )
+                    daily_candle_cache.json_data = cache
+                    daily_candle_cache.save()
+                    logging.info(
+                        _("Converted {timestamp_from} {timestamp_to} to daily").format(
+                            **{
+                                "timestamp_from": daily_ts_from,
+                                "timestamp_to": daily_ts_to,
+                            }
+                        )
+                    )
+
+
 def convert_trade_data_to_hourly(
     symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ):
-    """Convert trade data aggregated by minute to hourly."""
+    """Convert trade data, by minute, to hourly."""
     for daily_ts_from, daily_ts_to in iter_timeframe(
         timestamp_from, timestamp_to, value="1d", reverse=True
     ):
@@ -26,15 +102,15 @@ def convert_trade_data_to_hourly(
             daily_ts_from, daily_ts_to, value="1h", reverse=True
         ):
             delta = hourly_ts_to - hourly_ts_from
-            total_minutes = delta.total_seconds() / 60
-            if total_minutes == 60:
-                trade_data = TradeData.objects.filter(
+            total_minutes = delta.total_seconds() / Frequency.HOUR.value
+            if total_minutes == Frequency.HOUR.value:
+                minutes = TradeData.objects.filter(
                     symbol=symbol,
                     timestamp__gte=hourly_ts_from,
                     timestamp__lt=hourly_ts_to,
+                    frequency=Frequency.MINUTE,
                 )
-                minutes = trade_data.filter(frequency=Frequency.MINUTE)
-                if minutes.count() == 60:
+                if minutes.count() == Frequency.HOUR.value:
                     data_frames = {
                         t: t.get_data_frame() for t in minutes if t.file_data.name
                     }
