@@ -63,9 +63,27 @@ class TradeDataQuerySet(TimeFrameQuerySet):
     def get_last_uid(self, symbol: Symbol, timestamp: datetime.datetime) -> str:
         """Get last uid."""
         queryset = self.filter(symbol=symbol, timestamp__gte=timestamp)
-        obj = queryset.exclude(uid="").order_by("timestamp").first()
-        if obj:
-            return obj.uid
+        trade_data = queryset.exclude(uid="").order_by("timestamp").first()
+        if trade_data:
+            return trade_data.uid
+
+    def get_max_timestamp(
+        self, symbol: Symbol, timestamp: datetime.datetime
+    ) -> datetime.datetime:
+        """Get max timestamp."""
+        trade_data = self.filter(symbol=symbol).only("timestamp").last()
+        if trade_data and trade_data.timestamp < timestamp:
+            return trade_data.timestamp
+        return timestamp
+
+    def get_min_timestamp(
+        self, symbol: Symbol, timestamp: datetime.datetime
+    ) -> datetime.datetime:
+        """Get min timestamp."""
+        trade_data = self.filter(symbol=symbol).only("timestamp").first()
+        if trade_data and trade_data.timestamp > timestamp:
+            return trade_data.timestamp
+        return timestamp
 
     def has_timestamps(
         self, symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
