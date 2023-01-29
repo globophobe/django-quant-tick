@@ -1,20 +1,22 @@
-from django.core.management.base import CommandParser
+import logging
 
 from quant_candles.controllers import aggregate_trade_summary
-from quant_candles.management.base import BaseTradeDataCommand
+from quant_candles.management.base import BaseQuantCandleCommand
+from quant_candles.models import Symbol
+
+logger = logging.getLogger(__name__)
 
 
-class Command(BaseTradeDataCommand):
+class Command(BaseQuantCandleCommand):
     help = "Aggregate trade data summary for symbol."
-
-    def add_arguments(self, parser: CommandParser) -> None:
-        """Add arguments."""
-        super().add_arguments(parser)
-        parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> None:
         """Run command."""
         kwargs = super().handle(*args, **options)
-        if kwargs:
-            kwargs["retry"] = options["retry"]
-            aggregate_trade_summary(**kwargs)
+        timestamp_from = kwargs["timestamp_from"]
+        timestamp_to = kwargs["timestamp_to"]
+        retry = kwargs["retry"]
+        for exchange in kwargs["exchange"]:
+            for symbol in Symbol.objects.filter(exchange=exchange):
+                logger.info("{symbol}: starting...".format(**{"symbol": str(symbol)}))
+                aggregate_trade_summary(symbol, timestamp_from, timestamp_to, retry)

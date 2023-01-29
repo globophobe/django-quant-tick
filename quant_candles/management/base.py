@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from quant_candles.constants import Exchange
 from quant_candles.lib import parse_period_from_to
 from quant_candles.models import Candle, Symbol
+from quant_candles.serializers import QuantCandleParameterSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -112,3 +113,21 @@ class BaseCandleCommand(BaseTimeFrameCommand):
                 "timestamp_to": timestamp_to,
                 "retry": options["retry"],
             }
+
+
+class BaseQuantCandleCommand(BaseCommand):
+    def add_arguments(self, parser: CommandParser) -> None:
+        """Add arguments."""
+        super().add_arguments(parser)
+        parser.add_argument(
+            "--exchange", type=Exchange, default=Exchange.values, nargs="+"
+        )
+        parser.add_argument(
+            "--time-ago", type=str, default="3d", help="5t, 12h, 1d, 1w, etc."
+        )
+        parser.add_argument("--retry", action="store_true")
+
+    def handle(self, *args, **options) -> None:
+        serializer = QuantCandleParameterSerializer(data=options)
+        serializer.is_valid()
+        return serializer.validated_data
