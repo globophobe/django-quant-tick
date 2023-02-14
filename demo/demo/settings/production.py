@@ -10,7 +10,7 @@ from .base import *  # noqa
 DEBUG = False
 IS_LOCAL = False
 
-ALLOWED_HOSTS = [config("DOMAIN_NAME")]
+ALLOWED_HOSTS = ["wavewat.ch"]
 
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -42,8 +42,7 @@ DATABASE_ROUTERS = [
 sentry_sdk.init(
     dsn=config("SENTRY_DSN"),
     integrations=[DjangoIntegration()],
-    # Less transactions
-    traces_sample_rate=0.01,
+    traces_sample_rate=1.0,
 )
 
 STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
