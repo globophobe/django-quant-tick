@@ -4,6 +4,8 @@ from typing import Callable
 from django.db import models
 from pandas import DataFrame
 
+from quant_candles.models import TradeDataSummary
+
 
 class BaseController:
     def __init__(
@@ -51,3 +53,14 @@ class BaseController:
     ) -> DataFrame:
         """Get candles."""
         raise NotImplementedError
+
+    def delete_trade_data_summary(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> None:
+        """Delete trade data summary."""
+        trade_data_summary = TradeDataSummary.objects.filter(
+            symbol=self.symbol,
+            date__gte=timestamp_from.date(),
+            date__lte=timestamp_to.date(),
+        )
+        trade_data_summary.delete()

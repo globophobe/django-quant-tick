@@ -11,6 +11,7 @@ from quant_candles.lib import (
     get_current_time,
     get_existing,
     get_min_time,
+    get_next_time,
     has_timestamps,
     iter_missing,
     iter_timeframe,
@@ -34,10 +35,15 @@ def aggregate_trade_summary(
     timestamp_from: datetime,
     timestamp_to: datetime,
     retry: bool = False,
+    start_at_midnight: bool = True,
 ):
     """Aggregate trade summary."""
     min_timestamp_from = TradeData.objects.get_min_timestamp(symbol, timestamp_from)
     max_timestamp_to = TradeData.objects.get_max_timestamp(symbol, timestamp_to)
+    if start_at_midnight and min_timestamp_from.hour != 0:
+        min_timestamp_from = get_next_time(min_timestamp_from, value="1d")
+    if max_timestamp_to.hour != 0:
+        max_timestamp_to = get_min_time(max_timestamp_to, value="1d")
     for ts_from, ts_to in iter_timeframe(
         min_timestamp_from, max_timestamp_to, value="1d", reverse=True
     ):

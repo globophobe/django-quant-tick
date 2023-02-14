@@ -3,7 +3,6 @@ import os
 import time
 from datetime import datetime
 from decimal import Decimal
-from operator import eq
 from typing import Callable, Optional
 
 import pandas as pd
@@ -15,7 +14,7 @@ from quant_candles.lib import (
     validate_data_frame,
     volume_filter_with_time_window,
 )
-from quant_candles.models import Symbol, TradeData
+from quant_candles.models import Symbol, TradeData, TradeDataSummary
 
 from .base import BaseController
 from .iterators import TradeDataIterator
@@ -194,6 +193,8 @@ class ExchangeREST(BaseController):
             if is_last_iteration:
                 break
 
+            self.delete_trade_data_summary(timestamp_from, timestamp_to)
+
     def parse_data(self, data: list) -> list:
         """Parse trade data."""
         return [
@@ -211,11 +212,7 @@ class ExchangeREST(BaseController):
         ]
 
     def get_valid_trades(
-        self,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-        trades: list,
-        operator: Callable = eq,
+        self, timestamp_from: datetime, timestamp_to: datetime, trades: list
     ):
         """Get valid trades."""
         unique = set()
