@@ -17,7 +17,7 @@ class ImbalanceCandle(AdaptiveCandle):
 
     def get_trade_data_summary_data_frame(self, timestamp: datetime) -> DataFrame:
         """Get trade data summary data frame."""
-        trade_data_summary = self.get_trade_data_summary_for_target_value(timestamp)
+        trade_data_summary = self.get_trade_data_summary_for_target(timestamp)
         data_frames = []
         for t in trade_data_summary.only("file_data"):
             data_frame = t.get_data_frame()

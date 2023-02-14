@@ -16,6 +16,7 @@ from quant_candles.lib import (
     get_runs,
     get_validation_summary,
     has_timestamps,
+    is_decimal_close,
 )
 from quant_candles.querysets import TimeFrameQuerySet
 from quant_candles.utils import gettext_lazy as _
@@ -273,6 +274,7 @@ class TradeDataSummary(AbstractDataStorage):
     @classmethod
     def aggregate(cls, symbol: Symbol, date: datetime.date) -> None:
         """Aggregate."""
+        obj, _ = cls.objects.get_or_create(symbol=symbol, date=date)
         timestamp_from = get_min_time(date, "1d")
         timestamp_to = timestamp_from + pd.Timedelta("1d")
         trade_data = TradeData.objects.filter(
@@ -287,11 +289,12 @@ class TradeDataSummary(AbstractDataStorage):
             if data_frame is not None:
                 data_frames.append(data_frame)
         if data_frames:
-            obj, _ = cls.objects.get_or_create(symbol=symbol, date=date)
+            data = {}
             df = pd.concat(data_frames).reset_index()
-            data = {
-                "candle": aggregate_candle(df, timestamp_from),
-            }
+            if len(df):
+                candle = aggregate_candle(df)
+                candle.pop("timestamp")
+                data = {"candle": candle}
             validation_summary = get_validation_summary(
                 [t.json_data for t in trade_data if t.json_data is not None]
             )
@@ -305,15 +308,19 @@ class TradeDataSummary(AbstractDataStorage):
             )
             runs_df = pd.DataFrame(runs)
             if len(runs_df):
-                error = "Volume is not equal."
-                assert df.volume.sum() == runs_df.volume.abs().sum(), error
+                is_close = is_decimal_close(df.volume.sum(), runs_df.volume.abs().sum())
+                assert is_close, "Volume is not equal."
             cls.write(obj, data, runs_df)
+        else:
+            obj.file_data.delete(save=False)
+            obj.json_data = None
+            obj.save()
 
     @classmethod
     def write(cls, obj: "TradeDataSummary", data: dict, data_frame: DataFrame) -> None:
         """Write."""
         if obj.pk:
-            obj.file_data.delete()
+            obj.file_data.delete(save=False)
             obj.json_data = None
         if len(data):
             obj.json_data = data

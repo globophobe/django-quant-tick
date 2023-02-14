@@ -6,7 +6,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
@@ -67,11 +67,10 @@ class Candle(AbstractCodeName, PolymorphicModel):
         else:
             ts_to = timestamp_to
         # Get last cache.
-        # Subtract 1 hour, as either Frequency.HOUR or Frequency.MINUTE
         candle_cache = (
             CandleCache.objects.filter(
                 candle=self,
-                timestamp__gte=ts_from - pd.Timedelta("1h"),
+                timestamp__lte=ts_to,
             )
             .order_by("-timestamp")
             .only("timestamp", "json_data")
@@ -161,18 +160,20 @@ class Candle(AbstractCodeName, PolymorphicModel):
         self, timestamp_from: datetime, timestamp_to: datetime, limit: int = 10000
     ) -> list:
         """Get data."""
-        timeframe_query = Q(timestamp__gte=timestamp_from) & Q(
-            timestamp__lte=timestamp_to
+        query = (
+            Q(candle_id=self.id)
+            & Q(timestamp__gte=timestamp_from)
+            & Q(timestamp__lt=timestamp_to)
         )
         candle_data = (
-            CandleData.objects.filter(Q(candle=self) & timeframe_query)
+            CandleData.objects.filter(query)
             .only("timestamp", "json_data")
             .order_by("-timestamp")
             .values("timestamp", "json_data")
         )
         candle_data = candle_data[:limit]
         candle_read_only_data = (
-            CandleReadOnlyData.objects.filter(Q(candle_id=self.id) & timeframe_query)
+            CandleReadOnlyData.objects.filter(query)
             .order_by("-timestamp")
             .values("timestamp", "json_data")
         )
@@ -180,13 +181,23 @@ class Candle(AbstractCodeName, PolymorphicModel):
         return list(chain(candle_data, candle_read_only_data))
 
     def get_trade_data_summary(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> QuerySet:
+        """Get trade data summary."""
+        return TradeDataSummary.objects.filter(
+            symbol__in=self.symbols.all(),
+            date__gte=timestamp_from.date(),
+            date__lt=timestamp_to.date(),
+        )
+
+    def get_runs(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
         runs_n: int = 0,
         limit: int = 10000,
     ) -> list:
-        """Get trade data summary."""
+        """Get runs."""
         symbols = self.symbols.all()
         total_symbols = len(symbols)
         data_frame = pd.DataFrame([])
@@ -268,9 +279,9 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """
         query = Q(timestamp__gte=timestamp_from) & Q(timestamp__lt=timestamp_to)
         if settings.IS_LOCAL:
-            CandleReadOnlyData.objects.filter(Q(candle_id=self.id) & query).delete()
+            CandleReadOnlyData.objects.filter(Q(candle_id=self.id), query).delete()
         else:
-            CandleData.objects.filter(Q(candle=self) & query).delete()
+            CandleData.objects.filter(Q(candle=self), query).delete()
         candle_data = []
         for j in json_data:
             timestamp = j.pop("timestamp")
