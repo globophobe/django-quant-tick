@@ -33,12 +33,7 @@ class TimeFrameSerializer(serializers.Serializer):
         return data
 
 
-class LimitSerializer(TimeFrameSerializer):
+class TimeFrameWithLimitSerializer(TimeFrameSerializer):
     limit = serializers.IntegerField(
         required=False, min_value=1, max_value=10000, default=10000
     )
-
-
-class DataSerializer(serializers.Serializer):
-    timestamp = serializers.DateTimeField()
-    data = serializers.JSONField(source="json_data")

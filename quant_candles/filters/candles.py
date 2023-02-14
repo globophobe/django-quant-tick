@@ -1,11 +1,16 @@
 from django_filters import rest_framework as filters
 
-from quant_candles.models import Symbol
+from quant_candles.models import Candle, GlobalSymbol, Symbol
 
 
 class CandleFilter(filters.FilterSet):
-    name = filters.CharFilter(field_name="code_name")
+    global_symbol = filters.ModelMultipleChoiceFilter(
+        field_name="symbol__global_symbol", queryset=GlobalSymbol.objects.all()
+    )
+    symbol = filters.ModelMultipleChoiceFilter(
+        field_name="symbol", queryset=Symbol.objects.all()
+    )
 
     class Meta:
-        model = Symbol
-        fields = ("name",)
+        model = Candle
+        fields = ("global_symbol", "symbol", "code_name")

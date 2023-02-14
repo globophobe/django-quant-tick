@@ -1,4 +1,5 @@
-from .candles import CandleTradeDataSummaryView, CandleView
-from .quant_candles import QuantCandleView
+from .aggregate_candles import AggregateCandleView
+from .candles import CandleDataView, CandleView
+from .trades import TradeDataView
 
-__all__ = ["CandleView", "CandleTradeDataSummaryView", "QuantCandleView"]
+__all__ = ["AggregateCandleView", "CandleDataView", "CandleView", "TradeDataView"]
