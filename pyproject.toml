@@ -29,15 +29,17 @@ django-storages = {version = "*", extras = ["google"]}
 flake8 = "*"
 google-cloud-workflows = "*"
 google-cloud-scheduler = "*"
+gunicorn = "*"
 invoke = "*"
 ipdb = "*"
 ipython = "*"
 isort = "*"
+notebook = "*"
+nbdev = "*"
 psycopg2-binary = "*"
 python-decouple = "*"
 sentry-sdk = "*"
 time-machine = "*"
-gunicorn = "*"
 whitenoise = "*"
 
 [tool.isort]
