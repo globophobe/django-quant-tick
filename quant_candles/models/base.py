@@ -1,5 +1,5 @@
 import decimal
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
 from json import JSONDecoder
@@ -23,6 +23,13 @@ class QuantCandlesEncoder(DjangoJSONEncoder):
         """Default."""
         if isinstance(obj, np.int64):
             return int(obj)
+        # Default DjangoJSONEncoder strips microseconds.
+        # django.core.serializers.json.py#L87
+        if isinstance(obj, datetime):
+            date_string = obj.isoformat()
+            if date_string.endswith("+00:00"):
+                date_string = date_string.removesuffix("+00:00") + "Z"
+            return date_string
         return super().default(obj)
 
 
