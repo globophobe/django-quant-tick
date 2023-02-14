@@ -154,7 +154,7 @@ class CandleCacheTest(BaseCandleTest):
         for key in daily.json_data["next"]:
             self.assertEqual(daily.json_data["next"][key], expected[key])
 
-    def test_candle_cache_is_not_converted_to_daily_without_all_tiemstamps(self):
+    def test_candle_cache_is_not_converted_to_daily_without_all_timestamps(self):
         """Candle cache is not converted to daily, without all timestamps."""
         timestamp_to = get_min_time(get_current_time(), value="1d")
         timestamp_from = get_previous_time(timestamp_to, value="1d")
