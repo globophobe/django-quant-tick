@@ -44,6 +44,6 @@ def assert_decimal(x: Any) -> None:
     assert isinstance(x, Decimal)
 
 
-def is_decimal_close(d1: Decimal, d2: Decimal) -> None:
+def is_decimal_close(d1: Decimal, d2: Decimal) -> bool:
     """Is decimal one close to decimal two?"""
     return np.isclose(float(d1), float(d2))
