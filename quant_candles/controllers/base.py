@@ -2,8 +2,10 @@ from datetime import datetime
 from typing import Callable
 
 from django.db import models
+from django.db.models import Q
 from pandas import DataFrame
 
+from quant_candles.lib import get_min_time
 from quant_candles.models import TradeDataSummary
 
 
@@ -58,9 +60,10 @@ class BaseController:
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> None:
         """Delete trade data summary."""
-        trade_data_summary = TradeDataSummary.objects.filter(
-            symbol=self.symbol,
-            date__gte=timestamp_from.date(),
-            date__lte=timestamp_to.date(),
-        )
-        trade_data_summary.delete()
+        date_from = timestamp_from.date()
+        ts_to = get_min_time(timestamp_to, value="1d")
+        TradeDataSummary.objects.filter(symbol=self.symbol, date__gte=date_from).filter(
+            Q(date__lt=ts_to.date())
+            if timestamp_to == ts_to
+            else Q(date__lte=timestamp_to.date())
+        ).delete()
