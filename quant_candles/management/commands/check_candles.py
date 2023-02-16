@@ -7,7 +7,12 @@ from django.db.models import Q, QuerySet
 
 from quant_candles.constants import Frequency
 from quant_candles.controllers import aggregate_candles
-from quant_candles.lib import get_current_time, get_min_time, iter_timeframe
+from quant_candles.lib import (
+    get_current_time,
+    get_min_time,
+    is_decimal_close,
+    iter_timeframe,
+)
 from quant_candles.management.base import BaseCandleCommand
 from quant_candles.models import Candle, CandleData, CandleReadOnlyData, TimeBasedCandle
 from quant_candles.utils import gettext_lazy as _
@@ -16,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCandleCommand):
-    help = "Clean candles. Candles can be cleaned if time based, or have cache reset."
+    help = "Candles can be checked if time based, or adaptive with cache reset."
 
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
@@ -74,15 +79,15 @@ class Command(BaseCandleCommand):
                 raise NotImplementedError
             for daily_ts_from, daily_ts_to in iterator:
                 if daily_ts_to <= get_min_time(get_current_time(), value="1d"):
-                    self.clean(candle, daily_ts_from, daily_ts_to)
+                    self.do_check(candle, daily_ts_from, daily_ts_to)
 
-    def clean(
+    def do_check(
         self, candle: Candle, timestamp_from: datetime, timestamp_to: datetime
     ) -> None:
-        """Clean."""
+        """Do check."""
         trade_data_summary = candle.get_trade_data_summary(timestamp_from, timestamp_to)
         trade_data_summary = list(trade_data_summary)
-        delta = timestamp_from - timestamp_to
+        delta = timestamp_to - timestamp_from
         if len(trade_data_summary) == delta.days:
             candles = candle.get_data(timestamp_from, timestamp_to)
             candles.reverse()
@@ -96,22 +101,45 @@ class Command(BaseCandleCommand):
             )
             expected = {
                 "high": max(
-                    [t.json_data["candle"]["high"] for t in trade_data_summary]
+                    [
+                        t.json_data["candle"]["high"]
+                        for t in trade_data_summary
+                        if t.json_data
+                    ],
+                    default=None,
                 ),
-                "low": min([t.json_data["candle"]["low"] for t in trade_data_summary]),
+                "low": min(
+                    [
+                        t.json_data["candle"]["low"]
+                        for t in trade_data_summary
+                        if t.json_data
+                    ],
+                    default=None,
+                ),
             }
             for key in keys:
                 expected[key] = sum(
-                    [t.json_data["candle"][key] for t in trade_data_summary]
+                    [
+                        t.json_data["candle"][key]
+                        for t in trade_data_summary
+                        if t.json_data
+                    ]
                 )
             actual = {
-                "high": max([c["json_data"]["high"] for c in candles]),
-                "low": min([c["json_data"]["low"] for c in candles]),
+                "high": max([c["json_data"]["high"] for c in candles], default=None),
+                "low": min([c["json_data"]["low"] for c in candles], default=None),
             }
             for key in keys:
                 actual[key] = sum([c["json_data"][key] for c in candles])
 
-            if expected == actual:
+            is_close = all(
+                [
+                    (value is None and actual[key] is None)
+                    or (is_decimal_close(value, actual[key]))
+                    for key, value in expected.items()
+                ]
+            )
+            if is_close:
                 logging.info(
                     _("Checked {date_from} {date_to}").format(
                         **{
