@@ -14,7 +14,7 @@ from quant_candles.lib import (
     validate_data_frame,
     volume_filter_with_time_window,
 )
-from quant_candles.models import Symbol, TradeData, TradeDataSummary
+from quant_candles.models import Symbol, TradeData
 
 from .base import BaseController
 from .iterators import TradeDataIterator
