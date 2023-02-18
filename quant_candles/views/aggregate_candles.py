@@ -10,7 +10,7 @@ from quant_candles.serializers import TimeAgoWithRetrySerializer
 
 
 class AggregateCandleView(APIView):
-    queryset = Candle.objects.all()
+    queryset = Candle.objects.filter(is_active=True).prefetch_related("symbols")
     filter_backends = (DjangoFilterBackend,)
     filterset_class = CandleFilter
 
@@ -19,6 +19,7 @@ class AggregateCandleView(APIView):
         serializer = TimeAgoWithRetrySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        queryset = self.get_queryset()
         return [
             (
                 candle,
@@ -26,7 +27,7 @@ class AggregateCandleView(APIView):
                 data["timestamp_to"],
                 data["retry"],
             )
-            for candle in self.get_queryset()
+            for candle in self.filter_queryset(queryset)
         ]
 
     def get(self, request: Request, *args, **kwargs) -> Response:

@@ -1,5 +1,3 @@
-from django.db.models import QuerySet
-from django.http import Http404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.generics import ListAPIView
 from rest_framework.request import Request
@@ -18,20 +16,12 @@ class TradeDataView(ListAPIView):
     filter_backends = (DjangoFilterBackend,)
     filterset_class = SymbolFilter
 
-    def get_queryset(self) -> QuerySet:
-        """Get queryset."""
-        queryset = super().get_queryset()
-        queryset = queryset.filter(exchange=self.kwargs["exchange"])
-        queryset = self.filter_queryset(queryset)
-        if not queryset.exists():
-            raise Http404
-        return queryset
-
     def get_params(self, request: Request) -> list[tuple]:
         """Get params."""
         serializer = TimeAgoWithRetrySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        queryset = self.get_queryset()
         return [
             (
                 symbol,
@@ -39,7 +29,7 @@ class TradeDataView(ListAPIView):
                 data["timestamp_to"],
                 data["retry"],
             )
-            for symbol in self.get_queryset()
+            for symbol in self.filter_queryset(queryset)
         ]
 
     def get(self, request: Request, *args, **kwargs) -> Response:
