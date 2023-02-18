@@ -10,7 +10,7 @@ from .base import *  # noqa
 DEBUG = False
 IS_LOCAL = False
 
-ALLOWED_HOSTS = ["wavewat.ch"]
+ALLOWED_HOSTS = ["quant-candles.com"]
 
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
