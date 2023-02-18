@@ -9,4 +9,4 @@ class Command(BaseCandleCommand):
         """Run command."""
         kwargs = super().handle(*args, **options)
         for k in kwargs:
-            convert_candle_cache_to_daily(**k)
+            convert_candle_cache_to_daily(k["candle"])

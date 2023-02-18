@@ -4,6 +4,9 @@ import os
 from typing import Optional
 
 import pandas as pd
+from django.db import transaction
+from django.db.models import Count
+from django.db.models.functions import TruncDate
 
 from quant_candles.constants import Frequency
 from quant_candles.exchanges import candles_api
@@ -28,9 +31,28 @@ def convert_candle_cache_to_daily(candle: Candle):
     * Convert, from past to present, in order.
     """
     candle_cache = CandleCache.objects.filter(candle=candle)
-    daily = candle_cache.filter(frequency=Frequency.DAY.value).only("timestamp").first()
-    if daily:
-        timestamp_from = daily.timestamp
+    last_daily_cache = (
+        candle_cache.filter(frequency=Frequency.DAY)
+        .only("timestamp")
+        .order_by("-timestamp")
+        .first()
+    )
+    if last_daily_cache:
+        hourly_or_minute_cache = candle_cache.filter(
+            timestamp__lt=last_daily_cache.timestamp,
+            frequency__in=(Frequency.HOUR, Frequency.MINUTE),
+        )
+        unique_dates = (
+            hourly_or_minute_cache.annotate(date=TruncDate("timestamp"))
+            .values("date")
+            .annotate(unique=Count("date"))
+        )
+        if unique_dates.count() <= 1:
+            timestamp_from = last_daily_cache.timestamp
+        else:
+            timestamp_from = (
+                hourly_or_minute_cache.only("timestamp").first().timestamp_from
+            )
     else:
         any_cache = candle_cache.only("timestamp").first()
         if any_cache:
@@ -45,31 +67,32 @@ def convert_candle_cache_to_daily(candle: Candle):
             value="1d",
         ):
             delta = daily_ts_to - daily_ts_from
-            total_minutes = delta.total_seconds() / Frequency.HOUR.value
-            if total_minutes == Frequency.DAY.value:
+            total_minutes = delta.total_seconds() / Frequency.HOUR
+            if total_minutes == Frequency.DAY:
                 target_cache = CandleCache.objects.filter(
                     candle=candle,
                     timestamp__gte=daily_ts_from,
                     timestamp__lt=daily_ts_to,
-                    frequency__in=(Frequency.HOUR.value, Frequency.MINUTE.value),
+                    frequency__in=(Frequency.HOUR, Frequency.MINUTE),
                 )
-                existing = get_existing(candle_cache.values("timestamp", "frequency"))
+                existing = get_existing(target_cache.values("timestamp", "frequency"))
                 if has_timestamps(daily_ts_from, daily_ts_to, existing):
-                    daily_candle_cache, created = CandleCache.objects.get_or_create(
-                        candle=candle,
-                        timestamp=daily_ts_from,
-                        frequency=Frequency.DAY,
-                    )
-                    daily_candle_cache.json_data = (
-                        target_cache.order_by("-timestamp").first().json_data
-                    )
-                    candle_cache.delete()
-                    daily_candle_cache.save()
+                    with transaction.atomic():
+                        daily_cache, created = CandleCache.objects.get_or_create(
+                            candle=candle,
+                            timestamp=daily_ts_from,
+                            frequency=Frequency.DAY,
+                        )
+                        daily_cache.json_data = (
+                            target_cache.order_by("-timestamp").first().json_data
+                        )
+                        daily_cache.save()
+                        target_cache.delete()
                     logging.info(
-                        _("Converted {timestamp_from} {timestamp_to} to daily").format(
+                        _("Converted {date_from} {date_to} to daily").format(
                             **{
-                                "timestamp_from": daily_ts_from,
-                                "timestamp_to": daily_ts_to,
+                                "date_from": daily_ts_from.date(),
+                                "date_to": daily_ts_to.date(),
                             }
                         )
                     )
@@ -86,7 +109,7 @@ def convert_trade_data_to_hourly(
             daily_ts_from, daily_ts_to, value="1h", reverse=True
         ):
             delta = hourly_ts_to - hourly_ts_from
-            total_minutes = delta.total_seconds() / Frequency.HOUR.value
+            total_minutes = delta.total_seconds() / Frequency.HOUR
             if total_minutes == Frequency.HOUR.value:
                 minutes = TradeData.objects.filter(
                     symbol=symbol,
@@ -94,7 +117,7 @@ def convert_trade_data_to_hourly(
                     timestamp__lt=hourly_ts_to,
                     frequency=Frequency.MINUTE,
                 )
-                if minutes.count() == Frequency.HOUR.value:
+                if minutes.count() == Frequency.HOUR:
                     data_frames = {
                         t: t.get_data_frame() for t in minutes if t.file_data.name
                     }
@@ -115,13 +138,14 @@ def convert_trade_data_to_hourly(
                         candles,
                         symbol.should_aggregate_trades,
                     )
-                    # Delete minutes
-                    pks = [aggregated_data.pk for aggregated_data in minutes]
-                    TradeData.objects.filter(pk__in=pks).delete()
-                    # Create hourly
-                    TradeData.write(
-                        symbol, hourly_ts_from, hourly_ts_to, filtered, validated
-                    )
+                    with transaction.atomic():
+                        # Create hourly
+                        TradeData.write(
+                            symbol, hourly_ts_from, hourly_ts_to, filtered, validated
+                        )
+                        # Delete minutes
+                        pks = [aggregated_data.pk for aggregated_data in minutes]
+                        TradeData.objects.filter(pk__in=pks).delete()
                     logging.info(
                         _("Converted {timestamp_from} {timestamp_to} to hourly").format(
                             **{
