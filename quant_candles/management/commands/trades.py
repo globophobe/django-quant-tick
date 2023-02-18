@@ -15,6 +15,6 @@ class Command(BaseTradeDataCommand):
     def handle(self, *args, **options) -> None:
         """Run command."""
         kwargs = super().handle(*args, **options)
-        if kwargs:
-            kwargs["retry"] = options["retry"]
-            api(**kwargs)
+        for k in kwargs:
+            k["retry"] = options["retry"]
+            api(**k)

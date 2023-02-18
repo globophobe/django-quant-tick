@@ -12,5 +12,5 @@ class Command(BaseTradeDataCommand):
     def handle(self, *args, **options) -> None:
         """Run command."""
         kwargs = super().handle(*args, **options)
-        if kwargs:
-            aggregate_trade_summary(**kwargs)
+        for k in kwargs:
+            aggregate_trade_summary(**k)

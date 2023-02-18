@@ -4,8 +4,8 @@ from quant_candles.models import Symbol
 
 
 class SymbolFilter(filters.FilterSet):
-    symbol = filters.CharFilter(field_name="api_symbol")
+    api_symbol = filters.CharFilter(field_name="api_symbol")
 
     class Meta:
         model = Symbol
-        fields = ("symbol",)
+        fields = ("api_symbol",)

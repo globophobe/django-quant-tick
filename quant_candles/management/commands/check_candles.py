@@ -42,7 +42,6 @@ class Command(BaseCandleCommand):
         kwargs = super().handle(*args, **options)
         for k in kwargs:
             candle = k["candle"]
-            logger.info("{candle}: starting...".format(**{"candle": str(candle)}))
             timestamp_from = k["timestamp_from"]
             timestamp_to = k["timestamp_to"]
             candle_data = (
@@ -79,12 +78,12 @@ class Command(BaseCandleCommand):
                 raise NotImplementedError
             for daily_ts_from, daily_ts_to in iterator:
                 if daily_ts_to <= get_min_time(get_current_time(), value="1d"):
-                    self.do_check(candle, daily_ts_from, daily_ts_to)
+                    self.check_daily_range(candle, daily_ts_from, daily_ts_to)
 
-    def do_check(
+    def check_daily_range(
         self, candle: Candle, timestamp_from: datetime, timestamp_to: datetime
     ) -> None:
-        """Do check."""
+        """Check daily range."""
         trade_data_summary = candle.get_trade_data_summary(timestamp_from, timestamp_to)
         trade_data_summary = list(trade_data_summary)
         delta = timestamp_to - timestamp_from

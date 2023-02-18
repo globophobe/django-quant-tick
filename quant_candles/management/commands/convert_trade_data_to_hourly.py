@@ -8,5 +8,5 @@ class Command(BaseTradeDataCommand):
     def handle(self, *args, **options) -> None:
         """Run command."""
         kwargs = super().handle(*args, **options)
-        if kwargs:
-            convert_trade_data_to_hourly(**kwargs)
+        for k in kwargs:
+            convert_trade_data_to_hourly(**k)
