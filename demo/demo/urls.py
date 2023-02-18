@@ -16,17 +16,20 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from quant_candles.views import (
-    AggregateCandleView,
-    CandleDataView,
-    CandleView,
-    TradeDataView,
-)
+from quant_candles.views import CandleDataView, CandleView
+
+from .views import GCPAggregateCandleView, GCPAggregateTradeDataView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("aggregate-candles/", AggregateCandleView.as_view(), name="aggregate_candles"),
+    path(
+        "aggregate-trades/",
+        GCPAggregateTradeDataView.as_view(),
+        name="aggregate_trades",
+    ),
+    path(
+        "aggregate-candles/", GCPAggregateCandleView.as_view(), name="aggregate_candles"
+    ),
     path("candles/<str:code_name>/", CandleDataView.as_view(), name="candle_data"),
     path("candles/", CandleView.as_view(), name="candles"),
-    path("trades/", TradeDataView.as_view(), name="trades"),
 ]

@@ -11,7 +11,7 @@ from quant_candles.serializers import TimeAgoWithRetrySerializer
 from quant_candles.storage import convert_trade_data_to_hourly
 
 
-class TradeDataView(ListAPIView):
+class AggregateTradeDataView(ListAPIView):
     queryset = Symbol.objects.all()
     filter_backends = (DjangoFilterBackend,)
     filterset_class = SymbolFilter
