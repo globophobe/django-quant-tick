@@ -97,10 +97,23 @@ class CandleCacheTest(BaseCandleTest):
         """Convert candle cache to daily."""
         timestamp_to = get_min_time(get_current_time(), value="1d")
         timestamp_from = get_previous_time(timestamp_to, value="1d")
+        total = 24
         target_value = 25
-        for value in range(24):
+        for value in range(total):
             ts = timestamp_from + pd.Timedelta(f"{value}h")
             val = value + 1
+            expected_next = {
+                "open": 0,
+                "high": val,
+                "low": -val,
+                "close": 1,
+                "volume": val * 1000,
+                "buyVolume": val * 500,
+                "notional": val * 100,
+                "buyNotional": val * 50,
+                "ticks": val * 10,
+                "buyTicks": val * 5,
+            }
             CandleCache.objects.create(
                 candle=self.candle,
                 timestamp=ts,
@@ -108,40 +121,9 @@ class CandleCacheTest(BaseCandleTest):
                 json_data={
                     "sample_value": val,
                     "target_value": target_value,
-                    "next": {
-                        "open": 0,
-                        "high": val,
-                        "low": -val,
-                        "close": 1,
-                        "volume": val * 1000,
-                        "buyVolume": val * 500,
-                        "notional": val * 100,
-                        "buyNotional": val * 50,
-                        "ticks": val * 10,
-                        "buyTicks": val * 5,
-                    },
+                    "next": expected_next,
                 },
             )
-        expected = {
-            "open": 0,
-            "low": -24,
-            "high": 24,
-            "close": 1,
-        }
-        hours = list(
-            CandleCache.objects.filter(
-                candle=self.candle, frequency=Frequency.HOUR.value
-            )
-        )
-        for key in (
-            "volume",
-            "buyVolume",
-            "notional",
-            "buyNotional",
-            "ticks",
-            "buyTicks",
-        ):
-            expected[key] = sum([h.json_data["next"][key] for h in hours])
         convert_candle_cache_to_daily(self.candle)
         candle_cache = CandleCache.objects.filter(candle=self.candle)
         self.assertFalse(candle_cache.filter(frequency=Frequency.HOUR.value).exists())
@@ -149,10 +131,9 @@ class CandleCacheTest(BaseCandleTest):
         self.assertEqual(daily.count(), 1)
         daily = daily[0]
         self.assertEqual(daily.timestamp, timestamp_from)
-        self.assertEqual(daily.json_data["target_value"], 25)
-        self.assertEqual(daily.json_data["sample_value"], 24)
-        for key in daily.json_data["next"]:
-            self.assertEqual(daily.json_data["next"][key], expected[key])
+        self.assertEqual(daily.json_data["sample_value"], total)
+        self.assertEqual(daily.json_data["target_value"], target_value)
+        self.assertEqual(daily.json_data["next"], expected_next)
 
     def test_candle_cache_is_not_converted_to_daily_without_all_timestamps(self):
         """Candle cache is not converted to daily, without all timestamps."""
