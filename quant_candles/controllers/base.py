@@ -62,8 +62,9 @@ class BaseController:
         """Delete trade data summary."""
         date_from = timestamp_from.date()
         ts_to = get_min_time(timestamp_to, value="1d")
-        TradeDataSummary.objects.filter(symbol=self.symbol, date__gte=date_from).filter(
-            Q(date__lt=ts_to.date())
-            if timestamp_to == ts_to
-            else Q(date__lte=timestamp_to.date())
-        ).delete()
+        date_to = ts_to.date()
+        query = Q(date__lt=date_to) if timestamp_to == ts_to else Q(date__lte=date_to)
+        trade_data_summary = TradeDataSummary.objects.filter(
+            query, symbol=self.symbol, date__gte=date_from
+        )
+        trade_data_summary.delete()
