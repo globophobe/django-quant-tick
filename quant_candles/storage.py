@@ -1,7 +1,6 @@
 import datetime
 import logging
 import os
-from copy import copy
 from typing import Optional
 
 import pandas as pd
@@ -14,7 +13,6 @@ from quant_candles.lib import (
     get_next_time,
     has_timestamps,
     iter_timeframe,
-    merge_cache,
     validate_data_frame,
 )
 from quant_candles.models import Candle, CandleCache, Symbol, TradeData
@@ -29,9 +27,7 @@ def convert_candle_cache_to_daily(candle: Candle):
 
     * Convert, from past to present, in order.
     """
-    candle_cache = CandleCache.objects.filter(
-        candle=candle,
-    )
+    candle_cache = CandleCache.objects.filter(candle=candle)
     daily = candle_cache.filter(frequency=Frequency.DAY.value).only("timestamp").first()
     if daily:
         timestamp_from = daily.timestamp
@@ -59,27 +55,15 @@ def convert_candle_cache_to_daily(candle: Candle):
                 )
                 existing = get_existing(candle_cache.values("timestamp", "frequency"))
                 if has_timestamps(daily_ts_from, daily_ts_to, existing):
-                    target = list(target_cache.values_list("json_data", flat=True))
-                    cache = copy(target[0])
-                    for next_cache in target[1:]:
-                        cache["sample_value"] = next_cache["sample_value"]
-                        if "next" in cache and "next" in next_cache:
-                            cache["next"] = merge_cache(
-                                cache["next"],
-                                next_cache["next"],
-                                candle.json_data["sample_type"],
-                                candle.json_data.get("runs_n"),
-                                candle.json_data.get("top_n"),
-                            )
-                        elif "next" in next_cache:
-                            cache["next"] = next_cache["next"]
-                    candle_cache.delete()
                     daily_candle_cache, created = CandleCache.objects.get_or_create(
                         candle=candle,
                         timestamp=daily_ts_from,
                         frequency=Frequency.DAY,
                     )
-                    daily_candle_cache.json_data = cache
+                    daily_candle_cache.json_data = (
+                        target_cache.order_by("-timestamp").first().json_data
+                    )
+                    candle_cache.delete()
                     daily_candle_cache.save()
                     logging.info(
                         _("Converted {timestamp_from} {timestamp_to} to daily").format(
