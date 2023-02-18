@@ -67,6 +67,6 @@ class BitmexTradesS3(BitmexS3Mixin, ExchangeS3):
             listing_date = pd.to_datetime(data[0]["listing"]).date()
 
         # Without this check, empty data frames may be acquired from BitMEX data before
-        # the symbol listing data.
+        # the symbol listing date.
         if date >= listing_date:
             return super().get_data_frame(date)
