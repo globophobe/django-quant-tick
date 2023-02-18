@@ -89,64 +89,69 @@ class Command(BaseCandleCommand):
         delta = timestamp_to - timestamp_from
         if len(trade_data_summary) == delta.days:
             candles = candle.get_data(timestamp_from, timestamp_to)
-            candles.reverse()
-            keys = (
-                "volume",
-                "buyVolume",
-                "notional",
-                "buyNotional",
-                "ticks",
-                "buyTicks",
-            )
-            expected = {
-                "high": max(
+            if len(candles):
+                candles.reverse()
+                keys = (
+                    "volume",
+                    "buyVolume",
+                    "notional",
+                    "buyNotional",
+                    "ticks",
+                    "buyTicks",
+                )
+                expected = {
+                    "high": max(
+                        [
+                            t.json_data["candle"]["high"]
+                            for t in trade_data_summary
+                            if t.json_data
+                        ],
+                        default=None,
+                    ),
+                    "low": min(
+                        [
+                            t.json_data["candle"]["low"]
+                            for t in trade_data_summary
+                            if t.json_data
+                        ],
+                        default=None,
+                    ),
+                }
+                for key in keys:
+                    expected[key] = sum(
+                        [
+                            t.json_data["candle"][key]
+                            for t in trade_data_summary
+                            if t.json_data
+                        ]
+                    )
+                actual = {
+                    "high": max(
+                        [c["json_data"]["high"] for c in candles], default=None
+                    ),
+                    "low": min([c["json_data"]["low"] for c in candles], default=None),
+                }
+                for key in keys:
+                    actual[key] = sum([c["json_data"][key] for c in candles])
+
+                is_close = all(
                     [
-                        t.json_data["candle"]["high"]
-                        for t in trade_data_summary
-                        if t.json_data
-                    ],
-                    default=None,
-                ),
-                "low": min(
-                    [
-                        t.json_data["candle"]["low"]
-                        for t in trade_data_summary
-                        if t.json_data
-                    ],
-                    default=None,
-                ),
-            }
-            for key in keys:
-                expected[key] = sum(
-                    [
-                        t.json_data["candle"][key]
-                        for t in trade_data_summary
-                        if t.json_data
+                        (value is None and actual[key] is None)
+                        or (is_decimal_close(value, actual[key]))
+                        for key, value in expected.items()
                     ]
                 )
-            actual = {
-                "high": max([c["json_data"]["high"] for c in candles], default=None),
-                "low": min([c["json_data"]["low"] for c in candles], default=None),
-            }
-            for key in keys:
-                actual[key] = sum([c["json_data"][key] for c in candles])
-
-            is_close = all(
-                [
-                    (value is None and actual[key] is None)
-                    or (is_decimal_close(value, actual[key]))
-                    for key, value in expected.items()
-                ]
-            )
-            if is_close:
-                logging.info(
-                    _("Checked {date_from} {date_to}").format(
-                        **{
-                            "date_from": timestamp_from.date(),
-                            "date_to": timestamp_to.date(),
-                        }
+                if is_close:
+                    logging.info(
+                        _("Checked {date_from} {date_to}").format(
+                            **{
+                                "date_from": timestamp_from.date(),
+                                "date_to": timestamp_to.date(),
+                            }
+                        )
                     )
-                )
-            else:
-                logger.info("{candle}: retrying...".format(**{"candle": str(candle)}))
-                aggregate_candles(candle, timestamp_from, timestamp_to, retry=True)
+                else:
+                    logger.info(
+                        "{candle}: retrying...".format(**{"candle": str(candle)})
+                    )
+                    aggregate_candles(candle, timestamp_from, timestamp_to, retry=True)
