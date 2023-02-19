@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "django-quant-candles"
-version = "0.1.1"
+version = "0.1.2"
 description = "Django Quant Candles downloads and aggregate candlesticks from tick data"
 authors = ["Alex <globophobe@gmail.com>"]
 readme = "README.md"
