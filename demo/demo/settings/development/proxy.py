@@ -7,7 +7,6 @@ from .base import *  # noqa
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
-IS_LOCAL = True
 
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
@@ -19,7 +18,7 @@ DATABASES = {
         "USER": config("DATABASE_USER"),
         "PASSWORD": config("DATABASE_PASSWORD"),
         "HOST": config("DATABASE_HOST"),
-        "PORT": config("PROXY_DATABASE_PORT"),
+        "PORT": config("PROXY_DATABASE_PORT", None),
         "TEST": {"NAME": f'test_{config("DATABASE_NAME")}'},
     },
     "read_only": {
@@ -28,11 +27,6 @@ DATABASES = {
         "TEST": {"NAME": BASE_DIR.parent / "test_db.sqlite3"},  # noqa
     },
 }
-
-DATABASE_ROUTERS = [
-    "demo.db_routers.DefaultRouter",
-    "demo.db_routers.ReadOnlyRouter",
-]
 
 LOGGING = {
     "version": 1,

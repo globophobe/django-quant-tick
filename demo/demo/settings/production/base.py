@@ -4,16 +4,13 @@ import sentry_sdk
 from decouple import config
 from sentry_sdk.integrations.django import DjangoIntegration
 
-from .base import *  # noqa
+from ..base import *  # noqa
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 IS_LOCAL = False
 
-ALLOWED_HOSTS = ["quant-candles.com"]
-
-USE_X_FORWARDED_HOST = True
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 10  # 10MB
 
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
@@ -39,18 +36,16 @@ DATABASE_ROUTERS = [
     "demo.db_routers.ReadOnlyRouter",
 ]
 
-sentry_sdk.init(
-    dsn=config("SENTRY_DSN"),
-    integrations=[DjangoIntegration()],
-    traces_sample_rate=1.0,
-)
-
-STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
-
 # GCP
 DEFAULT_FILE_STORAGE = "storages.backends.gcloud.GoogleCloudStorage"
 GS_BUCKET_NAME = (
     f'test-{config("GCS_BUCKET_NAME")}'
     if "test" in sys.argv
     else config("GCS_BUCKET_NAME")
+)
+
+sentry_sdk.init(
+    dsn=config("SENTRY_DSN"),
+    integrations=[DjangoIntegration()],
+    traces_sample_rate=1.0,
 )

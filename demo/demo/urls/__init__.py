@@ -13,23 +13,7 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.contrib import admin
-from django.urls import path
+from .api import urlpatterns as api_urlpatterns
+from .frontend import urlpatterns as frontend_urlpatterns
 
-from quant_candles.views import CandleDataView, CandleView
-
-from .views import GCPAggregateCandleView, GCPAggregateTradeDataView
-
-urlpatterns = [
-    path("admin/", admin.site.urls),
-    path(
-        "aggregate-trades/",
-        GCPAggregateTradeDataView.as_view(),
-        name="aggregate_trades",
-    ),
-    path(
-        "aggregate-candles/", GCPAggregateCandleView.as_view(), name="aggregate_candles"
-    ),
-    path("candles/<str:code_name>/", CandleDataView.as_view(), name="candle_data"),
-    path("candles/", CandleView.as_view(), name="candles"),
-]
+urlpatterns = frontend_urlpatterns + api_urlpatterns

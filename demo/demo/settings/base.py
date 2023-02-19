@@ -22,12 +22,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = config("SECRET_KEY")
 
-ALLOWED_HOSTS = []
-
-ASGI_APPLICATION = "demo.asgi.application"
-
-DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 1000  # 1 GB
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -62,8 +56,6 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "demo.urls"
-
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -79,9 +71,6 @@ TEMPLATES = [
         },
     },
 ]
-
-WSGI_APPLICATION = "demo.wsgi.application"
-
 
 # Password validation
 # https://docs.djangoproject.com/en/4.0/ref/settings/#auth-password-validators
