@@ -11,6 +11,7 @@ ARG DATABASE_PASSWORD
 ARG PRODUCTION_DATABASE_HOST
 ARG DATABASE_PORT
 ARG GCS_BUCKET_NAME
+ARG PRODUCTION_API_URL
 
 ENV SECRET_KEY $SECRET_KEY
 ENV SENTRY_DSN $SENTRY_DSN
@@ -21,12 +22,10 @@ ENV DATABASE_PASSWORD $DATABASE_PASSWORD
 ENV PRODUCTION_DATABASE_HOST $PRODUCTION_DATABASE_HOST
 ENV DATABASE_PORT $DATABASE_PORT
 ENV GCS_BUCKET_NAME $GCS_BUCKET_NAME
+ENV PRODUCTION_API_URL $PRODUCTION_API_URL
 
 COPY dist/$WHEEL /
 COPY demo/demo /demo/demo
-COPY demo/static /demo/static
-COPY demo/templates /demo/templates
-COPY demo/db.sqlite3 /demo/db.sqlite3
 
 RUN pip install --no-cache-dir wheel
 RUN pip install $WHEEL
@@ -34,4 +33,4 @@ RUN pip install --no-cache-dir $POETRY_EXPORT sentry-sdk
 RUN rm $WHEEL
 
 # Start the server
-ENTRYPOINT ["gunicorn", "--chdir", "/demo", "--bind", "0.0.0.0:8080", "demo.wsgi:application"]
+ENTRYPOINT ["gunicorn", "--chdir", "/demo", "--bind", "0.0.0.0:8080", "demo.wsgi.production.api:application"]
