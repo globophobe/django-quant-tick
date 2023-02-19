@@ -19,7 +19,7 @@ from .base import BaseViewTest
 class CandleViewTest(BaseViewTest, APITestCase):
     def setUp(self):
         super().setUp()
-        self.url = reverse("candles")
+        self.url = reverse("aggregate_candles")
         self.global_symbol = GlobalSymbol.objects.create(name="global-symbol")
         self.symbol = Symbol.objects.create(
             global_symbol=self.global_symbol,
