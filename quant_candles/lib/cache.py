@@ -37,6 +37,11 @@ def merge_cache(
     top_n: Optional[int] = None,
 ) -> dict:
     """Merge cache."""
+    current["open"] = previous["open"]
+    if previous["high"] > current["high"]:
+        current["high"] = previous["high"]
+    if previous["low"] < current["low"]:
+        current["low"] = previous["low"]
     for key in (
         "volume",
         "buyVolume",

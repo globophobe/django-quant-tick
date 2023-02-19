@@ -709,6 +709,49 @@ class ConstantNotionalHourFrequencyCandleTest(
 @time_machine.travel(datetime(2009, 1, 4))
 @patch(
     "quant_candles.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
+    return_value=datetime(2009, 1, 5).replace(tzinfo=timezone.utc),
+)
+class ConstantNotionalDayFrequencyIncompleteCandleTest(
+    BaseDayIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
+):
+
+    databases = {"default", "read_only"}
+
+    def get_candle(self) -> Candle:
+        """Get candle."""
+        return ConstantCandle.objects.create(
+            json_data={
+                "sample_type": SampleType.NOTIONAL.value,
+                "target_value": 1,
+                "cache_reset": Frequency.DAY.value,
+            }
+        )
+
+    def write_trade_data(
+        self, timestamp_from: datetime, timestamp_to: datetime, data_frame: DataFrame
+    ) -> None:
+        """Write trade data."""
+        TradeData.write(
+            self.symbol, timestamp_from, timestamp_to, data_frame, validated={}
+        )
+
+    def test_one_incomplete_candle(self, mock_get_max_timestamp_to):
+        """An incomplete candle is saved, if cache will be reset."""
+        last_hour = self.timestamp_from + pd.Timedelta("23h")
+        filtered = self.get_filtered(last_hour, notional=Decimal("0.5"))
+        self.write_trade_data(last_hour, self.one_day_from_now, filtered)
+        aggregate_candles(self.candle, last_hour, self.one_day_from_now)
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 1)
+        candle_data = CandleReadOnlyData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, last_hour)
+        self.assertTrue(candle_data[0].json_data["incomplete"])
+
+
+@time_machine.travel(datetime(2009, 1, 4))
+@patch(
+    "quant_candles.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
     return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
 )
 class AdaptiveNotionalCandleTest(
@@ -728,7 +771,6 @@ class AdaptiveNotionalCandleTest(
                 "sample_type": SampleType.NOTIONAL.value,
                 "moving_average_number_of_days": 1,
                 "target_candles_per_day": 1,
-                "cache_reset": Frequency.WEEK.value,
             }
         )
 

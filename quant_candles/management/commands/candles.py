@@ -19,4 +19,5 @@ class Command(BaseCandleCommand):
     def handle(self, *args, **options) -> None:
         """Run command."""
         kwargs = super().handle(*args, **options)
-        aggregate_candles(**kwargs)
+        for k in kwargs:
+            aggregate_candles(**k)

@@ -42,17 +42,18 @@ class BaseTradeViewTest(BaseViewTest):
         global_symbol = GlobalSymbol.objects.create(name="global-symbol")
         for symbol in symbols:
             Symbol.objects.create(
-                exchange=exchange,
                 global_symbol=global_symbol,
+                exchange=exchange,
                 api_symbol=symbol,
             )
 
         return {"symbol": symbols}
 
-    def get_mock_symbols(self, mock_api: MagicMock) -> List[str]:
-        mock_params = self.get_mock_params(mock_api)
-        return [mock_param["symbol"].api_symbol for mock_param in mock_params]
-
     def get_mock_params(self, mock_api: MagicMock) -> List[dict]:
         """Get mock params."""
-        return [mock_call.kwargs for mock_call in mock_api.mock_calls]
+        return [mock_call.args for mock_call in mock_api.mock_calls]
+
+    def get_mock_symbols(self, mock_api: MagicMock) -> List[str]:
+        """Get mock symbols."""
+        mock_params = self.get_mock_params(mock_api)
+        return [mock_param[0].api_symbol for mock_param in mock_params]

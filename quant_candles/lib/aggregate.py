@@ -79,8 +79,8 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
         samples.append(aggregated_sample)
     # Assert volume equal.
     aggregated = pd.DataFrame(samples)
-    error = "Volume is not equal."
-    assert is_decimal_close(data_frame.volume.sum(), aggregated.volume.sum()), error
+    is_close = is_decimal_close(data_frame.volume.sum(), aggregated.volume.sum())
+    assert is_close, "Volume is not equal."
     return aggregated
 
 

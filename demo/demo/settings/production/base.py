@@ -1,12 +1,16 @@
 import sys
 
+import sentry_sdk
 from decouple import config
+from sentry_sdk.integrations.django import DjangoIntegration
 
-from .base import *  # noqa
+from ..base import *  # noqa
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-IS_LOCAL = True
+DEBUG = False
+IS_LOCAL = False
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 10  # 10MB
 
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
@@ -17,34 +21,31 @@ DATABASES = {
         "NAME": config("DATABASE_NAME"),
         "USER": config("DATABASE_USER"),
         "PASSWORD": config("DATABASE_PASSWORD"),
-        "HOST": config("DATABASE_HOST"),
+        "HOST": config("PRODUCTION_DATABASE_HOST"),
         "PORT": config("DATABASE_PORT"),
         "TEST": {"NAME": f'test_{config("DATABASE_NAME")}'},
     },
     "read_only": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR.parent / "db.sqlite3",  # noqa
-        "TEST": {"NAME": BASE_DIR.parent / "test_db.sqlite3"},  # noqa
+        "NAME": BASE_DIR / "db.sqlite3",  # noqa
     },
 }
-
 
 DATABASE_ROUTERS = [
     "demo.db_routers.DefaultRouter",
     "demo.db_routers.ReadOnlyRouter",
 ]
 
-if "test" not in sys.argv:
-    LOGGING = {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-            },
-        },
-        "root": {
-            "handlers": ["console"],
-            "level": "INFO",
-        },
-    }
+# GCP
+DEFAULT_FILE_STORAGE = "storages.backends.gcloud.GoogleCloudStorage"
+GS_BUCKET_NAME = (
+    f'test-{config("GCS_BUCKET_NAME")}'
+    if "test" in sys.argv
+    else config("GCS_BUCKET_NAME")
+)
+
+sentry_sdk.init(
+    dsn=config("SENTRY_DSN"),
+    integrations=[DjangoIntegration()],
+    traces_sample_rate=1.0,
+)

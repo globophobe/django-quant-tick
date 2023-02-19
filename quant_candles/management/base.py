@@ -21,94 +21,90 @@ class BaseTimeFrameCommand(BaseCommand):
 
 
 class BaseTradeDataCommand(BaseTimeFrameCommand):
-    def add_arguments(self, parser: CommandParser) -> None:
-        """Add arguments."""
-        super().add_arguments(parser)
-        parser.add_argument("exchange", type=Exchange, choices=Exchange.values)
-        parser.add_argument("symbol")
-        parser.add_argument("--aggregate", type=bool, default=False)
-        parser.add_argument("--filter", type=int, default=0)
-
-    @classmethod
-    def get_symbol_display(
-        cls,
-        exchange: str,
-        symbol: str,
-        should_aggregate_trades: bool,
-        significant_trade_filter: int,
-    ) -> str:
-        """Get symbol display."""
-        parts = [exchange, symbol]
-        if should_aggregate_trades:
-            parts += ["aggregated", str(significant_trade_filter)]
-        else:
-            parts.append("raw")
-        return " ".join(parts)
-
-    def handle(self, *args, **options) -> Optional[dict]:
-        exchange = options["exchange"]
-        symbol = options["symbol"]
-        should_aggregate_trades = options["aggregate"]
-        significant_trade_filter = options["filter"]
-        try:
-            symbol = Symbol.objects.get(
-                exchange=exchange,
-                api_symbol=symbol,
-                should_aggregate_trades=should_aggregate_trades,
-                significant_trade_filter=significant_trade_filter,
-            )
-        except Symbol.DoesNotExist:
-            s = self.get_symbol_display(
-                exchange, symbol, should_aggregate_trades, significant_trade_filter
-            )
-            logger.warn(f"{s} not registered")
-        else:
-            timestamp_from, timestamp_to = parse_period_from_to(
-                date_from=options["date_from"],
-                time_from=options["time_from"],
-                date_to=options["date_to"],
-                time_to=options["time_to"],
-            )
-            return {
-                "symbol": symbol,
-                "timestamp_from": timestamp_from,
-                "timestamp_to": timestamp_to,
-            }
-
-
-class BaseCandleCommand(BaseTimeFrameCommand):
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
-        raise NotImplementedError
+        return Symbol.objects.exclude(exchange="ftx")
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
         super().add_arguments(parser)
         queryset = self.get_queryset()
         parser.add_argument(
-            "name",
-            type=str,
-            choices=queryset.values_list("code_name", flat=True),
+            "--exchange", type=Exchange, choices=Exchange.values, nargs="+"
         )
-        parser.add_argument("--retry", action="store_true")
+        parser.add_argument(
+            "--api-symbol",
+            choices=queryset.values_list("api_symbol", flat=True),
+            nargs="+",
+        )
+        parser.add_argument("--should-aggregate-trades", type=bool)
+        parser.add_argument("--significant-trade-filter", type=int)
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args, **options) -> Optional[dict]:
         """Run command."""
-        name = options["name"]
-        try:
-            candle = Candle.objects.get(code_name=name)
-        except Candle.DoesNotExist:
-            logger.warn(f"{name} not registered")
-        else:
+        exchanges = options.get("exchange")
+        api_symbols = options.get("api_symbols")
+        should_aggregate_trades = options.get("should_aggregate_trades")
+        significant_trade_filter = options.get("significant_trade_filter")
+        symbols = self.get_queryset()
+        if exchanges:
+            symbols = symbols.filter(exchange__in=exchanges)
+        if api_symbols:
+            symbols = symbols.filter(api_symbol__in=api_symbols)
+        if should_aggregate_trades:
+            symbols = symbols.filter(should_aggregate_trades=should_aggregate_trades)
+        if significant_trade_filter:
+            symbols = symbols.filter(significant_trade_filter=significant_trade_filter)
+        if symbols:
             timestamp_from, timestamp_to = parse_period_from_to(
                 date_from=options["date_from"],
                 time_from=options["time_from"],
                 date_to=options["date_to"],
                 time_to=options["time_to"],
             )
-            return {
-                "candle": candle,
-                "timestamp_from": timestamp_from,
-                "timestamp_to": timestamp_to,
-                "retry": options["retry"],
-            }
+            for symbol in symbols:
+                logger.info("{symbol}: starting...".format(**{"symbol": str(symbol)}))
+                yield {
+                    "symbol": symbol,
+                    "timestamp_from": timestamp_from,
+                    "timestamp_to": timestamp_to,
+                }
+
+
+class BaseCandleCommand(BaseTimeFrameCommand):
+    def get_queryset(self) -> QuerySet:
+        """Get queryset."""
+        return Candle.objects.all().prefetch_related("symbols")
+
+    def add_arguments(self, parser: CommandParser) -> None:
+        """Add arguments."""
+        super().add_arguments(parser)
+        parser.add_argument(
+            "--code-name",
+            type=str,
+            choices=self.get_queryset().values_list("code_name", flat=True),
+            nargs="+",
+        )
+        parser.add_argument("--retry", action="store_true")
+
+    def handle(self, *args, **options) -> None:
+        """Run command."""
+        code_names = options.get("code_name")
+        candles = self.get_queryset()
+        if code_names:
+            candles = candles.filter(code_name__in=code_names)
+        if candles:
+            timestamp_from, timestamp_to = parse_period_from_to(
+                date_from=options["date_from"],
+                time_from=options["time_from"],
+                date_to=options["date_to"],
+                time_to=options["time_to"],
+            )
+            for candle in candles:
+                logger.info("{candle}: starting...".format(**{"candle": str(candle)}))
+                yield {
+                    "candle": candle,
+                    "timestamp_from": timestamp_from,
+                    "timestamp_to": timestamp_to,
+                    "retry": options["retry"],
+                }

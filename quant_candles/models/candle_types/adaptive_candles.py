@@ -6,7 +6,6 @@ import pandas as pd
 from quant_candles.lib import get_min_time
 from quant_candles.utils import gettext_lazy as _
 
-from ..trades import TradeDataSummary
 from .constant_candles import ConstantCandle
 
 
@@ -27,26 +26,23 @@ class AdaptiveCandle(ConstantCandle):
         data = super().get_cache_data(timestamp, data)
         date = timestamp.date()
         is_same_day = data["date"] == date
-        has_target_value = data.get("target_value") is not None
+        has_target_value = data["target_value"] is not None
         if not is_same_day or not has_target_value:
+            data["date"] = timestamp.date()
             data["target_value"] = self.get_target_value(timestamp)
         return data
 
-    def get_trade_data_summary(self, timestamp: datetime) -> bool:
-        """Get trade data summary."""
+    def get_trade_data_summary_for_target(self, timestamp: datetime) -> bool:
+        """Get trade data summary for target."""
         days = self.json_data["moving_average_number_of_days"]
         ts = get_min_time(timestamp, value="1d") - pd.Timedelta(f"{days}d")
-        return TradeDataSummary.objects.filter(
-            symbol__in=self.symbols.all(),
-            date__gte=ts.date(),
-            date__lt=timestamp.date(),
-        )
+        return self.get_trade_data_summary(ts, timestamp)
 
     def get_target_value(self, timestamp: datetime) -> Decimal:
         """Get target value."""
         days = self.json_data["moving_average_number_of_days"]
         trade_data_summary = (
-            self.get_trade_data_summary(timestamp)
+            self.get_trade_data_summary_for_target(timestamp)
             .only("json_data")
             .values("json_data")
             .order_by("-date")
@@ -65,7 +61,7 @@ class AdaptiveCandle(ConstantCandle):
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
         can_agg = super().can_aggregate(timestamp_from, timestamp_to)
-        trade_data_summary = self.get_trade_data_summary(timestamp_from)
+        trade_data_summary = self.get_trade_data_summary_for_target(timestamp_from)
         return can_agg and trade_data_summary.exists()
 
     def should_aggregate_candle(self, data: dict) -> bool:

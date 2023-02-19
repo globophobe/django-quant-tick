@@ -11,6 +11,6 @@ class Command(BaseTradeDataCommand):
     def handle(self, *args, **options) -> None:
         """Run command."""
         kwargs = super().handle(*args, **options)
-        if kwargs:
-            clean_trade_data_with_non_existing_files(**kwargs)
-            clean_unlinked_trade_data_files(**kwargs)
+        for k in kwargs:
+            clean_trade_data_with_non_existing_files(**k)
+            clean_unlinked_trade_data_files(**k)

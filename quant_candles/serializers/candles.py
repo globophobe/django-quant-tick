@@ -1,14 +1,19 @@
 from rest_framework import serializers
 
-from .timeframe import TimeFrameSerializer
+from quant_candles.models import Candle
+
+from .symbols import SymbolSerializer
 
 
-class CandleParameterSerializer(TimeFrameSerializer):
-    limit = serializers.IntegerField(
-        required=False, min_value=1, max_value=1000, default=1000
-    )
+class CandleSerializer(serializers.ModelSerializer):
+    code_name = serializers.CharField()
+    symbols = SymbolSerializer(many=True)
+
+    class Meta:
+        model = Candle
+        fields = ("code_name", "symbols")
 
 
-class CandleSerializer(serializers.Serializer):
+class CandleDataSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField()
     data = serializers.JSONField(source="json_data")

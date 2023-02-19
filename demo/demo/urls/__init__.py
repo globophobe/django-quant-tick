@@ -13,13 +13,7 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.contrib import admin
-from django.urls import path
+from .api import urlpatterns as api_urlpatterns
+from .frontend import urlpatterns as frontend_urlpatterns
 
-from quant_candles.views import CandleView, QuantCandleView
-
-urlpatterns = [
-    path("admin/", admin.site.urls),
-    path("quant_candles/", QuantCandleView.as_view(), name="quant_candles"),
-    path("candles/<str:code_name>/", CandleView.as_view(), name="candles"),
-]
+urlpatterns = frontend_urlpatterns + api_urlpatterns

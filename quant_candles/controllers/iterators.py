@@ -4,7 +4,6 @@ from typing import Generator, List, Tuple
 
 import pandas as pd
 from django.conf import settings
-from django.db import models
 from django.db.models import Q
 
 from quant_candles.constants import Frequency
@@ -12,6 +11,7 @@ from quant_candles.lib import (
     get_current_time,
     get_existing,
     get_min_time,
+    get_next_time,
     has_timestamps,
     iter_missing,
     iter_timeframe,
@@ -35,10 +35,17 @@ def aggregate_trade_summary(
     timestamp_from: datetime,
     timestamp_to: datetime,
     retry: bool = False,
+    start_at_midnight: bool = True,
 ):
     """Aggregate trade summary."""
+    min_timestamp_from = TradeData.objects.get_min_timestamp(symbol, timestamp_from)
+    max_timestamp_to = TradeData.objects.get_max_timestamp(symbol, timestamp_to)
+    if start_at_midnight and min_timestamp_from.hour != 0:
+        min_timestamp_from = get_next_time(min_timestamp_from, value="1d")
+    if max_timestamp_to.hour != 0:
+        max_timestamp_to = get_min_time(max_timestamp_to, value="1d")
     for ts_from, ts_to in iter_timeframe(
-        timestamp_from, timestamp_to, value="1d", reverse=True
+        min_timestamp_from, max_timestamp_to, value="1d", reverse=True
     ):
         date = ts_from.date()
         has_trade_data_summary = (
@@ -84,8 +91,7 @@ def aggregate_candles(
 
 
 class BaseTimeFrameIterator:
-    def __init__(self, obj: models.Model) -> None:
-        self.obj = obj
+    def __init__(self) -> None:
         self.reverse = None
 
     def get_max_timestamp_to(self) -> datetime:

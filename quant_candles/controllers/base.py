@@ -2,7 +2,11 @@ from datetime import datetime
 from typing import Callable
 
 from django.db import models
+from django.db.models import Q
 from pandas import DataFrame
+
+from quant_candles.lib import get_min_time
+from quant_candles.models import TradeDataSummary
 
 
 class BaseController:
@@ -51,3 +55,16 @@ class BaseController:
     ) -> DataFrame:
         """Get candles."""
         raise NotImplementedError
+
+    def delete_trade_data_summary(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> None:
+        """Delete trade data summary."""
+        date_from = timestamp_from.date()
+        ts_to = get_min_time(timestamp_to, value="1d")
+        date_to = ts_to.date()
+        query = Q(date__lt=date_to) if timestamp_to == ts_to else Q(date__lte=date_to)
+        trade_data_summary = TradeDataSummary.objects.filter(
+            query, symbol=self.symbol, date__gte=date_from
+        )
+        trade_data_summary.delete()

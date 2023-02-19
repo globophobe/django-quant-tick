@@ -3,13 +3,51 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from quant_candles.constants import Exchange
 from quant_candles.lib import get_current_time, get_min_time, get_previous_time
-from quant_candles.models import Candle, CandleData, CandleReadOnlyData
+from quant_candles.models import (
+    Candle,
+    CandleData,
+    CandleReadOnlyData,
+    GlobalSymbol,
+    Symbol,
+)
 
 from .base import BaseViewTest
 
 
 class CandleViewTest(BaseViewTest, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("aggregate_candles")
+        self.global_symbol = GlobalSymbol.objects.create(name="global-symbol")
+        self.symbol = Symbol.objects.create(
+            global_symbol=self.global_symbol,
+            exchange=Exchange.COINBASE,
+            api_symbol="test",
+        )
+
+    def test_get(self):
+        """List of candles."""
+        candle = Candle.objects.create()
+        candle.symbols.add(self.symbol)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+
+    def test_one_candle(self):
+        """One candle."""
+        for i in range(2):
+            candle = Candle.objects.create()
+            candle.symbols.add(self.symbol)
+        response = self.client.get(self.url, {"code_name": candle.code_name})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+
+
+class CandleDataViewTest(BaseViewTest, APITestCase):
     databases = {"default", "read_only"}
 
     def setUp(self):
@@ -19,7 +57,7 @@ class CandleViewTest(BaseViewTest, APITestCase):
 
     def get_url(self, candle: Candle) -> str:
         """Get URL."""
-        return reverse("candles", kwargs={"code_name": candle.code_name})
+        return reverse("candle_data", kwargs={"code_name": candle.code_name})
 
     def get_isoformat(self, obj: models.Model) -> str:
         """Get isoformat."""
@@ -31,10 +69,12 @@ class CandleViewTest(BaseViewTest, APITestCase):
     def test_get(self):
         """QuerySet results are combined."""
         candle = Candle.objects.create()
-        candle_data = CandleData.objects.create(candle=candle, timestamp=self.timestamp)
+        candle_data = CandleData.objects.create(
+            candle=candle, timestamp=get_previous_time(self.timestamp, "1t")
+        )
         candle_read_only_data = CandleReadOnlyData.objects.create(
             candle_id=candle.id,
-            timestamp=get_previous_time(self.timestamp, "1t"),
+            timestamp=get_previous_time(self.timestamp, "2t"),
         )
         url = self.get_url(candle)
         response = self.client.get(url)
@@ -48,14 +88,16 @@ class CandleViewTest(BaseViewTest, APITestCase):
     def test_ordering(self):
         """QuerySet results are correctly ordered."""
         candle = Candle.objects.create()
-        candle_data = CandleData.objects.create(candle=candle, timestamp=self.timestamp)
+        candle_data = CandleData.objects.create(
+            candle=candle, timestamp=get_previous_time(self.timestamp, "1t")
+        )
         candle_read_only_data1 = CandleReadOnlyData.objects.create(
             candle_id=candle.id,
-            timestamp=get_previous_time(self.timestamp, "1t"),
+            timestamp=get_previous_time(self.timestamp, "2t"),
         )
         candle_read_only_data2 = CandleReadOnlyData.objects.create(
             candle_id=candle.id,
-            timestamp=get_previous_time(self.timestamp, "2t"),
+            timestamp=get_previous_time(self.timestamp, "3t"),
         )
         url = self.get_url(candle)
         response = self.client.get(url)
