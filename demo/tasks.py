@@ -1,5 +1,8 @@
+import json
 import os
 import re
+import tempfile
+from urllib.parse import urljoin
 
 from decouple import config
 from invoke import task
@@ -41,9 +44,9 @@ def create_user(ctx, username, password, proxy=False):
 
 
 @task
-def get_container_name(ctx, hostname="asia.gcr.io"):
+def get_container_name(ctx, suffix, hostname="asia.gcr.io"):
     project_id = ctx.run("gcloud config get-value project").stdout.strip()
-    return f"{hostname}/{project_id}/django-quant-candles"
+    return f"{hostname}/{project_id}/django-quant-candles-{suffix}"
 
 
 def docker_secrets():
@@ -58,9 +61,25 @@ def docker_secrets():
             "PRODUCTION_DATABASE_HOST",
             "DATABASE_PORT",
             "GCS_BUCKET_NAME",
+            "PRODUCTION_API_URL",
         )
     ]
     return " ".join([f"--build-arg {build_arg}" for build_arg in build_args])
+
+
+def get_common_requirements():
+    return [
+        "django-polymorphic",
+        "djangorestframework",
+        "django-storages[google]",
+        "gunicorn",
+        "pandas",
+        "pyarrow",
+        "psycopg2-binary",
+        "python-decouple",
+        "randomname",
+        "sentry-sdk",
+    ]
 
 
 def build_quant_candles(ctx):
@@ -69,27 +88,23 @@ def build_quant_candles(ctx):
 
 
 @task
-def build_container(ctx, hostname="asia.gcr.io"):
-    wheel = build_quant_candles(ctx)
+def build_frontend(ctx, hostname="asia.gcr.io"):
     ctx.run("echo yes | python manage.py collectstatic")
-    name = get_container_name(ctx, hostname=hostname)
-    # Requirements
-    requirements = [
+    requirements = get_common_requirements() + [
         "django-filter",
-        "django-polymorphic",
-        "djangorestframework",
         "django-semantic-admin",
-        "django-storages[google]",
-        "gunicorn",
-        "https",
-        "pandas",
-        "pyarrow",
-        "psycopg2-binary",
-        "python-decouple",
-        "randomname",
-        "sentry-sdk",
         "whitenoise",
     ]
+    build_container(ctx, suffix="frontend", requirements=requirements)
+
+
+@task
+def build_api(ctx):
+    build_container(ctx, suffix="api", requirements=get_common_requirements())
+
+
+def build_container(ctx, suffix: str, requirements: list[str], hostname="asia.gcr.io"):
+    wheel = build_quant_candles(ctx)
     # Versions
     reqs = " ".join(
         [
@@ -105,21 +120,75 @@ def build_container(ctx, hostname="asia.gcr.io"):
     build_args = " ".join(
         [f'--build-arg {key}="{value}"' for key, value in build_args.items()]
     )
+    name = get_container_name(ctx, suffix=suffix, hostname=hostname)
     with ctx.cd(".."):
         cmd = " ".join(
             [
                 "docker build",
                 build_args,
                 docker_secrets(),
-                f"--no-cache --file=Dockerfile --tag={name} .",
+                f"--no-cache --file=Dockerfile.{suffix} --tag={name} .",
             ]
         )
         ctx.run(cmd)
 
 
 @task
-def push_container(ctx, hostname="asia.gcr.io"):
-    name = get_container_name(ctx, hostname=hostname)
+def push_container(ctx, suffix, hostname="asia.gcr.io"):
+    name = get_container_name(ctx, suffix, hostname=hostname)
     # Push
     cmd = f"docker push {name}"
     ctx.run(cmd)
+
+
+@task
+def push_workflow(ctx, location="asia-northeast1"):
+    url = config("PRODUCTION_API_URL")
+    aggregate_trades = urljoin(url, "aggregate-trades/")
+    aggregate_candles = urljoin(url, "aggregate-candles/")
+    workflow = {
+        "main": {
+            "steps": [
+                {
+                    "getTradeData": {
+                        "for": {
+                            "value": "exchange",
+                            "in": ["bitfinex", "bitmex", "bybit", "coinbase"],
+                            "steps": [
+                                {
+                                    "parallel": {
+                                        "steps": [
+                                            {
+                                                "tradeData": {
+                                                    "call": "http.get",
+                                                    "args": {
+                                                        "url": aggregate_trades,
+                                                        "query": {
+                                                            "exchange": "${exchange}"
+                                                        },
+                                                    },
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ],
+                        }
+                    }
+                },
+                {
+                    "aggregateCandles": {
+                        "call": "http.get",
+                        "args": {"url": aggregate_candles},
+                    }
+                },
+            ]
+        }
+    }
+    with tempfile.NamedTemporaryFile(mode="w") as f:
+        json.dump(workflow, f)
+        f.seek(0)
+        ctx.run(
+            "gcloud workflows deploy quantcandles "
+            f"--source={f.name} --location={location}"
+        )
