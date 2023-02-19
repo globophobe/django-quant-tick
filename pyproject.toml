@@ -13,7 +13,6 @@ packages = [{ include = "quant_candles" }]
 
 [tool.poetry.dependencies]
 python = ">=3.8,<3.11"
-django-filter = "*"
 django-polymorphic = "*"
 djangorestframework = "*"
 httpx = "*"
@@ -24,11 +23,10 @@ randomname = "*"
 [tool.poetry.dev-dependencies]
 black = "*"
 coverage = "*"
+django-filter = "*"
 django-semantic-admin = "*"
 django-storages = {version = "*", extras = ["google"]}
 flake8 = "*"
-google-cloud-workflows = "*"
-google-cloud-scheduler = "*"
 gunicorn = "*"
 invoke = "*"
 ipdb = "*"
