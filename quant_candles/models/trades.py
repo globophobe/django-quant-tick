@@ -3,6 +3,7 @@ import os
 
 import pandas as pd
 from django.db import models
+from django.db.models import QuerySet
 from pandas import DataFrame
 
 from quant_candles.constants import Frequency
@@ -18,7 +19,6 @@ from quant_candles.lib import (
     has_timestamps,
     is_decimal_close,
 )
-from quant_candles.querysets import TimeFrameQuerySet
 from quant_candles.utils import gettext_lazy as _
 
 from .base import AbstractDataStorage, JSONField
@@ -60,7 +60,7 @@ def upload_trade_data_summary_to(instance: "TradeDataSummary", filename: str) ->
     return "/".join(parts)
 
 
-class TradeDataQuerySet(TimeFrameQuerySet):
+class TradeDataQuerySet(QuerySet):
     def get_last_uid(self, symbol: Symbol, timestamp: datetime.datetime) -> str:
         """Get last uid."""
         queryset = self.filter(symbol=symbol, timestamp__gte=timestamp)
