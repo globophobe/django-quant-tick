@@ -173,7 +173,7 @@ class BaseTimeFrameIterator:
         raise NotImplementedError
 
     def can_iter_days(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can iter range."""
+        """Can iter days."""
         return True
 
     def can_iter_hours(self) -> bool:
