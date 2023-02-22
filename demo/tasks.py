@@ -127,7 +127,7 @@ def build_container(ctx, suffix: str, requirements: list[str], hostname="asia.gc
                 "docker build",
                 build_args,
                 docker_secrets(),
-                f"--no-cache --file=Dockerfile.{suffix} --tag={name} .",
+                f"--no-cache --file=docker/Dockerfile.{suffix} --tag={name} .",
             ]
         )
         ctx.run(cmd)
