@@ -24,12 +24,11 @@ Candles are aggregated at 1 minute intervals, and validated with the exchange's 
 
 [Notes](https://github.com/globophobe/django-quant-candles/blob/main/NOTES.md).
 
-
 Supported exchanges
 -------------------
 
 :white_medium_square: Binance REST API (requires API key, which requires KYC)
-* <em style="font-size: 0.9em">Other exchanges validate trade data downloaded from exchanges using candle data provided by exchanges. However, I did not complete KYC, and as a resident of Japan am not currently able to do so. Pull requests are welcome.</em>
+* <em style="font-size: 0.9em">Other exchanges validate trade data downloaded from exchanges using candle data provided by exchanges. However, I did not complete KYC, and as a resident of Japan am not currently able to do so. Support is incomplete. Pull requests are welcome.</em>
 
 :white_check_mark: Bitfinex REST API
 
@@ -42,9 +41,6 @@ Supported exchanges
 
 Note: Exchanges without paginated REST APIs or an S3 repository, will never be supported.
 
-For deployment, there are Dockerfiles. As well there are invoke tasks for rapid deployment to Google Cloud Run.
-
-
 Installation
 ------------
 
@@ -53,6 +49,28 @@ For convenience, `django-quant-candles` can be installed from PyPI:
 ```
 pip install django-quant-candles
 ```
+
+Deployment
+----------
+
+For deployment, there are Dockerfiles. As well, there are invoke tasks for deployment to Google Cloud Run. Just as easily, the demo could be deployed to a VPS or AWS.
+
+If using GCP, it is recommended to use the Cloud SQL Auth proxy, and run the management commands to collect data from your local machine. Django Quant Candles will upload the trade data to the cloud.
+
+```
+cd demo
+invoke start-proxy
+python proxy.py trades
+```
+
+Then, configure a Cloud Workflow to collect data in the cloud. There is an example workflow in the [invoke tasks](https://github.com/globophobe/django-quant-candles/blob/main/demo/tasks.py).
+
+The demo uses two Cloud Run services: 
+
+1. A private API for aggregating candles.
+2. A public API for quant-candles.com
+
+Every minute, candles are aggregated. Django Quant Candles is idempotent, such that the system can recover in case exchange APIs are periodically offline.
 
 Environment
 -----------
