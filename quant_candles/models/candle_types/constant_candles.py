@@ -51,17 +51,21 @@ class ConstantCandle(Candle):
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
         can_agg = super().can_aggregate(timestamp_from, timestamp_to)
-        last_candle_cache = CandleCache.objects.filter(
-            candle=self,
-            timestamp__gte=timestamp_from - pd.Timedelta("1h"),
-            timestamp__lt=timestamp_from,
+        last_cache = (
+            CandleCache.objects.filter(candle=self)
+            .only("timestamp", "frequency")
+            .last()
         )
-        # Don't aggregate without last cache, if not first iteration.
-        has_candle_cache = (
-            last_candle_cache.exists()
-            or not CandleCache.objects.filter(candle=self).exists()
-        )
-        return can_agg and has_candle_cache
+        if last_cache:
+            ts_from = last_cache.timestamp + pd.Timedelta(f"{last_cache.frequency}t")
+            # Don't aggregate without last cache, if not first iteration.
+            has_candle_cache = (
+                timestamp_from == ts_from
+                or not CandleCache.objects.filter(candle=self).exists()
+            )
+            return can_agg and has_candle_cache
+        else:
+            return False
 
     def aggregate(
         self,
