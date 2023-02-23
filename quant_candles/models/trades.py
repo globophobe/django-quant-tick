@@ -1,5 +1,6 @@
 import datetime
 import os
+from typing import Union
 
 import pandas as pd
 from django.db import models
@@ -25,39 +26,46 @@ from .base import AbstractDataStorage, JSONField
 from .symbols import Symbol
 
 
-def upload_trade_data_to(instance: "TradeData", filename: str) -> str:
-    """Upload trade data to.
+def upload_trade_path(instance: Union["TradeDataSummary", "TradeData"]) -> str:
+    """Upload trade path.
 
     Examples:
 
-    1. trades / coinbase / BTCUSD / raw / 2022-01-01 / 0000.parquet
-    2. trades / coinbase / BTCUSD / aggregated / 0 / 2022-01-01 / 0000.parquet
-    3. trades / coinbase / BTCUSD / aggregated / 1000 / 2022-01-01 / 0000.parquet
+    1. trades / coinbase / BTCUSD / raw /
+    2. trades / coinbase / BTCUSD / aggregated / 1000 /
     """
-    parts = ["trades", instance.symbol.exchange, instance.symbol.symbol]
+    path = ["trades", instance.symbol.exchange, instance.symbol.symbol]
     if instance.symbol.should_aggregate_trades:
-        parts += ["aggregated", str(instance.symbol.significant_trade_filter)]
+        path += ["aggregated", str(instance.symbol.significant_trade_filter)]
     else:
-        parts.append("raw")
-    parts.append(instance.timestamp.date().isoformat())
+        path.append("raw")
+    return path
+
+
+def upload_trade_data_to(instance: "TradeData", filename: str) -> str:
+    """Upload trade data to.
+
+    Example: path / data / 2022-01-01 / 0000.parquet
+    """
+    path = upload_trade_path(instance)
+    path += ["data", instance.timestamp.date().isoformat()]
     fname = instance.timestamp.time().strftime("%H%M")
     _, ext = os.path.splitext(filename)
-    parts.append(f"{fname}{ext}")
-    return "/".join(parts)
+    path.append(f"{fname}{ext}")
+    return "/".join(path)
 
 
 def upload_trade_data_summary_to(instance: "TradeDataSummary", filename: str) -> str:
     """Upload trade data summary to.
 
-    Example:
-
-    1. trades / coinbase / BTCUSD / summary / 2022-01-01.parquet
+    Example: path / summary / 2022-01-01.parquet
     """
-    parts = ["trades", instance.symbol.exchange, instance.symbol.symbol, "summary"]
+    path = upload_trade_path(instance)
+    path.append("summary")
     fname = instance.date.isoformat()
     _, ext = os.path.splitext(filename)
-    parts.append(f"{fname}{ext}")
-    return "/".join(parts)
+    path.append(f"{fname}{ext}")
+    return "/".join(path)
 
 
 class TradeDataQuerySet(QuerySet):

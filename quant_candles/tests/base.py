@@ -157,20 +157,21 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         for obj in symbols:
             exchange = obj.exchange
             symbol = obj.symbol
-            head = trades / exchange / symbol
-            paths = [
-                head / "summary",
-                head / "raw",
-                head / "aggregated" / str(obj.significant_trade_filter),
-                head / "aggregated",
+            path = trades / exchange / symbol
+            raw_paths = [path / "raw" / "summary", path / "raw" / "data", path / "raw"]
+            aggregated_paths = [
+                path / "aggregated" / str(obj.significant_trade_filter) / "data",
+                path / "aggregated" / str(obj.significant_trade_filter) / "summary",
+                path / "aggregated" / str(obj.significant_trade_filter),
+                path / "aggregated",
             ]
-            for path in paths:
-                if path.exists():
-                    directories, _ = default_storage.listdir(str(path.resolve()))
+            for p in raw_paths + aggregated_paths:
+                if p.exists():
+                    directories, _ = default_storage.listdir(str(p.resolve()))
                     for directory in directories:
-                        default_storage.delete(path / directory)
-                    default_storage.delete(path)
-            default_storage.delete(trades / exchange / symbol)
-        for exchange in [symbol.exchange for symbol in symbols]:
+                        default_storage.delete(p / directory)
+                    default_storage.delete(p)
+            default_storage.delete(path)
+        for exchange in [obj.exchange for obj in symbols]:
             default_storage.delete(trades / exchange)
         default_storage.delete(trades)
