@@ -179,7 +179,6 @@ class CandleCacheIteratorTest(BaseCandleCacheIteratorTest, TestCase):
 
 @time_machine.travel(datetime(2009, 1, 4))
 class CandleTest(BaseDayIteratorTest, TestCase):
-
     databases = {"default", "read_only"}
 
     def setUp(self):
@@ -267,7 +266,6 @@ class TimeBasedMinuteFrequencyCandleTest(
     BaseCandleCacheIteratorTest,
     TestCase,
 ):
-
     databases = {"default", "read_only"}
 
     def get_candle(self) -> Candle:
@@ -371,7 +369,6 @@ class TimeBasedMinuteFrequencyCandleTest(
 class TimeBasedHourFrequencyCandleTest(
     BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
 ):
-
     databases = {"default", "read_only"}
 
     def get_candle(self) -> Candle:
@@ -475,7 +472,6 @@ class TimeBasedHourFrequencyCandleTest(
 class ConstantNotionalHourFrequencyCandleTest(
     BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
 ):
-
     databases = {"default", "read_only"}
 
     def get_candle(self) -> Candle:
@@ -714,7 +710,6 @@ class ConstantNotionalHourFrequencyCandleTest(
 class ConstantNotionalDayFrequencyIncompleteCandleTest(
     BaseDayIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
 ):
-
     databases = {"default", "read_only"}
 
     def get_candle(self) -> Candle:
@@ -757,7 +752,6 @@ class ConstantNotionalDayFrequencyIncompleteCandleTest(
 class AdaptiveNotionalCandleTest(
     BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
 ):
-
     databases = {"default", "read_only"}
 
     def setUp(self):
