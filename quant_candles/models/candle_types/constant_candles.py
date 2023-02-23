@@ -65,7 +65,7 @@ class ConstantCandle(Candle):
             )
             return can_agg and has_candle_cache
         else:
-            return False
+            return True
 
     def aggregate(
         self,
