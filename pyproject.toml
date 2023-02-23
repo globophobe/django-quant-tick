@@ -23,6 +23,7 @@ randomname = "*"
 [tool.poetry.dev-dependencies]
 black = "*"
 coverage = "*"
+diagrams = "*"
 django-filter = "*"
 django-semantic-admin = "*"
 django-storages = {version = "*", extras = ["google"]}
