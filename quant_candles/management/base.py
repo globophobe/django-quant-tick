@@ -23,7 +23,7 @@ class BaseTimeFrameCommand(BaseCommand):
 class BaseTradeDataCommand(BaseTimeFrameCommand):
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
-        return Symbol.objects.exclude(exchange="ftx")
+        return Symbol.objects.all()
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
