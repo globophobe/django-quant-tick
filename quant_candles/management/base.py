@@ -43,7 +43,7 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
     def handle(self, *args, **options) -> Optional[dict]:
         """Run command."""
         exchanges = options.get("exchange")
-        api_symbols = options.get("api_symbols")
+        api_symbols = options.get("api_symbol")
         should_aggregate_trades = options.get("should_aggregate_trades")
         significant_trade_filter = options.get("significant_trade_filter")
         symbols = self.get_queryset()
