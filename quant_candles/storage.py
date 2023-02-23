@@ -183,6 +183,7 @@ def clean_trade_data_with_non_existing_files(
             timestamp__gte=timestamp_from,
             timestamp__lte=timestamp_to,
         )
+        .only("file_data")
     )
     count = 0
     deleted = 0
@@ -208,7 +209,9 @@ def clean_unlinked_trade_data_files(
     logging.info(_("Checking unlinked trade data files"))
 
     deleted = 0
-    trade_data = TradeData.objects.filter(symbol=symbol).exclude(file_data="")
+    trade_data = (
+        TradeData.objects.filter(symbol=symbol).exclude(file_data="").only("file_data")
+    )
     t = trade_data.filter(
         timestamp__gte=timestamp_from,
         timestamp__lte=timestamp_to,
