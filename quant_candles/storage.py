@@ -120,7 +120,7 @@ def convert_trade_data_to_hourly(
             ):
                 delta = hourly_ts_to - hourly_ts_from
                 total_minutes = delta.total_seconds() / Frequency.HOUR
-                if total_minutes == Frequency.HOUR.value:
+                if total_minutes == Frequency.HOUR:
                     minutes = trade_data.filter(
                         timestamp__gte=hourly_ts_from, timestamp__lt=hourly_ts_to
                     )
@@ -180,7 +180,7 @@ def clean_trade_data_with_non_existing_files(
             timestamp__gte=timestamp_from,
             timestamp__lte=timestamp_to,
         )
-        .only("file_data")
+        .only("frequency", "file_data")
     )
     count = 0
     deleted = 0
