@@ -21,7 +21,7 @@ DATABASES = {
         "NAME": config("DATABASE_NAME"),
         "USER": config("DATABASE_USER"),
         "PASSWORD": config("DATABASE_PASSWORD"),
-        "HOST": config("PRODUCTION_DATABASE_HOST"),
+        "HOST": f"/cloudsql/{config('PRODUCTION_DATABASE_HOST')}",
         "PORT": config("DATABASE_PORT"),
         "TEST": {"NAME": f'test_{config("DATABASE_NAME")}'},
     },

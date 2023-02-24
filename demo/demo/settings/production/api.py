@@ -2,9 +2,13 @@ from decouple import config
 
 from .base import *  # noqa
 
+ROOT_URLCONF = "demo.urls.api"
+
 ALLOWED_HOSTS = [config("PRODUCTION_API_URL")]
 
-ROOT_URLCONF = "demo.urls.api"
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 INSTALLED_APPS = [
     "django.contrib.auth",
