@@ -88,11 +88,8 @@ def convert_candle_cache_to_daily(candle: Candle):
                         daily_cache.save()
                         target_cache.delete()
                     logging.info(
-                        _("Converted {date_from} {date_to} to daily").format(
-                            **{
-                                "date_from": daily_ts_from.date(),
-                                "date_to": daily_ts_to.date(),
-                            }
+                        _("Converted {date} to daily").format(
+                            **{"date": daily_ts_from.date()}
                         )
                     )
 
