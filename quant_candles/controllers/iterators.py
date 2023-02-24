@@ -243,7 +243,7 @@ class CandleCacheIterator(BaseTimeFrameIterator):
     ) -> List[datetime]:
         """Get existing.
 
-        Retry only locally, as the SQLite database not modifiable in Docker image.
+        Retry only locally, as SQLite database not modifiable within Docker image.
         """
         query = Q(timestamp__gte=timestamp_from) & Q(timestamp__lt=timestamp_to)
         candle_cache = CandleCache.objects.filter(Q(candle=self.candle) & query)
