@@ -69,6 +69,7 @@ def docker_secrets():
 
 def get_common_requirements():
     return [
+        "django-filter",
         "django-polymorphic",
         "djangorestframework",
         "django-storages[google]",
@@ -91,7 +92,6 @@ def build_quant_candles(ctx):
 def build_frontend(ctx, hostname="asia.gcr.io"):
     ctx.run("echo yes | python manage.py collectstatic")
     requirements = get_common_requirements() + [
-        "django-filter",
         "django-semantic-admin",
         "whitenoise",
     ]
