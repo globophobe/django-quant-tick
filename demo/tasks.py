@@ -142,7 +142,7 @@ def push_container(ctx, suffix, hostname="asia.gcr.io"):
 
 
 @task
-def push_workflow(ctx, location="asia-northeast1"):
+def push_workflow(ctx, name="django-quant-candles", location="asia-northeast1"):
     url = config("PRODUCTION_API_URL")
     aggregate_trades = urljoin(url, "aggregate-trades/")
     aggregate_candles = urljoin(url, "aggregate-candles/")
@@ -163,6 +163,7 @@ def push_workflow(ctx, location="asia-northeast1"):
                                                     "call": "http.get",
                                                     "args": {
                                                         "url": aggregate_trades,
+                                                        "auth": {"type": "OIDC"},
                                                         "query": {
                                                             "exchange": "${exchange}"
                                                         },
@@ -179,7 +180,10 @@ def push_workflow(ctx, location="asia-northeast1"):
                 {
                     "aggregateCandles": {
                         "call": "http.get",
-                        "args": {"url": aggregate_candles},
+                        "args": {
+                            "url": aggregate_candles,
+                            "auth": {"type": "OIDC"},
+                        },
                     }
                 },
             ]
@@ -189,6 +193,6 @@ def push_workflow(ctx, location="asia-northeast1"):
         json.dump(workflow, f)
         f.seek(0)
         ctx.run(
-            "gcloud workflows deploy quantcandles "
+            f"gcloud workflows deploy {name} "
             f"--source={f.name} --location={location}"
         )
