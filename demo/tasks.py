@@ -72,7 +72,8 @@ def get_common_requirements():
         "django-filter",
         "django-polymorphic",
         "djangorestframework",
-        "django-storages[google]",
+        "django-storages",
+        "google-cloud-storage",
         "gunicorn",
         "pandas",
         "pyarrow",
@@ -143,7 +144,7 @@ def push_container(ctx, suffix, hostname="asia.gcr.io"):
 
 @task
 def push_workflow(ctx, name="django-quant-candles", location="asia-northeast1"):
-    url = config("PRODUCTION_API_URL")
+    url = f'https://{config("PRODUCTION_API_URL")}'
     aggregate_trades = urljoin(url, "aggregate-trades/")
     aggregate_candles = urljoin(url, "aggregate-candles/")
     workflow = {
