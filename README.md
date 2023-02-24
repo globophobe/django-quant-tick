@@ -70,7 +70,7 @@ The demo uses two Cloud Run services:
 1. A private API for aggregating candles.
 2. A public API for quant-candles.com
 
-Every minute, candles are aggregated. Django Quant Candles is idempotent, such that the system can recover in case exchange APIs are periodically offline.
+Every minute, candles are aggregated. Django Quant Candles is idempotent, such that, if exchange APIs are unavailable, the next successful request will backfill.
 
 Environment
 -----------
