@@ -32,7 +32,7 @@ def get_next_cache(
 def merge_cache(
     previous: dict,
     current: dict,
-    sample_type: SampleType,
+    sample_type: Optional[SampleType] = None,
     runs_n: Optional[int] = None,
     top_n: Optional[int] = None,
 ) -> dict:
@@ -53,7 +53,7 @@ def merge_cache(
         current[key] += previous[key]  # Add
     if runs_n is not None:
         current["runs"] = previous.get("runs", []) + current.get("runs", [])
-    if top_n is not None:
+    if sample_type and top_n is not None:
         merged_top = previous.get("topN", []) + current.get("topN", [])
         if len(merged_top):
             # Sort by sample_type
