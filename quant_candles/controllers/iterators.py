@@ -118,7 +118,7 @@ class BaseTimeFrameIterator:
         for ts_from, ts_to, existing in self.iter_days(
             timestamp_from, timestamp_to, retry=retry
         ):
-            if self.can_iter_hours():
+            if self.can_iter_hours(ts_from, ts_to):
                 for hourly_timestamp_from, hourly_timestamp_to in self.iter_hours(
                     ts_from, ts_to, existing
                 ):
@@ -176,7 +176,7 @@ class BaseTimeFrameIterator:
         """Can iter days."""
         return True
 
-    def can_iter_hours(self) -> bool:
+    def can_iter_hours(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can iter hours."""
         return True
 
@@ -213,10 +213,6 @@ class TradeDataSummaryIterator(TradeDataIterator):
             queryset = queryset.exclude(ok=False)
         return get_existing(queryset.values("timestamp", "frequency"))
 
-    def can_iter_hours(self) -> bool:
-        """Can iter hours."""
-        return False
-
     def can_iter_days(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can iter days."""
         trade_data = (
@@ -230,6 +226,10 @@ class TradeDataSummaryIterator(TradeDataIterator):
         )
         existing = get_existing(trade_data)
         return has_timestamps(timestamp_from, timestamp_to, existing)
+
+    def can_iter_hours(self, *args) -> bool:
+        """Can iter hours."""
+        return False
 
 
 class CandleCacheIterator(BaseTimeFrameIterator):
@@ -268,7 +268,7 @@ class CandleCacheIterator(BaseTimeFrameIterator):
         """Can iter days."""
         return self.candle.can_aggregate(timestamp_from, timestamp_to)
 
-    def can_iter_hours(self) -> bool:
+    def can_iter_hours(self, *args) -> bool:
         """Can iter hours."""
         is_time_based_candle = isinstance(self.candle, TimeBasedCandle)
         if is_time_based_candle:
