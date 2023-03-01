@@ -1,8 +1,6 @@
 import sys
 
-import sentry_sdk
 from decouple import config
-from sentry_sdk.integrations.django import DjangoIntegration
 
 from ..base import *  # noqa
 
@@ -42,10 +40,4 @@ GS_BUCKET_NAME = (
     f'test-{config("GCS_BUCKET_NAME")}'
     if "test" in sys.argv
     else config("GCS_BUCKET_NAME")
-)
-
-sentry_sdk.init(
-    dsn=config("SENTRY_DSN"),
-    integrations=[DjangoIntegration()],
-    traces_sample_rate=1.0,
 )
