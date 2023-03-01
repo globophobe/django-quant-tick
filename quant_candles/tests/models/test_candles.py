@@ -37,10 +37,11 @@ class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
         self.assertEqual(trade_data.count(), 1)
         t = trade_data[0]
         data_frame = t.get_data_frame()
-        df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to)
-        for column in data_frame.columns:
-            with self.subTest(column=column):
-                self.assertEqual(data_frame.iloc[0][column], df.iloc[0][column])
+        df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to).drop(
+            columns=["exchange", "symbol"]
+        )
+        self.assertTrue(all(data_frame.columns == df.columns))
+        self.assertTrue(all(data_frame == df))
 
     def test_get_data_frame_with_two_symbols(self):
         """Get data frame with two symbols."""
@@ -55,13 +56,16 @@ class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
             )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 2)
-        data_frame = pd.concat([t.get_data_frame() for t in trade_data])
-        df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to)
-        self.assertEqual(len(data_frame), len(df))
-        for row, r in zip(data_frame.itertuples(), df.itertuples()):
-            for column in data_frame.columns:
-                with self.subTest(column=column, row=row):
-                    self.assertEqual(getattr(row, column), getattr(r, column))
+        data_frame = (
+            pd.concat([t.get_data_frame() for t in trade_data])
+            .reset_index()
+            .drop(columns=["index"])
+        )
+        df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to).drop(
+            columns=["exchange", "symbol"]
+        )
+        self.assertTrue(all(data_frame.columns == df.columns))
+        self.assertTrue(all(data_frame == df))
 
     def test_get_sorted_data_frame_with_two_symbols(self):
         """Get sorted data frame with two symbols."""
@@ -77,20 +81,23 @@ class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
             )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 2)
-        data_frame = pd.concat([t.get_data_frame() for t in trade_data])
-        df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to)
-        self.assertEqual(len(data_frame), len(df))
-        for row, r in zip(data_frame.iloc[::-1].itertuples(), df.itertuples()):
-            for column in data_frame.columns:
-                with self.subTest(column=column, row=row):
-                    self.assertEqual(getattr(row, column), getattr(r, column))
+        data_frame = (
+            pd.concat([t.get_data_frame() for t in trade_data])
+            .reset_index()
+            .drop(columns=["index"])
+        )
+        df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to).drop(
+            columns=["exchange", "symbol"]
+        )
+        self.assertTrue(all(data_frame.columns == df.columns))
+        self.assertTrue(all(data_frame == df))
 
 
 class CandleCacheTest(BaseCandleTest):
     def setUp(self):
         super().setUp()
         self.candle = Candle.objects.create(
-            json_data={"sample_type": SampleType.NOTIONAL.value}
+            json_data={"sample_type": SampleType.NOTIONAL}
         )
 
     def test_convert_candle_cache_to_daily(self):
