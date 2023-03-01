@@ -58,13 +58,10 @@ class ConstantCandle(Candle):
         )
         if last_cache:
             ts_from = last_cache.timestamp + pd.Timedelta(f"{last_cache.frequency}t")
-            # Don't aggregate without last cache, if not first iteration.
-            has_candle_cache = (
-                timestamp_from == ts_from
-                or not CandleCache.objects.filter(candle=self).exists()
-            )
-            return can_agg and has_candle_cache
+            # Don't aggregate without last cache.
+            return can_agg and timestamp_from == ts_from
         else:
+            # There will only be no cache, if first iteration.
             return True
 
     def aggregate(
