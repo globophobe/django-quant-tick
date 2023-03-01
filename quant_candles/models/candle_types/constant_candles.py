@@ -39,8 +39,8 @@ class ConstantCandle(Candle):
         date = timestamp.date()
         cache_date = data.get("date")
         cache_reset = self.json_data.get("cache_reset")
-        is_daily_reset = cache_reset == Frequency.DAY.value
-        is_weekly_reset = cache_reset == Frequency.WEEK.value and date.weekday() == 0
+        is_daily_reset = cache_reset == Frequency.DAY
+        is_weekly_reset = cache_reset == Frequency.WEEK and date.weekday() == 0
         if cache_date:
             is_same_day = cache_date == date
             if not is_same_day:

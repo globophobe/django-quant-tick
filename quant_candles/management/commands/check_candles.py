@@ -60,14 +60,11 @@ class Command(BaseCandleCommand):
             daily_timestamp_from = get_min_time(ts_from, value="1d")
             daily_timestamp_to = get_min_time(timestamp_to, value="1d")
             cache_reset = candle.json_data.get("cache_reset")
-            if (
-                isinstance(candle, TimeBasedCandle)
-                or cache_reset == Frequency.DAY.value
-            ):
+            if isinstance(candle, TimeBasedCandle) or cache_reset == Frequency.DAY:
                 iterator = iter_timeframe(
                     daily_timestamp_from, daily_timestamp_to, value="1d"
                 )
-            elif cache_reset == Frequency.WEEK.value:
+            elif cache_reset == Frequency.WEEK:
                 date_from = ts_from.date()
                 days = 7 - date_from.weekday()
                 daily_timestamp_from += pd.Timedelta(f"{days}d")

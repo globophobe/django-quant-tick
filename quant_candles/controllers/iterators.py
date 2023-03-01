@@ -274,6 +274,6 @@ class CandleCacheIterator(BaseTimeFrameIterator):
         if is_time_based_candle:
             window = self.candle.json_data["window"]
             total_minutes = pd.Timedelta(window).total_seconds() / 60
-            if int(total_minutes) > Frequency.HOUR.value:
+            if int(total_minutes) > Frequency.HOUR:
                 return False
         return True

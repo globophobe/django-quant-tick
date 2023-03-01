@@ -117,7 +117,7 @@ class CandleCacheTest(BaseCandleTest):
             CandleCache.objects.create(
                 candle=self.candle,
                 timestamp=ts,
-                frequency=Frequency.HOUR.value,
+                frequency=Frequency.HOUR,
                 json_data={
                     "sample_value": val,
                     "target_value": target_value,
@@ -126,8 +126,8 @@ class CandleCacheTest(BaseCandleTest):
             )
         convert_candle_cache_to_daily(self.candle)
         candle_cache = CandleCache.objects.filter(candle=self.candle)
-        self.assertFalse(candle_cache.filter(frequency=Frequency.HOUR.value).exists())
-        daily = candle_cache.filter(frequency=Frequency.DAY.value)
+        self.assertFalse(candle_cache.filter(frequency=Frequency.HOUR).exists())
+        daily = candle_cache.filter(frequency=Frequency.DAY)
         self.assertEqual(daily.count(), 1)
         daily = daily[0]
         self.assertEqual(daily.timestamp, timestamp_from)
@@ -142,10 +142,10 @@ class CandleCacheTest(BaseCandleTest):
         CandleCache.objects.create(
             candle=self.candle,
             timestamp=timestamp_from,
-            frequency=Frequency.HOUR.value,
+            frequency=Frequency.HOUR,
             json_data={"sample_value": 0},
         )
         convert_candle_cache_to_daily(self.candle)
         candle_cache = CandleCache.objects.filter(candle=self.candle)
-        self.assertFalse(candle_cache.filter(frequency=Frequency.DAY.value).exists())
-        self.assertEqual(candle_cache.filter(frequency=Frequency.HOUR.value).count(), 1)
+        self.assertFalse(candle_cache.filter(frequency=Frequency.DAY).exists())
+        self.assertEqual(candle_cache.filter(frequency=Frequency.HOUR).count(), 1)
