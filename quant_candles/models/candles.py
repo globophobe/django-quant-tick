@@ -48,7 +48,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
     def initialize(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
-    ) -> Tuple[datetime, datetime, Optional[dict]]:
+    ) -> Tuple[datetime, datetime, dict]:
         """Initialize."""
         # Is there a specific date from?
         if self.date_from:
@@ -93,7 +93,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Get initial cache."""
         return {}
 
-    def get_cache_data(self, timestamp: datetime, data: dict = {}) -> dict:
+    def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
         """Get cache data."""
         return data
 
