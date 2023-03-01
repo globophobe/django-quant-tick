@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class AggregateTradeDataView(ListAPIView):
-    queryset = Symbol.objects.all()
+    queryset = Symbol.objects.filter(is_active=True)
     filter_backends = (DjangoFilterBackend,)
     filterset_class = SymbolFilter
 

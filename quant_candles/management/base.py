@@ -39,6 +39,7 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
         )
         parser.add_argument("--should-aggregate-trades", type=bool)
         parser.add_argument("--significant-trade-filter", type=int)
+        parser.add_argument("--is-active", action="store_true")
 
     def handle(self, *args, **options) -> Optional[dict]:
         """Run command."""
@@ -47,6 +48,9 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
         should_aggregate_trades = options.get("should_aggregate_trades")
         significant_trade_filter = options.get("significant_trade_filter")
         symbols = self.get_queryset()
+        is_active = options.get("is_active")
+        if is_active:
+            symbols = symbols.filter(is_active=is_active)
         if exchanges:
             symbols = symbols.filter(exchange__in=exchanges)
         if api_symbols:
@@ -74,7 +78,7 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
 class BaseCandleCommand(BaseTimeFrameCommand):
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
-        return Candle.objects.all().prefetch_related("symbols")
+        return Candle.objects.prefetch_related("symbols")
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
@@ -85,12 +89,16 @@ class BaseCandleCommand(BaseTimeFrameCommand):
             choices=self.get_queryset().values_list("code_name", flat=True),
             nargs="+",
         )
+        parser.add_argument("--is-active", action="store_true")
         parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> None:
         """Run command."""
         code_names = options.get("code_name")
         candles = self.get_queryset()
+        is_active = options.get("is_active")
+        if is_active:
+            candles = candles.filter(is_active=is_active)
         if code_names:
             candles = candles.filter(code_name__in=code_names)
         if candles:
