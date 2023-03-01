@@ -10,8 +10,6 @@ cloud-tools/
 dist/
 keys/
 media/
-node_modules/
-packages/
 static/
 
 docs/
