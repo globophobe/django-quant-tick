@@ -1,3 +1,4 @@
+from datetime import datetime
 from operator import itemgetter
 from typing import Optional
 
@@ -11,14 +12,13 @@ from .aggregate import aggregate_candle
 def get_next_cache(
     data_frame: DataFrame,
     cache_data: dict,
+    timestamp: Optional[datetime] = None,
     sample_type: Optional[SampleType] = None,
     runs_n: Optional[int] = None,
     top_n: Optional[int] = None,
 ) -> dict:
     """Get next cache."""
-    values = aggregate_candle(
-        data_frame, sample_type=sample_type, runs_n=runs_n, top_n=top_n
-    )
+    values = aggregate_candle(data_frame, timestamp, sample_type, runs_n, top_n)
     if "next" in cache_data:
         previous_values = cache_data.pop("next")
         cache_data["next"] = merge_cache(
@@ -37,6 +37,7 @@ def merge_cache(
     top_n: Optional[int] = None,
 ) -> dict:
     """Merge cache."""
+    current["timestamp"] = previous["timestamp"]
     current["open"] = previous["open"]
     if previous["high"] > current["high"]:
         current["high"] = previous["high"]

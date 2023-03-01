@@ -105,7 +105,11 @@ class ConstantCandle(Candle):
         if not is_last_row:
             df = data_frame.loc[start:]
             cache_data = get_next_cache(
-                df, cache_data, self.json_data["sample_type"], runs_n, top_n
+                df,
+                cache_data,
+                sample_type=self.json_data["sample_type"],
+                runs_n=runs_n,
+                top_n=top_n,
             )
         data, cache_data = self.get_incomplete_candle(timestamp_to, data, cache_data)
         return data, cache_data
@@ -117,7 +121,10 @@ class ConstantCandle(Candle):
     def get_incomplete_candle(
         self, timestamp: datetime, data: list, cache_data: dict
     ) -> tuple[list, dict]:
-        """Get incomplete candle."""
+        """Get incomplete candle.
+
+        Saved only if cache resets next iteration.
+        """
         ts = timestamp + pd.Timedelta("1us")
         if self.should_reset_cache(ts, cache_data):
             if "next" in cache_data:
