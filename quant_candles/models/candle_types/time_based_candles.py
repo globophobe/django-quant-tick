@@ -65,13 +65,19 @@ class TimeBasedCandle(Candle):
             elif "next" in cache_data:
                 candle = cache_data.pop("next")
                 data.append(candle)
-        if ts_to and ts_to != timestamp_to:
-            cache_df = filter_by_timestamp(data_frame, ts_to, timestamp_to)
+        could_not_iterate = ts_from == max_ts_to
+        could_not_complete_iteration = ts_to and ts_to != timestamp_to
+        if could_not_iterate or could_not_complete_iteration:
+            if could_not_iterate:
+                cache_ts_from = ts_from
+            else:
+                cache_ts_from = ts_to
+            cache_df = filter_by_timestamp(data_frame, cache_ts_from, timestamp_to)
             if len(cache_df):
                 cache_data = get_next_cache(
                     cache_df,
                     cache_data,
-                    timestamp=ts_to,
+                    timestamp=cache_ts_from,
                     sample_type=sample_type,
                     runs_n=runs_n,
                     top_n=top_n,
