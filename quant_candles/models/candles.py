@@ -325,7 +325,7 @@ class CandleCache(AbstractDataStorage):
     frequency = models.PositiveIntegerField(
         _("frequency"), choices=Frequency.choices, db_index=True
     )
-    json_data = JSONField(_("json data"), null=True)
+    json_data = JSONField(_("json data"), default=dict)
 
     class Meta:
         db_table = "quant_candles_candle_cache"
