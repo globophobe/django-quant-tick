@@ -549,10 +549,25 @@ class TimeBasedHourFrequencyCandleTest(
         self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
         self.assertEqual(candle_data[1].timestamp, self.two_hours_from_now)
 
-    def test_one_candle_from_trade_in_the_first_hour_with_existing_candle_cache(
+    def test_candle_cache_created_from_trade_in_the_first_minute(
         self, mock_get_max_timestamp_to
     ):
-        """One candle from a trade in the first hour, with existing candle cache."""
+        """Candle cache created from a trade in the first minute."""
+        filtered = self.get_filtered(self.timestamp_from)
+        one_minute_from_now = self.timestamp_from + pd.Timedelta("1t")
+        self.write_trade_data(self.timestamp_from, one_minute_from_now, filtered)
+        aggregate_candles(self.candle, self.timestamp_from, one_minute_from_now)
+        candle_data = CandleData.objects.all()
+        self.assertFalse(candle_data.exists())
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 1)
+        candle = aggregate_candle(filtered)
+        self.assertEqual(candle_cache.first().json_data["next"], candle)
+
+    def test_one_candle_from_trade_with_existing_one_minute_candle_cache(
+        self, mock_get_max_timestamp_to
+    ):
+        """One candle from a trade, with existing one minute candle cache."""
         filtered_1 = self.get_filtered(self.timestamp_from)
         CandleCache.objects.create(
             candle=self.candle,
@@ -922,10 +937,10 @@ class ConstantNotionalDayFrequencyIrregularCandleTest(
         self.assertEqual(candle_data[0].timestamp, last_hour)
         self.assertTrue(candle_data[0].json_data["incomplete"])
 
-    def test_one_candle_from_trade_in_the_first_hour_with_existing_candle_cache(
+    def test_one_candle_from_trade_with_existing_one_minute_candle_cache(
         self, mock_get_max_timestamp_to
     ):
-        """One candle from a trade in the first hour, with existing candle cache."""
+        """One candle from a trade, with existing one minute candle cache."""
         CandleCache.objects.create(
             candle=self.candle,
             timestamp=self.timestamp_from,
