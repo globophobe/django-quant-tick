@@ -28,14 +28,9 @@ class Command(BaseCandleCommand):
         time_based = ContentType.objects.get_for_model(
             TimeBasedCandle, for_concrete_model=False
         )
-        return (
-            Candle.objects.filter(
-                Q(polymorphic_ctype=time_based)
-                | Q(json_data__cache_reset__isnull=False)
-            )
-            .filter(is_active=True)
-            .prefetch_related("symbols")
-        )
+        return Candle.objects.filter(
+            Q(polymorphic_ctype=time_based) | Q(json_data__cache_reset__isnull=False)
+        ).prefetch_related("symbols")
 
     def handle(self, *args, **options) -> None:
         """Run command."""
