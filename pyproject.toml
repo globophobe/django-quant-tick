@@ -12,7 +12,7 @@ classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Indepen
 packages = [{ include = "quant_candles" }]
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.11"
+python = ">=3.8,<3.11,!=3.9.7"
 django-polymorphic = "*"
 djangorestframework = "*"
 httpx = "*"
@@ -33,6 +33,7 @@ invoke = "*"
 ipdb = "*"
 ipython = "<=8.8"
 isort = "*"
+mplfinance = "*"
 psycopg2-binary = "*"
 python-decouple = "*"
 sentry-sdk = "*"
