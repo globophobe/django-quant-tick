@@ -65,12 +65,18 @@ def parse_period_from_to(
 ) -> Tuple[datetime]:
     """Parse period from/to command line arguments."""
     now = get_current_time()
-    tomorrow = now.date() + pd.Timedelta("1d")
+    today = now.date()
+    tomorrow = today + pd.Timedelta("1d")
     # timestamp_from
     date_from = date.fromisoformat(date_from) if date_from else date(2009, 1, 3)
     time_from = time.fromisoformat(time_from) if time_from else time.min
     # timestamp_to
-    date_to = date.fromisoformat(date_to) if date_to else tomorrow
+    if date_to:
+        date_to = date.fromisoformat(date_to)
+    elif time_to:
+        date_to = now.date()
+    else:
+        date_to = tomorrow
     time_to = time.fromisoformat(time_to) if time_to else time.min
     # UTC, please.
     timestamp_from = datetime.combine(date_from, time_from).replace(tzinfo=timezone.utc)
