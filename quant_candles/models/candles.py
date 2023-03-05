@@ -289,10 +289,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
         )
         queryset.delete()
         delta = timestamp_to - timestamp_from
-        total_minutes = delta.total_seconds() / 60
-        frequency = (
-            Frequency.HOUR if total_minutes == Frequency.HOUR else Frequency.MINUTE
-        )
+        # FIXME: Can't define every value in constants.
+        frequency = delta.total_seconds() / 60
         CandleCache.objects.create(
             candle=self, timestamp=timestamp_from, frequency=frequency, json_data=data
         )

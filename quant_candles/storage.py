@@ -38,8 +38,7 @@ def convert_candle_cache_to_daily(candle: Candle):
     )
     if last_daily_cache:
         hourly_or_minute_cache = candle_cache.filter(
-            timestamp__lt=last_daily_cache.timestamp,
-            frequency__in=(Frequency.HOUR, Frequency.MINUTE),
+            timestamp__lt=last_daily_cache.timestamp, frequency__lt=Frequency.DAY
         )
         unique_dates = (
             hourly_or_minute_cache.annotate(date=TruncDate("timestamp"))
@@ -72,7 +71,7 @@ def convert_candle_cache_to_daily(candle: Candle):
                     candle=candle,
                     timestamp__gte=daily_ts_from,
                     timestamp__lt=daily_ts_to,
-                    frequency__in=(Frequency.HOUR, Frequency.MINUTE),
+                    frequency__lt=Frequency.DAY,
                 )
                 existing = get_existing(target_cache.values("timestamp", "frequency"))
                 if has_timestamps(daily_ts_from, daily_ts_to, existing):
