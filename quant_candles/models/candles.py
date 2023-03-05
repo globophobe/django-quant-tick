@@ -68,6 +68,20 @@ class Candle(AbstractCodeName, PolymorphicModel):
             )
         else:
             ts_to = timestamp_to
+        # Does it have trade data?
+        max_ts_to = min(
+            [
+                t.timestamp + pd.Timedelta(f"{t.frequency}t")
+                for symbol in self.symbols.all()
+                if (
+                    t := TradeData.objects.filter(symbol=symbol)
+                    .only("timestamp", "frequency")
+                    .last()
+                )
+            ],
+            default=ts_to,
+        )
+        ts_to = ts_to if max_ts_to > ts_to else max_ts_to
         # Does it have a cache?
         candle_cache = (
             CandleCache.objects.filter(
