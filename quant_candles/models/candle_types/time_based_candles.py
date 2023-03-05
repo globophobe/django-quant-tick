@@ -65,7 +65,7 @@ class TimeBasedCandle(Candle):
             elif "next" in cache_data:
                 candle = cache_data.pop("next")
                 data.append(candle)
-        could_not_iterate = ts_from == max_ts_to
+        could_not_iterate = ts_to is None
         could_not_complete_iteration = ts_to and ts_to != timestamp_to
         if could_not_iterate or could_not_complete_iteration:
             if could_not_iterate:
