@@ -22,7 +22,8 @@ def get_current_time(tzinfo=timezone.utc):
 
 def get_min_time(timestamp: datetime, value: str) -> datetime:
     """Get minimum time."""
-    step = value[-1]  # TODO: Refactor this.
+    # FIXME: Refactor this.
+    step = value[-1]
     ts = pd.to_datetime(timestamp).floor(f"1{step}")
     return to_pydatetime(ts)
 
