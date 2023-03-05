@@ -157,12 +157,17 @@ def get_workflow(url, exchanges):
                                 "steps": [
                                     {
                                         "tradeData": {
-                                            "call": "http.get",
-                                            "args": {
-                                                "url": aggregate_trades,
-                                                "auth": {"type": "OIDC"},
-                                                "query": {"exchange": "${exchange}"},
+                                            "try": {
+                                                "call": "http.get",
+                                                "args": {
+                                                    "url": aggregate_trades,
+                                                    "auth": {"type": "OIDC"},
+                                                    "query": {
+                                                        "exchange": "${exchange}"
+                                                    },
+                                                },
                                             },
+                                            "except": {"as": "e", "steps": []},
                                         }
                                     }
                                 ],
