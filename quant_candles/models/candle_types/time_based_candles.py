@@ -4,9 +4,11 @@ from typing import Optional, Tuple
 import pandas as pd
 from pandas import DataFrame
 
+from quant_candles.constants import Frequency
 from quant_candles.lib import (
     aggregate_candle,
     filter_by_timestamp,
+    get_min_time,
     get_next_cache,
     iter_window,
     merge_cache,
@@ -22,9 +24,9 @@ class TimeBasedCandle(Candle):
     ) -> datetime:
         """Get max timestamp to."""
         window = self.json_data["window"]
-        total_minutes = pd.Timedelta(window).total_seconds() / 60
+        total_minutes = pd.Timedelta(window).total_seconds() / Frequency.HOUR
         delta = pd.Timedelta(f"{total_minutes}t")
-        ts_to = timestamp_from
+        ts_to = get_min_time(timestamp_from, value="1h")
         while ts_to + delta <= timestamp_to:
             ts_to += delta
         return ts_to
