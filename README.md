@@ -2,6 +2,8 @@
 
 Django Quant Candles downloads and aggregate candlesticks from tick data.
 
+<img src="https://raw.githubusercontent.com/globophobe/django-quant-candles/main/docs/assets/volume-candles.png" />
+
 # Why?
 
 Candlesticks aggregated by `django-quant-candles` are informationally dense. Such data can be useful for analyzing financial markets. As an example, refer to ["Low-Frequency Traders in a High-Frequency World: A Survival Guide"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2150876) and ["The Volume Clock: Insights into the High Frequency Paradigm"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2034858). Lopez de Prado recommends volume bars, however they are are computationally expensive to generate.
