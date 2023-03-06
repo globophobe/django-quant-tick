@@ -1,7 +1,7 @@
 .coverage
 .env
-.ipynb_checkpoints/
 *.pyc
+*.parquet
 *.sqlite3
 *.sqlite3-journal
 
@@ -12,4 +12,4 @@ keys/
 media/
 static/
 
-docs/
+notebooks/

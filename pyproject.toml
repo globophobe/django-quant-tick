@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "django-quant-candles"
-version = "0.1.1"
+version = "0.1.2"
 description = "Django Quant Candles downloads and aggregate candlesticks from tick data"
 authors = ["Alex <globophobe@gmail.com>"]
 readme = "README.md"
@@ -12,7 +12,7 @@ classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Indepen
 packages = [{ include = "quant_candles" }]
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.11"
+python = ">=3.8,<3.11,!=3.9.7"
 django-polymorphic = "*"
 djangorestframework = "*"
 httpx = "*"
@@ -23,6 +23,7 @@ randomname = "*"
 [tool.poetry.dev-dependencies]
 black = "*"
 coverage = "*"
+diagrams = "*"
 django-filter = "*"
 django-semantic-admin = "*"
 django-storages = {version = "*", extras = ["google"]}
@@ -32,11 +33,11 @@ invoke = "*"
 ipdb = "*"
 ipython = "<=8.8"
 isort = "*"
-notebook = "*"
-nbdev = "*"
+mplfinance = "*"
 psycopg2-binary = "*"
 python-decouple = "*"
 sentry-sdk = "*"
+streamlit = "*"
 time-machine = "*"
 whitenoise = "*"
 

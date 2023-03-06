@@ -13,7 +13,7 @@ class ConstantCandleTest(TestCase):
         """If not same day, daily cache resets."""
         now = get_current_time()
         one_day_ago = now - pd.Timedelta("1d")
-        candle = ConstantCandle(json_data={"cache_reset": Frequency.DAY.value})
+        candle = ConstantCandle(json_data={"cache_reset": Frequency.DAY})
         cache = candle.get_cache_data(
             now, {"date": one_day_ago.date(), "sample_value": 123}
         )
@@ -22,7 +22,7 @@ class ConstantCandleTest(TestCase):
     def test_daily_cache_does_not_reset(self):
         """If same day, daily cache does not reset."""
         now = get_current_time()
-        candle = ConstantCandle(json_data={"cache_reset": Frequency.DAY.value})
+        candle = ConstantCandle(json_data={"cache_reset": Frequency.DAY})
         cache = candle.get_cache_data(now, {"date": now.date(), "sample_value": 123})
         self.assertEqual(cache["sample_value"], 123)
 
@@ -31,7 +31,7 @@ class ConstantCandleTest(TestCase):
         now = get_current_time()
         days = 7 - now.date().weekday() % 7
         next_monday = now + pd.Timedelta(f"{days}d")
-        candle = ConstantCandle(json_data={"cache_reset": Frequency.WEEK.value})
+        candle = ConstantCandle(json_data={"cache_reset": Frequency.WEEK})
         cache = candle.get_cache_data(
             next_monday, {"date": now.date(), "sample_value": 123}
         )
@@ -42,7 +42,7 @@ class ConstantCandleTest(TestCase):
         now = get_current_time()
         days = 6 - now.date().weekday() % 7
         next_sunday = now + pd.Timedelta(f"{days}d")
-        candle = ConstantCandle(json_data={"cache_reset": Frequency.WEEK.value})
+        candle = ConstantCandle(json_data={"cache_reset": Frequency.WEEK})
         cache = candle.get_cache_data(
             next_sunday, {"date": next_sunday.date(), "sample_value": 123}
         )

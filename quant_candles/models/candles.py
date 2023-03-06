@@ -48,8 +48,9 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
     def initialize(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
-    ) -> Tuple[datetime, datetime, Optional[dict]]:
+    ) -> Tuple[datetime, datetime, dict]:
         """Initialize."""
+        # Is there a specific date from?
         if self.date_from:
             min_timestamp_from = parse_datetime(self.date_from)
             ts_from = (
@@ -59,6 +60,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             )
         else:
             ts_from = timestamp_from
+        # Is there a specific date to?
         if self.date_to:
             max_timestamp_to = parse_datetime(self.date_to)
             ts_to = (
@@ -66,32 +68,46 @@ class Candle(AbstractCodeName, PolymorphicModel):
             )
         else:
             ts_to = timestamp_to
-        # Get last cache.
+        # Does it have trade data?
+        max_ts_to = min(
+            [
+                t.timestamp + pd.Timedelta(f"{t.frequency}t")
+                for symbol in self.symbols.all()
+                if (
+                    t := TradeData.objects.filter(symbol=symbol)
+                    .only("timestamp", "frequency")
+                    .last()
+                )
+            ],
+            default=ts_to,
+        )
+        ts_to = ts_to if max_ts_to > ts_to else max_ts_to
+        # Does it have a cache?
         candle_cache = (
             CandleCache.objects.filter(
                 candle=self,
                 timestamp__lte=ts_to,
             )
             .order_by("-timestamp")
-            .only("timestamp", "json_data")
+            .only("timestamp", "frequency", "json_data")
             .first()
         )
         if candle_cache:
             if not retry:
-                timestamp = candle_cache.timestamp
+                timestamp = candle_cache.timestamp + pd.Timedelta(
+                    f"{candle_cache.frequency}t"
+                )
                 ts_from = timestamp if timestamp > ts_from else ts_from
             data = candle_cache.json_data
         else:
             data = self.get_initial_cache(ts_from)
         return ts_from, ts_to, data
 
-    def get_initial_cache(self, timestamp: datetime) -> Optional[dict]:
+    def get_initial_cache(self, timestamp: datetime) -> dict:
         """Get initial cache."""
-        return None
+        return {}
 
-    def get_cache_data(
-        self, timestamp: datetime, data: Optional[dict] = None
-    ) -> Optional[dict]:
+    def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
         """Get cache data."""
         return data
 
@@ -99,14 +115,15 @@ class Candle(AbstractCodeName, PolymorphicModel):
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
         """Get data frame."""
+        # Trade data may be hourly, so timestamp from >= hourly timestamp.
         trade_data = (
             TradeData.objects.filter(
                 symbol__in=self.symbols.all(),
-                timestamp__gte=timestamp_from,
+                timestamp__gte=get_min_time(timestamp_from, value="1h"),
                 timestamp__lt=timestamp_to,
             )
             .select_related("symbol")
-            .only("symbol", "file_data")
+            .only("symbol", "timestamp", "frequency", "file_data")
         )
         data_frames = []
         for symbol in self.symbols.all():
@@ -116,19 +133,23 @@ class Candle(AbstractCodeName, PolymorphicModel):
             )
             dfs = []
             for t in target:
-                df = t.get_data_frame()
-                if df is not None:
-                    dfs.append(df)
+                # Query may contain trade data by minute.
+                # Only get target timestamps.
+                if timestamp_from <= t.timestamp + pd.Timedelta(f"{t.frequency}t"):
+                    df = t.get_data_frame()
+                    if df is not None:
+                        dfs.append(df)
             if dfs:
                 df = pd.concat(dfs)
                 df.insert(2, "exchange", symbol.exchange)
                 df.insert(3, "symbol", symbol.symbol)
                 data_frames.append(df)
         if data_frames:
+            df = pd.concat(data_frames).sort_values(["timestamp", "nanoseconds"])
             return (
-                pd.concat(data_frames)
-                .sort_values(["timestamp", "nanoseconds"])
+                filter_by_timestamp(df, timestamp_from, timestamp_to)
                 .reset_index()
+                .drop(columns=["index"])
             )
         else:
             return pd.DataFrame([])
@@ -137,12 +158,18 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Can aggregate."""
         values = []
         for symbol in self.symbols.all():
+            # Trade data may be hourly, so timestamp from >= hourly timestmap.
             trade_data = TradeData.objects.filter(
                 symbol=symbol,
-                timestamp__gte=timestamp_from,
+                timestamp__gte=get_min_time(timestamp_from, value="1h"),
                 timestamp__lt=timestamp_to,
             )
-            existing = get_existing(trade_data.values("timestamp", "frequency"))
+            # Only get target timestamps.
+            existing = [
+                t
+                for t in get_existing(trade_data.values("timestamp", "frequency"))
+                if t >= timestamp_from and t < timestamp_to
+            ]
             values.append(has_timestamps(timestamp_from, timestamp_to, existing))
         return all(values)
 
@@ -262,10 +289,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
         )
         queryset.delete()
         delta = timestamp_to - timestamp_from
-        total_minutes = delta.total_seconds() / 60
-        frequency = (
-            Frequency.HOUR if total_minutes == Frequency.HOUR else Frequency.MINUTE
-        )
+        # FIXME: Can't define every value in constants.
+        frequency = delta.total_seconds() / 60
         CandleCache.objects.create(
             candle=self, timestamp=timestamp_from, frequency=frequency, json_data=data
         )
@@ -280,21 +305,23 @@ class Candle(AbstractCodeName, PolymorphicModel):
         query = Q(timestamp__gte=timestamp_from) & Q(timestamp__lt=timestamp_to)
         if settings.IS_LOCAL:
             CandleReadOnlyData.objects.filter(Q(candle_id=self.id), query).delete()
-        else:
-            CandleData.objects.filter(Q(candle=self), query).delete()
-        candle_data = []
+        candle_data = CandleData.objects.filter(Q(candle=self), query)
+        had_candle_data = candle_data.exists()
+        candle_data.delete()
+        data = []
         for j in json_data:
             timestamp = j.pop("timestamp")
             kwargs = {"timestamp": timestamp, "json_data": j}
-            if settings.IS_LOCAL:
+            if settings.IS_LOCAL and not had_candle_data:
                 c = CandleReadOnlyData(candle_id=self.id, **kwargs)
             else:
                 c = CandleData(candle=self, **kwargs)
-            candle_data.append(c)
-        if settings.IS_LOCAL:
-            CandleReadOnlyData.objects.bulk_create(candle_data)
+            data.append(c)
+        # If local, and there was no previous cloud data, save to SQLite.
+        if settings.IS_LOCAL and not had_candle_data:
+            CandleReadOnlyData.objects.bulk_create(data)
         else:
-            CandleData.objects.bulk_create(candle_data)
+            CandleData.objects.bulk_create(data)
 
     class Meta:
         db_table = "quant_candles_candle"
@@ -310,7 +337,7 @@ class CandleCache(AbstractDataStorage):
     frequency = models.PositiveIntegerField(
         _("frequency"), choices=Frequency.choices, db_index=True
     )
-    json_data = JSONField(_("json data"), null=True)
+    json_data = JSONField(_("json data"), default=dict)
 
     class Meta:
         db_table = "quant_candles_candle_cache"

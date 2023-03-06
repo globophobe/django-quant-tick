@@ -41,9 +41,11 @@ def aggregate_trade_summary(
     min_timestamp_from = TradeData.objects.get_min_timestamp(symbol, timestamp_from)
     max_timestamp_to = TradeData.objects.get_max_timestamp(symbol, timestamp_to)
     if start_at_midnight and min_timestamp_from.hour != 0:
-        min_timestamp_from = get_next_time(min_timestamp_from, value="1d")
+        min_timestamp_from = get_min_time(min_timestamp_from, value="1d")
     if max_timestamp_to.hour != 0:
         max_timestamp_to = get_min_time(max_timestamp_to, value="1d")
+    if min_timestamp_from == max_timestamp_to:
+        max_timestamp_to = get_next_time(max_timestamp_to, value="1d")
     for ts_from, ts_to in iter_timeframe(
         min_timestamp_from, max_timestamp_to, value="1d", reverse=True
     ):
@@ -118,7 +120,7 @@ class BaseTimeFrameIterator:
         for ts_from, ts_to, existing in self.iter_days(
             timestamp_from, timestamp_to, retry=retry
         ):
-            if self.can_iter_hours():
+            if self.can_iter_hours(ts_from, ts_to):
                 for hourly_timestamp_from, hourly_timestamp_to in self.iter_hours(
                     ts_from, ts_to, existing
                 ):
@@ -173,10 +175,10 @@ class BaseTimeFrameIterator:
         raise NotImplementedError
 
     def can_iter_days(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can iter range."""
+        """Can iter days."""
         return True
 
-    def can_iter_hours(self) -> bool:
+    def can_iter_hours(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can iter hours."""
         return True
 
@@ -213,10 +215,6 @@ class TradeDataSummaryIterator(TradeDataIterator):
             queryset = queryset.exclude(ok=False)
         return get_existing(queryset.values("timestamp", "frequency"))
 
-    def can_iter_hours(self) -> bool:
-        """Can iter hours."""
-        return False
-
     def can_iter_days(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can iter days."""
         trade_data = (
@@ -231,6 +229,10 @@ class TradeDataSummaryIterator(TradeDataIterator):
         existing = get_existing(trade_data)
         return has_timestamps(timestamp_from, timestamp_to, existing)
 
+    def can_iter_hours(self, *args) -> bool:
+        """Can iter hours."""
+        return False
+
 
 class CandleCacheIterator(BaseTimeFrameIterator):
     def __init__(self, candle: Candle) -> None:
@@ -243,7 +245,7 @@ class CandleCacheIterator(BaseTimeFrameIterator):
     ) -> List[datetime]:
         """Get existing.
 
-        Retry only locally, as the SQLite database not modifiable in Docker image.
+        Retry only locally, as SQLite database not modifiable within Docker image.
         """
         query = Q(timestamp__gte=timestamp_from) & Q(timestamp__lt=timestamp_to)
         candle_cache = CandleCache.objects.filter(Q(candle=self.candle) & query)
@@ -268,12 +270,12 @@ class CandleCacheIterator(BaseTimeFrameIterator):
         """Can iter days."""
         return self.candle.can_aggregate(timestamp_from, timestamp_to)
 
-    def can_iter_hours(self) -> bool:
+    def can_iter_hours(self, *args) -> bool:
         """Can iter hours."""
         is_time_based_candle = isinstance(self.candle, TimeBasedCandle)
         if is_time_based_candle:
             window = self.candle.json_data["window"]
             total_minutes = pd.Timedelta(window).total_seconds() / 60
-            if int(total_minutes) > Frequency.HOUR.value:
+            if int(total_minutes) > Frequency.HOUR:
                 return False
         return True

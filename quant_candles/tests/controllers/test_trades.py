@@ -13,7 +13,7 @@ from quant_candles.models import TradeData
 from ..base import BaseSymbolTest
 
 
-@time_machine.travel(datetime(2009, 1, 3))
+@time_machine.travel(datetime(2009, 1, 3), tick=False)
 class TradeDataIteratorTest(BaseSymbolTest, TestCase):
     def setUp(self):
         super().setUp()

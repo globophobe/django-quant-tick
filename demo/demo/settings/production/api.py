@@ -1,10 +1,16 @@
+import sentry_sdk
 from decouple import config
+from sentry_sdk.integrations.django import DjangoIntegration
 
 from .base import *  # noqa
 
+ROOT_URLCONF = "demo.urls.api"
+
 ALLOWED_HOSTS = [config("PRODUCTION_API_URL")]
 
-ROOT_URLCONF = "demo.urls.api"
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 INSTALLED_APPS = [
     "django.contrib.auth",
@@ -27,3 +33,9 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+sentry_sdk.init(
+    dsn=config("SENTRY_DSN"),
+    integrations=[DjangoIntegration()],
+    traces_sample_rate=0.5,
+)

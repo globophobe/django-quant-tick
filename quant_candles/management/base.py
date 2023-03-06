@@ -23,7 +23,7 @@ class BaseTimeFrameCommand(BaseCommand):
 class BaseTradeDataCommand(BaseTimeFrameCommand):
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
-        return Symbol.objects.exclude(exchange="ftx")
+        return Symbol.objects.all()
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
@@ -39,14 +39,18 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
         )
         parser.add_argument("--should-aggregate-trades", type=bool)
         parser.add_argument("--significant-trade-filter", type=int)
+        parser.add_argument("--is-active", action="store_true")
+        parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> Optional[dict]:
         """Run command."""
         exchanges = options.get("exchange")
-        api_symbols = options.get("api_symbols")
+        api_symbols = options.get("api_symbol")
         should_aggregate_trades = options.get("should_aggregate_trades")
         significant_trade_filter = options.get("significant_trade_filter")
         symbols = self.get_queryset()
+        is_active = options.get("is_active")
+        retry = options.get("retry")
         if exchanges:
             symbols = symbols.filter(exchange__in=exchanges)
         if api_symbols:
@@ -55,6 +59,8 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
             symbols = symbols.filter(should_aggregate_trades=should_aggregate_trades)
         if significant_trade_filter:
             symbols = symbols.filter(significant_trade_filter=significant_trade_filter)
+        if is_active:
+            symbols = symbols.filter(is_active=is_active)
         if symbols:
             timestamp_from, timestamp_to = parse_period_from_to(
                 date_from=options["date_from"],
@@ -68,13 +74,14 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
                     "symbol": symbol,
                     "timestamp_from": timestamp_from,
                     "timestamp_to": timestamp_to,
+                    "retry": retry,
                 }
 
 
 class BaseCandleCommand(BaseTimeFrameCommand):
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
-        return Candle.objects.all().prefetch_related("symbols")
+        return Candle.objects.prefetch_related("symbols")
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
@@ -85,12 +92,16 @@ class BaseCandleCommand(BaseTimeFrameCommand):
             choices=self.get_queryset().values_list("code_name", flat=True),
             nargs="+",
         )
+        parser.add_argument("--is-active", action="store_true")
         parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> None:
         """Run command."""
         code_names = options.get("code_name")
         candles = self.get_queryset()
+        is_active = options.get("is_active")
+        if is_active:
+            candles = candles.filter(is_active=is_active)
         if code_names:
             candles = candles.filter(code_name__in=code_names)
         if candles:

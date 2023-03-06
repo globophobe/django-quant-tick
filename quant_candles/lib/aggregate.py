@@ -347,7 +347,7 @@ def get_runs(
         }
         for sample_type in SampleType.values:
             value = sum([getattr(r, sample_type) for r in run])
-            if sample_type == SampleType.TICK.value:
+            if sample_type == SampleType.TICK:
                 value = int(value)
             data[sample_type] = value * int(run[0].tickRule)
         data.update(get_bins(run, bins))

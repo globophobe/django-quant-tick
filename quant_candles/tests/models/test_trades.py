@@ -48,7 +48,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         storage = t.file_data.storage
         exchange = t.symbol.exchange
         symbol = t.symbol.symbol
-        path = Path("trades") / exchange / symbol / "raw"
+        path = Path("trades") / exchange / symbol / "raw" / "data"
         p = str(path.resolve())
 
         directories, _ = storage.listdir(p)
@@ -77,7 +77,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         storage = t.file_data.storage
         exchange = t.symbol.exchange
         symbol = t.symbol.symbol
-        path = Path("trades") / exchange / symbol / "aggregated" / "0"
+        path = Path("trades") / exchange / symbol / "aggregated" / "0" / "data"
         p = str(path.resolve())
 
         directories, _ = storage.listdir(p)

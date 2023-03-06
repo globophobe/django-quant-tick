@@ -9,12 +9,12 @@ from quant_candles.constants import Exchange
 from .base import BaseTradeViewTest
 
 
-class TradeViewTest(BaseTradeViewTest, APITestCase):
+@patch("quant_candles.views.aggregate_trades.api")
+class AggregateTradeViewTest(BaseTradeViewTest, APITestCase):
     def get_url(self, exchange: Exchange = Exchange.COINBASE) -> str:
         """Get URL."""
         return reverse("aggregate_trades")
 
-    @patch("quant_candles.views.aggregate_trades.api")
     def test_get(self, mock_command):
         """All symbols."""
         params = self.get_symbols(["test-1", "test-2"])
@@ -25,7 +25,6 @@ class TradeViewTest(BaseTradeViewTest, APITestCase):
         mock_symbols = self.get_mock_symbols(mock_command)
         self.assertEqual(params["symbol"], mock_symbols)
 
-    @patch("quant_candles.views.aggregate_trades.api")
     def test_one_symbol(self, mock_command):
         """One symbol."""
         self.get_symbols(["test-1", "test-2"])

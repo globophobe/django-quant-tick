@@ -11,10 +11,10 @@ from quant_candles.models import TradeData, TradeDataSummary
 def post_delete_hourly_trade_data(sender, **kwargs):
     """Post delete hourly trade data.
 
-    * Exclude minute data, which may be deleted if converted to hourly.
+    * Exclude minute data, which will be deleted if converted to hourly.
     """
     instance = kwargs["instance"]
-    if instance.frequency == Frequency.HOUR.value:
+    if instance.frequency == Frequency.HOUR:
         trade_data_summary = TradeDataSummary.objects.filter(
             symbol=instance.symbol, date=instance.timestamp.date()
         )

@@ -39,8 +39,8 @@ class ConstantCandle(Candle):
         date = timestamp.date()
         cache_date = data.get("date")
         cache_reset = self.json_data.get("cache_reset")
-        is_daily_reset = cache_reset == Frequency.DAY.value
-        is_weekly_reset = cache_reset == Frequency.WEEK.value and date.weekday() == 0
+        is_daily_reset = cache_reset == Frequency.DAY
+        is_weekly_reset = cache_reset == Frequency.WEEK and date.weekday() == 0
         if cache_date:
             is_same_day = cache_date == date
             if not is_same_day:
@@ -51,17 +51,18 @@ class ConstantCandle(Candle):
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
         can_agg = super().can_aggregate(timestamp_from, timestamp_to)
-        last_candle_cache = CandleCache.objects.filter(
-            candle=self,
-            timestamp__gte=timestamp_from - pd.Timedelta("1h"),
-            timestamp__lt=timestamp_from,
+        last_cache = (
+            CandleCache.objects.filter(candle=self, timestamp__lt=timestamp_from)
+            .only("timestamp", "frequency")
+            .last()
         )
-        # Don't aggregate without last cache, if not first iteration.
-        has_candle_cache = (
-            last_candle_cache.exists()
-            or not CandleCache.objects.filter(candle=self).exists()
-        )
-        return can_agg and has_candle_cache
+        if last_cache:
+            ts_from = last_cache.timestamp + pd.Timedelta(f"{last_cache.frequency}t")
+            # Don't aggregate without last cache.
+            return can_agg and timestamp_from == ts_from
+        else:
+            # There will only be no cache, if first iteration.
+            return True
 
     def aggregate(
         self,
@@ -101,7 +102,11 @@ class ConstantCandle(Candle):
         if not is_last_row:
             df = data_frame.loc[start:]
             cache_data = get_next_cache(
-                df, cache_data, self.json_data["sample_type"], runs_n, top_n
+                df,
+                cache_data,
+                sample_type=self.json_data["sample_type"],
+                runs_n=runs_n,
+                top_n=top_n,
             )
         data, cache_data = self.get_incomplete_candle(timestamp_to, data, cache_data)
         return data, cache_data
@@ -113,7 +118,10 @@ class ConstantCandle(Candle):
     def get_incomplete_candle(
         self, timestamp: datetime, data: list, cache_data: dict
     ) -> tuple[list, dict]:
-        """Get incomplete candle."""
+        """Get incomplete candle.
+
+        Saved only if cache resets next iteration.
+        """
         ts = timestamp + pd.Timedelta("1us")
         if self.should_reset_cache(ts, cache_data):
             if "next" in cache_data:

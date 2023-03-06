@@ -1,7 +1,6 @@
 import datetime
 import logging
 import os
-from typing import Optional
 
 import pandas as pd
 from django.db import transaction
@@ -39,8 +38,7 @@ def convert_candle_cache_to_daily(candle: Candle):
     )
     if last_daily_cache:
         hourly_or_minute_cache = candle_cache.filter(
-            timestamp__lt=last_daily_cache.timestamp,
-            frequency__in=(Frequency.HOUR, Frequency.MINUTE),
+            timestamp__lt=last_daily_cache.timestamp, frequency__lt=Frequency.DAY
         )
         unique_dates = (
             hourly_or_minute_cache.annotate(date=TruncDate("timestamp"))
@@ -73,7 +71,7 @@ def convert_candle_cache_to_daily(candle: Candle):
                     candle=candle,
                     timestamp__gte=daily_ts_from,
                     timestamp__lt=daily_ts_to,
-                    frequency__in=(Frequency.HOUR, Frequency.MINUTE),
+                    frequency__lt=Frequency.DAY,
                 )
                 existing = get_existing(target_cache.values("timestamp", "frequency"))
                 if has_timestamps(daily_ts_from, daily_ts_to, existing):
@@ -89,11 +87,8 @@ def convert_candle_cache_to_daily(candle: Candle):
                         daily_cache.save()
                         target_cache.delete()
                     logging.info(
-                        _("Converted {date_from} {date_to} to daily").format(
-                            **{
-                                "date_from": daily_ts_from.date(),
-                                "date_to": daily_ts_to.date(),
-                            }
+                        _("Converted {date} to daily").format(
+                            **{"date": daily_ts_from.date()}
                         )
                     )
 
@@ -102,77 +97,94 @@ def convert_trade_data_to_hourly(
     symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ):
     """Convert trade data, by minute, to hourly."""
-    for daily_ts_from, daily_ts_to in iter_timeframe(
-        timestamp_from, timestamp_to, value="1d", reverse=True
-    ):
-        for hourly_ts_from, hourly_ts_to in iter_timeframe(
-            daily_ts_from, daily_ts_to, value="1h", reverse=True
+    trade_data = TradeData.objects.filter(
+        symbol=symbol,
+        frequency=Frequency.MINUTE,
+    )
+    t = trade_data.filter(timestamp__gte=timestamp_from, timestamp__lte=timestamp_to)
+    if t.exists():
+        first = t.first()
+        last = t.last()
+        min_timestamp_from = first.timestamp
+        if timestamp_from < min_timestamp_from:
+            timestamp_from = min_timestamp_from
+        max_timestamp_to = last.timestamp + pd.Timedelta(f"{last.frequency}t")
+        if timestamp_to > max_timestamp_to:
+            timestamp_to = max_timestamp_to
+        for daily_ts_from, daily_ts_to in iter_timeframe(
+            timestamp_from, timestamp_to, value="1d", reverse=True
         ):
-            delta = hourly_ts_to - hourly_ts_from
-            total_minutes = delta.total_seconds() / Frequency.HOUR
-            if total_minutes == Frequency.HOUR.value:
-                minutes = TradeData.objects.filter(
-                    symbol=symbol,
-                    timestamp__gte=hourly_ts_from,
-                    timestamp__lt=hourly_ts_to,
-                    frequency=Frequency.MINUTE,
-                )
-                if minutes.count() == Frequency.HOUR:
-                    data_frames = {
-                        t: t.get_data_frame() for t in minutes if t.file_data.name
-                    }
-                    for t, data_frame in data_frames.items():
-                        data_frame["uid"] = ""
-                        # Set first index.
-                        uid = data_frame.columns.get_loc("uid")
-                        data_frame.iloc[:1, uid] = t.uid
-                    if len(data_frames):
-                        filtered = pd.concat(data_frames.values())
-                    else:
-                        filtered = pd.DataFrame([])
-                    candles = candles_api(symbol, hourly_ts_from, hourly_ts_to)
-                    validated = validate_data_frame(
-                        hourly_ts_from,
-                        hourly_ts_to,
-                        filtered,
-                        candles,
-                        symbol.should_aggregate_trades,
+            for hourly_ts_from, hourly_ts_to in iter_timeframe(
+                daily_ts_from, daily_ts_to, value="1h", reverse=True
+            ):
+                delta = hourly_ts_to - hourly_ts_from
+                total_minutes = delta.total_seconds() / Frequency.HOUR
+                if total_minutes == Frequency.HOUR:
+                    minutes = trade_data.filter(
+                        timestamp__gte=hourly_ts_from, timestamp__lt=hourly_ts_to
                     )
-                    with transaction.atomic():
-                        # Create hourly
+                    if minutes.count() == Frequency.HOUR:
+                        data_frames = {
+                            t: t.get_data_frame() for t in minutes if t.file_data.name
+                        }
+                        for t, data_frame in data_frames.items():
+                            data_frame["uid"] = ""
+                            # Set first index.
+                            uid = data_frame.columns.get_loc("uid")
+                            data_frame.iloc[:1, uid] = t.uid
+                        if len(data_frames):
+                            filtered = pd.concat(data_frames.values())
+                        else:
+                            filtered = pd.DataFrame([])
+                        candles = candles_api(symbol, hourly_ts_from, hourly_ts_to)
+                        validated = validate_data_frame(
+                            hourly_ts_from,
+                            hourly_ts_to,
+                            filtered,
+                            candles,
+                            symbol.should_aggregate_trades,
+                        )
+                        # First, delete minutes, as naming convention is same as hourly.
+                        minutes.delete()
+                        # Next, create hourly
                         TradeData.write(
-                            symbol, hourly_ts_from, hourly_ts_to, filtered, validated
+                            symbol,
+                            hourly_ts_from,
+                            hourly_ts_to,
+                            filtered,
+                            validated,
                         )
-                        # Delete minutes
-                        pks = [aggregated_data.pk for aggregated_data in minutes]
-                        TradeData.objects.filter(pk__in=pks).delete()
-                    logging.info(
-                        _("Converted {timestamp_from} {timestamp_to} to hourly").format(
-                            **{
-                                "timestamp_from": hourly_ts_from,
-                                "timestamp_to": hourly_ts_to,
-                            }
+                        logging.info(
+                            _(
+                                "Converted {timestamp_from} {timestamp_to} to hourly"
+                            ).format(
+                                **{
+                                    "timestamp_from": hourly_ts_from,
+                                    "timestamp_to": hourly_ts_to,
+                                }
+                            )
                         )
-                    )
 
 
 def clean_trade_data_with_non_existing_files(
-    symbol: Symbol,
-    timestamp_from: Optional[datetime.datetime] = None,
-    timestamp_to: Optional[datetime.datetime] = None,
+    symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ) -> None:
     """Clean aggregated with non-existing files."""
     logging.info(_("Checking objects with non existent files"))
 
-    queryset = (
+    trade_data = (
         TradeData.objects.filter(symbol=symbol)
         .exclude(file_data="")
-        .filter_by_timestamp(timestamp_from, timestamp_to)
+        .filter(
+            timestamp__gte=timestamp_from,
+            timestamp__lte=timestamp_to,
+        )
+        .only("frequency", "file_data")
     )
     count = 0
     deleted = 0
-    total = queryset.count()
-    for obj in queryset:
+    total = trade_data.count()
+    for obj in trade_data:
         count += 1
         if not obj.file_data.storage.exists(obj.file_data.name):
             obj.delete()
@@ -187,26 +199,35 @@ def clean_trade_data_with_non_existing_files(
 
 
 def clean_unlinked_trade_data_files(
-    symbol: Symbol,
-    timestamp_from: Optional[datetime.datetime] = None,
-    timestamp_to: Optional[datetime.datetime] = None,
+    symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ) -> None:
     """Clean unlinked trade data files."""
     logging.info(_("Checking unlinked trade data files"))
 
     deleted = 0
-    queryset = TradeData.objects.filter(symbol=symbol)
-    first = queryset.first()
-    last = queryset.last()
-    if first and last:
+    trade_data = (
+        TradeData.objects.filter(symbol=symbol).exclude(file_data="").only("file_data")
+    )
+    t = trade_data.filter(
+        timestamp__gte=timestamp_from,
+        timestamp__lte=timestamp_to,
+    )
+    if t.exists():
+        min_timestamp_from = t.first().timestamp
+        if timestamp_from < min_timestamp_from:
+            timestamp_from = min_timestamp_from
+        max_timestamp_to = t.last().timestamp
+        if timestamp_to > max_timestamp_to:
+            timestamp_to = max_timestamp_to
         for daily_timestamp_from, daily_timestamp_to in iter_timeframe(
-            first.timestamp, last.timestamp, value="1d"
+            timestamp_from, timestamp_to, value="1d"
         ):
             expected_files = [
                 os.path.basename(obj.file_data.name)
-                for obj in TradeData.objects.filter(symbol=symbol)
-                .exclude(file_data="")
-                .filter_by_timestamp(daily_timestamp_from, daily_timestamp_to)
+                for obj in trade_data.filter(
+                    timestamp__gte=daily_timestamp_from,
+                    timestamp__lte=daily_timestamp_to,
+                )
             ]
 
             dummy = TradeData(symbol=symbol, timestamp=daily_timestamp_from)

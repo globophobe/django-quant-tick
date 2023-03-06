@@ -16,10 +16,10 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
         symbol = self.get_symbol()
         candle = AdaptiveCandle.objects.create(
             json_data={
-                "sample_type": SampleType.VOLUME.value,
+                "sample_type": SampleType.VOLUME,
                 "moving_average_number_of_days": 1,
                 "target_candles_per_day": 1,
-                "cache_reset": Frequency.DAY.value,
+                "cache_reset": Frequency.DAY,
             }
         )
         candle.symbols.add(symbol)
@@ -34,7 +34,7 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
 
     def test_cache_target_value_is_not_updated(self):
         """If same day, cache target value is not updated."""
-        candle = AdaptiveCandle(json_data={"cache_reset": Frequency.DAY.value})
+        candle = AdaptiveCandle(json_data={"cache_reset": Frequency.DAY})
         now = get_current_time()
         cache = candle.get_cache_data(now, {"date": now.date(), "target_value": 123})
         self.assertEqual(cache["target_value"], 123)
