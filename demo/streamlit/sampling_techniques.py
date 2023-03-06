@@ -52,8 +52,6 @@ def get_data_frames() -> dict[Any, DataFrame]:
     return data_frames
 
 
-style = mpf.make_mpf_style(base_mpl_style="seaborn")
-
 for candle, data_frame in get_data_frames().items():
     from quant_candles.constants import Frequency
     from quant_candles.models import AdaptiveCandle, TimeBasedCandle
@@ -73,7 +71,7 @@ for candle, data_frame in get_data_frames().items():
         type="candle",
         show_nontrading=True,
         figsize=(15, 10),
-        style=style,
+        style="nightclouds",
         returnfig=True,
     )
 
