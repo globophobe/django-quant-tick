@@ -52,7 +52,7 @@ class ConstantCandle(Candle):
         """Can aggregate."""
         can_agg = super().can_aggregate(timestamp_from, timestamp_to)
         last_cache = (
-            CandleCache.objects.filter(candle=self)
+            CandleCache.objects.filter(candle=self, timestamp__lt=timestamp_from)
             .only("timestamp", "frequency")
             .last()
         )
