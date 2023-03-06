@@ -6,11 +6,12 @@ import streamlit as st
 from pandas import DataFrame
 from utils import setup_django
 
+setup_django("demo.settings.development.proxy")
+
 
 @st.cache_data()
 def get_data_frames() -> dict[Any, DataFrame]:
     """Get data frames."""
-    setup_django("demo.settings.development.proxy")
     from quant_candles.constants import Exchange
     from quant_candles.lib import get_current_time, get_min_time, get_previous_time
     from quant_candles.models import Candle, Symbol
@@ -35,17 +36,44 @@ def get_data_frames() -> dict[Any, DataFrame]:
         candle_data.reverse()
         for c in candle_data:
             c.update(c.pop("json_data"))
-        data_frames[candle] = pd.DataFrame(candle_data)
+        data_frame = pd.DataFrame(candle_data).set_index("timestamp")
+        for column in (
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "buyVolume",
+            "notional",
+            "buyNotional",
+        ):
+            data_frame[column] = data_frame[column].astype(float)
+        data_frames[candle] = data_frame
     return data_frames
 
 
+style = mpf.make_mpf_style(base_mpl_style="seaborn")
+
 for candle, data_frame in get_data_frames().items():
+    from quant_candles.constants import Frequency
+    from quant_candles.models import AdaptiveCandle, TimeBasedCandle
+
+    total_candles = len(data_frame)
+    if isinstance(candle, TimeBasedCandle):
+        window = candle.json_data["window"]
+        delta = pd.Timedelta(window)
+        total_minutes = int(delta.total_seconds() / Frequency.HOUR)
+        title = f"{total_minutes} minutes, {total_candles} candles"
+    elif isinstance(candle, AdaptiveCandle):
+        sample_type = candle.json_data["sample_type"].capitalize()
+        title = f"{sample_type}, {total_candles} candles"
     fig, ax = mpf.plot(
         data_frame,
-        title=candle.code_name,
-        type="ohlc",
+        title=title,
+        type="candle",
         show_nontrading=True,
         figsize=(15, 10),
+        style=style,
         returnfig=True,
     )
 
