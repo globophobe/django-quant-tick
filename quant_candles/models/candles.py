@@ -184,7 +184,10 @@ class Candle(AbstractCodeName, PolymorphicModel):
         raise NotImplementedError
 
     def get_data(
-        self, timestamp_from: datetime, timestamp_to: datetime, limit: int = 10000
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        limit: Optional[int] = None,
     ) -> list:
         """Get data."""
         query = (
@@ -198,13 +201,15 @@ class Candle(AbstractCodeName, PolymorphicModel):
             .order_by("-timestamp")
             .values("timestamp", "json_data")
         )
-        candle_data = candle_data[:limit]
+        if limit:
+            candle_data = candle_data[:limit]
         candle_read_only_data = (
             CandleReadOnlyData.objects.filter(query)
             .order_by("-timestamp")
             .values("timestamp", "json_data")
         )
-        candle_read_only_data = candle_read_only_data[: limit - candle_data.count()]
+        if limit:
+            candle_read_only_data = candle_read_only_data[: limit - candle_data.count()]
         return list(chain(candle_data, candle_read_only_data))
 
     def get_trade_data_summary(

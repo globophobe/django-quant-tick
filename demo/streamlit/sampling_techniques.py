@@ -52,6 +52,8 @@ def get_data_frames() -> dict[Any, DataFrame]:
     return data_frames
 
 
+style = mpf.make_mpf_style(base_mpf_style="nightclouds")
+
 for candle, data_frame in get_data_frames().items():
     from quant_candles.constants import Frequency
     from quant_candles.models import AdaptiveCandle, TimeBasedCandle
@@ -64,14 +66,25 @@ for candle, data_frame in get_data_frames().items():
         title = f"{total_minutes} minutes, {total_candles} candles"
     elif isinstance(candle, AdaptiveCandle):
         sample_type = candle.json_data["sample_type"].capitalize()
-        title = f"{sample_type}, {total_candles} candles"
+        target_candles_per_day = candle.json_data["target_candles_per_day"]
+        moving_average_number_of_days = candle.json_data[
+            "moving_average_number_of_days"
+        ]
+        title = (
+            f"{sample_type}, {total_candles} candles\n"
+            f"Target {target_candles_per_day} candles per day "
+            f"using {moving_average_number_of_days} day moving average"
+        )
+
     fig, ax = mpf.plot(
         data_frame,
-        title=title,
+        axtitle=title,
         type="candle",
+        datetime_format="%Y-%m-%d",
+        ylabel="",
+        style=style,
         show_nontrading=True,
         figsize=(15, 10),
-        style="nightclouds",
         returnfig=True,
     )
 

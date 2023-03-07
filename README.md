@@ -67,9 +67,6 @@ python proxy.py trades
 
 Then, configure a Cloud Workflow to collect data in the cloud. There is an example workflow in the [invoke tasks](https://github.com/globophobe/django-quant-candles/blob/main/demo/tasks.py).
 
-<img src="https://raw.githubusercontent.com/globophobe/django-quant-candles/main/docs/assets/
-diagrams_image.png" alt="Deployment example"/>
-
 Environment
 -----------
 
