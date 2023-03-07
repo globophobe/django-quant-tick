@@ -30,8 +30,6 @@ class CandleDataView(RetrieveAPIView):
         params = serializer.validated_data
         candle = self.get_object()
         data = candle.get_data(
-            params["timestamp_from"],
-            params["timestamp_to"],
-            limit=params["limit"],
+            params["timestamp_from"], params["timestamp_to"], limit=params["limit"]
         )
         return Response(CandleDataSerializer(data, many=True).data)
