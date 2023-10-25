@@ -22,7 +22,7 @@ INSTALLED_APPS = [
     "polymorphic",
     "rest_framework",
     # Main
-    "quant_candles",
+    "quant_tick",
 ]
 
 MIDDLEWARE = [

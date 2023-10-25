@@ -3,8 +3,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quant_candles.lib import get_current_time, get_min_time, get_previous_time
-from quant_candles.models import Candle, CandleData, CandleReadOnlyData
+from quant_tick.lib import get_current_time, get_min_time, get_previous_time
+from quant_tick.models import Candle, CandleData, CandleReadOnlyData
 
 from .base import BaseViewTest
 

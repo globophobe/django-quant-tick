@@ -3,7 +3,7 @@ from typing import Optional, Type
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Model
 
-from quant_candles.models import CandleReadOnlyData
+from quant_tick.models import CandleReadOnlyData
 
 
 class BaseRouter:

@@ -22,7 +22,7 @@ def django_settings(ctx, proxy=False):
 
 @task
 def coverage(ctx):
-    ctx.run("coverage run --source=../ manage.py test quant_candles; coverage report")
+    ctx.run("coverage run --source=../ manage.py test quant_tick; coverage report")
 
 
 @task
@@ -84,13 +84,13 @@ def get_common_requirements():
     ]
 
 
-def build_quant_candles(ctx):
+def build_quant_tick(ctx):
     result = ctx.run("poetry build").stdout
-    return re.search(r"django_quant_candles-.*\.whl", result).group()
+    return re.search(r"django_quant_tick-.*\.whl", result).group()
 
 
 def build_container(ctx, suffix: str, requirements: list[str], hostname="asia.gcr.io"):
-    wheel = build_quant_candles(ctx)
+    wheel = build_quant_tick(ctx)
     # Versions
     reqs = " ".join(
         [

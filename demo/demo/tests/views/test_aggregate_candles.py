@@ -2,8 +2,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quant_candles.constants import Exchange
-from quant_candles.models import Candle, GlobalSymbol, Symbol
+from quant_tick.constants import Exchange
+from quant_tick.models import Candle, GlobalSymbol, Symbol
 
 from .base import BaseViewTest
 
