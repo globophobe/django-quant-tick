@@ -4,12 +4,12 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quant_candles.constants import Exchange
+from quant_tick.constants import Exchange
 
 from .base import BaseTradeViewTest
 
 
-@patch("quant_candles.views.aggregate_trades.api")
+@patch("quant_tick.views.aggregate_trades.api")
 class AggregateTradeViewTest(BaseTradeViewTest, APITestCase):
     def get_url(self, exchange: Exchange = Exchange.COINBASE) -> str:
         """Get URL."""

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import path
 
-from quant_candles.views import CandleDataView, CandleView
+from quant_tick.views import CandleDataView, CandleView
 
 urlpatterns = [
     path("admin/", admin.site.urls),

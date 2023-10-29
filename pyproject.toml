@@ -1,15 +1,15 @@
 [tool.poetry]
-name = "django-quant-candles"
+name = "django-quant-tick"
 version = "0.1.2"
-description = "Django Quant Candles downloads and aggregate candlesticks from tick data"
+description = "Django Quant Tick downloads and aggregate candlesticks from tick data"
 authors = ["Alex <globophobe@gmail.com>"]
 readme = "README.md"
 license = "MIT"
 homepage = "https://github.com/globophobe/django-quant-candles"
 repository = "https://github.com/globophobe/django-quant-candles"
-keywords = ["django", "cryptocurrency", "candlesticks", "quant", "trading"]
+keywords = ["django", "cryptocurrency", "candlesticks", "quant", "trading", "tick", "data"]
 classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Independent"]
-packages = [{ include = "quant_candles" }]
+packages = [{ include = "quant_tick" }]
 
 [tool.poetry.dependencies]
 python = ">=3.8,<3.11,!=3.9.7"
@@ -41,7 +41,7 @@ time-machine = "*"
 whitenoise = "*"
 
 [tool.isort]
-known_first_party = ["quant_candles"]
+known_first_party = ["quant_tick"]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

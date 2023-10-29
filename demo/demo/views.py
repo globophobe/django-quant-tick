@@ -1,6 +1,6 @@
 from rest_framework.permissions import AllowAny
 
-from quant_candles.views import AggregateCandleView, AggregateTradeDataView
+from quant_tick.views import AggregateCandleView, AggregateTradeDataView
 
 
 class GCPAggregateTradeDataView(AggregateTradeDataView):

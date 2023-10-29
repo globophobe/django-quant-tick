@@ -39,7 +39,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "whitenoise",
     # Main
-    "quant_candles",
+    "quant_tick",
 ]
 
 MIDDLEWARE = [

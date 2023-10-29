@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 from django.contrib.auth import get_user_model
 
-from quant_candles.constants import Exchange
-from quant_candles.models import GlobalSymbol, Symbol
+from quant_tick.constants import Exchange
+from quant_tick.models import GlobalSymbol, Symbol
 
 
 class BaseViewTest:
