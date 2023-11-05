@@ -1,12 +1,12 @@
 [tool.poetry]
 name = "django-quant-tick"
-version = "0.1.2"
+version = "0.1.3"
 description = "Django Quant Tick downloads and aggregate candlesticks from tick data"
 authors = ["Alex <globophobe@gmail.com>"]
 readme = "README.md"
 license = "MIT"
-homepage = "https://github.com/globophobe/django-quant-candles"
-repository = "https://github.com/globophobe/django-quant-candles"
+homepage = "https://github.com/globophobe/django-quant-tick"
+repository = "https://github.com/globophobe/django-quant-tick"
 keywords = ["django", "cryptocurrency", "candlesticks", "quant", "trading", "tick", "data"]
 classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Independent"]
 packages = [{ include = "quant_tick" }]
