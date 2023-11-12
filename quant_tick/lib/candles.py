@@ -31,12 +31,63 @@ def candles_to_data_frame(
     return df.iloc[::-1] if reverse else df
 
 
+def aggregate_candles(
+    data_frame: DataFrame,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    window: str = "1t",
+    as_data_frame: bool = True,
+) -> list[dict]:
+    """Aggregate candles"""
+    data = []
+    for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, window):
+        df = filter_by_timestamp(data_frame, ts_from, ts_to)
+        if len(df):
+            candle = aggregate_candle(data_frame, timestamp=ts_from)
+            data.append(candle)
+        else:
+            d = {"timestamp": ts_from}
+            for k in "open", "high", "low", "close":
+                d[k] = None
+            for k in (
+                "volume",
+                "buyVolume",
+                "notional",
+                "buyNotional",
+                "ticks",
+                "buyTicks",
+            ):
+                d[k] = ZERO
+    return DataFrame(data) if as_data_frame else data
+
+
+def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -> dict:
+    """Aggregate candle"""
+    first_row = data_frame.iloc[0]
+    last_row = data_frame.iloc[-1]
+    high = data_frame.price.max()
+    low = data_frame.price.min()
+    return {
+        "timestamp": timestamp if timestamp else first_row.timestamp,
+        "open": first_row.price,
+        "high": high,
+        "low": low,
+        "close": last_row.price,
+        "volume": data_frame.totalVolume.sum(),
+        "buyVolume": data_frame.totalBuyVolume.sum(),
+        "notional": data_frame.totalNotional.sum(),
+        "buyNotional": data_frame.totalBuyNotional.sum(),
+        "ticks": int(data_frame.totalTicks.sum()),
+        "buyTicks": int(data_frame.totalBuyTicks.sum()),
+    }
+
+
 def validate_data_frame(
     timestamp_from: datetime,
     timestamp_to: datetime,
     data_frame: DataFrame,
     candles: DataFrame,
-    should_aggregate_trades: bool,
+    aggregate_trades: bool
 ) -> Optional[dict]:
     """Validate data_frame with candles from Exchange API."""
     if len(candles):
