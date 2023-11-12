@@ -14,6 +14,8 @@ def big_decimal() -> serializers.DecimalField:
 
 
 class BaseParameterSerializer(serializers.Serializer):
+    """Base parameter serializer."""
+
     time_ago = serializers.CharField(required=False, default="1d")
 
     def validate_time_ago(self, value: str) -> pd.Timedelta:

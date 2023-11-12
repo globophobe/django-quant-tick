@@ -6,6 +6,8 @@ from quant_tick.lib import parse_period_from_to
 
 
 class TimeFrameSerializer(serializers.Serializer):
+    """Time frame serializer."""
+
     date_from = serializers.DateField(required=False)
     time_from = serializers.TimeField(required=False)
     date_to = serializers.DateField(required=False)
@@ -34,6 +36,8 @@ class TimeFrameSerializer(serializers.Serializer):
 
 
 class TimeFrameWithLimitSerializer(TimeFrameSerializer):
+    """Time frame with limit serializer."""
+
     limit = serializers.IntegerField(
         required=False, min_value=1, max_value=10000, default=10000
     )

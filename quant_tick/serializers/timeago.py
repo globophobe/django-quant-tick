@@ -6,6 +6,8 @@ from quant_tick.utils import gettext_lazy as _
 
 
 class TimeAgoSerializer(serializers.Serializer):
+    """Time ago serializer."""
+
     time_ago = serializers.CharField(required=False, default="1d")
 
     def validate_time_ago(self, value: str) -> pd.Timedelta:

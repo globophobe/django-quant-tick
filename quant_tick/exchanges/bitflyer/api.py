@@ -41,6 +41,7 @@ def get_bitflyer_api_pagination_id(
 
 
 def get_bitflyer_api_timestamp(trade):
+    """Get Bitflyer API timestamp."""
     return parse_datetime(trade["exec_date"])
 
 
