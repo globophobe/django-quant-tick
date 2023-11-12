@@ -33,7 +33,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
 
     def test_retry_raw_trade(self):
         """Retry raw trade."""
-        symbol = self.get_symbol(should_aggregate_trades=False)
+        symbol = self.get_symbol(aggregate_trades=False)
         filtered = self.get_filtered(self.timestamp_from)
         for i in range(2):
             TradeData.write(

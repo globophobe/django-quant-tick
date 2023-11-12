@@ -86,7 +86,7 @@ class ExchangeS3(BaseController):
                     candles = self.get_candles(ts_from, ts_to)
                     # Are there any trades?
                     if len(df):
-                        if self.symbol.should_aggregate_trades:
+                        if self.symbol.aggregate_trades:
                             df = aggregate_trades(df)
                             if self.symbol.significant_trade_filter:
                                 df = volume_filter_with_time_window(
@@ -97,7 +97,7 @@ class ExchangeS3(BaseController):
                     else:
                         df = pd.DataFrame([])
                     validated = validate_data_frame(
-                        ts_from, ts_to, df, candles, self.symbol.should_aggregate_trades
+                        ts_from, ts_to, df, candles, self.symbol.aggregate_trades
                     )
                     self.on_data_frame(
                         self.symbol, ts_from, ts_to, df, validated=validated

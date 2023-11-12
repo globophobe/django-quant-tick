@@ -16,6 +16,6 @@ class SymbolSerializer(serializers.ModelSerializer):
             "global_symbol",
             "exchange",
             "symbol",
-            "significant_trade_filter",
-            "should_aggregate_trades",
+            "aggregate_trades",
+            "significant_trade_filter"
         )

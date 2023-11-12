@@ -165,7 +165,7 @@ class ExchangeREST(BaseController):
                 self.assert_data_frame(
                     timestamp_from, timestamp_to, data_frame, valid_trades
                 )
-                if self.symbol.should_aggregate_trades:
+                if self.symbol.aggregate_trades:
                     df = aggregate_trades(data_frame)
                     if self.symbol.significant_trade_filter:
                         df = volume_filter_with_time_window(
@@ -180,7 +180,7 @@ class ExchangeREST(BaseController):
                 timestamp_to,
                 df,
                 candles,
-                self.symbol.should_aggregate_trades,
+                self.symbol.aggregate_trades,
             )
             self.on_data_frame(
                 self.symbol,

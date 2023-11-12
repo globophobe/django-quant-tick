@@ -142,7 +142,7 @@ def convert_trade_data_to_hourly(
                             hourly_ts_to,
                             filtered,
                             candles,
-                            symbol.should_aggregate_trades,
+                            symbol.aggregate_trades,
                         )
                         # First, delete minutes, as naming convention is same as hourly.
                         minutes.delete()

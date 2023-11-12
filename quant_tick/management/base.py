@@ -37,7 +37,7 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
             choices=queryset.values_list("api_symbol", flat=True),
             nargs="+",
         )
-        parser.add_argument("--should-aggregate-trades", type=bool)
+        parser.add_argument("--aggregate-trades", type=bool)
         parser.add_argument("--significant-trade-filter", type=int)
         parser.add_argument("--is-active", action="store_true")
         parser.add_argument("--retry", action="store_true")
@@ -46,7 +46,7 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
         """Run command."""
         exchanges = options.get("exchange")
         api_symbols = options.get("api_symbol")
-        should_aggregate_trades = options.get("should_aggregate_trades")
+        aggregate_trades = options.get("aggregate_trades")
         significant_trade_filter = options.get("significant_trade_filter")
         symbols = self.get_queryset()
         is_active = options.get("is_active")
@@ -55,8 +55,8 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
             symbols = symbols.filter(exchange__in=exchanges)
         if api_symbols:
             symbols = symbols.filter(api_symbol__in=api_symbols)
-        if should_aggregate_trades:
-            symbols = symbols.filter(should_aggregate_trades=should_aggregate_trades)
+        if aggregate_trades:
+            symbols = symbols.filter(aggregate_trades=aggregate_trades)
         if significant_trade_filter:
             symbols = symbols.filter(significant_trade_filter=significant_trade_filter)
         if is_active:
@@ -76,6 +76,22 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
                     "timestamp_to": timestamp_to,
                     "retry": retry,
                 }
+
+
+class BaseTradeDataWithRetryCommand(BaseTradeDataCommand):
+    """Base trade data with retry."""
+
+    def add_arguments(self, parser: CommandParser) -> None:
+        """Add arguments."""
+        super().add_arguments(parser)
+        parser.add_argument("--retry", action="store_true")
+
+    def handle(self, *args, **options) -> dict | None:
+        """Run command."""
+        kwargs = super().handle(*args, **options)
+        for k in kwargs:
+            k["retry"] = options.get("retry")
+            yield k
 
 
 class BaseCandleCommand(BaseTimeFrameCommand):

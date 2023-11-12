@@ -113,14 +113,14 @@ class BaseSymbolTest:
         self.timestamp_from = get_min_time(get_current_time(), "1d")
 
     def get_symbol(
-        self, api_symbol: str = "test", should_aggregate_trades: bool = True
+        self, api_symbol: str = "test", aggregate_trades: bool = True
     ) -> Symbol:
         """Get symbol."""
         return Symbol.objects.create(
             global_symbol=self.global_symbol,
             exchange=Exchange.COINBASE,
             api_symbol=api_symbol,
-            should_aggregate_trades=should_aggregate_trades,
+            aggregate_trades=aggregate_trades,
         )
 
 
