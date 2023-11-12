@@ -15,7 +15,9 @@ class TimeAgoSerializer(serializers.Serializer):
         try:
             return pd.Timedelta(value)
         except ValueError:
-            raise serializers.ValidationError(_(f"Cannot parse {value}."))
+            raise serializers.ValidationError(
+                _("Cannot parse {value}.").format(value=value)
+            )
 
     def validate(self, data: dict) -> dict:
         """Validate."""
