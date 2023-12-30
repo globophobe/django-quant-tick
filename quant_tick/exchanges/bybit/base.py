@@ -44,7 +44,9 @@ class BybitS3Mixin(BybitMixin):
 
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
         """Parse dtypes and strip unnecessary columns."""
-        data_frame["timestamp"] = pd.to_datetime(data_frame["timestamp"], unit="s")
+        data_frame["timestamp"] = pd.to_datetime(
+            data_frame["timestamp"].astype("float"), unit="s"
+        )
         data_frame["nanoseconds"] = data_frame.apply(
             lambda x: x.timestamp.nanosecond, axis=1
         )

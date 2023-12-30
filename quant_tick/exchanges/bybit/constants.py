@@ -5,7 +5,7 @@ BYBIT_TOTAL_REQUESTS = "BYBIT_TOTAL_REQUESTS"
 
 INVERSE_CONTRACTS = ("BTCUSD", "ETHUSD", "EOSUSD", "XRPUSD")
 
-API_URL = "https://api.bybit.com/"
+API_URL = "https://api.bybit.com"
 
 MAX_RESULTS = 200
 MAX_REQUESTS = 50

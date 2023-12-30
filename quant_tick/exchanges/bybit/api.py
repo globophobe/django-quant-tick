@@ -1,8 +1,9 @@
 import json
 import time
+from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
-from typing import Callable, List, Optional
+from typing import Optional
 
 import httpx
 
@@ -31,7 +32,7 @@ def get_bybit_api_response(
     timestamp_from: Optional[datetime] = None,
     pagination_id: Optional[str] = None,
     retry: int = 30,
-) -> List[dict]:
+) -> list[dict]:
     """Get Bybit API response."""
     throttle_api_requests(
         BYBIT_MAX_REQUESTS_RESET,
@@ -45,8 +46,8 @@ def get_bybit_api_response(
         if response.status_code == 200:
             result = response.read()
             data = json.loads(result, parse_float=Decimal)
-            assert data["ret_msg"] == "OK"
-            res = data["result"]
+            assert data["retMsg"] == "OK"
+            res = data["result"]["list"]
             # Descending order, please
             res.reverse()
             return res
