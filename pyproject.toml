@@ -12,7 +12,7 @@ classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Indepen
 packages = [{ include = "quant_tick" }]
 
 [tool.poetry.dependencies]
-python = ">=3.11"
+python = ">=3.10"
 django-polymorphic = "*"
 djangorestframework = "*"
 httpx = "*"
@@ -27,7 +27,7 @@ django-semantic-admin = "*"
 django-storages = {version = "*", extras = ["google"]}
 gunicorn = "*"
 invoke = "*"
-ipython = "<=8.8"
+ipython = "*"
 psycopg2-binary = "*"
 python-decouple = "*"
 ruff = "*"
@@ -42,7 +42,7 @@ exclude = [
     "migrations",
 ]
 line-length = 88
-target-version = "py311"
+target-version = "py310"
 ignore = [
     "ANN002", # Missing type annotation for *{name}
     "ANN003", # Missing type annotation for **{name}
