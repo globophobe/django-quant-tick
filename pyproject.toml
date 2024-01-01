@@ -1,18 +1,18 @@
 [tool.poetry]
 name = "django-quant-tick"
-version = "0.1.2"
+version = "0.1.3"
 description = "Django Quant Tick downloads and aggregate candlesticks from tick data"
 authors = ["Alex <globophobe@gmail.com>"]
 readme = "README.md"
 license = "MIT"
 homepage = "https://github.com/globophobe/django-quant-candles"
 repository = "https://github.com/globophobe/django-quant-candles"
-keywords = ["django", "cryptocurrency", "candlesticks", "quant", "trading", "trading-stragies", "coinbase", "bitfinex", "bitmex", "bybit"]
+keywords = ["django", "cryptocurrency", "candlesticks", "quant", "trading", "trading-strategies", "coinbase", "bitfinex", "bitmex", "bybit"]
 classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Independent"]
 packages = [{ include = "quant_tick" }]
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.11,!=3.9.7"
+python = ">=3.11"
 django-polymorphic = "*"
 djangorestframework = "*"
 httpx = "*"
@@ -21,27 +21,27 @@ pyarrow = "*"
 randomname = "*"
 
 [tool.poetry.dev-dependencies]
-black = "*"
 coverage = "*"
 django-filter = "*"
 django-semantic-admin = "*"
 django-storages = {version = "*", extras = ["google"]}
-flake8 = "*"
 gunicorn = "*"
 invoke = "*"
-ipdb = "*"
 ipython = "<=8.8"
-isort = "*"
-mplfinance = "*"
 psycopg2-binary = "*"
 python-decouple = "*"
+ruff = "*"
 sentry-sdk = "*"
-streamlit = "*"
 time-machine = "*"
 whitenoise = "*"
 
 [tool.ruff]
-line-length = 119
+exclude = [
+    "__init__.py",
+    "build",
+    "migrations",
+]
+line-length = 88
 target-version = "py311"
 ignore = [
     "ANN002", # Missing type annotation for *{name}
@@ -49,6 +49,8 @@ ignore = [
     "ANN101", # Missing type annotation for {name} in method
     "ANN102", # Missing type annotation for {name} in classmethod
     "ANN401", # Dynamically typed expressions (typing.Any) are disallowed in {name}
+    "B007", # Loop control variable not used within loop body
+    "B904", # Within an except clause, raise exceptions with...
     "D100", # Missing docstring in public module
     "D104", # Missing docstring in public package
     "D106", # Missing docstring in public nested class, i.e. Meta
@@ -74,14 +76,13 @@ ignore = [
     "UP032", # [*] Use f-string instead of `format` call
 ]
 select = [
-    "A", # flake8-builtins
     "ANN", # flake8-annotations
     "B", # flake8-bugbear
     "D", # pydocstyle
     "E", # pycodestyle
     "F", # Pyflakes
     "I", # isort
-    "INT", # flake8-gettext 
+    "INT", # flake8-gettext
     "N", # pep8-naming
     "PTH", # flake8-use-pathlib
     "UP", # pyupgrade
@@ -91,12 +92,12 @@ select = [
 ]
 unfixable = ["F401", "F841"]
 
+[tool.ruff.per-file-ignores]
+"**/tests/*" = ["ANN", "D"]
+"**/migrations/*" = ["ANN", "D"]
+
 [tool.ruff.isort]
 known-first-party = ["quant_tick"]
-
-[tool.ruff.per-file-ignores]
-"**/tests/*" = ["ANN"]
-"**/migrations/*" = ["ANN", "D"]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
