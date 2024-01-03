@@ -3,7 +3,7 @@ from django.db import models
 from quant_tick.constants import Exchange, SymbolType
 from quant_tick.utils import gettext_lazy as _
 
-from .base import BigDecimalField, AbstractCodeName
+from .base import AbstractCodeName
 
 
 class GlobalSymbol(models.Model):
@@ -12,6 +12,7 @@ class GlobalSymbol(models.Model):
     name = models.CharField(_("name"), unique=True, max_length=255)
 
     def __str__(self) -> str:
+        """str."""
         return self.name
 
     class Meta:
@@ -33,10 +34,25 @@ class Symbol(AbstractCodeName):
         _("type"), choices=SymbolType.choices, max_length=255
     )
     api_symbol = models.CharField(_("API symbol"), max_length=255)
-    aggregate_trades = models.BooleanField(
+    save_raw = models.BooleanField(
+        _("save raw"),
+        help_text=_("Save raw data?"),
+        default=False,
+    )
+    save_aggregated = models.BooleanField(
         _("aggregate trades"),
         help_text=_("Should trades be aggregated?"),
         default=False,
+    )
+    save_filtered = models.BooleanField(
+        _("save filtered"),
+        help_text=_("Save filtered data?"),
+        default=False,
+    )
+    save_clustered = models.BooleanField(
+        _("save clustered"),
+        help_text=_("Save clustered data?"),
+        default=True,
     )
     significant_trade_filter = models.PositiveIntegerField(
         _("significant trade filter"),
@@ -46,7 +62,6 @@ class Symbol(AbstractCodeName):
         ),
         default=0,
     )
-    currency_divisor = models.PositiveIntegerField(_("currency divisor"), default=1)
     recent_error_at = models.DateTimeField(
         _("recent API error"),
         help_text=_(
@@ -61,7 +76,7 @@ class Symbol(AbstractCodeName):
     def symbol(self) -> str:
         """Symbol.
 
-        Example, BTCUSD
+        Example: BTCUSD
         """
         symbol = self.api_symbol
         for char in ("-", "/", "_"):
@@ -72,11 +87,16 @@ class Symbol(AbstractCodeName):
         #     return symbol[3:] + symbol[:3]  # Reversed
         return symbol
 
-    def __str__(self) -> str:
-        """str.
+    @property
+    def upload_path(self) -> str:
+        """Upload path.
 
-        Example Coinbase BTC-USD blaring-crocodile
+        Example: coinbase / BTCUSD / blaring-crocodile
         """
+        return [self.exchange, self.symbol, self.code_name]
+
+    def __str__(self) -> str:
+        """str."""
         exchange = self.get_exchange_display()
         return f"{exchange} {self.symbol} {self.code_name}"
 

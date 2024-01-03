@@ -1,41 +1,40 @@
-import os
 from datetime import datetime
-from itertools import chain
-from typing import List, Optional, Tuple
+from pathlib import Path
 
 import pandas as pd
-from django.conf import settings
 from django.db import models
-from django.db.models import Q, QuerySet
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
-from quant_tick.constants import Frequency
+from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
     filter_by_timestamp,
-    get_current_time,
     get_existing,
     get_min_time,
-    get_runs,
     has_timestamps,
     parse_datetime,
 )
 from quant_tick.utils import gettext_lazy as _
 
 from .base import AbstractCodeName, AbstractDataStorage, JSONField
-from .trades import TradeData, TradeDataSummary
+from .trades import TradeData
 
 
-def upload_data_to(instance: "CandleData", filename: str) -> str:
-    """Upload to."""
-    date = instance.timestamp.date().isoformat()
+def upload_candle_cache_data_to(instance: "CandleCache", filename: str) -> str:
+    """Upload candle cache data to.
+
+    Example: candles / blaring-crocodile / 2022-01-01 / 0000.parquet
+    """
+    path = ["candles", instance.candle.code_name, instance.timestamp.date().isoformat()]
     fname = instance.timestamp.time().strftime("%H%M")
-    _, ext = os.path.splitext(filename)
-    prefix = f"candles/{instance.candle.code_name}/{date}"
-    return f"{prefix}/{fname}{ext}"
+    ext = Path(filename).suffix
+    path.append(f"{fname}{ext}")
+    return "/".join(path)
 
 
 class Candle(AbstractCodeName, PolymorphicModel):
+    """Candle."""
+
     symbols = models.ManyToManyField(
         "quant_tick.Symbol",
         db_table="quant_candles_candle_symbol",
@@ -48,7 +47,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
     def initialize(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
-    ) -> Tuple[datetime, datetime, dict]:
+    ) -> tuple[datetime, datetime, dict]:
         """Initialize."""
         # Is there a specific date from?
         if self.date_from:
@@ -115,15 +114,15 @@ class Candle(AbstractCodeName, PolymorphicModel):
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
         """Get data frame."""
-        # Trade data may be hourly, so timestamp from >= hourly timestamp.
+        # Trade data may be daily, so timestamp from >= daily timestamp.
         trade_data = (
             TradeData.objects.filter(
                 symbol__in=self.symbols.all(),
-                timestamp__gte=get_min_time(timestamp_from, value="1h"),
+                timestamp__gte=get_min_time(timestamp_from, value="1d"),
                 timestamp__lt=timestamp_to,
             )
             .select_related("symbol")
-            .only("symbol", "timestamp", "frequency", "file_data")
+            .only(*["symbol", "timestamp", "frequency"] + list(FileData))
         )
         data_frames = []
         for symbol in self.symbols.all():
@@ -134,9 +133,9 @@ class Candle(AbstractCodeName, PolymorphicModel):
             dfs = []
             for t in target:
                 # Query may contain trade data by minute.
-                # Only get target timestamps.
+                # Only target timestamps.
                 if timestamp_from <= t.timestamp + pd.Timedelta(f"{t.frequency}t"):
-                    df = t.get_data_frame()
+                    df = t.get_data_frame(self.json_data["source_data"])
                     if df is not None:
                         dfs.append(df)
             if dfs:
@@ -158,13 +157,13 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Can aggregate."""
         values = []
         for symbol in self.symbols.all():
-            # Trade data may be hourly, so timestamp from >= hourly timestmap.
+            # Trade data may be daily, so timestamp from >= daily timestmap.
             trade_data = TradeData.objects.filter(
                 symbol=symbol,
-                timestamp__gte=get_min_time(timestamp_from, value="1h"),
+                timestamp__gte=get_min_time(timestamp_from, value="1d"),
                 timestamp__lt=timestamp_to,
             )
-            # Only get target timestamps.
+            # Only target timestamps.
             existing = [
                 t
                 for t in get_existing(trade_data.values("timestamp", "frequency"))
@@ -178,113 +177,18 @@ class Candle(AbstractCodeName, PolymorphicModel):
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
-        cache_data: Optional[dict] = None,
-    ) -> Tuple[list, Optional[dict]]:
+        cache_data: dict | None = None,
+    ) -> tuple[list, dict | None]:
         """Aggregate."""
         raise NotImplementedError
-
-    def get_data(
-        self,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-        limit: Optional[int] = None,
-    ) -> list:
-        """Get data."""
-        query = (
-            Q(candle_id=self.id)
-            & Q(timestamp__gte=timestamp_from)
-            & Q(timestamp__lt=timestamp_to)
-        )
-        candle_data = (
-            CandleData.objects.filter(query)
-            .only("timestamp", "json_data")
-            .order_by("-timestamp")
-            .values("timestamp", "json_data")
-        )
-        if limit:
-            candle_data = candle_data[:limit]
-        candle_read_only_data = (
-            CandleReadOnlyData.objects.filter(query)
-            .order_by("-timestamp")
-            .values("timestamp", "json_data")
-        )
-        if limit:
-            candle_read_only_data = candle_read_only_data[: limit - candle_data.count()]
-        return list(chain(candle_data, candle_read_only_data))
-
-    def get_trade_data_summary(
-        self, timestamp_from: datetime, timestamp_to: datetime
-    ) -> QuerySet:
-        """Get trade data summary."""
-        return TradeDataSummary.objects.filter(
-            symbol__in=self.symbols.all(),
-            date__gte=timestamp_from.date(),
-            date__lt=timestamp_to.date(),
-        )
-
-    def get_runs(
-        self,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-        runs_n: int = 0,
-        limit: int = 10000,
-    ) -> list:
-        """Get runs."""
-        symbols = self.symbols.all()
-        total_symbols = len(symbols)
-        data_frame = pd.DataFrame([])
-        this_morning_at_midnight = get_min_time(get_current_time(), value="1t")
-        for symbol in symbols:
-            if timestamp_to > this_morning_at_midnight:
-                trade_data = TradeData.objects.filter(
-                    symbol=symbol, timestamp__gte=this_morning_at_midnight
-                )
-                for t in trade_data.only("file_data"):
-                    df = t.get_data_frame()
-                    if df is not None and len(df):
-                        runs = get_runs(
-                            df,
-                            bins=[
-                                int(b * symbol.currency_divisor)
-                                for b in (1_000, 10_000, 50_000, 100_000)
-                            ],
-                        )
-                        runs_df = pd.DataFrame(runs)
-                        if len(symbols) > 1:
-                            runs_df.insert(2, "exchange", symbol.exchange)
-                            runs_df.insert(3, "symbol", symbol.symbol)
-                        data_frame = pd.concat([data_frame, runs_df])
-        if len(data_frame) < limit:
-            one_day = pd.Timedelta("1d")
-            date = timestamp_to.date()
-            while date >= timestamp_from.date():
-                for symbol in symbols:
-                    trade_data_summary = (
-                        TradeDataSummary.objects.only("file_data")
-                        .filter(symbol=symbol, date=date)
-                        .distinct()
-                    )
-                    for t in trade_data_summary:
-                        df = t.get_data_frame()
-                        if df is not None and len(df):
-                            if total_symbols > 1:
-                                df.insert(2, "exchange", symbol.exchange)
-                                df.insert(3, "symbol", symbol.symbol)
-                            data_frame = pd.concat([data_frame, df])
-                if len(data_frame) < limit:
-                    date -= one_day
-                else:
-                    break
-        df = data_frame.reset_index(inplace=True).sort_values(["timestamp"])
-        return filter_by_timestamp(df, timestamp_from, timestamp_to, inclusive=True)
 
     def write_cache(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
-        data: Optional[dict] = None,
-        data_frame: Optional[DataFrame] = None,
-    ):
+        data: dict | None = None,
+        data_frame: DataFrame | None = None,
+    ) -> None:
         """Write cache.
 
         Delete previously saved data.
@@ -301,32 +205,22 @@ class Candle(AbstractCodeName, PolymorphicModel):
         )
 
     def write_data(
-        self, timestamp_from: datetime, timestamp_to: datetime, json_data: List[dict]
+        self, timestamp_from: datetime, timestamp_to: datetime, json_data: list[dict]
     ) -> None:
         """Write data.
 
         Delete previously saved data.
         """
-        query = Q(timestamp__gte=timestamp_from) & Q(timestamp__lt=timestamp_to)
-        if settings.IS_LOCAL:
-            CandleReadOnlyData.objects.filter(Q(candle_id=self.id), query).delete()
-        candle_data = CandleData.objects.filter(Q(candle=self), query)
-        had_candle_data = candle_data.exists()
-        candle_data.delete()
+        CandleData.objects.filter(
+            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+        ).delete()
         data = []
         for j in json_data:
             timestamp = j.pop("timestamp")
             kwargs = {"timestamp": timestamp, "json_data": j}
-            if settings.IS_LOCAL and not had_candle_data:
-                c = CandleReadOnlyData(candle_id=self.id, **kwargs)
-            else:
-                c = CandleData(candle=self, **kwargs)
+            c = CandleData(candle=self, **kwargs)
             data.append(c)
-        # If local, and there was no previous cloud data, save to SQLite.
-        if settings.IS_LOCAL and not had_candle_data:
-            CandleReadOnlyData.objects.bulk_create(data)
-        else:
-            CandleData.objects.bulk_create(data)
+        CandleData.objects.bulk_create(data)
 
     class Meta:
         db_table = "quant_candles_candle"
@@ -335,6 +229,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
 
 class CandleCache(AbstractDataStorage):
+    """Candle cache."""
+
     candle = models.ForeignKey(
         "quant_tick.Candle", related_name="data", on_delete=models.CASCADE
     )
@@ -342,7 +238,14 @@ class CandleCache(AbstractDataStorage):
     frequency = models.PositiveIntegerField(
         _("frequency"), choices=Frequency.choices, db_index=True
     )
+    file_data = models.FileField(
+        _("file data"), blank=True, upload_to=upload_candle_cache_data_to
+    )
     json_data = JSONField(_("json data"), default=dict)
+
+    def get_data_frame(self) -> DataFrame:
+        """Get data frame."""
+        return super().get_data_frame("file_data")
 
     class Meta:
         db_table = "quant_candles_candle_cache"
@@ -350,30 +253,16 @@ class CandleCache(AbstractDataStorage):
         verbose_name = verbose_name_plural = _("candle cache")
 
 
-class BaseCandleData(models.Model):
+class CandleData(models.Model):
+    """Candle data."""
+
+    candle = models.ForeignKey(
+        "quant_tick.Candle", on_delete=models.CASCADE, verbose_name=_("candle")
+    )
     timestamp = models.DateTimeField(_("timestamp"), db_index=True)
     json_data = JSONField(_("json data"), default=dict)
 
     class Meta:
-        abstract = True
-
-
-class CandleData(BaseCandleData):
-    candle = models.ForeignKey(
-        "quant_tick.Candle", on_delete=models.CASCADE, verbose_name=_("candle")
-    )
-
-    class Meta:
         db_table = "quant_candles_candle_data"
-        ordering = ("timestamp",)
-        verbose_name = verbose_name_plural = _("candle data")
-
-
-class CandleReadOnlyData(BaseCandleData):
-    # SQLite, so not PK
-    candle_id = models.BigIntegerField(verbose_name=_("candle"), db_index=True)
-
-    class Meta:
-        db_table = "quant_candles_candle_read_only_data"
         ordering = ("timestamp",)
         verbose_name = verbose_name_plural = _("candle data")

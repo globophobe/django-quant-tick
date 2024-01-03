@@ -2,6 +2,9 @@ import math
 from decimal import Decimal
 
 import numpy as np
+from pandas import DataFrame
+
+from quant_tick.constants import SampleType
 
 
 def get_top_n(data_frame: DataFrame, sample_type: SampleType, top_n: int) -> list[dict]:

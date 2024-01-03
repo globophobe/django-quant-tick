@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional, Tuple
 
 import pandas as pd
 from pandas import DataFrame
@@ -19,6 +18,8 @@ from ..candles import Candle
 
 
 class TimeBasedCandle(Candle):
+    """Time based candle."""
+
     def get_max_timestamp_to(
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> datetime:
@@ -36,17 +37,14 @@ class TimeBasedCandle(Candle):
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
-        cache_data: dict = {},
-        cache_data_frame: Optional[DataFrame] = None,
-    ) -> Tuple[list, Optional[dict]]:
+        cache_data: dict | None = None,
+    ) -> tuple[list, dict | None]:
         """Aggregate.
 
         Iterate forward. Intermediate results will be saved to CandleCache.json_data
         """
+        cache_data = cache_data or {}
         data = []
-        sample_type = self.json_data.get("sample_type", None)
-        runs_n = self.json_data.get("runsN", None)
-        top_n = self.json_data.get("topN", None)
         window = self.json_data["window"]
         if "next" in cache_data:
             ts_from = cache_data["next"]["timestamp"]
@@ -54,15 +52,13 @@ class TimeBasedCandle(Candle):
             ts_from = timestamp_from
         max_ts_to = self.get_max_timestamp_to(ts_from, timestamp_to)
         ts_to = None
-        for ts_from, ts_to in iter_window(ts_from, max_ts_to, window):
-            df = filter_by_timestamp(data_frame, ts_from, ts_to)
+        for filter_ts_from, filter_ts_to in iter_window(ts_from, max_ts_to, window):
+            df = filter_by_timestamp(data_frame, filter_ts_from, filter_ts_to)
             if len(df):
-                candle = aggregate_candle(
-                    data_frame, timestamp=ts_from, runs_n=runs_n, top_n=top_n
-                )
+                candle = aggregate_candle(data_frame, timestamp=filter_ts_from)
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
-                    candle = merge_cache(previous, candle, sample_type, runs_n, top_n)
+                    candle = merge_cache(previous, candle)
                 data.append(candle)
             elif "next" in cache_data:
                 candle = cache_data.pop("next")
@@ -77,12 +73,7 @@ class TimeBasedCandle(Candle):
             cache_df = filter_by_timestamp(data_frame, cache_ts_from, timestamp_to)
             if len(cache_df):
                 cache_data = get_next_cache(
-                    cache_df,
-                    cache_data,
-                    timestamp=cache_ts_from,
-                    sample_type=sample_type,
-                    runs_n=runs_n,
-                    top_n=top_n,
+                    cache_df, cache_data, timestamp=cache_ts_from
                 )
         return data, cache_data
 

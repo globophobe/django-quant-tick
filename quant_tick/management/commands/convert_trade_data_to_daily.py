@@ -1,16 +1,14 @@
-import logging
-
-from quant_tick.controllers import aggregate_trade_summary
 from quant_tick.management.base import BaseTradeDataCommand
-
-logger = logging.getLogger(__name__)
+from quant_tick.storage import convert_trade_data_to_daily
 
 
 class Command(BaseTradeDataCommand):
-    help = "Aggregate trade data summary for symbol."
+    """Convert trade data to daily."""
+
+    help = "Convert trade data by minute, or hourly, to daily."
 
     def handle(self, *args, **options) -> None:
         """Run command."""
         kwargs = super().handle(*args, **options)
         for k in kwargs:
-            aggregate_trade_summary(**k)
+            convert_trade_data_to_daily(**k)

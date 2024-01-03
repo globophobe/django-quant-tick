@@ -1,5 +1,5 @@
+from collections.abc import Generator
 from datetime import date, datetime, time, timezone
-from typing import Generator, List, Optional, Tuple
 
 import pandas as pd
 from pandas import Timestamp
@@ -15,7 +15,7 @@ def to_pydatetime(timestamp: Timestamp) -> datetime:
     return timestamp.replace(nanosecond=0).to_pydatetime().replace(tzinfo=timezone.utc)
 
 
-def get_current_time(tzinfo=timezone.utc):
+def get_current_time(tzinfo: str = timezone.utc) -> datetime:
     """Get current time."""
     return datetime.utcnow().replace(tzinfo=tzinfo)
 
@@ -39,7 +39,7 @@ def get_previous_time(timestamp: datetime, value: str) -> datetime:
 
 
 def has_timestamps(
-    timestamp_from: datetime, timestamp_to: datetime, existing: List[datetime]
+    timestamp_from: datetime, timestamp_to: datetime, existing: list[datetime]
 ) -> bool:
     """Has timestamps?"""
     delta = timestamp_to - timestamp_from
@@ -49,7 +49,7 @@ def has_timestamps(
 
 def timestamp_to_inclusive(
     timestamp_from: datetime, timestamp_to: datetime, value: str = "1t"
-):
+) -> datetime:
     """Reduce timestamp_to by value, in case results are inclusive."""
     ts_to = timestamp_to - pd.Timedelta(value)
     if timestamp_from <= ts_to:
@@ -59,11 +59,11 @@ def timestamp_to_inclusive(
 
 
 def parse_period_from_to(
-    date_from: Optional[str] = None,
-    time_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    time_to: Optional[str] = None,
-) -> Tuple[datetime]:
+    date_from: str | None = None,
+    time_from: str | None = None,
+    date_to: str | None = None,
+    time_to: str | None = None,
+) -> tuple[datetime]:
     """Parse period from/to command line arguments."""
     now = get_current_time()
     today = now.date()
@@ -88,7 +88,9 @@ def parse_period_from_to(
     return timestamp_from, timestamp_to
 
 
-def get_range(timestamp_from: datetime, timestamp_to: datetime, value: str = "1t"):
+def get_range(
+    timestamp_from: datetime, timestamp_to: datetime, value: str = "1t"
+) -> list[datetime]:
     """Get timestamps in range, step by value."""
     ts_from_rounded = get_min_time(timestamp_from, value)
     ts_to_rounded = get_next_time(timestamp_to, value)
@@ -99,7 +101,7 @@ def get_range(timestamp_from: datetime, timestamp_to: datetime, value: str = "1t
     ]
 
 
-def get_existing(values: List) -> List[datetime]:
+def get_existing(values: list) -> list[datetime]:
     """Get existing."""
     result = []  # List of 1m timestamps.
     for item in values:
@@ -110,8 +112,8 @@ def get_existing(values: List) -> List[datetime]:
 
 
 def get_missing(
-    timestamp_from: datetime, timestamp_to: datetime, existing: List[datetime]
-) -> List[datetime]:
+    timestamp_from: datetime, timestamp_to: datetime, existing: list[datetime]
+) -> list[datetime]:
     """Get missing."""
     return [
         timestamp
@@ -128,19 +130,19 @@ def iter_window(
     timestamp_to: datetime,
     value: str = "1t",
     reverse: bool = False,
-) -> Generator[Tuple[datetime, datetime], None, None]:
+) -> Generator[tuple[datetime, datetime], None, None]:
     """Iter window, by value."""
     values = get_range(timestamp_from, timestamp_to, value)
     return iter_timestamps(values, reverse=reverse)
 
 
 def iter_timestamps(
-    values: List[datetime], reverse: bool = False
-) -> Generator[Tuple[datetime, datetime], None, None]:
+    values: list[datetime], reverse: bool = False
+) -> Generator[tuple[datetime, datetime], None, None]:
     """Iter tuples of timestamps, optionally reversed."""
     if reverse:
         values.reverse()
-    for start_time, end_time in zip(values, values[1:]):
+    for start_time, end_time in zip(values, values[1:], strict=False):
         if reverse:
             yield end_time, start_time
         else:
@@ -149,7 +151,7 @@ def iter_timestamps(
 
 def iter_once(
     timestamp_from: datetime, timestamp_to: datetime
-) -> Generator[Tuple[datetime, datetime], None, None]:
+) -> Generator[tuple[datetime, datetime], None, None]:
     """Fake iter, once."""
     yield get_min_time(timestamp_from, "1d"), get_next_time(timestamp_to, "1d")
 
@@ -159,7 +161,7 @@ def iter_timeframe(
     timestamp_to: datetime,
     value: str = "1d",
     reverse: bool = False,
-) -> Generator[Tuple[datetime, datetime], None, None]:
+) -> Generator[tuple[datetime, datetime], None, None]:
     """Iter timeframe, including partial increments."""
     values = []
     head = None
@@ -208,9 +210,9 @@ def iter_timeframe(
 def iter_missing(
     timestamp_from: datetime,
     timestamp_to: datetime,
-    existing: List[datetime],
+    existing: list[datetime],
     reverse: bool = False,
-) -> Generator[Tuple[datetime, datetime], None, None]:
+) -> Generator[tuple[datetime, datetime], None, None]:
     """Iter missing, by 1 minute intervals."""
     values = []
     for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, reverse=reverse):

@@ -6,6 +6,8 @@ from quant_tick.storage import (
 
 
 class Command(BaseTradeDataCommand):
+    """Clean trade data."""
+
     help = "Clean storage, and decrease storage frequency."
 
     def handle(self, *args, **options) -> None:

@@ -1,9 +1,8 @@
 import logging
+from collections.abc import Generator
 from datetime import datetime
-from typing import Generator, List, Tuple
 
 import pandas as pd
-from django.conf import settings
 from django.db.models import Q
 
 from quant_tick.constants import Frequency
@@ -11,7 +10,6 @@ from quant_tick.lib import (
     get_current_time,
     get_existing,
     get_min_time,
-    get_next_time,
     has_timestamps,
     iter_missing,
     iter_timeframe,
@@ -20,49 +18,12 @@ from quant_tick.models import (
     Candle,
     CandleCache,
     CandleData,
-    CandleReadOnlyData,
     Symbol,
     TimeBasedCandle,
     TradeData,
-    TradeDataSummary,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def aggregate_trade_summary(
-    symbol: Symbol,
-    timestamp_from: datetime,
-    timestamp_to: datetime,
-    retry: bool = False,
-    start_at_midnight: bool = True,
-):
-    """Aggregate trade summary."""
-    min_timestamp_from = TradeData.objects.get_min_timestamp(symbol, timestamp_from)
-    max_timestamp_to = TradeData.objects.get_max_timestamp(symbol, timestamp_to)
-    if start_at_midnight and min_timestamp_from.hour != 0:
-        min_timestamp_from = get_min_time(min_timestamp_from, value="1d")
-    if max_timestamp_to.hour != 0:
-        max_timestamp_to = get_min_time(max_timestamp_to, value="1d")
-    if min_timestamp_from == max_timestamp_to:
-        max_timestamp_to = get_next_time(max_timestamp_to, value="1d")
-    for ts_from, ts_to in iter_timeframe(
-        min_timestamp_from, max_timestamp_to, value="1d", reverse=True
-    ):
-        date = ts_from.date()
-        has_trade_data_summary = (
-            TradeDataSummary.objects.filter(symbol=symbol, date=date).exists()
-            if not retry
-            else False
-        )
-        has_trade_data = TradeData.objects.has_timestamps(symbol, ts_from, ts_to)
-        if not has_trade_data_summary and has_trade_data:
-            TradeDataSummary.aggregate(symbol, date)
-            logger.info(
-                "{symbol} summary: {date}".format(
-                    **{"symbol": str(symbol), "date": date}
-                )
-            )
 
 
 def aggregate_candles(
@@ -93,7 +54,10 @@ def aggregate_candles(
 
 
 class BaseTimeFrameIterator:
+    """Base time frame iterator."""
+
     def __init__(self) -> None:
+        """Initialize."""
         self.reverse = None
 
     def get_max_timestamp_to(self) -> datetime:
@@ -105,7 +69,7 @@ class BaseTimeFrameIterator:
         timestamp_from: datetime,
         timestamp_to: datetime,
         retry: bool = False,
-    ) -> Generator[Tuple[datetime, datetime], None, None]:
+    ) -> Generator[tuple[datetime, datetime], None, None]:
         """Iter all, default by days in 1 hour chunks, further chunked by 1m intervals.
 
         1 day -> 24 hours -> 60 minutes or 10 minutes, etc.
@@ -121,10 +85,7 @@ class BaseTimeFrameIterator:
             timestamp_from, timestamp_to, retry=retry
         ):
             if self.can_iter_hours(ts_from, ts_to):
-                for hourly_timestamp_from, hourly_timestamp_to in self.iter_hours(
-                    ts_from, ts_to, existing
-                ):
-                    yield hourly_timestamp_from, hourly_timestamp_to
+                yield from self.iter_hours(ts_from, ts_to, existing)
             else:
                 yield timestamp_from, timestamp_to
 
@@ -133,7 +94,7 @@ class BaseTimeFrameIterator:
         timestamp_from: datetime,
         timestamp_to: datetime,
         retry: bool = False,
-    ):
+    ) -> Generator[tuple[datetime, datetime], None, None]:
         """Iter days."""
         for ts_from, ts_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d", reverse=self.reverse
@@ -147,8 +108,8 @@ class BaseTimeFrameIterator:
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
-        partition_existing: List[datetime],
-    ):
+        partition_existing: list[datetime],
+    ) -> Generator[tuple[datetime, datetime], None, None]:
         """Iter hours."""
         for ts_from, ts_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1h", reverse=self.reverse
@@ -170,7 +131,7 @@ class BaseTimeFrameIterator:
 
     def get_existing(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
-    ) -> List[datetime]:
+    ) -> list[datetime]:
         """Get existing."""
         raise NotImplementedError
 
@@ -184,14 +145,17 @@ class BaseTimeFrameIterator:
 
 
 class TradeDataIterator(BaseTimeFrameIterator):
+    """Trade data iterator."""
+
     def __init__(self, symbol: Symbol) -> None:
+        """Initialize."""
         self.symbol = symbol
         # Trade data iterates from present to past.
         self.reverse = True
 
     def get_existing(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
-    ) -> List[datetime]:
+    ) -> list[datetime]:
         """Get existing."""
         queryset = TradeData.objects.filter(
             symbol=self.symbol,
@@ -203,63 +167,30 @@ class TradeDataIterator(BaseTimeFrameIterator):
         return get_existing(queryset.values("timestamp", "frequency"))
 
 
-class TradeDataSummaryIterator(TradeDataIterator):
-    def get_existing(
-        self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
-    ) -> List[datetime]:
-        """Get existing."""
-        queryset = TradeDataSummary.objects.filter(
-            symbol=self.symbol, date=timestamp_from.date()
-        )
-        if retry:
-            queryset = queryset.exclude(ok=False)
-        return get_existing(queryset.values("timestamp", "frequency"))
-
-    def can_iter_days(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can iter days."""
-        trade_data = (
-            TradeData.objects.filter(
-                symbol=self.symbol,
-                timestamp__gte=timestamp_from,
-                timestamp__lt=timestamp_to,
-            )
-            .only("timestamp", "frequency")
-            .values("timestamp", "frequency")
-        )
-        existing = get_existing(trade_data)
-        return has_timestamps(timestamp_from, timestamp_to, existing)
-
-    def can_iter_hours(self, *args) -> bool:
-        """Can iter hours."""
-        return False
-
-
 class CandleCacheIterator(BaseTimeFrameIterator):
+    """Candle cache iterator."""
+
     def __init__(self, candle: Candle) -> None:
+        """Initialize."""
         self.candle = candle
         # Candle data iterates from past to present.
         self.reverse = False
 
     def get_existing(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
-    ) -> List[datetime]:
+    ) -> list[datetime]:
         """Get existing.
 
         Retry only locally, as SQLite database not modifiable within Docker image.
         """
-        query = Q(timestamp__gte=timestamp_from) & Q(timestamp__lt=timestamp_to)
-        candle_cache = CandleCache.objects.filter(Q(candle=self.candle) & query)
-        candle_data = CandleData.objects.filter(Q(candle=self.candle) & query)
-        # Local
-        if settings.IS_LOCAL and retry:
-            candle_read_only_data = CandleReadOnlyData.objects.filter(
-                Q(candle_id=self.candle.id) & query
-            )
-            for queryset in (candle_cache, candle_data, candle_read_only_data):
-                queryset.delete()
-            return []
-        # Cloud
-        elif retry:
+        query = (
+            Q(candle=self.candle)
+            & Q(timestamp__gte=timestamp_from)
+            & Q(timestamp__lt=timestamp_to)
+        )
+        candle_cache = CandleCache.objects.filter(query)
+        candle_data = CandleData.objects.filter(query)
+        if retry:
             for queryset in (candle_cache, candle_data):
                 queryset.delete()
             return []

@@ -3,6 +3,8 @@ from quant_tick.management.base import BaseTradeDataCommand
 
 
 class Command(BaseTradeDataCommand):
+    """Trades."""
+
     help = "Get trades from exchange API or S3."
 
     def handle(self, *args, **options) -> None:

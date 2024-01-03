@@ -1,20 +1,21 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
 
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
 from .aggregate import aggregate_sum, filter_by_timestamp
-from .calendar import get_range
+from .calendar import get_range, iter_window
 from .dataframe import is_decimal_close
+
+ZERO = Decimal("0")
 
 
 def candles_to_data_frame(
     timestamp_from: datetime,
     timestamp_to: datetime,
-    candles: List[dict],
+    candles: list[dict],
     reverse: bool = True,
 ) -> DataFrame:
     """Get candle data_frame."""
@@ -67,18 +68,43 @@ def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -
     last_row = data_frame.iloc[-1]
     high = data_frame.price.max()
     low = data_frame.price.min()
+    buy_data_frame = data_frame[data_frame.tickRule == 1]
+    if "totalVolume" in data_frame.columns:
+        volume = data_frame.totalVolume.sum()
+    else:
+        volume = data_frame.volume.sum()
+    if "totalBuyVolume" in data_frame.columns:
+        buy_volume = data_frame.totalBuyVolume.sum()
+    else:
+        buy_volume = buy_data_frame.volume.sum()
+    if "totalNotional" in data_frame.columns:
+        notional = data_frame.totalNotional.sum()
+    else:
+        notional = data_frame.notional.sum()
+    if "totalBuyNotional" in data_frame.columns:
+        buy_notional = data_frame.totalBuyNotional.sum()
+    else:
+        buy_notional = buy_data_frame.notional.sum()
+    if "totalTicks" in data_frame.columns:
+        ticks = int(data_frame.totalTicks.sum())
+    else:
+        ticks = int(data_frame.ticks.sum())
+    if "totalBuyTicks" in data_frame.columns:
+        buy_ticks = int(data_frame.totalBuyTicks.sum())
+    else:
+        buy_ticks = int(buy_data_frame.ticks.sum())
     return {
         "timestamp": timestamp if timestamp else first_row.timestamp,
         "open": first_row.price,
         "high": high,
         "low": low,
         "close": last_row.price,
-        "volume": data_frame.totalVolume.sum(),
-        "buyVolume": data_frame.totalBuyVolume.sum(),
-        "notional": data_frame.totalNotional.sum(),
-        "buyNotional": data_frame.totalBuyNotional.sum(),
-        "ticks": int(data_frame.totalTicks.sum()),
-        "buyTicks": int(data_frame.totalBuyTicks.sum()),
+        "volume": volume,
+        "buyVolume": buy_volume,
+        "notional": notional,
+        "buyNotional": buy_notional,
+        "ticks": ticks,
+        "buyTicks": buy_ticks,
     }
 
 
@@ -87,8 +113,7 @@ def validate_data_frame(
     timestamp_to: datetime,
     data_frame: DataFrame,
     candles: DataFrame,
-    aggregate_trades: bool
-) -> Optional[dict]:
+) -> dict:
     """Validate data_frame with candles from Exchange API."""
     if len(candles):
         if "notional" in candles.columns:
@@ -140,18 +165,3 @@ def validate_data_frame(
             if timestamp >= timestamp_from and timestamp < timestamp_to
         }
     return validated
-
-
-def get_validation_summary(data: List[dict]) -> dict:
-    """Get validation summary."""
-    validation = {}
-    for d in data:
-        for key, value in d.items():
-            if isinstance(value, dict):
-                for k, v in value.items():
-                    validation.setdefault(k, v)
-                    validation[k] += v
-            elif value is None:
-                validation.setdefault(None, 0)
-                validation[None] += 1
-    return validation

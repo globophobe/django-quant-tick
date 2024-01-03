@@ -1,8 +1,8 @@
 import json
 import os
-from typing import Any
 import re
 import tempfile
+from typing import Any
 from urllib.parse import urljoin
 
 from decouple import config
@@ -10,7 +10,7 @@ from invoke import task
 
 
 @task
-def django_settings(ctx: Any, proxy: bool = False):
+def django_settings(ctx: Any, proxy: bool = False) -> Any:
     """Django settings."""
     name = "proxy" if proxy else "development"
     os.environ["DJANGO_SETTINGS_MODULE"] = f"demo.settings.{name}"
@@ -23,13 +23,13 @@ def django_settings(ctx: Any, proxy: bool = False):
 
 
 @task
-def coverage(ctx: Any):
+def coverage(ctx: Any) -> None:
     """Coverage."""
     ctx.run("coverage run --source=../ manage.py test quant_tick; coverage report")
 
 
 @task
-def start_proxy(ctx: Any):
+def start_proxy(ctx: Any) -> None:
     """Start proxy."""
     host = config("PRODUCTION_DATABASE_HOST")
     port = config("PROXY_DATABASE_PORT")
@@ -37,7 +37,7 @@ def start_proxy(ctx: Any):
 
 
 @task
-def create_user(ctx: Any, username: str, password: str, proxy: bool = False):
+def create_user(ctx: Any, username: str, password: str, proxy: bool = False) -> None:
     """Create user."""
     django_settings(ctx, proxy=proxy)
     from django.contrib.auth import get_user_model
@@ -49,13 +49,13 @@ def create_user(ctx: Any, username: str, password: str, proxy: bool = False):
 
 
 @task
-def get_container_name(ctx: Any, suffix: str, hostname: str = "asia.gcr.io"):
+def get_container_name(ctx: Any, suffix: str, hostname: str = "asia.gcr.io") -> str:
     """Get container name."""
     project_id = ctx.run("gcloud config get-value project").stdout.strip()
     return f"{hostname}/{project_id}/django-quant-candles-{suffix}"
 
 
-def docker_secrets():
+def docker_secrets() -> str:
     """Docker secrets."""
     build_args = [
         f'{secret}="{config(secret)}"'
@@ -74,7 +74,7 @@ def docker_secrets():
     return " ".join([f"--build-arg {build_arg}" for build_arg in build_args])
 
 
-def get_common_requirements():
+def get_common_requirements() -> list[str]:
     """Get common requirements."""
     return [
         "django-filter",
@@ -92,15 +92,15 @@ def get_common_requirements():
     ]
 
 
-def build_quant_tick(ctx: Any):
+def build_quant_tick(ctx: Any) -> str:
     """Build django-quant-tick."""
     result = ctx.run("poetry build").stdout
     return re.search(r"django_quant_tick-.*\.whl", result).group()
 
 
 def build_container(
-    ctx: Any, suffix: str, requirements: list[str], hostname="asia.gcr.io"
-):
+    ctx: Any, suffix: str, requirements: list[str], hostname: str = "asia.gcr.io"
+) -> None:
     """Build container."""
     wheel = build_quant_tick(ctx)
     # Versions
@@ -132,7 +132,7 @@ def build_container(
 
 
 @task
-def build_frontend(ctx, hostname="asia.gcr.io"):
+def build_frontend(ctx: Any, hostname: str = "asia.gcr.io") -> None:
     """Build frontend."""
     ctx.run("echo yes | python manage.py collectstatic")
     requirements = get_common_requirements() + [
@@ -143,13 +143,13 @@ def build_frontend(ctx, hostname="asia.gcr.io"):
 
 
 @task
-def build_api(ctx: Any):
+def build_api(ctx: Any) -> None:
     """Build API."""
     build_container(ctx, suffix="api", requirements=get_common_requirements())
 
 
 @task
-def push_container(ctx: Any, suffix: str, hostname: str = "asia.gcr.io"):
+def push_container(ctx: Any, suffix: str, hostname: str = "asia.gcr.io") -> None:
     """Push container."""
     name = get_container_name(ctx, suffix, hostname=hostname)
     # Push
@@ -157,7 +157,7 @@ def push_container(ctx: Any, suffix: str, hostname: str = "asia.gcr.io"):
     ctx.run(cmd)
 
 
-def get_workflow(url: str, exchanges: list[str]):
+def get_workflow(url: str, exchanges: list[str]) -> dict:
     """Get workflow."""
     aggregate_trades = urljoin(url, "aggregate-trades/")
     aggregate_candles = urljoin(url, "aggregate-candles/")
@@ -207,7 +207,7 @@ def get_workflow(url: str, exchanges: list[str]):
 
 def push_workflow(
     ctx: Any, name: str, workflow: dict, location: str = "asia-northeast1"
-):
+) -> None:
     """Push workflow."""
     with tempfile.NamedTemporaryFile(mode="w") as f:
         json.dump(workflow, f)
@@ -221,7 +221,7 @@ def push_workflow(
 @task
 def push_rest_workflow(
     ctx: Any, name: str = "django-quant-tick-rest", location: str = "asia-northeast1"
-):
+) -> None:
     """Push REST workflow."""
     url = f'https://{config("PRODUCTION_API_URL")}'
     exchanges = ["bitfinex", "bitmex", "coinbase"]
@@ -232,7 +232,7 @@ def push_rest_workflow(
 @task
 def push_s3_workflow(
     ctx: Any, name: str = "django-quant-tick-s3", location: str = "asia-northeast1"
-):
+) -> None:
     """Push S3 workflow."""
     url = f'https://{config("PRODUCTION_API_URL")}'
     exchanges = ["bybit"]

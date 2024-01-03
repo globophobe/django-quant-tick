@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCandleCommand):
+    """Candles."""
+
     help = "Create candles from trade data."
 
     def handle(self, *args, **options) -> None:

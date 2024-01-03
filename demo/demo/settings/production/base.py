@@ -6,7 +6,6 @@ from ..base import *  # noqa
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
-IS_LOCAL = False
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 10  # 10MB
 
@@ -23,16 +22,7 @@ DATABASES = {
         "PORT": config("DATABASE_PORT"),
         "TEST": {"NAME": f'test_{config("DATABASE_NAME")}'},
     },
-    "read_only": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",  # noqa
-    },
 }
-
-DATABASE_ROUTERS = [
-    "demo.db_routers.DefaultRouter",
-    "demo.db_routers.ReadOnlyRouter",
-]
 
 # GCP
 DEFAULT_FILE_STORAGE = "storages.backends.gcloud.GoogleCloudStorage"

@@ -1,17 +1,13 @@
 import datetime
-from decimal import Decimal
-from operator import itemgetter
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.constants import SampleType
+from quant_tick.constants import ZERO
 
 from .calendar import iter_once, iter_window, to_pydatetime
 from .dataframe import is_decimal_close
-
-ZERO = Decimal("0")
 
 
 def is_sample(data_frame: DataFrame, first_index: int, last_index: int) -> bool:
@@ -84,7 +80,7 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
     return aggregated
 
 
-def agg_trades(data_frame: DataFrame) -> Dict[str, Any]:
+def agg_trades(data_frame: DataFrame) -> dict[str, Any]:
     """Aggregate trades."""
     first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
@@ -132,7 +128,7 @@ def filter_by_timestamp(
 
 
 def volume_filter_with_time_window(
-    data_frame: DataFrame, min_volume: int = 1000, window: Optional[str] = "1t"
+    data_frame: DataFrame, min_volume: int = 1000, window: str = "1t"
 ) -> DataFrame:
     """Volume filter, with time window."""
     samples = []
@@ -217,14 +213,14 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
     return data
 
 
-def cluster_trades_with_time_window(data_frame: DataFrame) -> list[dict]:
+def cluster_trades_with_time_window(
+    data_frame: DataFrame, window: str | None = None
+) -> DataFrame:
     """Cluster trades, with time window."""
     data = []
     d = []
     direction = None
-    # Filtered data may not have volume.
-    df = data_frame[data_frame.volume > 0]
-    for row in df.itertuples():
+    for row in data_frame.itertuples():
         if direction is None:
             direction = row.tickRule
             d.append(row)
@@ -232,12 +228,11 @@ def cluster_trades_with_time_window(data_frame: DataFrame) -> list[dict]:
             d.append(row)
         else:
             direction = row.tickRule
-            if len(d) >= min_length:
-                data.append(d)
+            data.append(d)
             d = [row]
     if d:
         data.append(d)
-    return cluster_trades(data)
+    return pd.DataFrame(cluster_trades(data))
 
 
 def cluster_trades(data: list[dict]) -> list[dict]:
@@ -255,11 +250,8 @@ def cluster_trades(data: list[dict]) -> list[dict]:
         notional = ["notional", "totalBuyNotional", "totalNotional"]
         ticks = ["ticks", "totalBuyTicks", "totalTicks"]
         for sample_type in volume + notional + ticks:
-            try:
+            if all([hasattr(i, sample_type) for i in d]):
                 value = sum([getattr(i, sample_type) for i in d])
-            except AttributeError:
-                pass
-            else:
                 if sample_type in ticks:
                     value = int(value)
                 data[sample_type] = value
@@ -268,14 +260,14 @@ def cluster_trades(data: list[dict]) -> list[dict]:
 
 
 def aggregate_sum(
-    data_frame: DataFrame, attrs: Union[List[str], str] = None, window: str = "1t"
+    data_frame: DataFrame, attrs: list[str] | str | None = None, window: str = "1t"
 ) -> DataFrame:
     """Aggregate sum over window."""
     samples = []
     if len(data_frame):
         if attrs is None:
             attrs = []
-        elif not isinstance(attrs, list):
+        elif isinstance(attrs, str):
             attrs = [attrs]
         timestamp_from = data_frame.iloc[0].timestamp
         # Iterator is not inclusive of timestamp_to, so increase by 1.

@@ -5,12 +5,11 @@ from rest_framework.generics import ListAPIView
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from quant_tick.controllers import aggregate_trade_summary
 from quant_tick.exchanges import api
 from quant_tick.filters import SymbolFilter
 from quant_tick.models import Symbol
 from quant_tick.serializers import TimeAgoWithRetrySerializer
-from quant_tick.storage import convert_trade_data_to_hourly
+from quant_tick.storage import convert_trade_data_to_daily
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +42,5 @@ class AggregateTradeDataView(ListAPIView):
         for symbol, timestamp_from, timestamp_to, retry in self.get_params(request):
             logger.info("{symbol}: starting...".format(**{"symbol": str(symbol)}))
             api(symbol, timestamp_from, timestamp_to, retry)
-            convert_trade_data_to_hourly(symbol, timestamp_from, timestamp_to)
-            aggregate_trade_summary(symbol, timestamp_from, timestamp_to, retry)
+            convert_trade_data_to_daily(symbol, timestamp_from, timestamp_to)
         return Response({"ok": True})

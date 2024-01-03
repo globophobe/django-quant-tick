@@ -1,20 +1,16 @@
 import datetime
 import logging
-from typing import Optional
 
 import pandas as pd
 from pandas import DataFrame
 
 from quant_tick.lib import (
-    aggregate_trades,
     calculate_notional,
     calculate_tick_rule,
     filter_by_timestamp,
     get_current_time,
     gzip_downloader,
     set_dtypes,
-    validate_data_frame,
-    volume_filter_with_time_window,
 )
 
 from .base import BaseController
@@ -84,31 +80,14 @@ class ExchangeS3(BaseController):
                 ):
                     df = filter_by_timestamp(data_frame, ts_from, ts_to)
                     candles = self.get_candles(ts_from, ts_to)
-                    # Are there any trades?
-                    if len(df):
-                        if self.symbol.aggregate_trades:
-                            df = aggregate_trades(df)
-                            if self.symbol.significant_trade_filter:
-                                df = volume_filter_with_time_window(
-                                    df, min_volume=self.symbol.significant_trade_filter
-                                )
-                        else:
-                            df = data_frame.drop(columns=["index"])
-                    else:
-                        df = pd.DataFrame([])
-                    validated = validate_data_frame(
-                        ts_from, ts_to, df, candles, self.symbol.aggregate_trades
-                    )
-                    self.on_data_frame(
-                        self.symbol, ts_from, ts_to, df, validated=validated
-                    )
+                    self.on_data_frame(self.symbol, ts_from, ts_to, df, candles)
             # Complete
             else:
                 break
 
             self.delete_trade_data_summary(timestamp_from, timestamp_to)
 
-    def get_data_frame(self, date: datetime.date) -> Optional[DataFrame]:
+    def get_data_frame(self, date: datetime.date) -> DataFrame | None:
         """Get data_frame."""
         url = self.get_url(date)
         data_frame = gzip_downloader(url, self.gzipped_csv_columns)
