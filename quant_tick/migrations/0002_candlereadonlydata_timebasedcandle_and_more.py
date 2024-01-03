@@ -6,6 +6,10 @@ from django.db import migrations, models
 import quant_tick.models.base
 
 
+def fake(*args):
+    pass
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("contenttypes", "0002_remove_content_type_name"),
@@ -212,7 +216,7 @@ class Migration(migrations.Migration):
                     "file_data",
                     models.FileField(
                         blank=True,
-                        upload_to=quant_tick.models.trades.upload_trade_data_summary_to,
+                        upload_to=fake,
                         verbose_name="file data",
                     ),
                 ),

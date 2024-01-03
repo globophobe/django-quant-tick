@@ -4,9 +4,6 @@ import django.core.serializers.json
 import django.db.models.deletion
 from django.db import migrations, models
 
-import quant_tick.models.candles
-import quant_tick.models.trades
-
 
 def fake(*args):
     return
@@ -287,7 +284,7 @@ class Migration(migrations.Migration):
                     "file_data",
                     models.FileField(
                         blank=True,
-                        upload_to=quant_tick.models.trades.upload_trade_data_to,
+                        upload_to=fake,
                         verbose_name="file data",
                     ),
                 ),
