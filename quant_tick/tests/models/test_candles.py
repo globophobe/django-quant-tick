@@ -3,7 +3,7 @@ import string
 import pandas as pd
 from django.test import TestCase
 
-from quant_tick.constants import Exchange, Frequency, SampleType
+from quant_tick.constants import Exchange, FileData, Frequency, SampleType
 from quant_tick.lib import get_current_time, get_min_time, get_previous_time
 from quant_tick.models import Candle, CandleCache, Symbol, TradeData
 from quant_tick.storage import convert_candle_cache_to_daily
@@ -25,18 +25,20 @@ class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
     def setUp(self):
         super().setUp()
         self.timestamp_to = self.timestamp_from + pd.Timedelta("1t")
-        self.candle = Candle.objects.create()
+        self.candle = Candle.objects.create(json_data={"source_data": FileData.RAW})
 
     def test_get_data_frame_with_one_symbol(self):
         """Get data frame with one symbol."""
         symbol = self.get_symbol("test")
         self.candle.symbols.add(symbol)
         filtered = self.get_filtered(self.timestamp_from)
-        TradeData.write(symbol, self.timestamp_from, self.timestamp_to, filtered, {})
+        TradeData.write(
+            symbol, self.timestamp_from, self.timestamp_to, filtered, pd.DataFrame([])
+        )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 1)
         t = trade_data[0]
-        data_frame = t.get_data_frame()
+        data_frame = t.get_data_frame(FileData.RAW)
         df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to).drop(
             columns=["exchange", "symbol"]
         )
@@ -52,12 +54,16 @@ class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
         for index, symbol in enumerate(symbols):
             filtered = self.get_filtered(self.timestamp_from)
             TradeData.write(
-                symbol, self.timestamp_from, self.timestamp_to, filtered, {}
+                symbol,
+                self.timestamp_from,
+                self.timestamp_to,
+                filtered,
+                pd.DataFrame([]),
             )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 2)
         data_frame = (
-            pd.concat([t.get_data_frame() for t in trade_data])
+            pd.concat([t.get_data_frame(FileData.RAW) for t in trade_data])
             .reset_index()
             .drop(columns=["index"])
         )
@@ -77,12 +83,16 @@ class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
             nanoseconds = 1 if index == 0 else 0
             filtered = self.get_filtered(self.timestamp_from, nanoseconds=nanoseconds)
             TradeData.write(
-                symbol, self.timestamp_from, self.timestamp_to, filtered, {}
+                symbol,
+                self.timestamp_from,
+                self.timestamp_to,
+                filtered,
+                pd.DataFrame([]),
             )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 2)
         data_frame = (
-            pd.concat([t.get_data_frame() for t in trade_data])
+            pd.concat([t.get_data_frame(FileData.RAW) for t in trade_data])
             .reset_index()
             .drop(columns=["index"])
         )

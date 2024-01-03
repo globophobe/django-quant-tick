@@ -1,9 +1,7 @@
 import random
 from datetime import datetime, timezone
 from decimal import Decimal
-from itertools import chain
 from pathlib import Path
-from typing import List, Optional
 from uuid import uuid4
 
 import pandas as pd
@@ -13,25 +11,27 @@ from pandas import DataFrame
 from quant_tick.constants import Exchange
 from quant_tick.lib import (
     aggregate_trades,
+    cluster_trades_with_time_window,
     get_current_time,
     get_min_time,
     volume_filter_with_time_window,
 )
-from quant_tick.models import GlobalSymbol, Symbol, TradeData, TradeDataSummary
+from quant_tick.models import GlobalSymbol, Symbol, TradeData
 
 
 class BaseRandomTradeTest:
     def generate_random_trades(
         self,
         ticks: int,
-        symbol: Optional[str] = None,
-        prices: list = [],
+        symbol: str | None = None,
+        prices: list | None = None,
         is_equal_timestamp: bool = False,
         nanoseconds: int = 0,
-        notional: Optional[Decimal] = None,
+        notional: Decimal | None = None,
         total_ticks: int = 1,
     ):
         """Generate random trades"""
+        prices = prices or []
         trades = []
         for index, tick in enumerate(ticks):
             # Price
@@ -69,12 +69,12 @@ class BaseRandomTradeTest:
 
     def get_random_trade(
         self,
-        symbol: Optional[str] = None,
-        timestamp: Optional[datetime] = None,
+        symbol: str | None = None,
+        timestamp: datetime | None = None,
         nanoseconds: int = 0,
-        price: Optional[Decimal] = None,
-        notional: Optional[Decimal] = None,
-        tick_rule: Optional[int] = None,
+        price: Decimal | None = None,
+        notional: Decimal | None = None,
+        tick_rule: int | None = None,
         total_ticks: int = 1,
     ) -> dict:
         """Get random trade."""
@@ -97,7 +97,7 @@ class BaseRandomTradeTest:
             data["symbol"] = symbol
         return data
 
-    def get_data_frame(self, data: List[dict]) -> DataFrame:
+    def get_data_frame(self, data: list[dict]) -> DataFrame:
         """Get data_frame."""
         trades = []
         for item in data:
@@ -113,26 +113,36 @@ class BaseSymbolTest:
         self.timestamp_from = get_min_time(get_current_time(), "1d")
 
     def get_symbol(
-        self, api_symbol: str = "test", aggregate_trades: bool = True
+        self,
+        api_symbol: str = "test",
+        save_raw: bool = True,
+        save_aggregated: bool = False,
+        save_filtered: bool = False,
+        save_clustered: bool = False,
     ) -> Symbol:
         """Get symbol."""
         return Symbol.objects.create(
             global_symbol=self.global_symbol,
             exchange=Exchange.COINBASE,
             api_symbol=api_symbol,
-            aggregate_trades=aggregate_trades,
+            save_raw=save_raw,
+            save_aggregated=save_aggregated,
+            save_filtered=save_filtered,
+            save_clustered=save_clustered,
         )
 
 
 class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
-    def get_filtered(
+    """Base write trade data test."""
+
+    def get_raw(
         self,
         timestamp: datetime,
         nanoseconds: int = 0,
-        price: Optional[Decimal] = None,
-        notional: Optional[Decimal] = None,
+        price: Decimal | None = None,
+        notional: Decimal | None = None,
     ) -> DataFrame:
-        """Get filtered."""
+        """Get raw."""
         trades = [
             self.get_random_trade(
                 timestamp=timestamp,
@@ -141,37 +151,66 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
                 notional=notional,
             )
         ]
-        data_frame = pd.DataFrame(trades)
-        aggregated = aggregate_trades(data_frame)
-        return volume_filter_with_time_window(aggregated, min_volume=None, window="1t")
+        return pd.DataFrame(trades)
+
+    def get_aggregated(
+        self,
+        timestamp: datetime,
+        nanoseconds: int = 0,
+        price: Decimal | None = None,
+        notional: Decimal | None = None,
+    ) -> DataFrame:
+        """Get aggregated."""
+        data_frame = self.get_raw(timestamp, nanoseconds, price, notional)
+        return aggregate_trades(data_frame)
+
+    def get_filtered(
+        self,
+        timestamp: datetime,
+        nanoseconds: int = 0,
+        price: Decimal | None = None,
+        notional: Decimal | None = None,
+    ) -> DataFrame:
+        """Get filtered."""
+        data_frame = self.get_aggregated(timestamp, nanoseconds, price, notional)
+        return volume_filter_with_time_window(data_frame, min_volume=None, window="1t")
+
+    def get_clustered(
+        self,
+        timestamp: datetime,
+        nanoseconds: int = 0,
+        price: Decimal | None = None,
+        notional: Decimal | None = None,
+    ) -> DataFrame:
+        """Get clustered."""
+        data_frame = self.get_filtered(timestamp, nanoseconds, price, notional)
+        return cluster_trades_with_time_window(data_frame, min_volume=None, window="1t")
 
     def tearDown(self):
-        trade_data_summary = TradeDataSummary.objects.all()
-        trade_data = TradeData.objects.select_related("symbol")
         # Files
-        for obj in list(chain(trade_data_summary, trade_data)):
+        for obj in TradeData.objects.all():
             obj.delete()
         # Directories
-        symbols = Symbol.objects.all()
-        trades = Path("trades")
-        for obj in symbols:
-            exchange = obj.exchange
-            symbol = obj.symbol
-            path = trades / exchange / symbol
-            raw_paths = [path / "raw" / "summary", path / "raw" / "data", path / "raw"]
-            aggregated_paths = [
-                path / "aggregated" / str(obj.significant_trade_filter) / "data",
-                path / "aggregated" / str(obj.significant_trade_filter) / "summary",
-                path / "aggregated" / str(obj.significant_trade_filter),
-                path / "aggregated",
-            ]
-            for p in raw_paths + aggregated_paths:
-                if p.exists():
-                    directories, _ = default_storage.listdir(str(p.resolve()))
+        for obj in Symbol.objects.all():
+            exchange = Path(obj.exchange)
+            for file_data in ("raw", "aggregated", "filtered", "clustered", "candles"):
+                path = Path("/".join(obj.upload_path)) / file_data
+                if path.exists():
+                    directories, _ = default_storage.listdir(str(path.resolve()))
                     for directory in directories:
-                        default_storage.delete(p / directory)
-                    default_storage.delete(p)
-            default_storage.delete(path)
-        for exchange in [obj.exchange for obj in symbols]:
-            default_storage.delete(trades / exchange)
-        default_storage.delete(trades)
+                        default_storage.delete(path / directory)
+                    default_storage.delete(path)
+
+            path = exchange / obj.symbol / obj.code_name
+            if path.exists():
+                default_storage.delete(path)
+
+        for obj in Symbol.objects.all():
+            path = Path(obj.exchange) / obj.symbol
+            if path.exists():
+                default_storage.delete(path)
+
+        for obj in Symbol.objects.all():
+            path = Path(obj.exchange)
+            if exchange.exists():
+                default_storage.delete(path)

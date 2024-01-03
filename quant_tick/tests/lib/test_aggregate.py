@@ -7,9 +7,9 @@ from pandas import DataFrame
 
 from quant_tick.lib import (
     aggregate_trades,
+    cluster_trades_with_time_window,
     get_current_time,
     get_min_time,
-    get_runs,
     volume_filter_with_time_window,
 )
 
@@ -229,60 +229,31 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
         self.assert_not_min_volume(filtered.iloc[2], buy=2, total=2)
 
 
-class GetRunsTest(BaseRandomTradeTest, SimpleTestCase):
+class ClusterTradeTest(BaseRandomTradeTest, SimpleTestCase):
     def test_one_up_tick(self):
         """One up tick."""
         up = self.get_random_trade(tick_rule=1)
         data_frame = pd.DataFrame([up])
-        runs = get_runs(data_frame)
-        self.assertEqual(len(runs), 1)
-        self.assertEqual(runs[0]["ticks"], 1)
+        clustered = cluster_trades_with_time_window(data_frame)
+        self.assertEqual(len(clustered), 1)
+        self.assertEqual(clustered.iloc[0].ticks, 1)
 
     def test_one_up_tick_and_one_down_tick(self):
         """One up tick, and one down tick."""
         up = self.get_random_trade(tick_rule=1)
         down = self.get_random_trade(tick_rule=-1)
         data_frame = pd.DataFrame([up, down])
-        runs = get_runs(data_frame)
-        self.assertEqual(len(runs), 2)
-        self.assertEqual(runs[0]["ticks"], 1)
-        self.assertEqual(runs[1]["ticks"], -1)
-
-    def test_one_up_tick_and_one_down_tick_with_runs_N(self):
-        """One up tick and one down tick, with runs N of 2."""
-        up = self.get_random_trade(tick_rule=1)
-        down = self.get_random_trade(tick_rule=-1)
-        data_frame = pd.DataFrame([up, down])
-        runs = get_runs(data_frame, runs_n=2)
-        self.assertEqual(len(runs), 0)
+        clustered = cluster_trades_with_time_window(data_frame)
+        self.assertEqual(len(clustered), 2)
+        self.assertEqual(clustered.iloc[0].ticks, 1)
+        self.assertEqual(clustered.iloc[1].ticks, -1)
 
     def test_two_up_ticks_and_one_down_tick(self):
         """Two up ticks and one down tick."""
         up = self.get_random_trade(tick_rule=1)
         down = self.get_random_trade(tick_rule=-1)
         data_frame = pd.DataFrame(([up] * 2) + [down])
-        runs = get_runs(data_frame)
-        self.assertEqual(len(runs), 2)
-        self.assertEqual(runs[0]["ticks"], 2)
-        self.assertEqual(runs[1]["ticks"], -1)
-
-    def test_two_up_ticks_and_one_down_tick_with_runs_N(self):
-        """Two up ticks and one down tick, with runs N of 2."""
-        up = self.get_random_trade(tick_rule=1)
-        down = self.get_random_trade(tick_rule=-1)
-        data_frame = pd.DataFrame(([up] * 2) + [down])
-        runs = get_runs(data_frame, runs_n=2)
-        self.assertEqual(len(runs), 1)
-        self.assertEqual(runs[0]["ticks"], 2)
-
-    def test_bins(self):
-        """Bins 1, 2, 3."""
-        trades = [
-            self.get_random_trade(price=1, notional=i + 1, tick_rule=1)
-            for i in range(3)
-        ]
-        data_frame = pd.DataFrame(trades)
-        runs = get_runs(data_frame, bins=[1, 2, 3])
-        self.assertEqual(len(runs), 1)
-        for i in range(3):
-            self.assertEqual(runs[0][f"volume{i + 1}"], 1)
+        clustered = cluster_trades_with_time_window(data_frame)
+        self.assertEqual(len(clustered), 2)
+        self.assertEqual(clustered.iloc[0].ticks, 2)
+        self.assertEqual(clustered.iloc[1].ticks, -1)
