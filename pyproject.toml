@@ -21,6 +21,7 @@ pyarrow = "*"
 randomname = "*"
 
 [tool.poetry.dev-dependencies]
+black = "*"
 coverage = "*"
 django-filter = "*"
 django-semantic-admin = "*"
