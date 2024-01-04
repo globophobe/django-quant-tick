@@ -130,11 +130,15 @@ class AbstractDataStorage(models.Model):
         data_frame.to_parquet(buffer, engine="auto", compression="snappy")
         return ContentFile(buffer.getvalue(), "data.parquet")
 
+    def has_data_frame(self, field: str) -> bool:
+        """Has data frame."""
+        data = getattr(self, field)
+        return data.name != ""
+
     def get_data_frame(self, field: str) -> DataFrame:
         """Get data frame."""
-        data = getattr(self, field)
-        if data.name:
-            return pd.read_parquet(data.open())
+        if self.has_data_frame(field):
+            return pd.read_parquet(getattr(self, field).open())
 
     class Meta:
         abstract = True
