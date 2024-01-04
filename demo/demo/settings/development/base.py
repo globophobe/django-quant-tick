@@ -6,6 +6,7 @@ from ..base import *  # noqa
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
+TEST = "test" in sys.argv
 
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
@@ -26,7 +27,7 @@ DATABASES = {
     },
 }
 
-if "test" not in sys.argv:
+if not TEST:
     LOGGING = {
         "version": 1,
         "disable_existing_loggers": False,

@@ -52,7 +52,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(filename.count("."), 1)
 
         storage = t.raw_data.storage
-        path = Path("/".join(t.symbol.upload_path)) / "raw"
+        path = Path("test-trades") / Path("/".join(t.symbol.upload_path)) / "raw"
         p = str(path.resolve())
 
         directories, _ = storage.listdir(p)
@@ -83,7 +83,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(filename.count("."), 1)
 
         storage = t.aggregated_data.storage
-        path = Path("/".join(t.symbol.upload_path)) / "aggregated"
+        path = Path("test-trades") / Path("/".join(t.symbol.upload_path)) / "aggregated"
         p = str(path.resolve())
 
         directories, _ = storage.listdir(p)

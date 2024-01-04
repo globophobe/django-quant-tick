@@ -191,26 +191,28 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         for obj in TradeData.objects.all():
             obj.delete()
         # Directories
+        test_path = Path("test-trades")
         for obj in Symbol.objects.all():
-            exchange = Path(obj.exchange)
+            upload_path = Path("/".join(obj.upload_path))
             for file_data in ("raw", "aggregated", "filtered", "clustered", "candles"):
-                path = Path("/".join(obj.upload_path)) / file_data
-                if path.exists():
-                    directories, _ = default_storage.listdir(str(path.resolve()))
+                file_path = Path(file_data)
+                p = test_path / upload_path / file_path
+                if p.exists():
+                    directories, _ = default_storage.listdir(str(p.resolve()))
                     for directory in directories:
-                        default_storage.delete(path / directory)
-                    default_storage.delete(path)
-
-            path = exchange / obj.symbol / obj.code_name
-            if path.exists():
-                default_storage.delete(path)
+                        default_storage.delete(p / directory)
+                    default_storage.delete(p)
 
         for obj in Symbol.objects.all():
-            path = Path(obj.exchange) / obj.symbol
-            if path.exists():
-                default_storage.delete(path)
+            for index in reversed(range(2)):
+                idx = index + 2
+                p = test_path / Path("/".join(obj.upload_path[:idx]))
+                if p.exists():
+                    default_storage.delete(p)
 
         for obj in Symbol.objects.all():
-            path = Path(obj.exchange)
-            if exchange.exists():
-                default_storage.delete(path)
+            p = test_path / obj.exchange
+            if p.exists():
+                default_storage.delete(p)
+
+        default_storage.delete(test_path)

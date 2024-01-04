@@ -2,6 +2,7 @@ import datetime
 from pathlib import Path
 
 import pandas as pd
+from django.conf import settings
 from django.db import models
 from django.db.models import QuerySet
 from pandas import DataFrame
@@ -128,9 +129,11 @@ class TradeData(AbstractDataStorage):
     def upload_path(self, directory: str, filename: str) -> str:
         """Upload data to.
 
-        Example: {path_prefix} / {directory} / 2022-01-01 / 0000.parquet
+        Example:
+        trades / coinbase / BTCUSD / blaring-crocodile / raw / 2022-01-01 / 0000.parquet
         """
-        path = self.symbol.upload_path + [directory, self.timestamp.date().isoformat()]
+        path = ["test-trades"] if settings.TEST else ["trades"]
+        path += self.symbol.upload_path + [directory, self.timestamp.date().isoformat()]
         fname = self.timestamp.time().strftime("%H%M")
         ext = Path(filename).suffix
         path.append(f"{fname}{ext}")
