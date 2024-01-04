@@ -122,24 +122,30 @@ def convert_trade_data_to_daily(
         for daily_ts_from, daily_ts_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d", reverse=True
         ):
-            trade_data = queryset.filter(
+            hour_or_minute_trade_data = queryset.filter(
                 timestamp__gte=daily_ts_from, timestamp__lt=daily_ts_to
             )
-            minutes = get_existing(trade_data.values("timestamp", "frequency"))
+            existing = get_existing(
+                hour_or_minute_trade_data.values("timestamp", "frequency")
+            )
             # iter_timeframe may return timestamps not equal to a day.
-            if len(minutes) == Frequency.DAY:
-                convert_trade_data(trade_data, daily_ts_from, daily_ts_to)
+            if len(existing) == Frequency.DAY:
+                convert_trade_data(
+                    hour_or_minute_trade_data, daily_ts_from, daily_ts_to
+                )
             else:
                 for hourly_ts_from, hourly_ts_to in iter_timeframe(
                     timestamp_from, timestamp_to, value="1h", reverse=True
                 ):
-                    t_data = queryset.filter(
+                    minute_trade_data = queryset.filter(
                         timestamp__gte=hourly_ts_from,
                         timestamp__lt=hourly_ts_to,
                         frequency=Frequency.MINUTE,
                     )
-                    if t_data.count() == Frequency.HOUR:
-                        convert_trade_data(t_data, hourly_ts_from, hourly_ts_to)
+                    if minute_trade_data.count() == Frequency.HOUR:
+                        convert_trade_data(
+                            minute_trade_data, hourly_ts_from, hourly_ts_to
+                        )
 
 
 def convert_trade_data(
@@ -152,36 +158,39 @@ def convert_trade_data(
     frequency = delta.total_seconds() / 60
     assert frequency in (Frequency.HOUR, Frequency.DAY)
     first = trade_data.first()
-    with transaction.atomic():
-        new_trade_data = TradeData.objects.create(
-            symbol=first.symbol,
-            timestamp=first.timestamp,
-            uid=first.uid,
-            frequency=frequency,
-            ok=all(trade_data.values_list("ok", flat=True)),
+
+    new_trade_data = TradeData.objects.create(
+        symbol=first.symbol,
+        timestamp=first.timestamp,
+        uid=first.uid,
+        frequency=frequency,
+        ok=all(trade_data.values_list("ok", flat=True)),
+    )
+    for file_data in FileData:
+        data_frames = {
+            t: t.get_data_frame(file_data)
+            for t in trade_data
+            if getattr(t, file_data).name
+        }
+
+        if len(data_frames):
+            data_frame = pd.concat(data_frames.values())
+        else:
+            data_frame = pd.DataFrame([])
+
+        # First, delete minutes, as naming convention is same as hourly.
+        for t in trade_data:
+            getattr(t, file_data).delete()
+        # Next, create hourly
+        setattr(
+            new_trade_data,
+            file_data,
+            TradeData.prepare_data(data_frame),
         )
-        for file_data in FileData:
-            data_frames = {
-                t: t.get_data_frame(file_data)
-                for t in trade_data
-                if getattr(t, file_data).name
-            }
+        new_trade_data.save()
 
-            if len(data_frames):
-                data_frame = pd.concat(data_frames.values())
-            else:
-                data_frame = pd.DataFrame([])
-
-            # First, delete minutes, as naming convention is same as hourly.
-            for t in trade_data:
-                getattr(t, file_data).delete()
-            # Next, create hourly
-            setattr(
-                new_trade_data,
-                file_data,
-                TradeData.prepare_data(data_frame),
-            )
-            new_trade_data.save()
+    # Completely delete minutes.
+    trade_data.delete()
 
     logging.info(
         _("Converted {timestamp_from} {timestamp_to} to {frequency}").format(

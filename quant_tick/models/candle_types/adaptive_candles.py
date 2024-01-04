@@ -31,11 +31,11 @@ class AdaptiveCandle(ConstantCandle):
         has_target_value = data["target_value"] is not None
         if not is_same_day or not has_target_value:
             data["date"] = timestamp.date()
-            data["target_value"] = self.get_target_value(timestamp)
+            data["target_value"] = self.get_moving_average_value(timestamp)
         return data
 
-    def get_trade_data_for_target(self, timestamp: datetime) -> bool:
-        """Get trade data for target."""
+    def get_trade_data_for_moving_average(self, timestamp: datetime) -> bool:
+        """Get trade data for moving average."""
         days = self.json_data["moving_average_number_of_days"]
         delta = pd.Timedelta(f"{days}d")
         ts = get_min_time(timestamp, value="1d") - delta
@@ -43,11 +43,11 @@ class AdaptiveCandle(ConstantCandle):
             symbol__in=self.symbols.all(), timestamp__gte=ts, timestamp__lt=ts + delta
         )
 
-    def get_target_value(self, timestamp: datetime) -> Decimal:
-        """Get target value."""
+    def get_moving_average_value(self, timestamp: datetime) -> Decimal:
+        """Get moving average value."""
         days = self.json_data["moving_average_number_of_days"]
         trade_data = (
-            self.get_trade_data_for_target(timestamp)
+            self.get_trade_data_for_moving_average(timestamp)
             .only("json_data")
             .values("json_data")
             .order_by("-timestamp")
@@ -66,11 +66,11 @@ class AdaptiveCandle(ConstantCandle):
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
         can_agg = super().can_aggregate(timestamp_from, timestamp_to)
-        trade_data_for_target = self.get_trade_data_for_target(timestamp_from)
-        existing = get_existing(trade_data_for_target.values("timestamp", "frequency"))
+        trade_data_ma = self.get_trade_data_for_moving_average(timestamp_from)
+        existing = get_existing(trade_data_ma.values("timestamp", "frequency"))
         days = self.json_data["moving_average_number_of_days"]
-        has_trade_data_for_target = len(existing) == Frequency.MINUTE * days
-        return can_agg and has_trade_data_for_target
+        can_calculate_moving_average = len(existing) == Frequency.DAY * days
+        return can_agg and can_calculate_moving_average
 
     def should_aggregate_candle(self, data: dict) -> bool:
         """Should aggregate candle."""
