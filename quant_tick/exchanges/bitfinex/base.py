@@ -1,6 +1,5 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
 import numpy as np
 from pandas import DataFrame
@@ -22,7 +21,7 @@ class BitfinexMixin:
     PERIOD	int	Amount of time the funding transaction was for (funding tickers only)
     """
 
-    def get_pagination_id(self, timestamp_from: datetime) -> Optional[int]:
+    def get_pagination_id(self, timestamp_from: datetime) -> int | None:
         """Get pagination_id."""
         return format_bitfinex_api_timestamp(timestamp_from)
 

@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 from functools import partial
-from typing import List, Optional
 
 import pandas as pd
+from pandas import DataFrame
 
 from quant_tick.controllers import iter_api
 from quant_tick.lib import candles_to_data_frame
@@ -22,8 +22,8 @@ def bitmex_candles(
     timestamp_from: datetime,
     timestamp_to: datetime,
     bin_size: str = "1m",
-    log_format: Optional[str] = None,
-) -> List[dict]:
+    log_format: str | None = None,
+) -> DataFrame:
     """Get candles."""
     # Timestamp is at candle close.
     ts_from = timestamp_from + pd.Timedelta(value="1t")

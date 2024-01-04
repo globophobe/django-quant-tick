@@ -1,5 +1,4 @@
 from datetime import datetime, time, timezone
-from typing import List
 
 import pandas as pd
 from django.test import SimpleTestCase
@@ -94,7 +93,7 @@ class IterTimeframeTest(SimpleTestCase):
 
     def get_values(
         self, timestamp_from: datetime, timestamp_to: datetime, value: str = "1d"
-    ) -> List[tuple]:
+    ) -> list[tuple]:
         """Get values for timeframe."""
         return [
             value

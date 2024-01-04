@@ -13,6 +13,8 @@ from .trades import get_trades
 
 
 class BitmexMixin:
+    """Bitmex mixin."""
+
     def get_uid(self, trade: dict) -> str:
         """Get uid."""
         return str(trade["trdMatchID"])
@@ -60,11 +62,13 @@ class BitmexMixin:
 
 
 class BitmexRESTMixin(BitmexMixin):
+    """Bitmex REST mixin."""
+
     def get_pagination_id(self, timestamp_to: datetime) -> str:
         """Get pagination_id."""
         return format_bitmex_api_timestamp(timestamp_to)
 
-    def iter_api(self, timestamp_from: datetime, pagination_id: str):
+    def iter_api(self, timestamp_from: datetime, pagination_id: str) -> list:
         """Iterate Bitmex API."""
         return get_trades(
             self.symbol.api_symbol,
@@ -82,6 +86,8 @@ class BitmexRESTMixin(BitmexMixin):
 
 
 class BitmexS3Mixin(BitmexMixin):
+    """Bitmex S3 mixin."""
+
     def get_url(self, date: datetime.date) -> str:
         """Get CSV file url."""
         date_string = date.strftime("%Y%m%d")

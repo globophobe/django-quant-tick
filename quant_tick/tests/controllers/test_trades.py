@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from typing import List, Tuple
 from unittest.mock import patch
 
 import pandas as pd
@@ -21,7 +20,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         self.timestamp_to = self.timestamp_from + (self.one_minute * 5)
         self.symbol = self.get_symbol()
 
-    def get_values(self, retry: bool = False) -> List[Tuple[datetime, datetime]]:
+    def get_values(self, retry: bool = False) -> list[tuple[datetime, datetime]]:
         """Get values."""
         return [
             value

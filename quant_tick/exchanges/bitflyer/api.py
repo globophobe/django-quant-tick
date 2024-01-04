@@ -2,7 +2,6 @@ import json
 import time
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
 
 import httpx
 
@@ -33,14 +32,15 @@ def get_bitflyer_api_url(url: str, pagination_id: int) -> str:
 
 
 def get_bitflyer_api_pagination_id(
-    timestamp: datetime, last_data: list = [], data: list = []
-) -> Optional[int]:
+    timestamp: datetime, last_data: list | None = None, data: list | None = None
+) -> int | None:
     """Get Bitflyer API pagination_id."""
+    data = data or []
     if len(data):
         return data[-1]["id"]
 
 
-def get_bitflyer_api_timestamp(trade):
+def get_bitflyer_api_timestamp(trade: dict) -> datetime:
     """Get Bitflyer API timestamp."""
     return parse_datetime(trade["exec_date"])
 
@@ -49,8 +49,8 @@ def get_trades(
     symbol: str,
     timestamp_from: datetime,
     pagination_id: int,
-    log_format: Optional[str] = None,
-) -> List[dict]:
+    log_format: str | None = None,
+) -> list[dict]:
     """Get trades."""
     url = f"{URL}/executions?product_code={symbol}&count={MAX_RESULTS}"
     return iter_api(
@@ -67,8 +67,8 @@ def get_trades(
 
 
 def get_bitflyer_api_response(
-    url: str, pagination_id: Optional[int] = None, retry: int = 30
-) -> List[dict]:
+    url: str, pagination_id: int | None = None, retry: int = 30
+) -> list[dict]:
     """Get Bitflyer API response."""
     throttle_api_requests(
         BITFLYER_MAX_REQUESTS_RESET,

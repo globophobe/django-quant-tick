@@ -2,7 +2,6 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta
-from typing import List, Optional
 
 import httpx
 
@@ -38,9 +37,10 @@ def get_binance_api_url(url: str, pagination_id: int) -> str:
 
 
 def get_binance_api_pagination_id(
-    timestamp: datetime, last_data: list = [], data: list = []
+    timestamp: datetime, last_data: list | None = None, data: list | None = None
 ) -> int:
     """Get Binance API pagination_id."""
+    data = data or []
     # Like bybit, binance pagination feels like an IQ test.
     if len(data):
         last_trade = data[-1]
@@ -66,8 +66,8 @@ def get_trades(
     symbol: str,
     timestamp_from: datetime,
     pagination_id: int,
-    log_format: Optional[str] = None,
-) -> List[dict]:
+    log_format: str | None = None,
+) -> list[dict]:
     """Get trades."""
     url = f"{API_URL}/historicalTrades?symbol={symbol}&limit={MAX_RESULTS}"
     os.environ[BINANCE_MAX_WEIGHT] = str(1195)
@@ -87,8 +87,8 @@ def get_trades(
 
 
 def get_binance_api_response(
-    url: str, pagination_id: Optional[int] = None, retry: int = 30
-) -> List[dict]:
+    url: str, pagination_id: int | None = None, retry: int = 30
+) -> list[dict]:
     """Get Binance API response."""
     try:
         headers = {"X-MBX-APIKEY": os.environ.get(BINANCE_API_KEY, None)}

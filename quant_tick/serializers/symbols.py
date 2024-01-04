@@ -4,6 +4,8 @@ from quant_tick.models import Symbol
 
 
 class SymbolSerializer(serializers.ModelSerializer):
+    """Symbol serializer."""
+
     global_symbol = serializers.SerializerMethodField()
 
     def get_global_symbol(self, symbol: Symbol) -> str:
@@ -17,5 +19,5 @@ class SymbolSerializer(serializers.ModelSerializer):
             "exchange",
             "symbol",
             "aggregate_trades",
-            "significant_trade_filter"
+            "significant_trade_filter",
         )

@@ -1,6 +1,6 @@
 import logging
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable
 
 from quant_tick.controllers import ExchangeS3, use_s3
 from quant_tick.models import Symbol

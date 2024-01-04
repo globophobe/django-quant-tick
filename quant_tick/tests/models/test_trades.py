@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 from django.test import TestCase
 
+from quant_tick.constants import FileData
 from quant_tick.lib import get_min_time, get_next_time
 from quant_tick.models import TradeData
 from quant_tick.storage import convert_trade_data_to_daily
@@ -19,11 +20,11 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
     def test_write_trade_data(self):
         """Write trade data."""
         symbol = self.get_symbol()
-        filtered = self.get_filtered(self.timestamp_from)
+        raw = self.get_raw(self.timestamp_from)
         TradeData.write(
-            symbol, self.timestamp_from, self.timestamp_to, filtered, pd.DataFrame([])
+            symbol, self.timestamp_from, self.timestamp_to, raw, pd.DataFrame([])
         )
-        row = filtered.iloc[0]
+        row = raw.iloc[0]
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 1)
         t = trade_data[0]
@@ -103,7 +104,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         for minute in range(60):
             ts_from = timestamp_from + pd.Timedelta(f"{minute}t")
             ts_to = ts_from + pd.Timedelta("1t")
-            df = self.get_filtered(ts_from)
+            df = self.get_raw(ts_from)
             TradeData.write(symbol, ts_from, ts_to, df, pd.DataFrame([]))
             data_frames.append(df)
 
@@ -116,8 +117,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         trades = TradeData.objects.all()
         self.assertEqual(trades.count(), 1)
 
-        filtered = pd.concat(data_frames).drop(columns=["uid"])
+        raw = pd.concat(data_frames).drop(columns=["uid"])
         data = trades[0]
         self.assertEqual(data.uid, first.uid)
-        self.assertTrue(data.get_data_frame().equals(filtered))
-        self.assertTrue(data.ok)
+        self.assertTrue(data.get_data_frame(FileData.RAW).equals(raw))

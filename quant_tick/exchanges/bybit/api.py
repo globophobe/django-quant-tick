@@ -3,7 +3,6 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
 import httpx
 
@@ -29,8 +28,8 @@ def get_bybit_api_url(url: str, timestamp_from: datetime) -> str:
 def get_bybit_api_response(
     get_api_url: Callable,
     base_url: str,
-    timestamp_from: Optional[datetime] = None,
-    pagination_id: Optional[str] = None,
+    timestamp_from: datetime | None = None,
+    pagination_id: str | None = None,
     retry: int = 30,
 ) -> list[dict]:
     """Get Bybit API response."""

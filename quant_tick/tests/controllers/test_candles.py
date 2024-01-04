@@ -902,6 +902,17 @@ class AdaptiveNotionalCandleTest(
 ):
     """Adaptive notional candle test."""
 
+    def setUp(self):
+        """Set up."""
+        super().setUp()
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=get_min_time(self.timestamp_from, value="1d")
+            - pd.Timedelta("1d"),
+            frequency=Frequency.DAY,
+            json_data={"candle": {"notional": 1}},
+        )
+
     def get_candle(self) -> Candle:
         """Get candle."""
         return AdaptiveCandle.objects.create(

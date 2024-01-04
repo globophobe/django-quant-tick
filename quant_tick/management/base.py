@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.db.models import QuerySet
@@ -12,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class BaseTimeFrameCommand(BaseCommand):
+    """Base time frame command."""
+
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
         parser.add_argument("--date-to", type=str, default=None)
@@ -21,6 +22,8 @@ class BaseTimeFrameCommand(BaseCommand):
 
 
 class BaseTradeDataCommand(BaseTimeFrameCommand):
+    """Base trade data command."""
+
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
         return Symbol.objects.all()
@@ -42,7 +45,7 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
         parser.add_argument("--is-active", action="store_true")
         parser.add_argument("--retry", action="store_true")
 
-    def handle(self, *args, **options) -> Optional[dict]:
+    def handle(self, *args, **options) -> dict | None:
         """Run command."""
         exchanges = options.get("exchange")
         api_symbols = options.get("api_symbol")
@@ -95,6 +98,8 @@ class BaseTradeDataWithRetryCommand(BaseTradeDataCommand):
 
 
 class BaseCandleCommand(BaseTimeFrameCommand):
+    """Base candle command."""
+
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
         return Candle.objects.prefetch_related("symbols")

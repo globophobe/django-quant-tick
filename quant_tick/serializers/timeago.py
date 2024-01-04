@@ -31,4 +31,6 @@ class TimeAgoSerializer(serializers.Serializer):
 
 
 class TimeAgoWithRetrySerializer(TimeAgoSerializer):
+    """Time ago with retry serializer."""
+
     retry = serializers.BooleanField(required=False, default=False)

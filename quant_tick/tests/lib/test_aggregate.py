@@ -232,28 +232,34 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
 class ClusterTradeTest(BaseRandomTradeTest, SimpleTestCase):
     def test_one_up_tick(self):
         """One up tick."""
-        up = self.get_random_trade(tick_rule=1)
-        data_frame = pd.DataFrame([up])
+        up_tick = self.get_random_trade(tick_rule=1)
+        data_frame = pd.DataFrame([up_tick])
         clustered = cluster_trades_with_time_window(data_frame)
         self.assertEqual(len(clustered), 1)
-        self.assertEqual(clustered.iloc[0].ticks, 1)
+        self.assertEqual(clustered.iloc[0].tickRule, 1)
 
     def test_one_up_tick_and_one_down_tick(self):
         """One up tick, and one down tick."""
-        up = self.get_random_trade(tick_rule=1)
-        down = self.get_random_trade(tick_rule=-1)
-        data_frame = pd.DataFrame([up, down])
+        up_tick = self.get_random_trade(tick_rule=1)
+        down_tick = self.get_random_trade(tick_rule=-1)
+        data_frame = pd.DataFrame([up_tick, down_tick])
         clustered = cluster_trades_with_time_window(data_frame)
+        up = clustered.iloc[0]
+        down = clustered.iloc[1]
         self.assertEqual(len(clustered), 2)
-        self.assertEqual(clustered.iloc[0].ticks, 1)
-        self.assertEqual(clustered.iloc[1].ticks, -1)
+        self.assertEqual(up.tickRule, 1)
+        self.assertEqual(down.tickRule, -1)
 
     def test_two_up_ticks_and_one_down_tick(self):
         """Two up ticks and one down tick."""
-        up = self.get_random_trade(tick_rule=1)
-        down = self.get_random_trade(tick_rule=-1)
-        data_frame = pd.DataFrame(([up] * 2) + [down])
+        up_tick = self.get_random_trade(tick_rule=1)
+        down_tick = self.get_random_trade(tick_rule=-1)
+        data_frame = pd.DataFrame(([up_tick] * 2) + [down_tick])
         clustered = cluster_trades_with_time_window(data_frame)
         self.assertEqual(len(clustered), 2)
-        self.assertEqual(clustered.iloc[0].ticks, 2)
-        self.assertEqual(clustered.iloc[1].ticks, -1)
+        up = clustered.iloc[0]
+        down = clustered.iloc[1]
+        self.assertEqual(up.ticks, 2)
+        self.assertEqual(up.tickRule, 1)
+        self.assertEqual(down.ticks, 1)
+        self.assertEqual(down.tickRule, -1)

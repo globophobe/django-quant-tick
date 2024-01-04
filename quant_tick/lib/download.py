@@ -1,7 +1,7 @@
 import logging
-import os
+from collections.abc import Iterable
+from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Iterable
 
 import httpx
 import pandas as pd
@@ -21,7 +21,7 @@ def gzip_downloader(url: str, columns: Iterable[str]) -> DataFrame:
         filename = temp_file.name
         with open(filename, "wb+") as temp:
             temp.write(response.content)
-            size = os.path.getsize(filename)
+            size = Path.stat(filename).st_size
             if size > 0:
                 # Extract gzip.
                 return pd.read_csv(
