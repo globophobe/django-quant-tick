@@ -163,6 +163,9 @@ class TradeDataIterator(BaseTimeFrameIterator):
             timestamp__lt=timestamp_to,
         )
         if retry:
+            # Delete daily data.
+            queryset.filter(frequency=Frequency.DAY, ok=False).delete()
+            # Overwrite hourly or minute data.
             queryset = queryset.exclude(ok=False)
         return get_existing(queryset.values("timestamp", "frequency"))
 
