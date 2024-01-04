@@ -23,7 +23,7 @@ Whenever possible, data is downloaded from the exchange's AWS S3 repositories. O
 
 A database, preferably PostgreSQL, is required. Data is saved to the database after aggregation and filtering. 
 
-Tick data is aggregated at 1 minute intervals, and validated with the exchange's historical candle API.
+Candles are aggregated at 1 minute intervals, and validated with the exchange's historical candle API.
 
 [Notes](https://github.com/globophobe/django-quant-tick/blob/main/NOTES.md).
 
