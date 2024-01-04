@@ -51,9 +51,6 @@ class Migration(migrations.Migration):
                 verbose_name="significant trade filter",
             ),
         ),
-        migrations.DeleteModel(
-            name="CandleReadOnlyData",
-        ),
         migrations.RenameField(
             model_name="symbol",
             old_name="aggregate_trades",
@@ -75,15 +72,6 @@ class Migration(migrations.Migration):
                 blank=True,
                 upload_to=quant_tick.models.trades.upload_filtered_data_to,
                 verbose_name="filtered data",
-            ),
-        ),
-        migrations.AddField(
-            model_name="candlecache",
-            name="file_data",
-            field=models.FileField(
-                blank=True,
-                upload_to=quant_tick.models.candles.upload_candle_cache_data_to,
-                verbose_name="file data",
             ),
         ),
         migrations.AddField(

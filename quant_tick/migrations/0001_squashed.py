@@ -254,43 +254,6 @@ class Migration(migrations.Migration):
             bases=("quant_tick.candle",),
         ),
         migrations.CreateModel(
-            name="CandleReadOnlyData",
-            fields=[
-                (
-                    "id",
-                    models.BigAutoField(
-                        auto_created=True,
-                        primary_key=True,
-                        serialize=False,
-                        verbose_name="ID",
-                    ),
-                ),
-                (
-                    "timestamp",
-                    models.DateTimeField(db_index=True, verbose_name="timestamp"),
-                ),
-                (
-                    "json_data",
-                    models.JSONField(
-                        decoder=quant_tick.models.base.QuantTickDecoder,
-                        default=dict,
-                        encoder=quant_tick.models.base.QuantTickEncoder,
-                        verbose_name="json data",
-                    ),
-                ),
-                (
-                    "candle_id",
-                    models.BigIntegerField(db_index=True, verbose_name="candle"),
-                ),
-            ],
-            options={
-                "verbose_name": "candle data",
-                "verbose_name_plural": "candle data",
-                "db_table": "quant_candles_candle_read_only_data",
-                "ordering": ("timestamp",),
-            },
-        ),
-        migrations.CreateModel(
             name="TimeBasedCandle",
             fields=[],
             options={
