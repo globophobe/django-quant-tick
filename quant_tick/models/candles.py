@@ -1,5 +1,4 @@
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 from django.db import models
@@ -16,20 +15,8 @@ from quant_tick.lib import (
 )
 from quant_tick.utils import gettext_lazy as _
 
-from .base import AbstractCodeName, AbstractDataStorage, JSONField
+from .base import AbstractCodeName, JSONField
 from .trades import TradeData
-
-
-def upload_candle_cache_data_to(instance: "CandleCache", filename: str) -> str:
-    """Upload candle cache data to.
-
-    Example: candles / blaring-crocodile / 2022-01-01 / 0000.parquet
-    """
-    path = ["candles", instance.candle.code_name, instance.timestamp.date().isoformat()]
-    fname = instance.timestamp.time().strftime("%H%M")
-    ext = Path(filename).suffix
-    path.append(f"{fname}{ext}")
-    return "/".join(path)
 
 
 class Candle(AbstractCodeName, PolymorphicModel):
@@ -228,7 +215,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         verbose_name_plural = _("candles")
 
 
-class CandleCache(AbstractDataStorage):
+class CandleCache(models.Model):
     """Candle cache."""
 
     candle = models.ForeignKey(
@@ -238,14 +225,7 @@ class CandleCache(AbstractDataStorage):
     frequency = models.PositiveIntegerField(
         _("frequency"), choices=Frequency.choices, db_index=True
     )
-    file_data = models.FileField(
-        _("file data"), blank=True, upload_to=upload_candle_cache_data_to
-    )
     json_data = JSONField(_("json data"), default=dict)
-
-    def get_data_frame(self) -> DataFrame:
-        """Get data frame."""
-        return super().get_data_frame("file_data")
 
     class Meta:
         db_table = "quant_candles_candle_cache"
