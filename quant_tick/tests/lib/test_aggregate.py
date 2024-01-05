@@ -229,7 +229,9 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
         self.assert_not_min_volume(filtered.iloc[2], buy=2, total=2)
 
 
-class ClusterTradeTest(BaseRandomTradeTest, SimpleTestCase):
+class TradeClusterTest(BaseRandomTradeTest, SimpleTestCase):
+    """Trade cluster test."""
+
     def test_one_up_tick(self):
         """One up tick."""
         up_tick = self.get_random_trade(tick_rule=1)

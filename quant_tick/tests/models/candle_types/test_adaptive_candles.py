@@ -29,8 +29,6 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
             symbol=symbol, timestamp=one_day_ago, frequency=Frequency.DAY
         )
         TradeData.write_data_frame(trade_data, filtered, pd.DataFrame([]))
-        # FIXME
-        # TradeDataSummary.aggregate(symbol, yesterday)
         cache = candle.get_cache_data(now, {"date": yesterday, "target_value": 0})
         self.assertEqual(cache["target_value"], 123)
 
