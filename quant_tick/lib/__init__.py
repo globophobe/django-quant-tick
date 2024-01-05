@@ -1,5 +1,4 @@
 from .aggregate import (
-    aggregate_sum,
     aggregate_trades,
     cluster_trades_with_time_window,
     filter_by_timestamp,
@@ -26,8 +25,9 @@ from .calendar import (
 )
 from .candles import (
     aggregate_candle,
+    aggregate_candles,
     candles_to_data_frame,
-    validate_data_frame,
+    validate_aggregated_candles,
 )
 from .dataframe import (
     assert_type_decimal,
@@ -42,7 +42,7 @@ from .experimental import calc_notional_exponent, calc_volume_exponent
 
 __all__ = [
     "aggregate_candle",
-    "aggregate_sum",
+    "aggregate_candles",
     "aggregate_trades",
     "cluster_trades_with_time_window",
     "filter_by_timestamp",
@@ -66,7 +66,7 @@ __all__ = [
     "timestamp_to_inclusive",
     "to_pydatetime",
     "candles_to_data_frame",
-    "validate_data_frame",
+    "validate_aggregated_candles",
     "assert_type_decimal",
     "calculate_notional",
     "calculate_tick_rule",

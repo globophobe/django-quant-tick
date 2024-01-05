@@ -59,7 +59,13 @@ def aggregate_candles(
                 "buyTicks",
             ):
                 d[k] = ZERO
-    return DataFrame(data) if as_data_frame else data
+    if as_data_frame:
+        df = DataFrame(data)
+        if len(df):
+            df.set_index("timestamp", inplace=True)
+        return df
+    else:
+        return data
 
 
 def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -> dict:
