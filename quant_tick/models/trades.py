@@ -10,6 +10,7 @@ from pandas import DataFrame
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
     aggregate_candle,
+    aggregate_candles,
     aggregate_trades,
     cluster_trades_with_time_window,
     filter_by_timestamp,
@@ -17,7 +18,7 @@ from quant_tick.lib import (
     get_missing,
     get_next_time,
     has_timestamps,
-    validate_data_frame,
+    validate_aggregated_candles,
     volume_filter_with_time_window,
 )
 from quant_tick.utils import gettext_lazy as _
@@ -204,19 +205,20 @@ class TradeData(AbstractDataStorage):
                 frequency=Frequency.MINUTE,
             )
         }
-        for timestamp in timestamps:
-            if timestamp in existing:
-                obj = existing[timestamp]
+        for ts_from in timestamps:
+            ts_to = get_next_time(ts_from, "1t")
+            if ts_from in existing:
+                obj = existing[ts_from]
             else:
                 obj = cls(
                     symbol=symbol,
-                    timestamp=timestamp,
+                    timestamp=ts_from,
                     frequency=Frequency.MINUTE,
                 )
             cls.write_data_frame(
                 obj,
-                filter_by_timestamp(trades, timestamp, get_next_time(timestamp, "1t")),
-                filter_by_timestamp(candles, timestamp, get_next_time(timestamp, "1t")),
+                filter_by_timestamp(trades, ts_from, ts_to),
+                filter_by_timestamp(candles, ts_from, ts_to),
             )
 
     @classmethod
@@ -237,24 +239,30 @@ class TradeData(AbstractDataStorage):
         aggregated = pd.DataFrame([])
         filtered = pd.DataFrame([])
         clustered = pd.DataFrame([])
+        aggregated_candles = pd.DataFrame([])
         if len(trades):
             symbol = obj.symbol
+            aggregated = aggregate_trades(trades)
+            filtered = aggregated
             if symbol.save_raw:
                 obj.raw_data = cls.prepare_data(trades)
-            if symbol.save_aggregated or symbol.save_filtered or symbol.save_clustered:
-                aggregated = aggregate_trades(trades)
+            if symbol.save_aggregated:
                 obj.aggregated_data = cls.prepare_data(aggregated)
-            if symbol.save_filtered or symbol.save_clustered:
-                if symbol.significant_trade_filter:
+            if symbol.save_filtered:
+                if symbol.save_filtered and symbol.significant_trade_filter:
                     filtered = volume_filter_with_time_window(
                         aggregated, min_volume=symbol.significant_trade_filter
                     )
-                else:
-                    filtered = aggregated
-                obj.filtered_data = cls.prepare_data(filtered)
+                    obj.filtered_data = cls.prepare_data(filtered)
             if symbol.save_clustered:
                 clustered = cluster_trades_with_time_window(filtered)
                 obj.clustered_data = cls.prepare_data(clustered)
+
+            aggregated_candles = aggregate_candles(
+                filtered,
+                obj.timestamp,
+                obj.timestamp + pd.Timedelta(f"{obj.frequency}t"),
+            )
 
         data_frame = pd.DataFrame([])
         if len(clustered):
@@ -268,27 +276,24 @@ class TradeData(AbstractDataStorage):
 
         obj.json_data = {"candle": aggregate_candle(data_frame)}
 
-        # TODO: Candles
-        validated = validate_data_frame(
-            obj.timestamp,
-            obj.timestamp + pd.Timedelta(f"{obj.frequency}t"),
-            data_frame,
+        aggregated_candles = validate_aggregated_candles(
+            aggregated_candles,
             candles,
         )
-        if len(validated):
-            values = validated.values()
-            all_true = all([v is True for v in values])
-            some_false = True in [isinstance(v, dict) for v in values]
-            some_none = None in values
-            if all_true:
-                obj.ok = True
-            elif some_false or some_none:
-                if some_false:
-                    obj.ok = False
-                else:
-                    obj.ok = None
+        obj.candle_data = cls.prepare_data(aggregated_candles)
+
+        all_true = all(aggregated_candles.validated.eq(True))
+        some_false = any(aggregated_candles.validated.eq(False))
+        some_none = any(aggregated_candles.validated.isna())
+        if all_true:
+            obj.ok = True
+        elif some_false or some_none:
+            if some_false:
+                obj.ok = False
             else:
-                raise NotImplementedError
+                obj.ok = None
+        else:
+            raise NotImplementedError
 
         obj.save()
 
