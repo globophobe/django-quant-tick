@@ -85,8 +85,6 @@ class ExchangeS3(BaseController):
             else:
                 break
 
-            self.delete_trade_data_summary(timestamp_from, timestamp_to)
-
     def get_data_frame(self, date: datetime.date) -> DataFrame | None:
         """Get data_frame."""
         url = self.get_url(date)

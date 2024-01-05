@@ -168,8 +168,6 @@ class ExchangeREST(BaseController):
             if is_last_iteration:
                 break
 
-            self.delete_trade_data_summary(timestamp_from, timestamp_to)
-
     def parse_data(self, data: list) -> list:
         """Parse trade data."""
         return [
