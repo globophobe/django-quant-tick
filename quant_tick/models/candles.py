@@ -2,6 +2,7 @@ from datetime import datetime
 
 import pandas as pd
 from django.db import models
+from django.db.models import QuerySet
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
@@ -97,19 +98,40 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Get cache data."""
         return data
 
-    def get_data_frame(
-        self, timestamp_from: datetime, timestamp_to: datetime
-    ) -> DataFrame:
-        """Get data frame."""
+    def get_trade_data(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        only: list | str | None = None,
+    ) -> QuerySet:
+        """Get trade data."""
         # Trade data may be daily, so timestamp from >= daily timestamp.
-        trade_data = (
+        if isinstance(only, str):
+            only = [only]
+        only = only or []
+        return (
             TradeData.objects.filter(
                 symbol__in=self.symbols.all(),
                 timestamp__gte=get_min_time(timestamp_from, value="1d"),
                 timestamp__lt=timestamp_to,
             )
             .select_related("symbol")
-            .only(*["symbol", "timestamp", "frequency"] + list(FileData))
+            .only(*["timestamp", "frequency"] + only)
+        )
+
+    def get_expected_daily_candles(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> dict:
+        """Get expected daily candles."""
+        trade_data = self.get_trade_data(timestamp_from, timestamp_to, only="json_data")
+        return trade_data.values_list("json_data", flat=True)
+
+    def get_data_frame(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> DataFrame:
+        """Get data frame."""
+        trade_data = self.get_trade_data(
+            timestamp_from, timestamp_to, only=["symbol"] + list(FileData)
         )
         data_frames = []
         for symbol in self.symbols.all():
