@@ -1,4 +1,5 @@
 import datetime
+import math
 from typing import Any
 
 import pandas as pd
@@ -221,13 +222,14 @@ def cluster_trades_with_time_window(
     d = []
     direction = None
     for row in data_frame.itertuples():
+        tick_rule = row.tickRule if row.tickRule in (1, -1) else None
         if direction is None:
-            direction = row.tickRule
+            direction = tick_rule
             d.append(row)
-        elif row.tickRule == direction:
+        elif tick_rule == direction:
             d.append(row)
         else:
-            direction = row.tickRule
+            direction = tick_rule
             data.append(d)
             d = [row]
     if d:
@@ -238,49 +240,45 @@ def cluster_trades_with_time_window(
 def cluster_trades(data: list[dict]) -> list[dict]:
     """Cluster trades."""
     result = []
-    for _, d in enumerate(data):
-        timestamp = d[0].timestamp
-        delta = d[-1].timestamp - timestamp
+    for __, d in enumerate(data):
+        first = d[0]
+        last = d[-1]
+        delta = last.timestamp - first.timestamp
+        total_seconds = delta.total_seconds()
+        values = [i.tickRule for i in d]
+        is_up_tick = 1 in values
+        is_down_tick = -1 in values
+        assert not (is_up_tick and is_down_tick)
+        if is_up_tick:
+            tick_rule = 1
+        elif is_down_tick:
+            tick_rule = -1
+        else:
+            tick_rule = None
         data = {
-            "timestamp": to_pydatetime(timestamp),
-            "seconds": delta.total_seconds() or 0,
-            "tickRule": int(d[0].tickRule),
+            "timestamp": to_pydatetime(first.timestamp),
+            "nanoseconds": first.nanoseconds,
+            "total_seconds": total_seconds,
+            "open": first.price,
+            "high": max([i.price for i in d]),
+            "low": min([i.price for i in d]),
+            "close": last.price,
+            "tickRule": tick_rule,
         }
         volume = ["volume", "totalBuyVolume", "totalVolume"]
         notional = ["notional", "totalBuyNotional", "totalNotional"]
         ticks = ["ticks", "totalBuyTicks", "totalTicks"]
         for sample_type in volume + notional + ticks:
             if all([hasattr(i, sample_type) for i in d]):
-                value = sum([getattr(i, sample_type) for i in d])
+                value = sum(
+                    [
+                        val
+                        for i in d
+                        if (val := getattr(i, sample_type)) and not math.isnan(val)
+                    ]
+                )
                 if sample_type in ticks:
                     value = int(value)
                 data[sample_type] = value
         result.append(data)
     return result
-
-
-def aggregate_sum(
-    data_frame: DataFrame, attrs: list[str] | str | None = None, window: str = "1t"
-) -> DataFrame:
-    """Aggregate sum over window."""
-    samples = []
-    if len(data_frame):
-        if attrs is None:
-            attrs = []
-        elif isinstance(attrs, str):
-            attrs = [attrs]
-        timestamp_from = data_frame.iloc[0].timestamp
-        # Iterator is not inclusive of timestamp_to, so increase by 1.
-        timestamp_to = data_frame.iloc[-1].timestamp + pd.Timedelta(window)
-        for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value=window):
-            df = data_frame[
-                (data_frame.timestamp >= ts_from) & (data_frame.timestamp < ts_to)
-            ]
-            sample = {"timestamp": ts_from}
-            for attr in attrs:
-                sample[attr] = 0
-            if len(df):
-                for attr in attrs:
-                    sample[attr] = df[attr].sum()
-                samples.append(sample)
-    return pd.DataFrame(samples).set_index("timestamp") if samples else pd.DataFrame()
