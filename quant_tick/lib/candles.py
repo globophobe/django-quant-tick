@@ -44,7 +44,7 @@ def aggregate_candles(
     for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, window):
         df = filter_by_timestamp(data_frame, ts_from, ts_to)
         if len(df):
-            candle = aggregate_candle(data_frame, timestamp=ts_from)
+            candle = aggregate_candle(df, timestamp=ts_from)
             data.append(candle)
         else:
             d = {"timestamp": ts_from}

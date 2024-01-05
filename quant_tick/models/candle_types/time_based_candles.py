@@ -55,7 +55,7 @@ class TimeBasedCandle(Candle):
         for ts_from, ts_to in iter_window(ts_from, max_ts_to, window):  # noqa: B020
             df = filter_by_timestamp(data_frame, ts_from, ts_to)
             if len(df):
-                candle = aggregate_candle(data_frame, timestamp=ts_from)
+                candle = aggregate_candle(df, timestamp=ts_from)
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
                     candle = merge_cache(previous, candle)
