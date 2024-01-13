@@ -163,11 +163,7 @@ def volume_filter_with_time_window(
                 if next_index < total_rows:
                     sample = df.loc[next_index:]
                     samples.append(volume_filter(sample))
-    filtered = pd.DataFrame(samples)
-    # Assert data_frame volume is close to filtered volume.
-    msg = "Volume is not close."
-    assert is_decimal_close(data_frame.volume.sum(), filtered.totalVolume.sum()), msg
-    return filtered
+    return pd.DataFrame(samples)
 
 
 def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
@@ -214,10 +210,8 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
     return data
 
 
-def cluster_trades_with_time_window(
-    data_frame: DataFrame, window: str | None = None
-) -> DataFrame:
-    """Cluster trades, with time window."""
+def cluster_trades(data_frame: DataFrame, window: str | None = None) -> DataFrame:
+    """Cluster trades."""
     data = []
     d = []
     direction = None
@@ -234,11 +228,11 @@ def cluster_trades_with_time_window(
             d = [row]
     if d:
         data.append(d)
-    return pd.DataFrame(cluster_trades(data))
+    return pd.DataFrame(cluster(data))
 
 
-def cluster_trades(data: list[dict]) -> list[dict]:
-    """Cluster trades."""
+def cluster(data: list[dict]) -> list[dict]:
+    """Cluster."""
     result = []
     for __, d in enumerate(data):
         first = d[0]
@@ -258,7 +252,7 @@ def cluster_trades(data: list[dict]) -> list[dict]:
         data = {
             "timestamp": to_pydatetime(first.timestamp),
             "nanoseconds": first.nanoseconds,
-            "total_seconds": total_seconds,
+            "totalSeconds": total_seconds,
             "open": first.price,
             "high": max([i.price for i in d]),
             "low": min([i.price for i in d]),
@@ -282,3 +276,78 @@ def cluster_trades(data: list[dict]) -> list[dict]:
                 data[sample_type] = value
         result.append(data)
     return result
+
+
+def combine_clustered_trades(data_frame: DataFrame) -> DataFrame:
+    """Combine clustered trades."""
+    result = []
+    data = []
+    last_tick_rule = None
+    # Iterate in reverse.
+    df = data_frame[::-1]
+    for row in df.itertuples():
+        tick_rule = row.tickRule if row.tickRule in (1, -1) else None
+        # Initial rows if None, maybe appended to next data frame.
+        if not tick_rule and not last_tick_rule:
+            data.append(row)
+        else:
+            if tick_rule and not last_tick_rule:
+                if data:
+                    data.reverse()
+                    result.append(combine_clusters(data))
+                    data = []
+                data.append(row)
+                last_tick_rule = tick_rule
+            elif tick_rule in (None, last_tick_rule):
+                data.append(row)
+            else:
+                if data:
+                    data.reverse()
+                    result.append(combine_clusters(data))
+                    data = []
+                data.append(row)
+    if data:
+        result.append(combine_clusters(data))
+    d = (
+        pd.DataFrame(result)[::-1]
+        .convert_dtypes()
+        .replace({float("nan"): None})
+        .reset_index(drop=True)
+    )
+    return d
+
+
+def combine_clusters(data: list[dict]) -> list[dict]:
+    """Combine clusters."""
+    first = data[0]
+    last = data[-1]
+    delta = last.timestamp - first.timestamp
+    tick_rule = set([i.tickRule for i in data if i.tickRule in (1, -1)])
+    if tick_rule:
+        assert len(tick_rule) == 1
+        tick_rule = int(tick_rule.pop())
+    else:
+        tick_rule = None
+    return {
+        "timestamp": first.timestamp,
+        "nanoseconds": first.nanoseconds,
+        "totalSeconds": delta.total_seconds(),
+        "open": first.open,
+        "high": max([d.high for d in data]),
+        "low": min([d.low for d in data]),
+        "close": last.close,
+        "tickRule": tick_rule,
+        "volume": sum([d.volume for d in data if d.volume]),
+        "totalBuyVolume": sum([d.totalBuyVolume for d in data if d.totalBuyVolume]),
+        "totalVolume": sum(
+            [d.totalVolume for d in data if d.totalVolume if d.totalVolume]
+        ),
+        "notional": sum([d.notional for d in data if d.notional]),
+        "totalBuyNotional": sum(
+            [d.totalBuyNotional for d in data if d.totalBuyNotional]
+        ),
+        "totalNotional": sum([d.totalNotional for d in data if d.totalNotional]),
+        "ticks": sum([d.ticks for d in data if d.ticks]),
+        "totalBuyTicks": sum([d.totalBuyTicks for d in data if d.totalBuyTicks]),
+        "totalTicks": sum([d.totalTicks for d in data if d.totalTicks]),
+    }

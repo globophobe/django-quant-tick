@@ -12,12 +12,13 @@ from quant_tick.lib import (
     aggregate_candle,
     aggregate_candles,
     aggregate_trades,
-    cluster_trades_with_time_window,
+    cluster_trades,
     filter_by_timestamp,
     get_existing,
     get_missing,
     get_next_time,
     has_timestamps,
+    is_decimal_close,
     validate_aggregated_candles,
     volume_filter_with_time_window,
 )
@@ -255,7 +256,10 @@ class TradeData(AbstractDataStorage):
                     )
                     obj.filtered_data = cls.prepare_data(filtered)
             if symbol.save_clustered:
-                clustered = cluster_trades_with_time_window(filtered)
+                clustered = cluster_trades(filtered)
+                assert is_decimal_close(
+                    clustered.totalNotional.sum(), aggregated.notional.sum()
+                )
                 obj.clustered_data = cls.prepare_data(clustered)
 
             aggregated_candles = aggregate_candles(

@@ -9,6 +9,7 @@ from django.db.models.functions import TruncDate
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
+    combine_clusters,
     get_existing,
     get_min_time,
     get_next_time,
@@ -102,7 +103,7 @@ def convert_trade_data_to_daily(
 ) -> None:
     """Convert trade data by minute, or hourly, to daily.
 
-    * Not necessary to convert in order.
+    * Convert any order.
     """
     queryset = TradeData.objects.filter(
         symbol=symbol, frequency__in=(Frequency.MINUTE, Frequency.HOUR)
@@ -178,16 +179,20 @@ def convert_trade_data(
         else:
             data_frame = pd.DataFrame([])
 
-        # First, delete minutes, as naming convention is same as hourly.
+        if file_data == FileData.CLUSTERED:
+            data_frame = combine_clusters(data_frame)
+
+        # First, delete minutes, as naming convention is same as hourly or daily.
         for t in trade_data:
             getattr(t, file_data).delete()
-        # Next, create hourly
-        setattr(
-            new_trade_data,
-            file_data,
-            TradeData.prepare_data(data_frame),
-        )
-        new_trade_data.save()
+        if len(data_frame):
+            # Next, create hourly or daily.
+            setattr(
+                new_trade_data,
+                file_data,
+                TradeData.prepare_data(data_frame),
+            )
+            new_trade_data.save()
 
     # Completely delete minutes.
     trade_data.delete()
