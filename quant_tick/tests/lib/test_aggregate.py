@@ -1,5 +1,6 @@
 import random
 from datetime import datetime
+from decimal import Decimal
 
 import pandas as pd
 from django.test import SimpleTestCase
@@ -7,7 +8,8 @@ from pandas import DataFrame
 
 from quant_tick.lib import (
     aggregate_trades,
-    cluster_trades_with_time_window,
+    cluster_trades,
+    combine_clustered_trades,
     get_current_time,
     get_min_time,
     volume_filter_with_time_window,
@@ -229,14 +231,14 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
         self.assert_not_min_volume(filtered.iloc[2], buy=2, total=2)
 
 
-class TradeClusterTest(BaseRandomTradeTest, SimpleTestCase):
-    """Trade cluster test."""
+class ClusterTradeTest(BaseRandomTradeTest, SimpleTestCase):
+    """Cluster trades test."""
 
     def test_one_up_tick(self):
         """One up tick."""
         up_tick = self.get_random_trade(tick_rule=1)
         data_frame = pd.DataFrame([up_tick])
-        clustered = cluster_trades_with_time_window(data_frame)
+        clustered = cluster_trades(data_frame)
         self.assertEqual(len(clustered), 1)
         self.assertEqual(clustered.iloc[0].tickRule, 1)
 
@@ -245,7 +247,7 @@ class TradeClusterTest(BaseRandomTradeTest, SimpleTestCase):
         up_tick = self.get_random_trade(tick_rule=1)
         down_tick = self.get_random_trade(tick_rule=-1)
         data_frame = pd.DataFrame([up_tick, down_tick])
-        clustered = cluster_trades_with_time_window(data_frame)
+        clustered = cluster_trades(data_frame)
         up = clustered.iloc[0]
         down = clustered.iloc[1]
         self.assertEqual(len(clustered), 2)
@@ -253,11 +255,11 @@ class TradeClusterTest(BaseRandomTradeTest, SimpleTestCase):
         self.assertEqual(down.tickRule, -1)
 
     def test_two_up_ticks_and_one_down_tick(self):
-        """Two up ticks and one down tick."""
+        """Two up ticks, and one down tick."""
         up_tick = self.get_random_trade(tick_rule=1)
         down_tick = self.get_random_trade(tick_rule=-1)
         data_frame = pd.DataFrame(([up_tick] * 2) + [down_tick])
-        clustered = cluster_trades_with_time_window(data_frame)
+        clustered = cluster_trades(data_frame)
         self.assertEqual(len(clustered), 2)
         up = clustered.iloc[0]
         down = clustered.iloc[1]
@@ -265,3 +267,116 @@ class TradeClusterTest(BaseRandomTradeTest, SimpleTestCase):
         self.assertEqual(up.tickRule, 1)
         self.assertEqual(down.ticks, 1)
         self.assertEqual(down.tickRule, -1)
+
+
+class CombineClusteredTradeTest(BaseRandomTradeTest, SimpleTestCase):
+    """Combine trade cluster test."""
+
+    def get_clustered(self, trades: list[dict]) -> DataFrame:
+        """Get clustered."""
+        data_frames = [
+            cluster_trades(
+                volume_filter_with_time_window(
+                    pd.DataFrame([self.get_random_trade(**trade)])
+                )
+            )
+            for trade in trades
+        ]
+        return pd.concat(data_frames).reset_index(drop=True)
+
+    def test_two_up_ticks(self):
+        """Two up ticks."""
+        trades = [{"price": Decimal("1000"), "notional": Decimal("1"), "tick_rule": 1}]
+        clustered = self.get_clustered(trades * 2)
+        combined = combine_clustered_trades(clustered)
+        self.assertEqual(len(combined), 1)
+        first = combined.iloc[0]
+        self.assertEqual(first.tickRule, 1)
+        self.assertEqual(first.totalNotional, clustered.totalNotional.sum())
+
+    def test_one_insignificant_tick_and_one_up_tick(self):
+        """One insignificant tick, and one up tick."""
+        trades = [
+            {"price": Decimal("1000"), "notional": Decimal("0.1"), "tick_rule": 1},
+            {"price": Decimal("1000"), "notional": Decimal("1"), "tick_rule": 1},
+        ]
+        clustered = self.get_clustered(trades)
+        combined = combine_clustered_trades(clustered)
+        self.assertEqual(len(combined), 1)
+        first = combined.iloc[0]
+        self.assertEqual(first.tickRule, 1)
+        self.assertEqual(first.totalNotional, clustered.totalNotional.sum())
+
+    def test_one_up_tick_and_one_insignificant_tick(self):
+        """One up tick, and one insignificant tick."""
+        trades = [
+            {"price": Decimal("1000"), "notional": Decimal("1"), "tick_rule": 1},
+            {"price": Decimal("1000"), "notional": Decimal("0.1"), "tick_rule": 1},
+        ]
+        clustered = self.get_clustered(trades)
+        combined = combine_clustered_trades(clustered)
+        self.assertEqual(len(combined), 2)
+        self.assertEqual(combined.iloc[0].tickRule, 1)
+        self.assertTrue(pd.isnull(combined.iloc[1].tickRule))
+        self.assertEqual(combined.totalNotional.sum(), clustered.totalNotional.sum())
+
+    def test_one_up_tick_one_insignificant_tick_and_one_up_tick(self):
+        """One up tick, one insignificant tick, and one up tick."""
+        trades = [
+            {"price": Decimal("1000"), "notional": Decimal("1"), "tick_rule": 1},
+            {"price": Decimal("1000"), "notional": Decimal("0.1"), "tick_rule": 1},
+            {"price": Decimal("1000"), "notional": Decimal("1"), "tick_rule": 1},
+        ]
+        clustered = self.get_clustered(trades)
+        combined = combine_clustered_trades(clustered)
+        self.assertEqual(len(combined), 1)
+        first = combined.iloc[0]
+        self.assertEqual(first.tickRule, 1)
+        self.assertEqual(first.totalNotional, clustered.totalNotional.sum())
+
+    def test_one_up_tick_one_insignificant_tick_and_one_down_tick(self):
+        """One up tick, one insignificant tick, and one up tick."""
+        trades = [
+            {"price": Decimal("1000"), "notional": Decimal("1"), "tick_rule": 1},
+            {"price": Decimal("1000"), "notional": Decimal("0.1"), "tick_rule": 1},
+            {"price": Decimal("1000"), "notional": Decimal("1"), "tick_rule": -1},
+        ]
+        clustered = self.get_clustered(trades)
+        combined = combine_clustered_trades(clustered)
+        self.assertEqual(len(combined), 2)
+        first = combined.iloc[0]
+        last = combined.iloc[1]
+        self.assertEqual(first.tickRule, 1)
+        self.assertEqual(first.totalNotional, Decimal("1"))
+        self.assertEqual(last.tickRule, -1)
+        self.assertEqual(last.totalNotional, Decimal("1.1"))
+
+    def test_two_insignificant_ticks_and_one_up_tick(self):
+        """Two insignificant ticks, and one up tick."""
+        trades = [
+            {"price": Decimal("1000"), "notional": Decimal("0.1"), "tick_rule": 1},
+            {"price": Decimal("1000"), "notional": Decimal("0.1"), "tick_rule": 1},
+            {"price": Decimal("1000"), "notional": Decimal("1"), "tick_rule": 1},
+        ]
+        clustered = self.get_clustered(trades)
+        combined = combine_clustered_trades(clustered)
+        self.assertEqual(len(combined), 1)
+        self.assertEqual(combined.iloc[0].tickRule, 1)
+        self.assertEqual(combined.totalNotional.sum(), clustered.totalNotional.sum())
+
+    def test_one_up_tick_and_two_insignificant_ticks(self):
+        """One up tick, and two insignificant ticks."""
+        trades = [
+            {"price": Decimal("1000"), "notional": Decimal("1"), "tick_rule": 1},
+            {"price": Decimal("1000"), "notional": Decimal("0.1"), "tick_rule": 1},
+            {"price": Decimal("1000"), "notional": Decimal("0.1"), "tick_rule": 1},
+        ]
+        clustered = self.get_clustered(trades)
+        combined = combine_clustered_trades(clustered)
+        self.assertEqual(len(combined), 2)
+        first = combined.iloc[0]
+        last = combined.iloc[1]
+        self.assertEqual(first.tickRule, 1)
+        self.assertEqual(first.totalNotional, Decimal("1"))
+        self.assertIsNone(last.tickRule, None)
+        self.assertEqual(last.totalNotional, Decimal("0.2"))
