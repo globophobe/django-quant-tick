@@ -267,6 +267,9 @@ class TradeData(AbstractDataStorage):
                 obj.timestamp,
                 obj.timestamp + pd.Timedelta(f"{obj.frequency}t"),
             )
+            assert is_decimal_close(
+                aggregated_candles.notional.sum(), aggregated.notional.sum()
+            )
 
         data_frame = pd.DataFrame([])
         if len(clustered):
@@ -280,25 +283,12 @@ class TradeData(AbstractDataStorage):
 
         obj.json_data = {"candle": aggregate_candle(data_frame)}
 
-        aggregated_candles = validate_aggregated_candles(
+        aggregated_candles, ok = validate_aggregated_candles(
             aggregated_candles,
             candles,
         )
         obj.candle_data = cls.prepare_data(aggregated_candles)
-
-        all_true = all(aggregated_candles.validated.eq(True))
-        some_false = any(aggregated_candles.validated.eq(False))
-        some_none = any(aggregated_candles.validated.isna())
-        if all_true:
-            obj.ok = True
-        elif some_false or some_none:
-            if some_false:
-                obj.ok = False
-            else:
-                obj.ok = None
-        else:
-            raise NotImplementedError
-
+        obj.ok = ok
         obj.save()
 
     class Meta:

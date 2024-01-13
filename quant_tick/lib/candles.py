@@ -1,12 +1,11 @@
 from datetime import datetime
 from decimal import Decimal
 
-import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
-from .aggregate import aggregate_sum, filter_by_timestamp
-from .calendar import get_range, iter_window
+from .aggregate import filter_by_timestamp
+from .calendar import iter_window
 from .dataframe import is_decimal_close
 
 ZERO = Decimal("0")
@@ -114,60 +113,64 @@ def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -
     }
 
 
-def validate_data_frame(
-    timestamp_from: datetime,
-    timestamp_to: datetime,
-    data_frame: DataFrame,
-    candles: DataFrame,
-) -> dict:
+def validate_aggregated_candles(
+    aggregated_candles: DataFrame, exchange_candles: DataFrame
+) -> tuple[DataFrame, bool | None]:
     """Validate data_frame with candles from Exchange API."""
-    if len(candles):
-        if "notional" in candles.columns:
+    ok = None
+    aggregated_candles["validated"] = pd.Series()
+    if len(exchange_candles):
+        if "notional" in exchange_candles.columns:
             key = "notional"
-        elif "volume" in candles.columns:
+        elif "volume" in exchange_candles.columns:
             key = "volume"
         else:
             raise NotImplementedError
-        validated = {
-            candle.Index: True
-            if (value := getattr(candle, key)) == Decimal("0")
-            else value
-            for candle in candles.itertuples()
-        }
         k = key.title()
-        capitalized_key = key.capitalize()
-        total_key = f"total{capitalized_key}"
-        if len(data_frame):
-            # If there was a significant trade filter, total_key
-            attrs = total_key if total_key in data_frame.columns else key
-            df = aggregate_sum(data_frame, attrs=attrs, window="1t")
-            for row in df.itertuples():
+        exchange_key = f"exchange{k}"
+        aggregated_candles.insert(
+            aggregated_candles.columns.get_loc(key), exchange_key, pd.Series()
+        )
+        if len(aggregated_candles):
+            for row in aggregated_candles.itertuples():
                 timestamp = row.Index
                 try:
-                    candle = candles.loc[timestamp]
+                    candle = exchange_candles.loc[timestamp]
                 # Candle may be missing from API result.
                 except KeyError:
-                    validated[timestamp] = None
+                    pass
                 else:
-                    values = row[1], candle[key]
-                    is_close = is_decimal_close(*values)
-                    if is_close:
-                        validated[timestamp] = True
-                    else:
-                        # Maybe int64
-                        if isinstance(candle[key], np.int64):
-                            v = int(candle[key])
-                        else:
-                            v = candle[key]
-                        validated[timestamp] = {key: row[1], f"exchange{k}": v}
-        # Candle and trade API data availability may differ.
-        for timestamp, v in validated.items():
-            if isinstance(v, Decimal):
-                validated[timestamp] = {key: Decimal("0"), f"exchange{k}": v}
-    else:
-        validated = {
-            timestamp: None
-            for timestamp in get_range(timestamp_from, timestamp_to)
-            if timestamp >= timestamp_from and timestamp < timestamp_to
-        }
-    return validated
+                    value = getattr(candle, key)
+                    if isinstance(value, int):
+                        value = Decimal(value)
+                    aggregated_candles.at[row.Index, exchange_key] = value
+                    aggregated_candles.at[row.Index, "validated"] = is_decimal_close(
+                        getattr(row, key), value
+                    )
+
+        all_true = all(aggregated_candles.validated.eq(True))
+        some_false = any(aggregated_candles.validated.eq(False))
+        some_none = any(aggregated_candles.validated.isna())
+        if all_true:
+            ok = True
+        elif some_false or some_none:
+            if some_false:
+                ok = False
+            else:
+                ok = None
+        else:
+            raise NotImplementedError
+
+        if ok in (True, None):
+            # Maybe candle with no volume or notional.
+            missing = exchange_candles.index.difference(aggregated_candles.index)
+            if len(missing):
+                # If missing candles have volume or notional, then ok should be False.
+                # Maybe validates on retry.
+                if (
+                    exchange_candles[exchange_candles.index.isin(missing)][key].sum()
+                    != 0
+                ):
+                    ok = False
+
+    return aggregated_candles, ok
