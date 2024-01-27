@@ -21,7 +21,8 @@ def gzip_downloader(url: str, columns: Iterable[str]) -> DataFrame:
         filename = temp_file.name
         with open(filename, "wb+") as temp:
             temp.write(response.content)
-            size = Path.stat(filename).st_size
+            path = Path(filename)
+            size = path.stat().st_size
             if size > 0:
                 # Extract gzip.
                 return pd.read_csv(
