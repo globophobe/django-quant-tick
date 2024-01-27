@@ -243,6 +243,7 @@ class TradeData(AbstractDataStorage):
         aggregated_candles = pd.DataFrame([])
         if len(trades):
             symbol = obj.symbol
+            # TODO: Don't aggregate if only save_raw is True.
             aggregated = aggregate_trades(trades)
             filtered = aggregated
             if symbol.save_raw:
@@ -271,18 +272,7 @@ class TradeData(AbstractDataStorage):
                 aggregated_candles.notional.sum(), aggregated.notional.sum()
             )
 
-        data_frame = pd.DataFrame([])
-        if len(clustered):
-            data_frame = clustered
-        elif len(filtered):
-            data_frame = filtered
-        elif len(aggregated):
-            data_frame = aggregated
-        else:
-            data_frame = trades
-
-        obj.json_data = {"candle": aggregate_candle(data_frame)}
-
+        obj.json_data = {"candle": aggregate_candle(aggregated)}
         aggregated_candles, ok = validate_aggregated_candles(
             aggregated_candles,
             candles,
