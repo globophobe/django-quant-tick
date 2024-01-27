@@ -282,7 +282,9 @@ class CombineClusteredTradeTest(BaseRandomTradeTest, SimpleTestCase):
             )
             for trade in trades
         ]
-        return pd.concat(data_frames).reset_index(drop=True)
+        # Drop columns with all NA values.
+        dfs = [df.dropna(axis=1, how="all") for df in data_frames]
+        return pd.concat(dfs).reset_index(drop=True)
 
     def test_two_up_ticks(self):
         """Two up ticks."""

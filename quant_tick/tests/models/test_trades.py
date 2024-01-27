@@ -117,7 +117,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         trades = TradeData.objects.all()
         self.assertEqual(trades.count(), 1)
 
-        raw = pd.concat(data_frames).drop(columns=["uid"])
+        raw = pd.concat(data_frames).drop(columns=["uid"]).reset_index(drop=True)
         data = trades[0]
         self.assertEqual(data.uid, first.uid)
         self.assertTrue(data.get_data_frame(FileData.RAW).equals(raw))
