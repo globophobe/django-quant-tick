@@ -118,11 +118,15 @@ def filter_by_timestamp(
 ) -> DataFrame:
     """Filter by timestamp."""
     if len(data_frame):
-        lower_bound = data_frame.timestamp >= timestamp_from
+        attr = (
+            "index" if isinstance(data_frame.index, pd.DatetimeIndex) else "timestamp"
+        )
+        a = getattr(data_frame, attr)
+        lower_bound = a >= timestamp_from
         if inclusive:
-            upper_bound = data_frame.timestamp <= timestamp_to
+            upper_bound = a <= timestamp_to
         else:
-            upper_bound = data_frame.timestamp < timestamp_to
+            upper_bound = a < timestamp_to
         return data_frame[lower_bound & upper_bound]
     else:
         return pd.DataFrame([])
