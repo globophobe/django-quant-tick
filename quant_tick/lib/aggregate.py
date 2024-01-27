@@ -212,69 +212,80 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
 
 def cluster_trades(data_frame: DataFrame, window: str | None = None) -> DataFrame:
     """Cluster trades."""
+    result = []
     data = []
-    d = []
     direction = None
-    for row in data_frame.itertuples():
+    # Iterate in reverse.
+    df = data_frame[::-1]
+    for row in df.itertuples():
         tick_rule = row.tickRule if row.tickRule in (1, -1) else None
-        if direction is None:
-            direction = tick_rule
-            d.append(row)
-        elif tick_rule == direction:
-            d.append(row)
+        if not tick_rule and not direction:
+            data.append(row)
         else:
-            direction = tick_rule
-            data.append(d)
-            d = [row]
-    if d:
-        data.append(d)
-    return pd.DataFrame(cluster(data))
+            if tick_rule and not direction:
+                if data:
+                    data.reverse()
+                    result.append(cluster(data))
+                    data = []
+                data.append(row)
+                direction = tick_rule
+            elif tick_rule in (None, direction):
+                data.append(row)
+            else:
+                if data:
+                    data.reverse()
+                    result.append(cluster(data))
+                    data = []
+                data.append(row)
+                direction = tick_rule
+    if data:
+        data.reverse()
+        result.append(cluster(data))
+    return (
+        pd.DataFrame(result)[::-1]
+        .convert_dtypes()
+        .replace({float("nan"): None})
+        .reset_index(drop=True)
+    )
 
 
 def cluster(data: list[dict]) -> list[dict]:
     """Cluster."""
-    result = []
-    for __, d in enumerate(data):
-        first = d[0]
-        last = d[-1]
-        delta = last.timestamp - first.timestamp
-        total_seconds = delta.total_seconds()
-        values = [i.tickRule for i in d]
-        is_up_tick = 1 in values
-        is_down_tick = -1 in values
-        assert not (is_up_tick and is_down_tick)
-        if is_up_tick:
-            tick_rule = 1
-        elif is_down_tick:
-            tick_rule = -1
-        else:
-            tick_rule = None
-        data = {
-            "timestamp": to_pydatetime(first.timestamp),
-            "nanoseconds": first.nanoseconds,
-            "totalSeconds": total_seconds,
-            "open": first.price,
-            "high": max([i.price for i in d]),
-            "low": min([i.price for i in d]),
-            "close": last.price,
-            "tickRule": tick_rule,
-        }
-        volume = ["volume", "totalBuyVolume", "totalVolume"]
-        notional = ["notional", "totalBuyNotional", "totalNotional"]
-        ticks = ["ticks", "totalBuyTicks", "totalTicks"]
-        for sample_type in volume + notional + ticks:
-            if all([hasattr(i, sample_type) for i in d]):
-                value = sum(
-                    [
-                        val
-                        for i in d
-                        if (val := getattr(i, sample_type)) and not math.isnan(val)
-                    ]
-                )
-                if sample_type in ticks:
-                    value = int(value)
-                data[sample_type] = value
-        result.append(data)
+    first = data[0]
+    last = data[-1]
+    delta = last.timestamp - first.timestamp
+    total_seconds = delta.total_seconds()
+    assert total_seconds >= 0
+    tick_rule = set([i.tickRule for i in data if i.tickRule in (1, -1)])
+    if tick_rule:
+        assert len(tick_rule) == 1
+        tick_rule = int(tick_rule.pop())
+    else:
+        tick_rule = None
+    result = {
+        "timestamp": to_pydatetime(first.timestamp),
+        "totalSeconds": total_seconds,
+        "open": first.price,
+        "high": max([i.price for i in data]),
+        "low": min([i.price for i in data]),
+        "close": last.price,
+        "tickRule": tick_rule,
+    }
+    volume = ["volume", "totalBuyVolume", "totalVolume"]
+    notional = ["notional", "totalBuyNotional", "totalNotional"]
+    ticks = ["ticks", "totalBuyTicks", "totalTicks"]
+    for sample_type in volume + notional + ticks:
+        if all([hasattr(i, sample_type) for i in data]):
+            value = sum(
+                [
+                    val
+                    for i in data
+                    if (val := getattr(i, sample_type)) and not math.isnan(val)
+                ]
+            )
+            if sample_type in ticks:
+                value = int(value)
+            result[sample_type] = value
     return result
 
 
@@ -282,23 +293,23 @@ def combine_clustered_trades(data_frame: DataFrame) -> DataFrame:
     """Combine clustered trades."""
     result = []
     data = []
-    last_tick_rule = None
+    direction = None
     # Iterate in reverse.
     df = data_frame[::-1]
     for row in df.itertuples():
-        tick_rule = row.tickRule if row.tickRule in (1, -1) else None
+        tick_rule = row.tickRule if row.tickRule is not pd.NA else None
         # Initial rows if None, maybe appended to next data frame.
-        if not tick_rule and not last_tick_rule:
+        if not tick_rule and not direction:
             data.append(row)
         else:
-            if tick_rule and not last_tick_rule:
+            if tick_rule and not direction:
                 if data:
                     data.reverse()
                     result.append(combine_clusters(data))
                     data = []
                 data.append(row)
-                last_tick_rule = tick_rule
-            elif tick_rule in (None, last_tick_rule):
+                direction = tick_rule
+            elif tick_rule in (None, direction):
                 data.append(row)
             else:
                 if data:
@@ -306,15 +317,16 @@ def combine_clustered_trades(data_frame: DataFrame) -> DataFrame:
                     result.append(combine_clusters(data))
                     data = []
                 data.append(row)
+                direction = tick_rule
     if data:
+        data.reverse()
         result.append(combine_clusters(data))
-    d = (
+    return (
         pd.DataFrame(result)[::-1]
         .convert_dtypes()
         .replace({float("nan"): None})
         .reset_index(drop=True)
     )
-    return d
 
 
 def combine_clusters(data: list[dict]) -> list[dict]:
@@ -322,7 +334,7 @@ def combine_clusters(data: list[dict]) -> list[dict]:
     first = data[0]
     last = data[-1]
     delta = last.timestamp - first.timestamp
-    tick_rule = set([i.tickRule for i in data if i.tickRule in (1, -1)])
+    tick_rule = set([i.tickRule for i in data if i.tickRule is not pd.NA])
     if tick_rule:
         assert len(tick_rule) == 1
         tick_rule = int(tick_rule.pop())
@@ -330,8 +342,7 @@ def combine_clusters(data: list[dict]) -> list[dict]:
         tick_rule = None
     return {
         "timestamp": first.timestamp,
-        "nanoseconds": first.nanoseconds,
-        "totalSeconds": delta.total_seconds(),
+        "totalSeconds": delta.total_seconds() + last.totalSeconds,
         "open": first.open,
         "high": max([d.high for d in data]),
         "low": min([d.low for d in data]),
