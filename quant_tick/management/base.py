@@ -43,7 +43,6 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
         parser.add_argument("--aggregate-trades", type=bool)
         parser.add_argument("--significant-trade-filter", type=int)
         parser.add_argument("--is-active", action="store_true")
-        parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> dict | None:
         """Run command."""
@@ -53,7 +52,6 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
         significant_trade_filter = options.get("significant_trade_filter")
         symbols = self.get_queryset()
         is_active = options.get("is_active")
-        retry = options.get("retry")
         if exchanges:
             symbols = symbols.filter(exchange__in=exchanges)
         if api_symbols:
@@ -77,7 +75,6 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
                     "symbol": symbol,
                     "timestamp_from": timestamp_from,
                     "timestamp_to": timestamp_to,
-                    "retry": retry,
                 }
 
 
