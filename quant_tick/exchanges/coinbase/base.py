@@ -62,9 +62,5 @@ class CoinbaseMixin(IntegerPaginationMixin):
     ) -> DataFrame:
         """Get candles from Exchange API."""
         return coinbase_candles(
-            self.symbol.api_symbol,
-            timestamp_from,
-            timestamp_to,
-            granularity=60,
-            log_format=f"{self.log_format} validating",
+            self.symbol.api_symbol, timestamp_from, timestamp_to, granularity=60
         )

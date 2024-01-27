@@ -53,11 +53,7 @@ class BitmexMixin:
         """Get candles from Exchange API."""
         # Timestamp is candle close.
         return bitmex_candles(
-            self.symbol.api_symbol,
-            timestamp_from,
-            timestamp_to,
-            bin_size="1m",
-            log_format=f"{self.log_format} validating",
+            self.symbol.api_symbol, timestamp_from, timestamp_to, bin_size="1m"
         )
 
 
