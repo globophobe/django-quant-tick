@@ -36,6 +36,11 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
             "--exchange", type=Exchange, choices=Exchange.values, nargs="+"
         )
         parser.add_argument(
+            "--code-name",
+            choices=queryset.values_list("code_name", flat=True),
+            nargs="+",
+        )
+        parser.add_argument(
             "--api-symbol",
             choices=queryset.values_list("api_symbol", flat=True),
             nargs="+",
@@ -48,6 +53,7 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
         """Run command."""
         exchanges = options.get("exchange")
         api_symbols = options.get("api_symbol")
+        code_names = options.get("code_name")
         aggregate_trades = options.get("aggregate_trades")
         significant_trade_filter = options.get("significant_trade_filter")
         symbols = self.get_queryset()
@@ -56,6 +62,8 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
             symbols = symbols.filter(exchange__in=exchanges)
         if api_symbols:
             symbols = symbols.filter(api_symbol__in=api_symbols)
+        if code_names:
+            symbols = symbols.filter(code_name__in=code_names)
         if aggregate_trades:
             symbols = symbols.filter(aggregate_trades=aggregate_trades)
         if significant_trade_filter:
