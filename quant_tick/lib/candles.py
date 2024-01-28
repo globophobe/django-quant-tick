@@ -92,12 +92,16 @@ def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -
         buy_notional = buy_data_frame.notional.sum()
     if "totalTicks" in data_frame.columns:
         ticks = int(data_frame.totalTicks.sum())
-    else:
+    elif "ticks" in data_frame.columns:
         ticks = int(data_frame.ticks.sum())
+    else:
+        ticks = len(data_frame)
     if "totalBuyTicks" in data_frame.columns:
         buy_ticks = int(data_frame.totalBuyTicks.sum())
-    else:
+    elif "ticks" in buy_data_frame.columns:
         buy_ticks = int(buy_data_frame.ticks.sum())
+    else:
+        buy_ticks = len(buy_data_frame)
     return {
         "timestamp": timestamp if timestamp else first_row.timestamp,
         "open": first_row.price,
