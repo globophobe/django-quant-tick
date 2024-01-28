@@ -9,11 +9,13 @@ from django.db.models.functions import TruncDate
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
-    combine_clusters,
+    aggregate_candle,
+    combine_clustered_trades,
     get_existing,
     get_min_time,
     get_next_time,
     has_timestamps,
+    is_decimal_close,
     iter_timeframe,
 )
 from quant_tick.models import Candle, CandleCache, Symbol, TradeData
@@ -176,23 +178,35 @@ def convert_trade_data(
 
         if len(data_frames):
             data_frame = pd.concat(data_frames.values())
-        else:
-            data_frame = pd.DataFrame([])
-
-        if file_data == FileData.CLUSTERED:
-            data_frame = combine_clusters(data_frame)
-
-        # First, delete minutes, as naming convention is same as hourly or daily.
-        for t in trade_data:
-            getattr(t, file_data).delete()
-        if len(data_frame):
-            # Next, create hourly or daily.
-            setattr(
-                new_trade_data,
-                file_data,
-                TradeData.prepare_data(data_frame),
+            key = (
+                "notional"
+                if file_data in (FileData.RAW, FileData.AGGREGATED, FileData.CANDLE)
+                else "totalNotional"
             )
-            new_trade_data.save()
+            expected = sum([getattr(df, key).sum() for df in data_frames.values()])
+            actual = data_frame[key].sum()
+            assert is_decimal_close(expected, actual)
+
+            if file_data == FileData.CLUSTERED:
+                data_frame = combine_clustered_trades(data_frame)
+
+            # First, delete minutes, as naming convention is same as hourly or daily.
+            for t in trade_data:
+                getattr(t, file_data).delete()
+
+            # Next, create hourly or daily.
+            if file_data != FileData.CANDLE:
+                data_frame.reset_index(inplace=True)
+
+            if len(data_frame):
+                setattr(
+                    new_trade_data,
+                    file_data,
+                    TradeData.prepare_data(data_frame),
+                )
+                if not new_trade_data.json_data:
+                    new_trade_data.json_data = {"candle": aggregate_candle(data_frame)}
+                new_trade_data.save()
 
     # Completely delete minutes.
     trade_data.delete()
@@ -202,7 +216,7 @@ def convert_trade_data(
             **{
                 "timestamp_from": timestamp_from,
                 "timestamp_to": timestamp_to,
-                "frequency": frequency,
+                "frequency": "daily" if frequency == Frequency.DAY else "hourly",
             }
         )
     )
