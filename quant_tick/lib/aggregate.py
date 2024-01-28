@@ -338,7 +338,7 @@ def combine_clusters(data: list[dict]) -> list[dict]:
     first = data[0]
     last = data[-1]
     delta = last.timestamp - first.timestamp
-    tick_rule = set([i.tickRule for i in data if i.tickRule is not pd.NA])
+    tick_rule = set([i.tickRule for i in data if not pd.isna(i.tickRule)])
     if tick_rule:
         assert len(tick_rule) == 1
         tick_rule = int(tick_rule.pop())
