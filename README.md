@@ -1,6 +1,6 @@
 # What?
 
-Django Quant Tick downloads and aggregates high frequency trading data. It also provides an API for informationally dense 1 minute candles.
+Django Quant Tick downloads tick data, and aggregates candlesticks from high frequency data.
 
 # Why?
 
@@ -14,7 +14,7 @@ By aggregating, filtering, and clustering raw tick data, volume candlesticks can
 
 2. By filtering aggregated rows, for example only writing a row when an aggregated trade is greater than `significant_trade_filter >= 1000`, the number of rows can be reduced more.
 
-3. Clustering trades by trade direction may further increase information.
+3. Clustering trades by trade direction, such that a row is created only if the tick rule changes, may further reduce the number of rows.
 
 
 # How?
