@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 from functools import partial
-from typing import Optional
 
 from quant_tick.controllers import iter_api
 from quant_tick.lib import candles_to_data_frame
@@ -23,7 +22,9 @@ def format_bybit_candle_timestamp(timestamp: datetime) -> float:
 
 
 def get_bybit_candle_pagination_id(
-    timestamp: datetime, last_data: list[dict] = [], data: list[dict] = []
+    timestamp: datetime,
+    last_data: list | None = None,
+    data: list | None = None,
 ) -> None:
     """Get Bybit candle pagination_id."""
 
@@ -40,7 +41,7 @@ def bybit_candles(
     timestamp_to: datetime,
     interval: str = "1",
     limit: int = 60,
-    log_format: Optional[str] = None,
+    log_format: str | None = None,
 ) -> list[dict]:
     """Get Bybit candles."""
     ts_from = format_bybit_candle_timestamp(timestamp_from)
@@ -65,6 +66,6 @@ def bybit_candles(
             "high": Decimal(candle[2]),
             "low": Decimal(candle[3]),
             "close": Decimal(candle[4]),
-            "volume": Decimal(candle[5])
+            "volume": Decimal(candle[5]),
         }
     return candles_to_data_frame(timestamp_from, timestamp_to, candles)

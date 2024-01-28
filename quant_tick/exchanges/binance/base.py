@@ -10,6 +10,8 @@ from .api import get_binance_api_timestamp, get_trades
 
 
 class BinanceMixin(SequentialIntegerMixin):
+    """Binance mixin."""
+
     def iter_api(self, timestamp_from: datetime, pagination_id: str) -> tuple:
         """Iterate Binance API."""
         return get_trades(

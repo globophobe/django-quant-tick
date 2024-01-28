@@ -1,6 +1,5 @@
 from datetime import datetime
 from functools import partial
-from typing import Optional
 
 from quant_tick.controllers import iter_api
 
@@ -17,8 +16,8 @@ def get_trades(
     symbol: str,
     timestamp_from: datetime,
     pagination_id: str,
-    log_format: Optional[str] = None,
-):
+    log_format: str | None = None,
+) -> list[dict]:
     """Get trades."""
     url = f"{API_URL}/trade?symbol={symbol}"
     return iter_api(

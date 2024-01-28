@@ -3,6 +3,8 @@ from quant_tick.storage import convert_candle_cache_to_daily
 
 
 class Command(BaseCandleCommand):
+    """Convert candle cache to daily."""
+
     help = "Convert candle cache by minute, or hourly, to daily."
 
     def handle(self, *args, **options) -> None:

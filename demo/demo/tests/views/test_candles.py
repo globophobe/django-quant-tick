@@ -4,15 +4,16 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from quant_tick.lib import get_current_time, get_min_time, get_previous_time
-from quant_tick.models import Candle, CandleData, CandleReadOnlyData
+from quant_tick.models import Candle, CandleData
 
 from .base import BaseViewTest
 
 
 class CandleDataViewTest(BaseViewTest, APITestCase):
-    databases = {"default", "read_only"}
+    """Candle data view test."""
 
     def setUp(self):
+        """Set up."""
         super().setUp()
         now = get_current_time()
         self.timestamp = get_min_time(now, "1t")
@@ -29,46 +30,13 @@ class CandleDataViewTest(BaseViewTest, APITestCase):
         return value
 
     def test_get(self):
-        """QuerySet results are combined."""
+        """Get."""
         candle = Candle.objects.create()
         candle_data = CandleData.objects.create(
             candle=candle, timestamp=get_previous_time(self.timestamp, "1t")
-        )
-        candle_read_only_data = CandleReadOnlyData.objects.create(
-            candle_id=candle.id,
-            timestamp=get_previous_time(self.timestamp, "2t"),
         )
         url = self.get_url(candle)
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data[0]["timestamp"], self.get_isoformat(candle_data))
-        self.assertEqual(
-            data[1]["timestamp"], self.get_isoformat(candle_read_only_data)
-        )
-
-    def test_ordering(self):
-        """QuerySet results are correctly ordered."""
-        candle = Candle.objects.create()
-        candle_data = CandleData.objects.create(
-            candle=candle, timestamp=get_previous_time(self.timestamp, "1t")
-        )
-        candle_read_only_data1 = CandleReadOnlyData.objects.create(
-            candle_id=candle.id,
-            timestamp=get_previous_time(self.timestamp, "2t"),
-        )
-        candle_read_only_data2 = CandleReadOnlyData.objects.create(
-            candle_id=candle.id,
-            timestamp=get_previous_time(self.timestamp, "3t"),
-        )
-        url = self.get_url(candle)
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data[0]["timestamp"], self.get_isoformat(candle_data))
-        self.assertEqual(
-            data[1]["timestamp"], self.get_isoformat(candle_read_only_data1)
-        )
-        self.assertEqual(
-            data[2]["timestamp"], self.get_isoformat(candle_read_only_data2)
-        )

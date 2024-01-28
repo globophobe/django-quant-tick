@@ -1,7 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
 from functools import partial
-from typing import Optional
+
+from pandas import DataFrame
 
 from quant_tick.controllers import iter_api
 from quant_tick.lib import (
@@ -14,20 +15,21 @@ from .api import format_bitfinex_api_timestamp, get_bitfinex_api_response
 from .constants import API_MAX_RESULTS, API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
 
 
-def get_bitfinex_candle_timestamp(candle: dict):
+def get_bitfinex_candle_timestamp(candle: dict) -> datetime:
     """Get Bitfinex candle timestamp."""
     return parse_datetime(candle[0], unit="ms")
 
 
 def get_bitfinex_candle_pagination_id(
-    timestamp: datetime, last_data: list = [], data: list = []
-):
+    timestamp: datetime, last_data: list | None = None, data: list | None = None
+) -> int | None:
     """Get Bitfinex candle pagination ID."""
+    data = data or []
     if len(data):
         return data[-1][0]
 
 
-def get_bitfinex_candle_url(url: str, pagination_id: int):
+def get_bitfinex_candle_url(url: str, pagination_id: int) -> str:
     """Get Bitfinex candle URL."""
     if pagination_id:
         url += f"&end={pagination_id}"
@@ -39,8 +41,8 @@ def bitfinex_candles(
     timestamp_from: datetime,
     timestamp_to: datetime,
     time_frame: str = "1m",
-    log_format: Optional[str] = None,
-):
+    log_format: str | None = None,
+) -> DataFrame:
     """Get candles."""
     ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1t")
     delta = ts_to - timestamp_from

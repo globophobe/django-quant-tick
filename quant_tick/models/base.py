@@ -19,7 +19,9 @@ from quant_tick.utils import gettext_lazy as _
 
 
 class QuantTickEncoder(DjangoJSONEncoder):
-    def default(self, obj: Any):
+    """Quant tick encoder."""
+
+    def default(self, obj: Any) -> Any:
         """Default."""
         if isinstance(obj, np.int64):
             return int(obj)
@@ -55,13 +57,16 @@ def quant_tick_json_decoder(data: dict) -> dict:
 
 
 class QuantTickDecoder(JSONDecoder):
-    def __init__(self, *args, **kwargs):
+    """Quant tick decoder."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        """Initialize."""
         if "object_hook" not in kwargs:
             kwargs["object_hook"] = quant_tick_json_decoder
         super().__init__(*args, **kwargs)
 
 
-def JSONField(name: str, **kwargs) -> models.JSONField:
+def JSONField(name: str, **kwargs) -> models.JSONField:  # noqa: N802
     """JSON."""
     if "encoder" not in kwargs:
         kwargs["encoder"] = QuantTickEncoder
@@ -70,7 +75,7 @@ def JSONField(name: str, **kwargs) -> models.JSONField:
     return models.JSONField(name, **kwargs)
 
 
-def BigDecimalField(name: str, **kwargs) -> models.DecimalField:
+def BigDecimalField(name: str, **kwargs) -> models.DecimalField:  # noqa: N802
     """Big decimal."""
     if "max_digits" not in kwargs:
         kwargs["max_digits"] = NUMERIC_PRECISION
@@ -80,9 +85,12 @@ def BigDecimalField(name: str, **kwargs) -> models.DecimalField:
 
 
 class AbstractCodeName(models.Model):
+    """Abstract code name."""
+
     code_name = models.SlugField(_("code name"), unique=True, max_length=255)
 
-    def __str__(self):
+    def __str__(self) -> str:
+        """String."""
         return self.code_name
 
     @classmethod
@@ -105,21 +113,32 @@ class AbstractCodeName(models.Model):
 
 
 class AbstractDataStorage(models.Model):
+    """Abstract data storage."""
+
     @classmethod
     def prepare_data(cls, data_frame: DataFrame) -> ContentFile:
         """Prepare data, exclude uid."""
+        drop_columns = []
+        if "index" in data_frame.columns:
+            drop_columns.append("index")
         if "uid" in data_frame.columns:
-            data_frame = data_frame.drop(columns=["uid"])
+            drop_columns.append("uid")
+        if len(drop_columns):
+            data_frame = data_frame.drop(columns=drop_columns)
         data_frame.reset_index(drop=True)
         buffer = BytesIO()
         data_frame.to_parquet(buffer, engine="auto", compression="snappy")
         return ContentFile(buffer.getvalue(), "data.parquet")
 
-    def get_data_frame(self, field: str = "file_data") -> DataFrame:
-        """Get data frame."""
+    def has_data_frame(self, field: str) -> bool:
+        """Has data frame."""
         data = getattr(self, field)
-        if data.name:
-            return pd.read_parquet(data.open())
+        return data.name != ""
+
+    def get_data_frame(self, field: str) -> DataFrame:
+        """Get data frame."""
+        if self.has_data_frame(field):
+            return pd.read_parquet(getattr(self, field).open())
 
     class Meta:
         abstract = True

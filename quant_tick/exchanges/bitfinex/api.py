@@ -1,8 +1,8 @@
 import json
 import time
+from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
-from typing import Callable, List, Optional
 
 import httpx
 
@@ -34,14 +34,15 @@ def get_bitfinex_api_url(url: str, pagination_id: int) -> str:
 
 
 def get_bitfinex_api_pagination_id(
-    timestamp: datetime, last_data: list = [], data: list = []
-):
+    timestamp: datetime, last_data: list | None = None, data: list | None = None
+) -> int | None:
     """Get Bitfinex API pagination ID."""
+    data = data or []
     if len(data):
         return data[-1][1]
 
 
-def get_bitfinex_api_timestamp(trade: dict):
+def get_bitfinex_api_timestamp(trade: dict) -> datetime:
     """Get Bitfinex API timestamp."""
     return parse_datetime(trade[1], unit="ms")
 
@@ -49,10 +50,10 @@ def get_bitfinex_api_timestamp(trade: dict):
 def get_bitfinex_api_response(
     get_api_url: Callable,
     base_url: str,
-    timestamp_from: Optional[datetime] = None,
-    pagination_id: Optional[str] = None,
+    timestamp_from: datetime | None = None,
+    pagination_id: str | None = None,
     retry: int = 30,
-) -> List[dict]:
+) -> list[dict]:
     """Get Bitfinex API response."""
     throttle_api_requests(
         BITFINEX_MAX_REQUESTS_RESET,

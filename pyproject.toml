@@ -7,7 +7,7 @@ readme = "README.md"
 license = "MIT"
 homepage = "https://github.com/globophobe/django-quant-tick"
 repository = "https://github.com/globophobe/django-quant-tick"
-keywords = ["django", "cryptocurrency", "candlesticks", "quant", "trading", "tick", "data"]
+keywords = ["django", "cryptocurrency", "candlesticks", "quant", "trading", "trading-strategies", "coinbase", "bitfinex", "bitmex", "bybit"]
 classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Independent"]
 packages = [{ include = "quant_tick" }]
 
@@ -21,14 +21,16 @@ pyarrow = "*"
 randomname = "*"
 
 [tool.poetry.dev-dependencies]
+black = "*"
 coverage = "*"
 django-filter = "*"
 django-semantic-admin = "*"
 django-storages = {version = "*", extras = ["google"]}
 gunicorn = "*"
 invoke = "*"
-ipython = "<=8.8"
+ipython = "*"
 psycopg2-binary = "*"
+pyecharts = "*"
 python-decouple = "*"
 ruff = "*"
 sentry-sdk = "*"

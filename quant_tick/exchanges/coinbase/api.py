@@ -1,6 +1,6 @@
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable, List, Optional
 
 import httpx
 
@@ -10,10 +10,10 @@ from quant_tick.controllers import HTTPX_ERRORS
 def get_coinbase_api_response(
     get_api_url: Callable,
     base_url: str,
-    timestamp_from: Optional[datetime] = None,
-    pagination_id: Optional[str] = None,
+    timestamp_from: datetime | None = None,
+    pagination_id: str | None = None,
     retry: int = 30,
-) -> List[dict]:
+) -> list[dict]:
     """Get Coinbase API response."""
     try:
         url = get_api_url(

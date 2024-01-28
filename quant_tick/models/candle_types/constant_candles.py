@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional, Tuple
 
 import pandas as pd
 from pandas import DataFrame
@@ -70,28 +69,19 @@ class ConstantCandle(Candle):
         timestamp_to: datetime,
         data_frame: DataFrame,
         cache_data: dict,
-    ) -> Tuple[list, Optional[dict]]:
+    ) -> tuple[list, dict | None]:
         """Aggregate."""
         start = 0
         data = []
-        runs_n = self.json_data.get("runsN", None)
-        top_n = self.json_data.get("topN", None)
         column = "total" + self.json_data["sample_type"].title()
         for index, row in data_frame.iterrows():
             cache_data["sample_value"] += row[column]
             if self.should_aggregate_candle(cache_data):
                 df = data_frame.loc[start:index]
-                candle = aggregate_candle(
-                    df,
-                    sample_type=self.json_data["sample_type"],
-                    runs_n=runs_n,
-                    top_n=top_n,
-                )
+                candle = aggregate_candle(df)
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
-                    candle = merge_cache(
-                        previous, candle, self.json_data["sample_type"], runs_n, top_n
-                    )
+                    candle = merge_cache(previous, candle)
                 data.append(candle)
                 # Reinitialize cache
                 cache_data["sample_value"] = 0
@@ -101,13 +91,7 @@ class ConstantCandle(Candle):
         is_last_row = start == len(data_frame)
         if not is_last_row:
             df = data_frame.loc[start:]
-            cache_data = get_next_cache(
-                df,
-                cache_data,
-                sample_type=self.json_data["sample_type"],
-                runs_n=runs_n,
-                top_n=top_n,
-            )
+            cache_data = get_next_cache(df, cache_data)
         data, cache_data = self.get_incomplete_candle(timestamp_to, data, cache_data)
         return data, cache_data
 

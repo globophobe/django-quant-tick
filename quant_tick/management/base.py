@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.db.models import QuerySet
@@ -12,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class BaseTimeFrameCommand(BaseCommand):
+    """Base time frame command."""
+
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
         parser.add_argument("--date-to", type=str, default=None)
@@ -21,6 +22,8 @@ class BaseTimeFrameCommand(BaseCommand):
 
 
 class BaseTradeDataCommand(BaseTimeFrameCommand):
+    """Base trade data command."""
+
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
         return Symbol.objects.all()
@@ -33,30 +36,36 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
             "--exchange", type=Exchange, choices=Exchange.values, nargs="+"
         )
         parser.add_argument(
+            "--code-name",
+            choices=queryset.values_list("code_name", flat=True),
+            nargs="+",
+        )
+        parser.add_argument(
             "--api-symbol",
             choices=queryset.values_list("api_symbol", flat=True),
             nargs="+",
         )
-        parser.add_argument("--should-aggregate-trades", type=bool)
+        parser.add_argument("--aggregate-trades", type=bool)
         parser.add_argument("--significant-trade-filter", type=int)
         parser.add_argument("--is-active", action="store_true")
-        parser.add_argument("--retry", action="store_true")
 
-    def handle(self, *args, **options) -> Optional[dict]:
+    def handle(self, *args, **options) -> dict | None:
         """Run command."""
         exchanges = options.get("exchange")
         api_symbols = options.get("api_symbol")
-        should_aggregate_trades = options.get("should_aggregate_trades")
+        code_names = options.get("code_name")
+        aggregate_trades = options.get("aggregate_trades")
         significant_trade_filter = options.get("significant_trade_filter")
         symbols = self.get_queryset()
         is_active = options.get("is_active")
-        retry = options.get("retry")
         if exchanges:
             symbols = symbols.filter(exchange__in=exchanges)
         if api_symbols:
             symbols = symbols.filter(api_symbol__in=api_symbols)
-        if should_aggregate_trades:
-            symbols = symbols.filter(should_aggregate_trades=should_aggregate_trades)
+        if code_names:
+            symbols = symbols.filter(code_name__in=code_names)
+        if aggregate_trades:
+            symbols = symbols.filter(aggregate_trades=aggregate_trades)
         if significant_trade_filter:
             symbols = symbols.filter(significant_trade_filter=significant_trade_filter)
         if is_active:
@@ -74,11 +83,28 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
                     "symbol": symbol,
                     "timestamp_from": timestamp_from,
                     "timestamp_to": timestamp_to,
-                    "retry": retry,
                 }
 
 
+class BaseTradeDataWithRetryCommand(BaseTradeDataCommand):
+    """Base trade data with retry."""
+
+    def add_arguments(self, parser: CommandParser) -> None:
+        """Add arguments."""
+        super().add_arguments(parser)
+        parser.add_argument("--retry", action="store_true")
+
+    def handle(self, *args, **options) -> dict | None:
+        """Run command."""
+        kwargs = super().handle(*args, **options)
+        for k in kwargs:
+            k["retry"] = options.get("retry")
+            yield k
+
+
 class BaseCandleCommand(BaseTimeFrameCommand):
+    """Base candle command."""
+
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
         return Candle.objects.prefetch_related("symbols")

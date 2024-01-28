@@ -1,17 +1,14 @@
 import datetime
-from decimal import Decimal
-from operator import itemgetter
-from typing import Any, Dict, List, Optional, Union
+import math
+from typing import Any
 
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.constants import SampleType
+from quant_tick.constants import ZERO
 
 from .calendar import iter_once, iter_window, to_pydatetime
 from .dataframe import is_decimal_close
-
-ZERO = Decimal("0")
 
 
 def is_sample(data_frame: DataFrame, first_index: int, last_index: int) -> bool:
@@ -84,7 +81,7 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
     return aggregated
 
 
-def agg_trades(data_frame: DataFrame) -> Dict[str, Any]:
+def agg_trades(data_frame: DataFrame) -> dict[str, Any]:
     """Aggregate trades."""
     first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
@@ -121,18 +118,22 @@ def filter_by_timestamp(
 ) -> DataFrame:
     """Filter by timestamp."""
     if len(data_frame):
-        lower_bound = data_frame.timestamp >= timestamp_from
+        attr = (
+            "index" if isinstance(data_frame.index, pd.DatetimeIndex) else "timestamp"
+        )
+        a = getattr(data_frame, attr)
+        lower_bound = a >= timestamp_from
         if inclusive:
-            upper_bound = data_frame.timestamp <= timestamp_to
+            upper_bound = a <= timestamp_to
         else:
-            upper_bound = data_frame.timestamp < timestamp_to
+            upper_bound = a < timestamp_to
         return data_frame[lower_bound & upper_bound]
     else:
         return pd.DataFrame([])
 
 
 def volume_filter_with_time_window(
-    data_frame: DataFrame, min_volume: int = 1000, window: Optional[str] = "1t"
+    data_frame: DataFrame, min_volume: int = 1000, window: str = "1t"
 ) -> DataFrame:
     """Volume filter, with time window."""
     samples = []
@@ -166,11 +167,7 @@ def volume_filter_with_time_window(
                 if next_index < total_rows:
                     sample = df.loc[next_index:]
                     samples.append(volume_filter(sample))
-    filtered = pd.DataFrame(samples)
-    # Assert data_frame volume is close to filtered volume.
-    msg = "Volume is not close."
-    assert is_decimal_close(data_frame.volume.sum(), filtered.totalVolume.sum()), msg
-    return filtered
+    return pd.DataFrame(samples)
 
 
 def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
@@ -217,153 +214,155 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
     return data
 
 
-def aggregate_sum(
-    data_frame: DataFrame, attrs: Union[List[str], str] = None, window: str = "1t"
-) -> DataFrame:
-    """Aggregate sum over window."""
-    samples = []
-    if len(data_frame):
-        if attrs is None:
-            attrs = []
-        elif not isinstance(attrs, list):
-            attrs = [attrs]
-        timestamp_from = data_frame.iloc[0].timestamp
-        # Iterator is not inclusive of timestamp_to, so increase by 1.
-        timestamp_to = data_frame.iloc[-1].timestamp + pd.Timedelta(window)
-        for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value=window):
-            df = data_frame[
-                (data_frame.timestamp >= ts_from) & (data_frame.timestamp < ts_to)
-            ]
-            sample = {"timestamp": ts_from}
-            for attr in attrs:
-                sample[attr] = 0
-            if len(df):
-                for attr in attrs:
-                    sample[attr] = df[attr].sum()
-                samples.append(sample)
-    return pd.DataFrame(samples).set_index("timestamp") if samples else pd.DataFrame()
-
-
-def aggregate_candle(
-    data_frame: DataFrame,
-    timestamp: Optional[datetime.datetime] = None,
-    sample_type: Optional[SampleType] = None,
-    runs_n: Optional[int] = None,
-    top_n: Optional[int] = None,
-) -> dict:
-    """Aggregate candle."""
-    first_row = data_frame.iloc[0]
-    last_row = data_frame.iloc[-1]
-    high = data_frame.price.max()
-    low = data_frame.price.min()
-    data = {
-        "timestamp": timestamp if timestamp else first_row.timestamp,
-        "open": first_row.price,
-        "high": high,
-        "low": low,
-        "close": last_row.price,
-        "volume": data_frame.totalVolume.sum(),
-        "buyVolume": data_frame.totalBuyVolume.sum(),
-        "notional": data_frame.totalNotional.sum(),
-        "buyNotional": data_frame.totalBuyNotional.sum(),
-        "ticks": int(data_frame.totalTicks.sum()),
-        "buyTicks": int(data_frame.totalBuyTicks.sum()),
-    }
-    if runs_n is not None:
-        runs = get_runs(data_frame, runs_n)
-        if runs:
-            data["runs"] = runs
-    if sample_type and top_n is not None:
-        data["topN"] = get_top_n(data_frame, sample_type, top_n)
-    return data
-
-
-def get_top_n(data_frame: DataFrame, sample_type: SampleType, top_n: int) -> List[dict]:
-    """Get top N."""
-    # Filtered data may not have volume.
-    index = (
-        data_frame[data_frame.volume > 0][sample_type]
-        .astype(float)
-        .nlargest(top_n)
-        .index
-    )
-    df = data_frame[data_frame.index.isin(index)]
-    return get_records(df)
-
-
-def get_records(df: DataFrame) -> List[dict]:
-    """Get records."""
-    data = df.to_dict("records")
-    data.sort(key=itemgetter("timestamp", "nanoseconds"))
-    for item in data:
-        for key in list(item):
-            if key not in (
-                "exchange",
-                "symbol",
-                "timestamp",
-                "nanoseconds",
-                "price",
-                "volume",
-                "notional",
-                "ticks",
-                "tickRule",
-            ):
-                del item[key]
-    return data
-
-
-def get_runs(
-    data_frame: DataFrame,
-    runs_n: int = 0,
-    bins: List[int] = [1_000, 10_000, 50_000, 100_000],
-) -> List[dict]:
-    """Get runs."""
-    runs = []
-    run = []
-    direction = None
-    # Filtered data may not have volume.
-    df = data_frame[data_frame.volume > 0]
-    for row in df.itertuples():
-        if direction is None:
-            direction = row.tickRule
-            run.append(row)
-        elif row.tickRule == direction:
-            run.append(row)
-        else:
-            direction = row.tickRule
-            if len(run) >= runs_n:
-                runs.append(run)
-            run = [row]
-    if run and len(run) >= runs_n:
-        runs.append(run)
-    # Result.
+def cluster_trades(data_frame: DataFrame, window: str | None = None) -> DataFrame:
+    """Cluster trades."""
     result = []
-    for index, run in enumerate(runs):
-        timestamp = run[0].timestamp
-        delta = run[-1].timestamp - timestamp
-        data = {
-            "timestamp": to_pydatetime(timestamp),
-            "duration": delta.total_seconds() or 0,
-        }
-        for sample_type in SampleType.values:
-            value = sum([getattr(r, sample_type) for r in run])
-            if sample_type == SampleType.TICK:
+    data = []
+    direction = None
+    # Iterate in reverse.
+    df = data_frame[::-1]
+    for row in df.itertuples():
+        tick_rule = row.tickRule if row.tickRule in (1, -1) else None
+        if not tick_rule and not direction:
+            data.append(row)
+        else:
+            if tick_rule and not direction:
+                if data:
+                    data.reverse()
+                    result.append(cluster(data))
+                    data = []
+                data.append(row)
+                direction = tick_rule
+            elif tick_rule in (None, direction):
+                data.append(row)
+            else:
+                if data:
+                    data.reverse()
+                    result.append(cluster(data))
+                    data = []
+                data.append(row)
+                direction = tick_rule
+    if data:
+        data.reverse()
+        result.append(cluster(data))
+    return (
+        pd.DataFrame(result)[::-1]
+        .convert_dtypes()
+        .replace({float("nan"): None})
+        .reset_index(drop=True)
+    )
+
+
+def cluster(data: list[dict]) -> list[dict]:
+    """Cluster."""
+    first = data[0]
+    last = data[-1]
+    delta = last.timestamp - first.timestamp
+    total_seconds = delta.total_seconds()
+    assert total_seconds >= 0
+    tick_rule = set([i.tickRule for i in data if i.tickRule in (1, -1)])
+    if tick_rule:
+        assert len(tick_rule) == 1
+        tick_rule = int(tick_rule.pop())
+    else:
+        tick_rule = None
+    result = {
+        "timestamp": to_pydatetime(first.timestamp),
+        "totalSeconds": total_seconds,
+        "open": first.price,
+        "high": max([i.price for i in data]),
+        "low": min([i.price for i in data]),
+        "close": last.price,
+        "tickRule": tick_rule,
+    }
+    volume = ["volume", "totalBuyVolume", "totalVolume"]
+    notional = ["notional", "totalBuyNotional", "totalNotional"]
+    ticks = ["ticks", "totalBuyTicks", "totalTicks"]
+    for sample_type in volume + notional + ticks:
+        if all([hasattr(i, sample_type) for i in data]):
+            value = sum(
+                [
+                    val
+                    for i in data
+                    if (val := getattr(i, sample_type)) and not math.isnan(val)
+                ]
+            )
+            if sample_type in ticks:
                 value = int(value)
-            data[sample_type] = value * int(run[0].tickRule)
-        data.update(get_bins(run, bins))
-        result.append(data)
+            result[sample_type] = value
     return result
 
 
-def get_bins(run: List[tuple], bins: List[int]):
-    """Get bins."""
-    data = {}
-    for index, b in enumerate(bins):
-        next_index = index + 1
-        c = f"volume{b}"
-        if (next_index) < len(bins):
-            next_b = bins[next_index]
-            data[c] = len([r for r in run if r.volume >= b and r.volume < next_b])
+def combine_clustered_trades(data_frame: DataFrame) -> DataFrame:
+    """Combine clustered trades."""
+    result = []
+    data = []
+    direction = None
+    # Iterate in reverse.
+    df = data_frame[::-1]
+    for row in df.itertuples():
+        tick_rule = row.tickRule if row.tickRule is not pd.NA else None
+        # Initial rows if None, maybe appended to next data frame.
+        if not tick_rule and not direction:
+            data.append(row)
         else:
-            data[c] = len([r for r in run if r.volume >= b])
-    return data
+            if tick_rule and not direction:
+                if data:
+                    data.reverse()
+                    result.append(combine_clusters(data))
+                    data = []
+                data.append(row)
+                direction = tick_rule
+            elif tick_rule in (None, direction):
+                data.append(row)
+            else:
+                if data:
+                    data.reverse()
+                    result.append(combine_clusters(data))
+                    data = []
+                data.append(row)
+                direction = tick_rule
+    if data:
+        data.reverse()
+        result.append(combine_clusters(data))
+    return (
+        pd.DataFrame(result)[::-1]
+        .convert_dtypes()
+        .replace({float("nan"): None})
+        .reset_index(drop=True)
+    )
+
+
+def combine_clusters(data: list[dict]) -> list[dict]:
+    """Combine clusters."""
+    first = data[0]
+    last = data[-1]
+    delta = last.timestamp - first.timestamp
+    tick_rule = set([i.tickRule for i in data if not pd.isna(i.tickRule)])
+    if tick_rule:
+        assert len(tick_rule) == 1
+        tick_rule = int(tick_rule.pop())
+    else:
+        tick_rule = None
+    return {
+        "timestamp": first.timestamp,
+        "totalSeconds": delta.total_seconds() + last.totalSeconds,
+        "open": first.open,
+        "high": max([d.high for d in data]),
+        "low": min([d.low for d in data]),
+        "close": last.close,
+        "tickRule": tick_rule,
+        "volume": sum([d.volume for d in data if d.volume]),
+        "totalBuyVolume": sum([d.totalBuyVolume for d in data if d.totalBuyVolume]),
+        "totalVolume": sum(
+            [d.totalVolume for d in data if d.totalVolume if d.totalVolume]
+        ),
+        "notional": sum([d.notional for d in data if d.notional]),
+        "totalBuyNotional": sum(
+            [d.totalBuyNotional for d in data if d.totalBuyNotional]
+        ),
+        "totalNotional": sum([d.totalNotional for d in data if d.totalNotional]),
+        "ticks": sum([d.ticks for d in data if d.ticks]),
+        "totalBuyTicks": sum([d.totalBuyTicks for d in data if d.totalBuyTicks]),
+        "totalTicks": sum([d.totalTicks for d in data if d.totalTicks]),
+    }

@@ -6,6 +6,8 @@ from .symbols import SymbolSerializer
 
 
 class CandleSerializer(serializers.ModelSerializer):
+    """Candle serializer."""
+
     code_name = serializers.CharField()
     symbols = SymbolSerializer(many=True)
 
@@ -15,5 +17,7 @@ class CandleSerializer(serializers.ModelSerializer):
 
 
 class CandleDataSerializer(serializers.Serializer):
+    """Candle data serializer."""
+
     timestamp = serializers.DateTimeField()
     data = serializers.JSONField(source="json_data")

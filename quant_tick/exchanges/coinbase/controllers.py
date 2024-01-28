@@ -1,5 +1,5 @@
+from collections.abc import Callable
 from datetime import date, datetime
-from typing import Callable, Optional
 
 from pandas import DataFrame
 
@@ -17,7 +17,7 @@ def coinbase_trades(
     on_data_frame: Callable,
     retry: bool = False,
     verbose: bool = False,
-):
+) -> None:
     """Get Coinbase trades."""
     CoinbaseTrades(
         symbol,
@@ -37,7 +37,7 @@ class CoinbaseTrades(CoinbaseMixin, ExchangeREST):
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
-        trades: Optional[list] = None,
+        trades: list[dict] | None = None,
     ) -> None:
         """Assert data frame."""
         super().assert_data_frame(timestamp_from, timestamp_to, data_frame, trades)

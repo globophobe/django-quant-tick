@@ -1,10 +1,8 @@
 from .aggregate import (
-    aggregate_candle,
-    aggregate_sum,
     aggregate_trades,
+    cluster_trades,
+    combine_clustered_trades,
     filter_by_timestamp,
-    get_runs,
-    get_top_n,
     volume_filter_with_time_window,
 )
 from .cache import get_next_cache, merge_cache
@@ -26,7 +24,12 @@ from .calendar import (
     timestamp_to_inclusive,
     to_pydatetime,
 )
-from .candles import candles_to_data_frame, get_validation_summary, validate_data_frame
+from .candles import (
+    aggregate_candle,
+    aggregate_candles,
+    candles_to_data_frame,
+    validate_aggregated_candles,
+)
 from .dataframe import (
     assert_type_decimal,
     calculate_notional,
@@ -40,11 +43,11 @@ from .experimental import calc_notional_exponent, calc_volume_exponent
 
 __all__ = [
     "aggregate_candle",
-    "aggregate_sum",
+    "aggregate_candles",
     "aggregate_trades",
+    "cluster_trades",
+    "combine_clustered_trades",
     "filter_by_timestamp",
-    "get_runs",
-    "get_top_n",
     "volume_filter_with_time_window",
     "get_next_cache",
     "merge_cache",
@@ -65,8 +68,7 @@ __all__ = [
     "timestamp_to_inclusive",
     "to_pydatetime",
     "candles_to_data_frame",
-    "get_validation_summary",
-    "validate_data_frame",
+    "validate_aggregated_candles",
     "assert_type_decimal",
     "calculate_notional",
     "calculate_tick_rule",

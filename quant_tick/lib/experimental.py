@@ -2,6 +2,20 @@ import math
 from decimal import Decimal
 
 import numpy as np
+from pandas import DataFrame
+
+from quant_tick.constants import SampleType
+
+
+def get_top_n(data_frame: DataFrame, sample_type: SampleType, top_n: int) -> DataFrame:
+    """Get top N"""
+    index = (
+        data_frame[data_frame.volume > 0][sample_type]
+        .astype(float)
+        .nlargest(top_n)
+        .index
+    )
+    return data_frame[data_frame.index.isin(index)]
 
 
 def calc_volume_exponent(

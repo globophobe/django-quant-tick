@@ -3,9 +3,11 @@ from decimal import Decimal
 
 import pandas as pd
 
-from quant_tick.lib import get_min_time
+from quant_tick.constants import Frequency
+from quant_tick.lib import get_existing, get_min_time
 from quant_tick.utils import gettext_lazy as _
 
+from ..trades import TradeData
 from .constant_candles import ConstantCandle
 
 
@@ -29,30 +31,33 @@ class AdaptiveCandle(ConstantCandle):
         has_target_value = data["target_value"] is not None
         if not is_same_day or not has_target_value:
             data["date"] = timestamp.date()
-            data["target_value"] = self.get_target_value(timestamp)
+            data["target_value"] = self.get_moving_average_value(timestamp)
         return data
 
-    def get_trade_data_summary_for_target(self, timestamp: datetime) -> bool:
-        """Get trade data summary for target."""
+    def get_trade_data_for_moving_average(self, timestamp: datetime) -> bool:
+        """Get trade data for moving average."""
         days = self.json_data["moving_average_number_of_days"]
-        ts = get_min_time(timestamp, value="1d") - pd.Timedelta(f"{days}d")
-        return self.get_trade_data_summary(ts, timestamp)
+        delta = pd.Timedelta(f"{days}d")
+        ts = get_min_time(timestamp, value="1d") - delta
+        return TradeData.objects.filter(
+            symbol__in=self.symbols.all(), timestamp__gte=ts, timestamp__lt=ts + delta
+        )
 
-    def get_target_value(self, timestamp: datetime) -> Decimal:
-        """Get target value."""
+    def get_moving_average_value(self, timestamp: datetime) -> Decimal:
+        """Get moving average value."""
         days = self.json_data["moving_average_number_of_days"]
-        trade_data_summary = (
-            self.get_trade_data_summary_for_target(timestamp)
+        trade_data = (
+            self.get_trade_data_for_moving_average(timestamp)
             .only("json_data")
             .values("json_data")
-            .order_by("-date")
+            .order_by("-timestamp")
         )
         total_symbols = self.symbols.all().count()
         sample_type = self.json_data["sample_type"]
         total = sum(
             [
                 t["json_data"]["candle"][sample_type]
-                for t in trade_data_summary
+                for t in trade_data
                 if t["json_data"] is not None
             ]
         )
@@ -61,8 +66,11 @@ class AdaptiveCandle(ConstantCandle):
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
         can_agg = super().can_aggregate(timestamp_from, timestamp_to)
-        trade_data_summary = self.get_trade_data_summary_for_target(timestamp_from)
-        return can_agg and trade_data_summary.exists()
+        trade_data_ma = self.get_trade_data_for_moving_average(timestamp_from)
+        existing = get_existing(trade_data_ma.values("timestamp", "frequency"))
+        days = self.json_data["moving_average_number_of_days"]
+        can_calculate_moving_average = len(existing) == Frequency.DAY * days
+        return can_agg and can_calculate_moving_average
 
     def should_aggregate_candle(self, data: dict) -> bool:
         """Should aggregate candle."""

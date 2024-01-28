@@ -10,6 +10,8 @@ from .trades import get_coinbase_trades_timestamp, get_trades
 
 
 class CoinbaseMixin(IntegerPaginationMixin):
+    """Coinbase mixin."""
+
     def iter_api(self, timestamp_from: datetime, pagination_id: str) -> tuple:
         """Iterate Coinbase API."""
         return get_trades(
@@ -60,9 +62,5 @@ class CoinbaseMixin(IntegerPaginationMixin):
     ) -> DataFrame:
         """Get candles from Exchange API."""
         return coinbase_candles(
-            self.symbol.api_symbol,
-            timestamp_from,
-            timestamp_to,
-            granularity=60,
-            log_format=f"{self.log_format} validating",
+            self.symbol.api_symbol, timestamp_from, timestamp_to, granularity=60
         )

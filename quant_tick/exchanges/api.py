@@ -1,5 +1,5 @@
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable, Dict, Optional
 
 from pandas import DataFrame
 
@@ -22,24 +22,18 @@ def api(
     timestamp_to: datetime,
     retry: bool = False,
     verbose: bool = False,
-):
+) -> None:
     """API."""
 
     def on_data_frame(
         symbol: Symbol,
         timestamp_from: datetime,
         timestamp_to: datetime,
-        data_frame: DataFrame,
-        validated: Optional[Dict[datetime, bool]] = {},
+        trades: DataFrame,
+        candles: DataFrame,
     ) -> DataFrame:
         """On data_frame, write trade data."""
-        TradeData.write(
-            symbol,
-            timestamp_from,
-            timestamp_to,
-            data_frame,
-            validated=validated,
-        )
+        TradeData.write(symbol, timestamp_from, timestamp_to, trades, candles)
 
     trades_api(
         symbol=symbol,
@@ -58,7 +52,7 @@ def trades_api(
     on_data_frame: Callable,
     retry: bool = False,
     verbose: bool = False,
-):
+) -> None:
     """Trades API."""
     exchange = symbol.exchange
     kwargs = {
@@ -84,7 +78,9 @@ def trades_api(
     #     upbit_trades(**kwargs)
 
 
-def candles_api(symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime):
+def candles_api(
+    symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
+) -> DataFrame:
     """Candles API."""
     exchange = symbol.exchange
     api_symbol = symbol.api_symbol

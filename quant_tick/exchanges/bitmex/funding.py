@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import List, Optional
 
 from quant_tick.controllers import iter_api
 from quant_tick.lib import parse_datetime
@@ -12,8 +11,8 @@ def get_funding(
     symbol: str,
     timestamp_from: datetime,
     pagination_id: int,
-    log_format: Optional[str] = None,
-) -> List[dict]:
+    log_format: str | None = None,
+) -> list[dict]:
     """Get funding."""
     url = f"{API_URL}/funding?symbol={symbol}"
     timestamp_key = "timestamp"

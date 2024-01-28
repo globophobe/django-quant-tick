@@ -6,6 +6,8 @@ from quant_tick.utils import gettext_lazy as _
 
 
 class TimeAgoSerializer(serializers.Serializer):
+    """Time ago serializer."""
+
     time_ago = serializers.CharField(required=False, default="1d")
 
     def validate_time_ago(self, value: str) -> pd.Timedelta:
@@ -13,7 +15,9 @@ class TimeAgoSerializer(serializers.Serializer):
         try:
             return pd.Timedelta(value)
         except ValueError:
-            raise serializers.ValidationError(_(f"Cannot parse {value}."))
+            raise serializers.ValidationError(
+                _("Cannot parse {value}.").format(value=value)
+            )
 
     def validate(self, data: dict) -> dict:
         """Validate."""
@@ -27,4 +31,6 @@ class TimeAgoSerializer(serializers.Serializer):
 
 
 class TimeAgoWithRetrySerializer(TimeAgoSerializer):
+    """Time ago with retry serializer."""
+
     retry = serializers.BooleanField(required=False, default=False)

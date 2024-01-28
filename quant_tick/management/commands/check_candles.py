@@ -14,13 +14,15 @@ from quant_tick.lib import (
     iter_timeframe,
 )
 from quant_tick.management.base import BaseCandleCommand
-from quant_tick.models import Candle, CandleData, CandleReadOnlyData, TimeBasedCandle
+from quant_tick.models import Candle, CandleData, TimeBasedCandle
 from quant_tick.utils import gettext_lazy as _
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCandleCommand):
+    """Check candles."""
+
     help = "Candles can be checked if time based, or adaptive with cache reset."
 
     def get_queryset(self) -> QuerySet:
@@ -42,15 +44,7 @@ class Command(BaseCandleCommand):
             candle_data = (
                 CandleData.objects.filter(candle=candle).only("timestamp").first()
             )
-            candle_read_only_data = (
-                CandleReadOnlyData.objects.filter(candle_id=candle.pk)
-                .only("timestamp")
-                .first()
-            )
-            candle_timestamp = min(
-                [c.timestamp for c in (candle_data, candle_read_only_data) if c],
-                default=None,
-            )
+            candle_timestamp = candle_data.timestamp if candle_data else None
             ts_from = max([t for t in (candle_timestamp, timestamp_from) if t])
             daily_timestamp_from = get_min_time(ts_from, value="1d")
             daily_timestamp_to = get_min_time(timestamp_to, value="1d")
@@ -76,8 +70,7 @@ class Command(BaseCandleCommand):
         self, candle: Candle, timestamp_from: datetime, timestamp_to: datetime
     ) -> None:
         """Check daily range."""
-        trade_data_summary = candle.get_trade_data_summary(timestamp_from, timestamp_to)
-        trade_data_summary = list(trade_data_summary)
+        expected_ = candle.get_expected_daily_candle(timestamp_from, timestamp_to)
         delta = timestamp_to - timestamp_from
         if len(trade_data_summary) == delta.days:
             candles = candle.get_data(timestamp_from, timestamp_to)

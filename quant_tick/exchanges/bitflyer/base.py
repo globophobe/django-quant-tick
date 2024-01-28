@@ -7,6 +7,8 @@ from .api import get_bitflyer_api_timestamp, get_trades
 
 
 class BitflyerMixin(IntegerPaginationMixin):
+    """Bitflyer mixin."""
+
     def iter_api(self, timestamp_from: datetime, pagination_id: str) -> list:
         """Iterate Bitflyer API."""
         return get_trades(

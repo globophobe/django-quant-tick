@@ -1,13 +1,13 @@
 import os
 from pathlib import Path
-from unittest.mock import patch
 
 import pandas as pd
 from django.test import TestCase
 
+from quant_tick.constants import FileData
 from quant_tick.lib import get_min_time, get_next_time
 from quant_tick.models import TradeData
-from quant_tick.storage import convert_trade_data_to_hourly
+from quant_tick.storage import convert_trade_data_to_daily
 
 from ..base import BaseWriteTradeDataTest
 
@@ -20,9 +20,11 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
     def test_write_trade_data(self):
         """Write trade data."""
         symbol = self.get_symbol()
-        filtered = self.get_filtered(self.timestamp_from)
-        TradeData.write(symbol, self.timestamp_from, self.timestamp_to, filtered, {})
-        row = filtered.iloc[0]
+        raw = self.get_raw(self.timestamp_from)
+        TradeData.write(
+            symbol, self.timestamp_from, self.timestamp_to, raw, pd.DataFrame([])
+        )
+        row = raw.iloc[0]
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 1)
         t = trade_data[0]
@@ -33,22 +35,24 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
 
     def test_retry_raw_trade(self):
         """Retry raw trade."""
-        symbol = self.get_symbol(should_aggregate_trades=False)
-        filtered = self.get_filtered(self.timestamp_from)
+        symbol = self.get_symbol(save_raw=True)
+        raw = self.get_raw(self.timestamp_from)
         for i in range(2):
             TradeData.write(
-                symbol, self.timestamp_from, self.timestamp_to, filtered, {}
+                symbol,
+                self.timestamp_from,
+                self.timestamp_to,
+                raw,
+                pd.DataFrame([]),
             )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 1)
         t = trade_data[0]
-        _, filename = os.path.split(t.file_data.name)
+        filename = Path(t.raw_data.name).name
         self.assertEqual(filename.count("."), 1)
 
-        storage = t.file_data.storage
-        exchange = t.symbol.exchange
-        symbol = t.symbol.symbol
-        path = Path("trades") / exchange / symbol / "raw" / "data"
+        storage = t.raw_data.storage
+        path = Path("test-trades") / Path("/".join(t.symbol.upload_path)) / "raw"
         p = str(path.resolve())
 
         directories, _ = storage.listdir(p)
@@ -62,22 +66,24 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
 
     def test_retry_aggregated_trade(self):
         """Retry aggregated trade."""
-        symbol = self.get_symbol()
-        filtered = self.get_filtered(self.timestamp_from)
+        symbol = self.get_symbol(save_aggregated=True)
+        aggregated = self.get_aggregated(self.timestamp_from)
         for i in range(2):
             TradeData.write(
-                symbol, self.timestamp_from, self.timestamp_to, filtered, {}
+                symbol,
+                self.timestamp_from,
+                self.timestamp_to,
+                aggregated,
+                pd.DataFrame([]),
             )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 1)
         t = trade_data[0]
-        _, filename = os.path.split(t.file_data.name)
+        _, filename = os.path.split(t.aggregated_data.name)
         self.assertEqual(filename.count("."), 1)
 
-        storage = t.file_data.storage
-        exchange = t.symbol.exchange
-        symbol = t.symbol.symbol
-        path = Path("trades") / exchange / symbol / "aggregated" / "0" / "data"
+        storage = t.aggregated_data.storage
+        path = Path("test-trades") / Path("/".join(t.symbol.upload_path)) / "aggregated"
         p = str(path.resolve())
 
         directories, _ = storage.listdir(p)
@@ -89,12 +95,8 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         fname = files[0]
         self.assertEqual(filename, fname)
 
-    @patch("quant_tick.storage.candles_api")
-    @patch("quant_tick.storage.validate_data_frame")
-    def test_convert_trade_data_to_hourly(
-        self, mock_validate_data_frame, mock_candle_api
-    ):
-        """Convert trade data to hourly."""
+    def test_convert_trade_data_to_daily(self):
+        """Convert trade data to daily."""
         symbol = self.get_symbol()
         timestamp_from = get_min_time(self.timestamp_from, "1h")
 
@@ -102,29 +104,20 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         for minute in range(60):
             ts_from = timestamp_from + pd.Timedelta(f"{minute}t")
             ts_to = ts_from + pd.Timedelta("1t")
-            df = self.get_filtered(ts_from)
-            validated = {minute: True}
-            TradeData.write(symbol, ts_from, ts_to, df, validated)
+            df = self.get_raw(ts_from)
+            TradeData.write(symbol, ts_from, ts_to, df, pd.DataFrame([]))
             data_frames.append(df)
 
         first = TradeData.objects.get(timestamp=timestamp_from)
 
-        mock_validate_data_frame.return_value = {
-            timestamp: True
-            for timestamp in [
-                self.timestamp_from + pd.Timedelta(f"{minute}t") for minute in range(60)
-            ]
-        }
-
-        convert_trade_data_to_hourly(
+        convert_trade_data_to_daily(
             symbol, timestamp_from, get_next_time(timestamp_from, value="1h")
         )
 
         trades = TradeData.objects.all()
         self.assertEqual(trades.count(), 1)
 
-        filtered = pd.concat(data_frames).drop(columns=["uid"])
+        raw = pd.concat(data_frames).drop(columns=["uid"]).reset_index(drop=True)
         data = trades[0]
         self.assertEqual(data.uid, first.uid)
-        self.assertTrue(data.get_data_frame().equals(filtered))
-        self.assertTrue(data.ok)
+        self.assertTrue(data.get_data_frame(FileData.RAW).equals(raw))

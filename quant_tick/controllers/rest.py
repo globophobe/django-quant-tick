@@ -1,19 +1,14 @@
 import logging
 import os
 import time
+from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
-from typing import Callable, Optional
 
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.lib import (
-    aggregate_trades,
-    assert_type_decimal,
-    validate_data_frame,
-    volume_filter_with_time_window,
-)
+from quant_tick.lib import assert_type_decimal
 from quant_tick.models import Symbol, TradeData
 
 from .base import BaseController
@@ -28,10 +23,10 @@ def iter_api(
     get_api_timestamp: Callable,
     get_api_response: Callable,
     max_results: int,
-    min_elapsed_per_request,
-    timestamp_from: Optional[datetime] = None,
-    pagination_id: Optional[str] = None,
-    log_format: Optional[str] = None,
+    min_elapsed_per_request: int,
+    timestamp_from: datetime | None = None,
+    pagination_id: str | None = None,
+    log_format: str | None = None,
 ) -> list:
     """Iterate exchange API."""
     results = []
@@ -131,11 +126,13 @@ def throttle_api_requests(
 
 
 class ExchangeREST(BaseController):
-    def get_pagination_id(self, timestamp_to: datetime):
+    """Exchange REST."""
+
+    def get_pagination_id(self, timestamp_to: datetime) -> None:
         """Get pagination_id for symbol."""
         raise NotImplementedError
 
-    def iter_api(self, symbol: Symbol, pagination_id: str, log_format: str):
+    def iter_api(self, symbol: Symbol, pagination_id: str, log_format: str) -> None:
         """Iter exchange API."""
         raise NotImplementedError
 
@@ -160,40 +157,16 @@ class ExchangeREST(BaseController):
             valid_trades = self.get_valid_trades(timestamp_from, timestamp_to, trades)
             data_frame = self.get_data_frame(valid_trades)
             candles = self.get_candles(timestamp_from, timestamp_to)
-            # Are there any trades?
             if len(data_frame):
                 self.assert_data_frame(
                     timestamp_from, timestamp_to, data_frame, valid_trades
                 )
-                if self.symbol.should_aggregate_trades:
-                    df = aggregate_trades(data_frame)
-                    if self.symbol.significant_trade_filter:
-                        df = volume_filter_with_time_window(
-                            df, min_volume=self.symbol.significant_trade_filter
-                        )
-                else:
-                    df = data_frame.drop(columns=["index"])
-            else:
-                df = pd.DataFrame([])
-            validated = validate_data_frame(
-                timestamp_from,
-                timestamp_to,
-                df,
-                candles,
-                self.symbol.should_aggregate_trades,
-            )
             self.on_data_frame(
-                self.symbol,
-                timestamp_from,
-                timestamp_to,
-                df,
-                validated,
+                self.symbol, timestamp_from, timestamp_to, data_frame, candles
             )
             # Complete
             if is_last_iteration:
                 break
-
-            self.delete_trade_data_summary(timestamp_from, timestamp_to)
 
     def parse_data(self, data: list) -> list:
         """Parse trade data."""
@@ -213,7 +186,7 @@ class ExchangeREST(BaseController):
 
     def get_valid_trades(
         self, timestamp_from: datetime, timestamp_to: datetime, trades: list
-    ):
+    ) -> list:
         """Get valid trades."""
         unique = set()
         valid_trades = []
@@ -264,7 +237,7 @@ class ExchangeREST(BaseController):
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
-        trades: Optional[list] = None,
+        trades: list | None = None,
     ) -> None:
         """Assertions for data_frame."""
         # Are trades unique?
@@ -284,7 +257,7 @@ class ExchangeREST(BaseController):
 class IntegerPaginationMixin:
     """Binance, ByBit, and Coinbase REST API."""
 
-    def get_pagination_id(self, timestamp_from: datetime) -> Optional[int]:
+    def get_pagination_id(self, timestamp_from: datetime) -> int | None:
         """Get integer pagination_id."""
         return TradeData.objects.get_last_uid(self.symbol, timestamp_from)
 
@@ -297,7 +270,7 @@ class SequentialIntegerMixin(IntegerPaginationMixin):
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
-        trades: Optional[list] = None,
+        trades: list | None = None,
     ) -> None:
         """Assert sequential integer data_frame."""
         super().assert_data_frame(timestamp_from, timestamp_to, data_frame, trades)

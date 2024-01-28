@@ -13,6 +13,8 @@ from quant_tick.serializers import (
 
 
 class CandleView(ListAPIView):
+    """Candle view."""
+
     queryset = Candle.objects.prefetch_related("symbols__global_symbol")
     filterset_class = CandleFilter
     filter_backends = (DjangoFilterBackend,)
@@ -20,6 +22,8 @@ class CandleView(ListAPIView):
 
 
 class CandleDataView(RetrieveAPIView):
+    """Candle data view."""
+
     queryset = Candle.objects.all()
     lookup_field = "code_name"
 

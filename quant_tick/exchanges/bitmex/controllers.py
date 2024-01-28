@@ -1,5 +1,5 @@
 import datetime
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import pandas as pd
 from pandas import DataFrame
@@ -48,14 +48,14 @@ class BitmexTradesREST(BitmexRESTMixin, ExchangeREST):
 class BitmexTradesS3(BitmexS3Mixin, ExchangeS3):
     """BitMEX trades S3."""
 
-    def get_data_frame(self, date: datetime.date) -> Optional[DataFrame]:
+    def get_data_frame(self, date: datetime.date) -> DataFrame | None:
         """Get data_frame.
 
         Downloaded file has multiple symbols. Do nothing before listing date.
         """
         base_url = f"{API_URL}/instrument?symbol={self.symbol.api_symbol}&count=1"
 
-        def get_api_url(*args, **kwargs):
+        def get_api_url(*args, **kwargs) -> str:
             return base_url
 
         # In the case of XBTUSD, the listing date was previously correct, but has been

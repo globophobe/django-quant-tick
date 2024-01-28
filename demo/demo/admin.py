@@ -26,5 +26,5 @@ class SymbolAdmin(SemanticModelAdmin):
     fields = (
         ("global_symbol", "exchange"),
         ("symbol_type", "api_symbol"),
-        ("should_aggregate_trades", "significant_trade_filter"),
+        ("aggregate_trades", "significant_trade_filter"),
     )

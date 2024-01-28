@@ -1,20 +1,21 @@
 # What?
 
-Django Quant Tick downloads and aggregate candlesticks from tick data.
-
-<img src="https://raw.githubusercontent.com/globophobe/django-quant-tick/main/docs/assets/volume-candles.png" />
+Django Quant Tick downloads tick data, and aggregates candlesticks from high frequency data.
 
 # Why?
 
-Candlesticks aggregated by `django-quant-tick` are informationally dense. Such data can be useful for analyzing financial markets. As an example, refer to ["Low-Frequency Traders in a High-Frequency World: A Survival Guide"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2150876) and ["The Volume Clock: Insights into the High Frequency Paradigm"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2034858). Lopez de Prado recommends volume bars, however they are are computationally expensive to generate.
+Tick data is preferable for analyzing financial markets. Candlesticks aggregated by `django-quant-tick` are equally informationally dense. Such candles can be useful for analyzing financial markets. As an example, refer to ["Low-Frequency Traders in a High-Frequency World: A Survival Guide"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2150876) and ["The Volume Clock: Insights into the High Frequency Paradigm"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2034858). Lopez de Prado recommends volume candlesticks, however they are are computationally expensive to generate.
 
-By aggregating and filtering raw ticks, they can be computed faster, with little loss in precision.
+Tick data may be downloaded raw, or optionally aggregated. Aggregation can save disk space, and may increase information. There are 3 complementary aggregations. The first is by equal symbol, timestamp, nanoseconds and tick rule. The second is by filtering significant trades, for example at least $1000. The third is by clustering consecutively executed buy or sell orders.
 
-This optional aggregation is by equal symbol, timestamp, nanoseconds and tick rule. As described in the accompanying project [cryptofeed-werks](https://github.com/globophobe/cryptofeed-werks), aggregating trades in this way can increase information, as they are either orders of size or stop loss cascades.
+By aggregating, filtering, and clustering raw tick data, volume candlesticks can be computed faster, with little loss in precision.
 
-As well, the number of rows can be reduced by 30-50%
+1. First tick data may be aggregated by equal symbol, timestamp, nanoseconds and tick rule. Aggregating trades in this way can increase information, as they are either orders of size or stop loss cascades. As well, the number of rows can be reduced by 30-50%
 
-By filtering aggregated rows, for example only writing a row when an aggregated trade is greater than `significant_trade_filter >= 1000`, the number of rows can be reduced more.
+2. By filtering aggregated rows, for example only writing a row when an aggregated trade is greater than `significant_trade_filter >= 1000`, the number of rows can be reduced more.
+
+3. Clustering trades by trade direction, such that a row is created only if the tick rule changes, may further reduce the number of rows.
+
 
 # How?
 

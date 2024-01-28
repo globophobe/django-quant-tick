@@ -14,6 +14,8 @@ def big_decimal() -> serializers.DecimalField:
 
 
 class BaseParameterSerializer(serializers.Serializer):
+    """Base parameter serializer."""
+
     time_ago = serializers.CharField(required=False, default="1d")
 
     def validate_time_ago(self, value: str) -> pd.Timedelta:
@@ -21,7 +23,9 @@ class BaseParameterSerializer(serializers.Serializer):
         try:
             return pd.Timedelta(value)
         except ValueError:
-            raise serializers.ValidationError(_(f"Cannot parse {value}."))
+            raise serializers.ValidationError(
+                _("Cannot parse {value}.").format(value=value)
+            )
 
     def validate(self, data: dict) -> dict:
         """Validate."""

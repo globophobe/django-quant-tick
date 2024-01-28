@@ -1,2 +1,3 @@
-def kucoin_trades():
+def kucoin_trades() -> list[dict]:
+    """Kucoin trades."""
     pass

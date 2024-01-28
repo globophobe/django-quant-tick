@@ -1,6 +1,6 @@
 import logging
+from collections.abc import Callable
 from datetime import datetime, time, timezone
-from typing import Callable
 
 import pandas as pd
 

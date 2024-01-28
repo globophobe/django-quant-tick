@@ -1,10 +1,10 @@
 import json
 import logging
 import time
+from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
 from functools import partial
-from typing import Callable, List, Optional
 
 import httpx
 
@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 def get_bitmex_api_url(
     url: str,
-    timestamp_from: Optional[datetime] = None,
-    pagination_id: Optional[str] = None,
+    timestamp_from: datetime | None = None,
+    pagination_id: str | None = None,
 ) -> str:
     """Get BitMEX API URL."""
     url += f"&count={MAX_RESULTS}&reverse=true"
@@ -29,7 +29,7 @@ def get_bitmex_api_url(
 
 
 def get_bitmex_api_pagination_id(
-    timestamp: datetime, last_data: List[dict] = [], data: List[dict] = []
+    timestamp: datetime, last_data: list | None = None, data: list | None = None
 ) -> str:
     """Get BitMEX API pagination_id."""
     return format_bitmex_api_timestamp(timestamp)
@@ -48,10 +48,10 @@ def format_bitmex_api_timestamp(timestamp: datetime) -> str:
 def get_bitmex_api_response(
     get_api_url: Callable,
     base_url: str,
-    timestamp_from: Optional[datetime] = None,
-    pagination_id: Optional[str] = None,
+    timestamp_from: datetime | None = None,
+    pagination_id: str | None = None,
     retry: int = 30,
-):
+) -> list[dict]:
     """Get BitMEX API response."""
     retry_request = partial(
         get_bitmex_api_response,

@@ -1,6 +1,5 @@
 from datetime import datetime
 from functools import partial
-from typing import List, Optional
 
 from quant_tick.controllers import iter_api
 from quant_tick.lib import parse_datetime
@@ -11,8 +10,8 @@ from .constants import API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
 
 def get_coinbase_trades_url(
     url: str,
-    timestamp_from: Optional[datetime] = None,
-    pagination_id: Optional[int] = None,
+    timestamp_from: datetime | None = None,
+    pagination_id: int | None = None,
 ) -> str:
     """Get coinbase trades URL."""
     if pagination_id:
@@ -21,8 +20,8 @@ def get_coinbase_trades_url(
 
 
 def get_coinbase_trades_pagination_id(
-    timestamp: datetime, last_data: list = [], data: list = []
-) -> Optional[int]:
+    timestamp: datetime, last_data: list | None = None, data: list | None = None
+) -> int | None:
     """Get Coinbase trades pagination_id.
 
     Pagination details: https://docs.pro.coinbase.com/#pagination
@@ -40,8 +39,8 @@ def get_trades(
     symbol: str,
     timestamp_from: datetime,
     pagination_id: int,
-    log_format: Optional[str] = None,
-) -> List[dict]:
+    log_format: str | None = None,
+) -> list[dict]:
     """Get trades."""
     url = f"{API_URL}/products/{symbol}/trades"
     return iter_api(
