@@ -237,15 +237,12 @@ class TradeData(AbstractDataStorage):
             obj.uid = trades.iloc[0].uid
 
         # Are there any trades?
-        aggregated = pd.DataFrame([])
-        filtered = pd.DataFrame([])
-        clustered = pd.DataFrame([])
         aggregated_candles = pd.DataFrame([])
         if len(trades):
             symbol = obj.symbol
-            # TODO: Don't aggregate if only save_raw is True.
-            aggregated = aggregate_trades(trades)
-            filtered = aggregated
+            if symbol.save_aggregated or symbol.save_filtered or symbol.save_clustered:
+                aggregated = aggregate_trades(trades)
+                filtered = aggregated
             if symbol.save_raw:
                 obj.raw_data = cls.prepare_data(trades)
             if symbol.save_aggregated:
@@ -264,20 +261,22 @@ class TradeData(AbstractDataStorage):
                 obj.clustered_data = cls.prepare_data(clustered)
 
             aggregated_candles = aggregate_candles(
-                filtered,
+                trades,
                 obj.timestamp,
                 obj.timestamp + pd.Timedelta(f"{obj.frequency}t"),
             )
             assert is_decimal_close(
-                aggregated_candles.notional.sum(), aggregated.notional.sum()
+                aggregated_candles.notional.sum(), trades.notional.sum()
             )
 
-        obj.json_data = {"candle": aggregate_candle(aggregated)}
+            obj.json_data = {"candle": aggregate_candle(trades)}
+
         aggregated_candles, ok = validate_aggregated_candles(
             aggregated_candles,
             candles,
         )
-        obj.candle_data = cls.prepare_data(aggregated_candles)
+        if len(aggregated_candles):
+            obj.candle_data = cls.prepare_data(aggregated_candles)
         obj.ok = ok
         obj.save()
 
