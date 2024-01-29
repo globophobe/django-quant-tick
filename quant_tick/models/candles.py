@@ -25,7 +25,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
     symbols = models.ManyToManyField(
         "quant_tick.Symbol",
-        db_table="quant_candles_candle_symbol",
+        db_table="quant_tick_candle_symbol",
         verbose_name=_("symbols"),
     )
     date_from = models.DateField(_("date from"), null=True)
@@ -232,7 +232,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         CandleData.objects.bulk_create(data)
 
     class Meta:
-        db_table = "quant_candles_candle"
+        db_table = "quant_tick_candle"
         verbose_name = _("candle")
         verbose_name_plural = _("candles")
 
@@ -250,7 +250,7 @@ class CandleCache(models.Model):
     json_data = JSONField(_("json data"), default=dict)
 
     class Meta:
-        db_table = "quant_candles_candle_cache"
+        db_table = "quant_tick_candle_cache"
         ordering = ("timestamp",)
         verbose_name = verbose_name_plural = _("candle cache")
 
@@ -265,6 +265,6 @@ class CandleData(models.Model):
     json_data = JSONField(_("json data"), default=dict)
 
     class Meta:
-        db_table = "quant_candles_candle_data"
+        db_table = "quant_tick_candle_data"
         ordering = ("timestamp",)
         verbose_name = verbose_name_plural = _("candle data")

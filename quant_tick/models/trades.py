@@ -281,7 +281,7 @@ class TradeData(AbstractDataStorage):
         obj.save()
 
     class Meta:
-        db_table = "quant_candles_trade_data"
+        db_table = "quant_tick_trade_data"
         ordering = ("timestamp",)
         unique_together = (("symbol", "timestamp", "frequency"),)
         verbose_name = verbose_name_plural = _("trade data")
