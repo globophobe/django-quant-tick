@@ -108,7 +108,10 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             TradeData.write(symbol, ts_from, ts_to, df, pd.DataFrame([]))
             data_frames.append(df)
 
-        first = TradeData.objects.get(timestamp=timestamp_from)
+        trades = TradeData.objects.all()
+        self.assertEqual(trades.count(), 60)
+        first = trades[0]
+        candles = pd.DataFrame([t.json_data["candle"] for t in trades])
 
         convert_trade_data_to_daily(
             symbol, timestamp_from, get_next_time(timestamp_from, value="1h")
@@ -121,3 +124,15 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         data = trades[0]
         self.assertEqual(data.uid, first.uid)
         self.assertTrue(data.get_data_frame(FileData.RAW).equals(raw))
+        candle = data.json_data["candle"]
+        self.assertEqual(candle["timestamp"], candles.iloc[0].timestamp)
+        self.assertEqual(candle["open"], candles.iloc[0].open)
+        self.assertEqual(candle["high"], candles.high.max())
+        self.assertEqual(candle["low"], candles.low.min())
+        self.assertEqual(candle["close"], candles.iloc[-1].close)
+        self.assertEqual(candle["volume"], candles.volume.sum())
+        self.assertEqual(candle["buyVolume"], candles.buyVolume.sum())
+        self.assertEqual(candle["notional"], candles.notional.sum())
+        self.assertEqual(candle["buyNotional"], candles.buyNotional.sum())
+        self.assertEqual(candle["ticks"], candles.ticks.sum())
+        self.assertEqual(candle["buyTicks"], candles.buyTicks.sum())
