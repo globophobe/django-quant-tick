@@ -259,7 +259,9 @@ def cluster(data: list[dict]) -> list[dict]:
     last = data[-1]
     delta = last.timestamp - first.timestamp
     total_seconds = delta.total_seconds()
-    assert total_seconds >= 0
+    # Although extremely rare, Coinbase, has instances of consecutive trades with non
+    # consecutive timestamps, so set max total seconds to 0.
+    total_seconds = 0 if total_seconds < 0 else total_seconds
     tick_rule = set([i.tickRule for i in data if i.tickRule in (1, -1)])
     if tick_rule:
         assert len(tick_rule) == 1
