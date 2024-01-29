@@ -205,7 +205,17 @@ def convert_trade_data(
                     TradeData.prepare_data(data_frame),
                 )
                 if not new_trade_data.json_data:
-                    new_trade_data.json_data = {"candle": aggregate_candle(data_frame)}
+                    new_trade_data.json_data = {
+                        "candle": aggregate_candle(
+                            pd.DataFrame(
+                                [
+                                    t.json_data["candle"]
+                                    for t in trade_data
+                                    if t.json_data
+                                ]
+                            )
+                        )
+                    }
                 new_trade_data.save()
 
     # Completely delete minutes.
