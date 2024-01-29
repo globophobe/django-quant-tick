@@ -21,13 +21,6 @@ def get_random_name(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        (
-            "quant_tick",
-            "0001_squashed_0004_alter_candle_symbols_alter_candle_table_and_more.py",
-        ),
-    ]
-
     initial = True
 
     dependencies = [
