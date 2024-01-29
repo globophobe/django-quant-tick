@@ -9,7 +9,6 @@ from django.db.models.functions import TruncDate
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
-    aggregate_candle,
     combine_clustered_trades,
     get_existing,
     get_min_time,
@@ -205,7 +204,25 @@ def convert_trade_data(
                     TradeData.prepare_data(data_frame),
                 )
                 if not new_trade_data.json_data:
-                    new_trade_data.json_data = {"candle": aggregate_candle(data_frame)}
+                    candles = pd.DataFrame(
+                        [t.json_data["candle"] for t in trade_data if t.json_data]
+                    )
+                    first_row = candles.iloc[0]
+                    last_row = candles.iloc[-1]
+                    candle = {
+                        "timestamp": first_row.timestamp,
+                        "open": first_row.open,
+                        "high": candles.high.max(),
+                        "low": candles.low.min(),
+                        "close": last_row.close,
+                        "volume": candles.volume.sum(),
+                        "buyVolume": candles.buyVolume.sum(),
+                        "notional": candles.notional.sum(),
+                        "buyNotional": candles.buyNotional.sum(),
+                        "ticks": candles.ticks.sum(),
+                        "buyTicks": candles.buyTicks.sum(),
+                    }
+                    new_trade_data.json_data = {"candle": candle}
                 new_trade_data.save()
 
     # Completely delete minutes.

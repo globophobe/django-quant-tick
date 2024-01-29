@@ -16,7 +16,7 @@ class GlobalSymbol(models.Model):
         return self.name
 
     class Meta:
-        db_table = "quant_candles_global_symbol"
+        db_table = "quant_tick_global_symbol"
         verbose_name = _("global symbol")
         verbose_name_plural = _("global symbols")
 
@@ -101,7 +101,7 @@ class Symbol(AbstractCodeName):
         return f"{exchange} {self.symbol} {self.code_name}"
 
     class Meta:
-        db_table = "quant_candles_symbol"
+        db_table = "quant_tick_symbol"
         ordering = ("exchange", "api_symbol")
         verbose_name = _("symbol")
         verbose_name_plural = _("symbols")
