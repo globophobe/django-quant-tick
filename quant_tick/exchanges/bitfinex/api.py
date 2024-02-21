@@ -1,8 +1,10 @@
 import json
+import logging
 import time
 from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
+from functools import partial
 
 import httpx
 
@@ -19,6 +21,8 @@ from .constants import (
     MAX_REQUESTS,
     MAX_REQUESTS_RESET,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def format_bitfinex_api_timestamp(timestamp: datetime) -> int:
@@ -61,6 +65,13 @@ def get_bitfinex_api_response(
         MAX_REQUESTS_RESET,
         MAX_REQUESTS,
     )
+    retry_request = partial(
+        get_bitfinex_api_response,
+        get_api_url,
+        base_url,
+        timestamp_from=timestamp_from,
+        pagination_id=pagination_id,
+    )
     try:
         url = get_api_url(base_url, pagination_id=pagination_id)
         response = httpx.get(url)
@@ -68,6 +79,11 @@ def get_bitfinex_api_response(
         if response.status_code == 200:
             result = response.read()
             return json.loads(result, parse_float=Decimal)
+        elif response.status_code == 429:
+            sleep_duration = response.headers.get("Retry-After", 1)
+            logger.info(f"HTTP 429, sleeping {sleep_duration} seconds")
+            time.sleep(int(sleep_duration))
+            return retry_request(retry=retry)
         else:
             response.raise_for_status()
     except HTTPX_ERRORS:
