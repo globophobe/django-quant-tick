@@ -50,7 +50,7 @@ def coinbase_candles(
 ) -> DataFrame:
     """Get coinbase candles."""
     url = f"{API_URL}/products/{api_symbol}/candles?granularity={granularity}"
-    ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1t")
+    ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1min")
     pagination_id = ts_to.replace(tzinfo=None).isoformat()
     candles, _ = iter_api(
         url,

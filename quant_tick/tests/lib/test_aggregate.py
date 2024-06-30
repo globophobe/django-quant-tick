@@ -184,7 +184,7 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
         """
         min_time = get_min_time(get_current_time(), "1d")
         one_second = pd.Timedelta("1s")
-        one_minute = pd.Timedelta("1t")
+        one_minute = pd.Timedelta("1min")
         kwargs = {"price": 1, "notional": 1, "tick_rule": 1}
         trades = [
             self.get_random_trade(timestamp=min_time, **kwargs),
@@ -196,7 +196,9 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
         ]
         data_frame = pd.DataFrame(trades)
         aggregated = aggregate_trades(data_frame)
-        filtered = volume_filter_with_time_window(aggregated, min_volume=2, window="1t")
+        filtered = volume_filter_with_time_window(
+            aggregated, min_volume=2, window="1min"
+        )
         self.assertEqual(len(filtered), 3)
         self.assert_min_volume(filtered.iloc[0])
         self.assert_not_min_volume(filtered.iloc[1], buy=1, total=1)
@@ -209,7 +211,7 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
         """
         min_time = get_min_time(get_current_time(), "1d")
         one_second = pd.Timedelta("1s")
-        one_minute = pd.Timedelta("1t")
+        one_minute = pd.Timedelta("1min")
         kwargs = {"price": 1, "notional": 1, "tick_rule": 1}
         trades = [
             self.get_random_trade(timestamp=min_time, **kwargs),
@@ -224,7 +226,9 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
         ]
         data_frame = pd.DataFrame(trades)
         aggregated = aggregate_trades(data_frame)
-        filtered = volume_filter_with_time_window(aggregated, min_volume=2, window="1t")
+        filtered = volume_filter_with_time_window(
+            aggregated, min_volume=2, window="1min"
+        )
         self.assertEqual(len(filtered), 3)
         self.assert_min_volume(filtered.iloc[0])
         self.assert_not_min_volume(filtered.iloc[1], buy=1, total=1)

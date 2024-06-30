@@ -62,7 +62,7 @@ class BaseTimeFrameIterator:
 
     def get_max_timestamp_to(self) -> datetime:
         """Get max timestamp to."""
-        return get_min_time(get_current_time(), value="1t")
+        return get_min_time(get_current_time(), value="1min")
 
     def iter_all(
         self,

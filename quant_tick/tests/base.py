@@ -175,7 +175,7 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         """Get filtered."""
         data_frame = self.get_aggregated(timestamp, nanoseconds, price, notional)
         return volume_filter_with_time_window(
-            data_frame, min_volume=min_volume, window="1t"
+            data_frame, min_volume=min_volume, window="1min"
         )
 
     def get_clustered(

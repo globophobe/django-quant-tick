@@ -58,7 +58,7 @@ def bitfinex_candles(
         MAX_REQUESTS_RESET,
         MAX_REQUESTS,
     )
-    ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1t")
+    ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1min")
     delta = ts_to - timestamp_from
     total_minutes = delta.total_seconds() / 60
     limit = int(total_minutes) + 1

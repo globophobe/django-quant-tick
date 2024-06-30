@@ -44,7 +44,7 @@ class GetRangeTest(SimpleTestCase):
 
     def test_get_range_1m(self):
         """Get range, by 1 minute."""
-        one_minute = pd.Timedelta("1t")
+        one_minute = pd.Timedelta("1min")
         timestamp_to = get_next_time(self.timestamp_from, value="1d") - one_minute
         values = get_range(self.timestamp_from, timestamp_to)
         self.assertEqual(len(values), 1440)
@@ -112,8 +112,8 @@ class IterTimeframeTest(SimpleTestCase):
         values = self.get_values(timestamp_from, timestamp_to)
         self.assertEqual(len(values), 1)
         ts_from, ts_to = values[0]
-        self.assertEqual(ts_from, get_min_time(timestamp_from, "1t"))
-        self.assertEqual(ts_to, get_min_time(timestamp_to, "1t"))
+        self.assertEqual(ts_from, get_min_time(timestamp_from, "1min"))
+        self.assertEqual(ts_to, get_min_time(timestamp_to, "1min"))
 
     def test_iter_timeframe_with_tail_only(self):
         """Previous day only."""
@@ -178,7 +178,7 @@ class IterTimeframeTest(SimpleTestCase):
 
 class IterMissingTest(SimpleTestCase):
     def setUp(self):
-        self.one_minute = pd.Timedelta("1t")
+        self.one_minute = pd.Timedelta("1min")
         self.timestamp_from = get_min_time(get_current_time(), "1d")
         self.timestamp_to = self.timestamp_from + (self.one_minute * 5)
         self.timestamps = get_range(self.timestamp_from, self.timestamp_to)

@@ -16,7 +16,7 @@ class CandleDataViewTest(BaseViewTest, APITestCase):
         """Set up."""
         super().setUp()
         now = get_current_time()
-        self.timestamp = get_min_time(now, "1t")
+        self.timestamp = get_min_time(now, "1min")
 
     def get_url(self, candle: Candle) -> str:
         """Get URL."""
@@ -33,7 +33,7 @@ class CandleDataViewTest(BaseViewTest, APITestCase):
         """Get."""
         candle = Candle.objects.create()
         candle_data = CandleData.objects.create(
-            candle=candle, timestamp=get_previous_time(self.timestamp, "1t")
+            candle=candle, timestamp=get_previous_time(self.timestamp, "1min")
         )
         url = self.get_url(candle)
         response = self.client.get(url)

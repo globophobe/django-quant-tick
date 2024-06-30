@@ -26,7 +26,7 @@ class TimeBasedCandle(Candle):
         """Get max timestamp to."""
         window = self.json_data["window"]
         total_minutes = pd.Timedelta(window).total_seconds() / Frequency.HOUR
-        delta = pd.Timedelta(f"{total_minutes}t")
+        delta = pd.Timedelta(f"{total_minutes}min")
         ts_to = get_min_time(timestamp_from, value="1h")
         while ts_to + delta <= timestamp_to:
             ts_to += delta

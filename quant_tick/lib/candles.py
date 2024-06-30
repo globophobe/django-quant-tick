@@ -35,7 +35,7 @@ def aggregate_candles(
     data_frame: DataFrame,
     timestamp_from: datetime,
     timestamp_to: datetime,
-    window: str = "1t",
+    window: str = "1min",
     as_data_frame: bool = True,
 ) -> list[dict]:
     """Aggregate candles"""

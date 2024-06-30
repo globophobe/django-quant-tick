@@ -24,7 +24,7 @@ class BaseCandleTest(TestCase):
 class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
     def setUp(self):
         super().setUp()
-        self.timestamp_to = self.timestamp_from + pd.Timedelta("1t")
+        self.timestamp_to = self.timestamp_from + pd.Timedelta("1min")
         self.candle = Candle.objects.create(json_data={"source_data": FileData.RAW})
 
     def test_get_data_frame_with_one_symbol(self):

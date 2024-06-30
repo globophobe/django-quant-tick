@@ -35,9 +35,9 @@ class BaseMinuteIteratorTest:
         """Set up."""
         super().setUp()
         self.timestamp_from = get_min_time(get_current_time(), "1d")
-        self.one_minute_from_now = self.timestamp_from + pd.Timedelta("1t")
-        self.two_minutes_from_now = self.timestamp_from + pd.Timedelta("2t")
-        self.three_minutes_from_now = self.timestamp_from + pd.Timedelta("3t")
+        self.one_minute_from_now = self.timestamp_from + pd.Timedelta("1min")
+        self.two_minutes_from_now = self.timestamp_from + pd.Timedelta("2min")
+        self.three_minutes_from_now = self.timestamp_from + pd.Timedelta("3min")
 
 
 class BaseHourIteratorTest:
@@ -99,7 +99,7 @@ class CandleCacheIteratorTest(BaseCandleCacheIteratorTest, TestCase):
     def setUp(self) -> None:
         """Set up."""
         super().setUp()
-        self.one_minute = pd.Timedelta("1t")
+        self.one_minute = pd.Timedelta("1min")
         self.timestamp_to = self.timestamp_from + (self.one_minute * 5)
 
     def create_trade_data(self) -> None:
@@ -107,7 +107,7 @@ class CandleCacheIteratorTest(BaseCandleCacheIteratorTest, TestCase):
         for i in range(5):
             TradeData.objects.create(
                 symbol=self.symbol,
-                timestamp=self.timestamp_from + pd.Timedelta(f"{i}t"),
+                timestamp=self.timestamp_from + pd.Timedelta(f"{i}min"),
                 frequency=Frequency.MINUTE,
             )
 
@@ -117,7 +117,7 @@ class CandleCacheIteratorTest(BaseCandleCacheIteratorTest, TestCase):
         for i in range(5):
             CandleCache.objects.create(
                 candle=self.candle,
-                timestamp=self.timestamp_from + pd.Timedelta(f"{i}t"),
+                timestamp=self.timestamp_from + pd.Timedelta(f"{i}min"),
                 frequency=Frequency.MINUTE,
             )
         values = self.get_values()
@@ -287,7 +287,7 @@ class TimeBasedMinuteFrequencyCandleTest(
     def get_candle(self) -> Candle:
         """Get candle."""
         return TimeBasedCandle.objects.create(
-            json_data={"source_data": FileData.RAW, "window": "1t"}
+            json_data={"source_data": FileData.RAW, "window": "1min"}
         )
 
     def write_trade_data(
@@ -353,7 +353,7 @@ class TimeBasedMinuteFrequencyCandleTest(
         self.write_trade_data(self.timestamp_from, self.one_minute_from_now, filtered_1)
         TradeData.objects.create(
             symbol=self.symbol,
-            timestamp=self.timestamp_from + pd.Timedelta("1t"),
+            timestamp=self.timestamp_from + pd.Timedelta("1min"),
             frequency=Frequency.MINUTE,
         )
         filtered_2 = self.get_filtered(self.two_minutes_from_now)
@@ -383,7 +383,7 @@ class TimeBasedTwoMinuteFrequencyCandleTest(
     def get_candle(self) -> Candle:
         """Get candle."""
         return TimeBasedCandle.objects.create(
-            json_data={"source_data": FileData.RAW, "window": "2t"}
+            json_data={"source_data": FileData.RAW, "window": "2min"}
         )
 
     def write_trade_data(
@@ -425,8 +425,8 @@ class TimeBasedTwoMinuteFrequencyCandleTest(
         for i in range(2):
             aggregate_candles(
                 self.candle,
-                self.timestamp_from + pd.Timedelta(f"{i}t"),
-                self.one_minute_from_now + pd.Timedelta(f"{i}t"),
+                self.timestamp_from + pd.Timedelta(f"{i}min"),
+                self.one_minute_from_now + pd.Timedelta(f"{i}min"),
             )
 
         candle_cache = CandleCache.objects.all()
@@ -542,7 +542,7 @@ class TimeBasedHourFrequencyCandleTest(
     ):
         """Candle cache created from a trade in the first minute."""
         filtered = self.get_filtered(self.timestamp_from)
-        one_minute_from_now = self.timestamp_from + pd.Timedelta("1t")
+        one_minute_from_now = self.timestamp_from + pd.Timedelta("1min")
         self.write_trade_data(self.timestamp_from, one_minute_from_now, filtered)
         aggregate_candles(self.candle, self.timestamp_from, one_minute_from_now)
         candle_data = CandleData.objects.all()
@@ -563,7 +563,7 @@ class TimeBasedHourFrequencyCandleTest(
             frequency=Frequency.MINUTE,
             json_data=get_next_cache(filtered_1, {}),
         )
-        one_minute_from_now = self.timestamp_from + pd.Timedelta("1t")
+        one_minute_from_now = self.timestamp_from + pd.Timedelta("1min")
         filtered_2 = self.get_filtered(one_minute_from_now)
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_2)
         aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
@@ -878,7 +878,7 @@ class ConstantNotionalDayFrequencyIrregularCandleTest(
             frequency=Frequency.MINUTE,
             json_data={"sample_value": 0},
         )
-        one_minute_from_now = self.timestamp_from + pd.Timedelta("1t")
+        one_minute_from_now = self.timestamp_from + pd.Timedelta("1min")
         one_hour_from_now = self.timestamp_from + pd.Timedelta("1h")
         filtered_1 = self.get_filtered(one_minute_from_now)
         self.write_trade_data(self.timestamp_from, one_hour_from_now, filtered_1)

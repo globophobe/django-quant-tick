@@ -113,7 +113,7 @@ def convert_trade_data_to_hourly(
         min_timestamp_from = first.timestamp
         if timestamp_from < min_timestamp_from:
             timestamp_from = min_timestamp_from
-        max_timestamp_to = last.timestamp + pd.Timedelta(f"{last.frequency}t")
+        max_timestamp_to = last.timestamp + pd.Timedelta(f"{last.frequency}min")
         if timestamp_to > max_timestamp_to:
             timestamp_to = max_timestamp_to
         for daily_ts_from, daily_ts_to in iter_timeframe(

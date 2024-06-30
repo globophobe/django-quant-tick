@@ -15,7 +15,7 @@ from ..base import BaseWriteTradeDataTest
 class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
     def setUp(self):
         super().setUp()
-        self.timestamp_to = self.timestamp_from + pd.Timedelta("1t")
+        self.timestamp_to = self.timestamp_from + pd.Timedelta("1min")
 
     def test_write_trade_data(self):
         """Write trade data."""
@@ -102,8 +102,8 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
 
         data_frames = []
         for minute in range(60):
-            ts_from = timestamp_from + pd.Timedelta(f"{minute}t")
-            ts_to = ts_from + pd.Timedelta("1t")
+            ts_from = timestamp_from + pd.Timedelta(f"{minute}min")
+            ts_to = ts_from + pd.Timedelta("1min")
             df = self.get_raw(ts_from)
             TradeData.write(symbol, ts_from, ts_to, df, pd.DataFrame([]))
             data_frames.append(df)

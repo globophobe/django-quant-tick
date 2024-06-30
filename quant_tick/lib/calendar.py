@@ -1,3 +1,4 @@
+import re
 from collections.abc import Generator
 from datetime import date, datetime, time, timezone
 
@@ -22,8 +23,8 @@ def get_current_time(tzinfo: str = timezone.utc) -> datetime:
 
 def get_min_time(timestamp: datetime, value: str) -> datetime:
     """Get minimum time."""
-    # FIXME: Refactor this.
-    step = value[-1]
+    match = re.match(r"\d+(\w+)", value)
+    step = match.group(1)
     ts = pd.to_datetime(timestamp).floor(f"1{step}")
     return to_pydatetime(ts)
 
@@ -48,7 +49,7 @@ def has_timestamps(
 
 
 def timestamp_to_inclusive(
-    timestamp_from: datetime, timestamp_to: datetime, value: str = "1t"
+    timestamp_from: datetime, timestamp_to: datetime, value: str = "1min"
 ) -> datetime:
     """Reduce timestamp_to by value, in case results are inclusive."""
     ts_to = timestamp_to - pd.Timedelta(value)
@@ -83,13 +84,13 @@ def parse_period_from_to(
     timestamp_from = datetime.combine(date_from, time_from).replace(tzinfo=timezone.utc)
     timestamp_to = datetime.combine(date_to, time_to).replace(tzinfo=timezone.utc)
     # Sane defaults.
-    timestamp_to = get_min_time(now, "1t") if timestamp_to >= now else timestamp_to
+    timestamp_to = get_min_time(now, "1min") if timestamp_to >= now else timestamp_to
     timestamp_from = timestamp_to if timestamp_from > timestamp_to else timestamp_from
     return timestamp_from, timestamp_to
 
 
 def get_range(
-    timestamp_from: datetime, timestamp_to: datetime, value: str = "1t"
+    timestamp_from: datetime, timestamp_to: datetime, value: str = "1min"
 ) -> list[datetime]:
     """Get timestamps in range, step by value."""
     ts_from_rounded = get_min_time(timestamp_from, value)
@@ -107,7 +108,9 @@ def get_existing(values: list) -> list[datetime]:
     for item in values:
         timestamp = item["timestamp"]
         frequency = item["frequency"]
-        result += [timestamp + pd.Timedelta(f"{index}t") for index in range(frequency)]
+        result += [
+            timestamp + pd.Timedelta(f"{index}min") for index in range(frequency)
+        ]
     return sorted(result)
 
 
@@ -128,7 +131,7 @@ def get_missing(
 def iter_window(
     timestamp_from: datetime,
     timestamp_to: datetime,
-    value: str = "1t",
+    value: str = "1min",
     reverse: bool = False,
 ) -> Generator[tuple[datetime, datetime], None, None]:
     """Iter window, by value."""
@@ -224,7 +227,7 @@ def iter_missing(
         index = 0
         next_index = index + 1
         counter = 0
-        one_minute = pd.Timedelta("1t")
+        one_minute = pd.Timedelta("1min")
         start = values[0][0]
         stop = None
         while next_index < len(values):
