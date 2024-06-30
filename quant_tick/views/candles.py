@@ -4,7 +4,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from quant_tick.filters import CandleFilter
-from quant_tick.models import Candle
+from quant_tick.models import Candle, CandleData
 from quant_tick.serializers import (
     CandleDataSerializer,
     CandleSerializer,
@@ -32,8 +32,9 @@ class CandleDataView(RetrieveAPIView):
         serializer = TimeFrameWithLimitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         params = serializer.validated_data
-        candle = self.get_object()
-        data = candle.get_data(
-            params["timestamp_from"], params["timestamp_to"], limit=params["limit"]
-        )
+        data = CandleData.objects.filter(
+            candle=self.get_object(),
+            timestamp__gte=params["timestamp_from"],
+            timestamp__lte=params["timestamp_to"],
+        )[: params["limit"]]
         return Response(CandleDataSerializer(data, many=True).data)
