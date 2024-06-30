@@ -576,7 +576,7 @@ class Migration(migrations.Migration):
             model_name="tradedata",
             name="frequency",
             field=models.PositiveIntegerField(
-                choices=[(1, "Minute"), (60, "Hour"), (1440, "Day")],
+                choices=[(1, "Minute"), (60, "Hour")],
                 db_index=True,
                 verbose_name="frequency",
             ),

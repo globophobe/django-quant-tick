@@ -108,7 +108,9 @@ class TradeData(AbstractDataStorage):
     uid = models.CharField(_("uid"), blank=True, max_length=255)
     frequency = models.PositiveIntegerField(
         _("frequency"),
-        choices=[c for c in Frequency.choices if c[0] != Frequency.WEEK],
+        choices=[
+            c for c in Frequency.choices if c[0] not in (Frequency.DAY, Frequency.WEEK)
+        ],
         db_index=True,
     )
     raw_data = models.FileField(_("raw data"), blank=True, upload_to=upload_raw_data_to)
