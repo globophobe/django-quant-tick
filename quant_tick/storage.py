@@ -120,7 +120,7 @@ def convert_trade_data_to_hourly(
             timestamp_from, timestamp_to, value="1d", reverse=True
         ):
             for hourly_ts_from, hourly_ts_to in iter_timeframe(
-                timestamp_from, timestamp_to, value="1h", reverse=True
+                daily_ts_from, daily_ts_to, value="1h", reverse=True
             ):
                 minute_trade_data = queryset.filter(
                     timestamp__gte=hourly_ts_from,
