@@ -29,7 +29,7 @@ def bitmex_candles(
     ts_from = timestamp_from + pd.Timedelta(value="1min")
     start_time = format_bitmex_api_timestamp(ts_from)
     params = f"symbol={api_symbol}&startTime={start_time}&binSize={bin_size}"
-    url = f"{API_URL}/trade/bucketed/?{params}"
+    url = f"{API_URL}/trade/bucketed?{params}"
     candles, _ = iter_api(
         url,
         get_bitmex_api_pagination_id,
@@ -54,5 +54,6 @@ def bitmex_candles(
             "homeNotional",
             "foreignNotional",
         ):
-            del candle[key]
+            if key in candle:
+                del candle[key]
     return candles_to_data_frame(timestamp_from, timestamp_to, candles)
