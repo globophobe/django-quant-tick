@@ -35,7 +35,7 @@ def aggregate_candles(
     data_frame: DataFrame,
     timestamp_from: datetime,
     timestamp_to: datetime,
-    window: str = "1t",
+    window: str = "1min",
     as_data_frame: bool = True,
 ) -> list[dict]:
     """Aggregate candles"""
@@ -132,10 +132,10 @@ def validate_aggregated_candles(
             raise NotImplementedError
         k = key.title()
         exchange_key = f"exchange{k}"
-        aggregated_candles.insert(
-            aggregated_candles.columns.get_loc(key), exchange_key, pd.Series()
-        )
         if len(aggregated_candles):
+            aggregated_candles.insert(
+                aggregated_candles.columns.get_loc(key), exchange_key, pd.Series()
+            )
             for row in aggregated_candles.itertuples():
                 timestamp = row.Index
                 try:
@@ -151,19 +151,21 @@ def validate_aggregated_candles(
                     aggregated_candles.at[row.Index, "validated"] = is_decimal_close(
                         getattr(row, key), value
                     )
-
-        all_true = all(aggregated_candles.validated.eq(True))
-        some_false = any(aggregated_candles.validated.eq(False))
-        some_none = any(aggregated_candles.validated.isna())
-        if all_true:
-            ok = True
-        elif some_false or some_none:
-            if some_false:
-                ok = False
+            all_true = all(aggregated_candles.validated.eq(True))
+            some_false = any(aggregated_candles.validated.eq(False))
+            some_none = any(aggregated_candles.validated.isna())
+            if all_true:
+                ok = True
+            elif some_false or some_none:
+                if some_false:
+                    ok = False
+                else:
+                    ok = None
             else:
-                ok = None
-        else:
-            raise NotImplementedError
+                raise NotImplementedError
+
+        elif exchange_candles[key].sum() == 0:
+            ok = True
 
         if ok in (True, None):
             # Maybe candle with no volume or notional.

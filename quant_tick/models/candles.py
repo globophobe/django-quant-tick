@@ -58,7 +58,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         # Does it have trade data?
         max_ts_to = min(
             [
-                t.timestamp + pd.Timedelta(f"{t.frequency}t")
+                t.timestamp + pd.Timedelta(f"{t.frequency}min")
                 for symbol in self.symbols.all()
                 if (
                     t := TradeData.objects.filter(symbol=symbol)
@@ -82,7 +82,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         if candle_cache:
             if not retry:
                 timestamp = candle_cache.timestamp + pd.Timedelta(
-                    f"{candle_cache.frequency}t"
+                    f"{candle_cache.frequency}min"
                 )
                 ts_from = timestamp if timestamp > ts_from else ts_from
             data = candle_cache.json_data
@@ -143,7 +143,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             for t in target:
                 # Query may contain trade data by minute.
                 # Only target timestamps.
-                if timestamp_from <= t.timestamp + pd.Timedelta(f"{t.frequency}t"):
+                if timestamp_from <= t.timestamp + pd.Timedelta(f"{t.frequency}min"):
                     df = t.get_data_frame(self.json_data["source_data"])
                     if df is not None:
                         dfs.append(df)

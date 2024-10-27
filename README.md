@@ -1,6 +1,6 @@
 # What?
 
-Django Quant Tick downloads tick data, and aggregates candlesticks from high frequency data.
+Django Quant Tick downloads, and aggregates candlesticks, from high frequency tick data.
 
 # Why?
 

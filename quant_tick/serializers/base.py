@@ -31,7 +31,7 @@ class BaseParameterSerializer(serializers.Serializer):
         """Validate."""
         time_ago = data.pop("time_ago")
         now = get_current_time()
-        timestamp_to = get_min_time(now, "1t")
+        timestamp_to = get_min_time(now, "1min")
         timestamp_from = timestamp_to - time_ago
         data["timestamp_to"] = timestamp_to
         data["timestamp_from"] = timestamp_from

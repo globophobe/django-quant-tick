@@ -16,7 +16,7 @@ from ..base import BaseSymbolTest
 class TradeDataIteratorTest(BaseSymbolTest, TestCase):
     def setUp(self):
         super().setUp()
-        self.one_minute = pd.Timedelta("1t")
+        self.one_minute = pd.Timedelta("1min")
         self.timestamp_to = self.timestamp_from + (self.one_minute * 5)
         self.symbol = self.get_symbol()
 

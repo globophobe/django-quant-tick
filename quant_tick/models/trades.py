@@ -108,7 +108,9 @@ class TradeData(AbstractDataStorage):
     uid = models.CharField(_("uid"), blank=True, max_length=255)
     frequency = models.PositiveIntegerField(
         _("frequency"),
-        choices=[c for c in Frequency.choices if c[0] != Frequency.WEEK],
+        choices=[
+            c for c in Frequency.choices if c[0] not in (Frequency.DAY, Frequency.WEEK)
+        ],
         db_index=True,
     )
     raw_data = models.FileField(_("raw data"), blank=True, upload_to=upload_raw_data_to)
@@ -207,7 +209,7 @@ class TradeData(AbstractDataStorage):
             )
         }
         for ts_from in timestamps:
-            ts_to = get_next_time(ts_from, "1t")
+            ts_to = get_next_time(ts_from, "1min")
             if ts_from in existing:
                 obj = existing[ts_from]
             else:
@@ -263,7 +265,7 @@ class TradeData(AbstractDataStorage):
             aggregated_candles = aggregate_candles(
                 trades,
                 obj.timestamp,
-                obj.timestamp + pd.Timedelta(f"{obj.frequency}t"),
+                obj.timestamp + pd.Timedelta(f"{obj.frequency}min"),
             )
             assert is_decimal_close(
                 aggregated_candles.notional.sum(), trades.notional.sum()

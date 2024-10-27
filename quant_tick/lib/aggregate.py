@@ -133,14 +133,14 @@ def filter_by_timestamp(
 
 
 def volume_filter_with_time_window(
-    data_frame: DataFrame, min_volume: int = 1000, window: str = "1t"
+    data_frame: DataFrame, min_volume: int = 1000, window: str = "1min"
 ) -> DataFrame:
     """Volume filter, with time window."""
     samples = []
     if len(data_frame):
         timestamp_from = data_frame.iloc[0].timestamp
         # Iterator is not inclusive of timestamp_to, so increase by 1.
-        timestamp_to = data_frame.iloc[-1].timestamp + pd.Timedelta("1t")
+        timestamp_to = data_frame.iloc[-1].timestamp + pd.Timedelta("1min")
         if window:
             # Chunk data_frame by window.
             iterator = iter_window(timestamp_from, timestamp_to, window)

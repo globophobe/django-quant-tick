@@ -7,7 +7,7 @@ from django.test import TestCase
 from quant_tick.constants import FileData
 from quant_tick.lib import get_min_time, get_next_time
 from quant_tick.models import TradeData
-from quant_tick.storage import convert_trade_data_to_daily
+from quant_tick.storage import convert_trade_data_to_hourly
 
 from ..base import BaseWriteTradeDataTest
 
@@ -15,7 +15,7 @@ from ..base import BaseWriteTradeDataTest
 class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
     def setUp(self):
         super().setUp()
-        self.timestamp_to = self.timestamp_from + pd.Timedelta("1t")
+        self.timestamp_to = self.timestamp_from + pd.Timedelta("1min")
 
     def test_write_trade_data(self):
         """Write trade data."""
@@ -95,15 +95,15 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         fname = files[0]
         self.assertEqual(filename, fname)
 
-    def test_convert_trade_data_to_daily(self):
-        """Convert trade data to daily."""
+    def test_convert_trade_data_to_hourly(self):
+        """Convert trade data to hourly."""
         symbol = self.get_symbol()
         timestamp_from = get_min_time(self.timestamp_from, "1h")
 
         data_frames = []
         for minute in range(60):
-            ts_from = timestamp_from + pd.Timedelta(f"{minute}t")
-            ts_to = ts_from + pd.Timedelta("1t")
+            ts_from = timestamp_from + pd.Timedelta(f"{minute}min")
+            ts_to = ts_from + pd.Timedelta("1min")
             df = self.get_raw(ts_from)
             TradeData.write(symbol, ts_from, ts_to, df, pd.DataFrame([]))
             data_frames.append(df)
@@ -113,7 +113,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         first = trades[0]
         candles = pd.DataFrame([t.json_data["candle"] for t in trades])
 
-        convert_trade_data_to_daily(
+        convert_trade_data_to_hourly(
             symbol, timestamp_from, get_next_time(timestamp_from, value="1h")
         )
 
