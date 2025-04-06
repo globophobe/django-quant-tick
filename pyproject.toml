@@ -33,6 +33,7 @@ psycopg2-binary = "*"
 python-decouple = "*"
 ruff = "*"
 sentry-sdk = "*"
+setuptools = "*"
 time-machine = "*"
 whitenoise = "*"
 
