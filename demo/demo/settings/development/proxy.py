@@ -3,7 +3,7 @@ import sys
 
 from decouple import config
 
-from .base import *  # noqa
+from ..base import *  # noqa
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False

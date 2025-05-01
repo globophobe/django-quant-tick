@@ -33,7 +33,7 @@ def start_proxy(ctx: Any) -> None:
     """Start proxy."""
     host = config("PRODUCTION_DATABASE_HOST")
     port = config("PROXY_DATABASE_PORT")
-    ctx.run(f'cloud-tools/cloud-sql-proxy -instances="{host}"=tcp:{port}')
+    ctx.run(f"cloud-tools/cloud-sql-proxy {host} -p {port}")
 
 
 @task
@@ -49,10 +49,10 @@ def create_user(ctx: Any, username: str, password: str, proxy: bool = False) -> 
 
 
 @task
-def get_container_name(ctx: Any, suffix: str, hostname: str = "asia.gcr.io") -> str:
+def get_container_name(ctx: Any, name: str, region: str = "asia-northeast1") -> str:
     """Get container name."""
     project_id = ctx.run("gcloud config get-value project").stdout.strip()
-    return f"{hostname}/{project_id}/django-quant-candles-{suffix}"
+    return f"{region}-docker.pkg.dev/{project_id}/{name}/{name}"
 
 
 def docker_secrets() -> str:
@@ -62,6 +62,8 @@ def docker_secrets() -> str:
         for secret in (
             "SECRET_KEY",
             "SENTRY_DSN",
+            "BINANCE_API_KEY",
+            "BINANCE_API_SECRET",
             "DATABASE_NAME",
             "DATABASE_USER",
             "DATABASE_PASSWORD",
@@ -74,24 +76,6 @@ def docker_secrets() -> str:
     return " ".join([f"--build-arg {build_arg}" for build_arg in build_args])
 
 
-def get_common_requirements() -> list[str]:
-    """Get common requirements."""
-    return [
-        "django-filter",
-        "django-polymorphic",
-        "djangorestframework",
-        "django-storages",
-        "google-cloud-storage",
-        "gunicorn",
-        "pandas",
-        "pyarrow",
-        "psycopg2-binary",
-        "python-decouple",
-        "randomname",
-        "sentry-sdk",
-    ]
-
-
 def build_quant_tick(ctx: Any) -> str:
     """Build django-quant-tick."""
     result = ctx.run("poetry build").stdout
@@ -99,26 +83,20 @@ def build_quant_tick(ctx: Any) -> str:
 
 
 def build_container(
-    ctx: Any, suffix: str, requirements: list[str], hostname: str = "asia.gcr.io"
+    ctx: Any, name: str, suffix: str, region: str = "asia-northeast1"
 ) -> None:
     """Build container."""
     wheel = build_quant_tick(ctx)
-    # Versions
-    reqs = " ".join(
-        [
-            req.split(";")[0]
-            for req in ctx.run("poetry export --dev --without-hashes").stdout.split(
-                "\n"
-            )
-            if req.split("==")[0] in requirements
-        ]
-    )
+    settings = django_settings(ctx, target="production")
+    with open(settings.BASE_DIR.parent.parent / "requirements.txt", "w") as f:
+        reqs = ctx.run("poetry export --format=requirements.txt").stdout
+        f.write(reqs)
     # Build
     build_args = {"WHEEL": wheel, "POETRY_EXPORT": reqs}
     build_args = " ".join(
         [f'--build-arg {key}="{value}"' for key, value in build_args.items()]
     )
-    name = get_container_name(ctx, suffix=suffix, hostname=hostname)
+    name = get_container_name(ctx, name)
     with ctx.cd(".."):
         cmd = " ".join(
             [
@@ -129,23 +107,6 @@ def build_container(
             ]
         )
         ctx.run(cmd)
-
-
-@task
-def build_frontend(ctx: Any, hostname: str = "asia.gcr.io") -> None:
-    """Build frontend."""
-    ctx.run("echo yes | python manage.py collectstatic")
-    requirements = get_common_requirements() + [
-        "django-semantic-admin",
-        "whitenoise",
-    ]
-    build_container(ctx, suffix="frontend", requirements=requirements)
-
-
-@task
-def build_api(ctx: Any) -> None:
-    """Build API."""
-    build_container(ctx, suffix="api", requirements=get_common_requirements())
 
 
 @task
