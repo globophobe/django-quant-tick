@@ -1,5 +1,4 @@
 import datetime
-from datetime import timezone
 from decimal import Decimal
 
 import numpy as np
@@ -92,18 +91,21 @@ class BitmexS3Mixin(BitmexMixin):
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
         """Parse dtypes and strip unnecessary columns.
 
-        Bitmex data is accurate to the nanosecond.
+        Bitmex data maybe accurate to the nanosecond.
         However, data is typically only provided to the microsecond.
         """
         df = data_frame.copy()
-        msg = "Timestamp is not valid to the nanosecond"
-        assert df.timestamp.apply(lambda x: len(str(x.split(".")[1]))).eq(9).all(), msg
-        df["nanoseconds"] = df.apply(lambda x: pd.to_numeric(x.timestamp[-3:]), axis=1)
-        df["timestamp"] = df.apply(
-            lambda x: pd.to_datetime(
-                x.timestamp[:-3], format="%Y-%m-%dD%H:%M:%S.%f"
-            ).replace(tzinfo=timezone.utc),
-            axis=1,
+        split = df.timestamp.str.split(".", n=1, expand=True)
+        dt = split[0]
+        frac = split[1].fillna("")
+        micro = frac.str.pad(6, side="right", fillchar="0").str[:6]
+        has_nano = frac.str.len() == 9
+        # Nanoseconds
+        df["nanoseconds"] = 0
+        df.loc[has_nano, "nanoseconds"] = frac[has_nano].str[-3:].astype("Int64")
+        # Timestamp
+        df["timestamp"] = pd.to_datetime(
+            dt + "." + micro, format="%Y-%m-%dD%H:%M:%S.%f", utc=True
         )
         df = df.rename(columns={"trdMatchID": "uid", "foreignNotional": "volume"})
         return super().parse_dtypes_and_strip_columns(df)
