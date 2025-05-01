@@ -5,6 +5,9 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.controllers import TradeDataIterator
+from quant_tick.lib import filter_by_timestamp
+
 from .api import format_bitmex_api_timestamp, get_bitmex_api_timestamp
 from .candles import bitmex_candles
 from .constants import S3_URL
@@ -18,7 +21,7 @@ class BitmexMixin:
         """Get uid."""
         return str(trade["trdMatchID"])
 
-    def get_timestamp(self, trade: dict) -> datetime:
+    def get_timestamp(self, trade: dict) -> datetime.datetime:
         """Get timestamp."""
         return get_bitmex_api_timestamp(trade)
 
@@ -47,7 +50,7 @@ class BitmexMixin:
         return np.nan  # No index, set per partition
 
     def get_candles(
-        self, timestamp_from: datetime, timestamp_to: datetime
+        self, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
         # Timestamp is candle close.
@@ -87,6 +90,33 @@ class BitmexS3Mixin(BitmexMixin):
         """Get CSV file url."""
         date_string = date.strftime("%Y%m%d")
         return f"{S3_URL}{date_string}.csv.gz"
+
+    def main(self) -> None:
+        """Main."""
+        iterator = TradeDataIterator(self.symbol)
+        exclude = [datetime.date(2025, 4, 11), datetime.date(2025, 4, 12)]
+        for timestamp_from, timestamp_to, existing in iterator.iter_days(
+            self.timestamp_from,
+            self.timestamp_to,
+            retry=self.retry,
+        ):
+            date = timestamp_from.date()
+            data_frame = self.get_data_frame(date)
+            if data_frame is not None:
+                for ts_from, ts_to in iterator.iter_hours(
+                    timestamp_from,
+                    timestamp_to,
+                    existing,
+                ):
+                    df = filter_by_timestamp(data_frame, ts_from, ts_to)
+                    candles = self.get_candles(ts_from, ts_to)
+                    self.on_data_frame(self.symbol, ts_from, ts_to, df, candles)
+            # No data
+            elif date in exclude:
+                pass
+            # Complete
+            else:
+                break
 
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
         """Parse dtypes and strip unnecessary columns.
