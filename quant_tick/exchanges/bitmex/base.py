@@ -94,7 +94,11 @@ class BitmexS3Mixin(BitmexMixin):
     def main(self) -> None:
         """Main."""
         iterator = TradeDataIterator(self.symbol)
-        exclude = [datetime.date(2025, 4, 11), datetime.date(2025, 4, 12)]
+        exclude = [
+            datetime.date(2025, 3, 26),
+            datetime.date(2025, 4, 11),
+            datetime.date(2025, 4, 12),
+        ]
         for timestamp_from, timestamp_to, existing in iterator.iter_days(
             self.timestamp_from,
             self.timestamp_to,
