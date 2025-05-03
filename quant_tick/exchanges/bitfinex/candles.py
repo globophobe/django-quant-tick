@@ -23,9 +23,11 @@ from .constants import (
 )
 
 
-def get_bitfinex_candle_timestamp(candle: dict) -> datetime:
-    """Get Bitfinex candle timestamp."""
-    return parse_datetime(candle[0], unit="ms")
+def get_bitfinex_candle_url(url: str, pagination_id: int) -> str:
+    """Get Bitfinex candle URL."""
+    if pagination_id:
+        url += f"&end={pagination_id}"
+    return url
 
 
 def get_bitfinex_candle_pagination_id(
@@ -37,11 +39,9 @@ def get_bitfinex_candle_pagination_id(
         return data[-1][0]
 
 
-def get_bitfinex_candle_url(url: str, pagination_id: int) -> str:
-    """Get Bitfinex candle URL."""
-    if pagination_id:
-        url += f"&end={pagination_id}"
-    return url
+def get_bitfinex_candle_timestamp(candle: dict) -> datetime:
+    """Get Bitfinex candle timestamp."""
+    return parse_datetime(candle[0], unit="ms")
 
 
 def bitfinex_candles(

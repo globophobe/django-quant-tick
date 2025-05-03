@@ -9,11 +9,7 @@ from quant_tick.models import Symbol, TradeData
 from .binance import binance_candles, binance_trades
 from .bitfinex import bitfinex_candles, bitfinex_trades
 from .bitmex import bitmex_candles, bitmex_trades
-from .bybit import bybit_candles, bybit_trades
 from .coinbase import coinbase_candles, coinbase_trades
-
-# from .bitflyer import bitflyer_trades, bitflyer_candles
-# from .upbit import UPBIT, upbit_trades, upbit_candles
 
 
 def api(
@@ -66,16 +62,10 @@ def trades_api(
         binance_trades(symbol, **kwargs)
     elif exchange == Exchange.BITFINEX:
         bitfinex_trades(symbol, **kwargs)
-    # elif exchange == Exchange.BITFLYER:
-    #     bitflyer_trades(symbol, **kwargs)
     elif exchange == Exchange.BITMEX:
         bitmex_trades(symbol, **kwargs)
-    elif exchange == Exchange.BYBIT:
-        bybit_trades(symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         coinbase_trades(symbol, **kwargs)
-    # elif exchange == UPBIT:
-    #     upbit_trades(**kwargs)
 
 
 def candles_api(
@@ -89,16 +79,10 @@ def candles_api(
         candles = binance_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BITFINEX:
         candles = bitfinex_candles(api_symbol, **kwargs)
-    # elif exchange == Exchange.BITFLYER:
-    #     bitflyer_trades(symbol, **kwargs)
     elif exchange == Exchange.BITMEX:
         candles = bitmex_candles(api_symbol, **kwargs)
-    elif exchange == Exchange.BYBIT:
-        candles = bybit_candles(api_symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         candles = coinbase_candles(api_symbol, **kwargs)
-    # elif exchange == UPBIT:
-    #     upbit_trades(**kwargs)
     else:
         raise NotImplementedError
     return candles

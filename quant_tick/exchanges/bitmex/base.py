@@ -1,10 +1,12 @@
 import datetime
-from datetime import timezone
 from decimal import Decimal
 
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
+
+from quant_tick.controllers import TradeDataIterator
+from quant_tick.lib import filter_by_timestamp
 
 from .api import format_bitmex_api_timestamp, get_bitmex_api_timestamp
 from .candles import bitmex_candles
@@ -19,7 +21,7 @@ class BitmexMixin:
         """Get uid."""
         return str(trade["trdMatchID"])
 
-    def get_timestamp(self, trade: dict) -> datetime:
+    def get_timestamp(self, trade: dict) -> datetime.datetime:
         """Get timestamp."""
         return get_bitmex_api_timestamp(trade)
 
@@ -48,7 +50,7 @@ class BitmexMixin:
         return np.nan  # No index, set per partition
 
     def get_candles(
-        self, timestamp_from: datetime, timestamp_to: datetime
+        self, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
         # Timestamp is candle close.
@@ -89,21 +91,55 @@ class BitmexS3Mixin(BitmexMixin):
         date_string = date.strftime("%Y%m%d")
         return f"{S3_URL}{date_string}.csv.gz"
 
+    def main(self) -> None:
+        """Main."""
+        iterator = TradeDataIterator(self.symbol)
+        exclude = [
+            datetime.date(2025, 3, 26),
+            datetime.date(2025, 4, 11),
+            datetime.date(2025, 4, 12),
+        ]
+        for timestamp_from, timestamp_to, existing in iterator.iter_days(
+            self.timestamp_from,
+            self.timestamp_to,
+            retry=self.retry,
+        ):
+            date = timestamp_from.date()
+            data_frame = self.get_data_frame(date)
+            if data_frame is not None:
+                for ts_from, ts_to in iterator.iter_hours(
+                    timestamp_from,
+                    timestamp_to,
+                    existing,
+                ):
+                    df = filter_by_timestamp(data_frame, ts_from, ts_to)
+                    candles = self.get_candles(ts_from, ts_to)
+                    self.on_data_frame(self.symbol, ts_from, ts_to, df, candles)
+            # No data
+            elif date in exclude:
+                pass
+            # Complete
+            else:
+                break
+
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
         """Parse dtypes and strip unnecessary columns.
 
-        Bitmex data is accurate to the nanosecond.
+        Bitmex data maybe accurate to the nanosecond.
         However, data is typically only provided to the microsecond.
         """
         df = data_frame.copy()
-        msg = "Timestamp is not valid to the nanosecond"
-        assert df.timestamp.apply(lambda x: len(str(x.split(".")[1]))).eq(9).all(), msg
-        df["nanoseconds"] = df.apply(lambda x: pd.to_numeric(x.timestamp[-3:]), axis=1)
-        df["timestamp"] = df.apply(
-            lambda x: pd.to_datetime(
-                x.timestamp[:-3], format="%Y-%m-%dD%H:%M:%S.%f"
-            ).replace(tzinfo=timezone.utc),
-            axis=1,
+        split = df.timestamp.str.split(".", n=1, expand=True)
+        dt = split[0]
+        frac = split[1].fillna("")
+        micro = frac.str.pad(6, side="right", fillchar="0").str[:6]
+        has_nano = frac.str.len() == 9
+        # Nanoseconds
+        df["nanoseconds"] = 0
+        df.loc[has_nano, "nanoseconds"] = frac[has_nano].str[-3:].astype("Int64")
+        # Timestamp
+        df["timestamp"] = pd.to_datetime(
+            dt + "." + micro, format="%Y-%m-%dD%H:%M:%S.%f", utc=True
         )
         df = df.rename(columns={"trdMatchID": "uid", "foreignNotional": "volume"})
         return super().parse_dtypes_and_strip_columns(df)

@@ -1,12 +1,12 @@
 from datetime import datetime
 from decimal import Decimal
 
-import pandas as pd
 from pandas import DataFrame
 
 from quant_tick.controllers import SequentialIntegerMixin
 
-from .api import get_binance_api_timestamp, get_trades
+from .candles import binance_candles
+from .trades import get_binance_trades_timestamp, get_trades
 
 
 class BinanceMixin(SequentialIntegerMixin):
@@ -15,7 +15,10 @@ class BinanceMixin(SequentialIntegerMixin):
     def iter_api(self, timestamp_from: datetime, pagination_id: str) -> tuple:
         """Iterate Binance API."""
         return get_trades(
-            self.symbol.api_symbol, timestamp_from, pagination_id, self.log_format
+            self.symbol.api_symbol,
+            timestamp_from,
+            pagination_id,
+            log_format=self.log_format,
         )
 
     def get_uid(self, trade: dict) -> str:
@@ -24,7 +27,7 @@ class BinanceMixin(SequentialIntegerMixin):
 
     def get_timestamp(self, trade: dict) -> datetime:
         """Get timestamp."""
-        return get_binance_api_timestamp(trade)
+        return get_binance_trades_timestamp(trade)
 
     def get_nanoseconds(self, trade: dict) -> int:
         """Get nanoseconds."""
@@ -53,7 +56,13 @@ class BinanceMixin(SequentialIntegerMixin):
         """Get index."""
         return int(trade["id"])
 
-    def assert_data_frame(self, data_frame: DataFrame, trades: list) -> None:
+    def assert_data_frame(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        data_frame: DataFrame,
+        trades: list | None = None,
+    ) -> None:
         """Assertions on data_frame."""
         # Duplicates.
         assert len(data_frame["uid"].unique()) == len(trades)
@@ -66,4 +75,10 @@ class BinanceMixin(SequentialIntegerMixin):
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
-        return pd.DataFrame([])
+        return binance_candles(
+            self.symbol.api_symbol,
+            timestamp_from,
+            timestamp_to,
+            interval="1m",
+            limit=60,
+        )

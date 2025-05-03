@@ -7,9 +7,6 @@
 
 dist/
 cloud-tools/
-dist/
 keys/
 media/
 static/
-
-notebooks/

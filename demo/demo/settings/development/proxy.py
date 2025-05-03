@@ -3,7 +3,7 @@ import sys
 
 from decouple import config
 
-from .base import *  # noqa
+from ..base import *  # noqa
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
@@ -43,7 +43,15 @@ CREDENTIALS = (
 )
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(CREDENTIALS.resolve())
 
-DEFAULT_FILE_STORAGE = "storages.backends.gcloud.GoogleCloudStorage"
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
+
 GS_BUCKET_NAME = (
     f'test-{config("GCS_BUCKET_NAME")}'
     if "test" in sys.argv
