@@ -12,7 +12,7 @@ from .constant_candles import ConstantCandle
 
 
 class AdaptiveCandle(ConstantCandle):
-    """Constant candle.
+    """Adaptive candle.
 
     For example, 1 candle when:
     * Ticks exceed the 7 day moving average, with a target of 24 candles a day.

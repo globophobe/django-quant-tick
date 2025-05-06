@@ -22,7 +22,7 @@ from quant_tick.models import GlobalSymbol, Symbol, TradeData
 class BaseRandomTradeTest:
     def generate_random_trades(
         self,
-        ticks: int,
+        ticks: list[int],
         symbol: str | None = None,
         prices: list | None = None,
         is_equal_timestamp: bool = False,
