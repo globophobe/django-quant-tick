@@ -158,7 +158,7 @@ def convert_trade_data(
         }
 
         if len(data_frames):
-            data_frame = pd.concat(data_frames.values())
+            data_frame = pd.concat([df for df in data_frames.values() if not df.empty])
             key = (
                 "notional"
                 if file_data in (FileData.RAW, FileData.AGGREGATED, FileData.CANDLE)
