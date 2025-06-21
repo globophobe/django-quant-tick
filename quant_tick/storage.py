@@ -1,5 +1,6 @@
 import datetime
 import logging
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -158,7 +159,12 @@ def convert_trade_data(
         }
 
         if len(data_frames):
-            data_frame = pd.concat([df for df in data_frames.values() if not df.empty])
+            # Ignore: The behavior of DataFrame concatenation with empty or
+            # all-NA entries is deprecated.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                data_frame = pd.concat(data_frames.values())
+
             key = (
                 "notional"
                 if file_data in (FileData.RAW, FileData.AGGREGATED, FileData.CANDLE)
