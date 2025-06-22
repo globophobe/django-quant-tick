@@ -16,14 +16,10 @@ NUMERIC_SCALE = 38
 class Exchange(models.TextChoices):
     """Exchange."""
 
-    # ALPACA = "alpaca", "Alpaca"
     BINANCE = "binance", "Binance"
     BITFINEX = "bitfinex", "Bitfinex"
-    # BITFLYER = "bitflyer", "bitFlyer"
     BITMEX = "bitmex", "BitMEX"
-    BYBIT = "bybit", "Bybit"
     COINBASE = "coinbase", "Coinbase"
-    # UPBIT = "upbit", "Upbit"
 
 
 class SymbolType(models.TextChoices):
