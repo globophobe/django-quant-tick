@@ -30,6 +30,9 @@ def get_binance_trades_pagination_id(
         # Is it the last_id? If so, stop_iteration
         if last_id == 1:
             return None
+        # Is data fetched same as previous?
+        if len(data) == MAX_RESULTS and last_data and last_id == last_data[-1]["id"]:
+            return None
         # Calculated pagination_id will be negative if remaining trades is
         # less than MAX_RESULTS.
         elif pagination_id <= 0:
