@@ -1,10 +1,11 @@
 import datetime
 import logging
+import warnings
 from pathlib import Path
 
 import pandas as pd
 from django.db import transaction
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import TruncDate
 
 from quant_tick.constants import FileData, Frequency
@@ -129,6 +130,7 @@ def convert_trade_data_to_hourly(
                 )
                 if minute_trade_data.count() == Frequency.HOUR:
                     convert_trade_data(minute_trade_data, hourly_ts_from, hourly_ts_to)
+    logger.info("{symbol}: done".format(symbol=str(symbol)))
 
 
 def convert_trade_data(
@@ -157,7 +159,12 @@ def convert_trade_data(
         }
 
         if len(data_frames):
-            data_frame = pd.concat(data_frames.values())
+            # Ignore: The behavior of DataFrame concatenation with empty or
+            # all-NA entries is deprecated.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                data_frame = pd.concat(data_frames.values())
+
             key = (
                 "notional"
                 if file_data in (FileData.RAW, FileData.AGGREGATED, FileData.CANDLE)
@@ -226,38 +233,38 @@ def clean_trade_data_with_non_existing_files(
     """Clean trade data with non-existing files."""
     logging.info(_("Checking objects with non existent files"))
 
-    mapping = dict(
-        zip(
-            FileData,
-            [
-                "save_raw",
-                "save_aggregated",
-                "save_filtered",
-                "save_clustered",
-                "save_candles",
-            ],
-            strict=True,
-        )
-    )
+    fields = [FileData.CANDLE]
+    for file_data, attr in {
+        FileData.RAW: "save_raw",
+        FileData.AGGREGATED: "save_aggregated",
+        FileData.FILTERED: "save_filtered",
+        FileData.CLUSTERED: "save_clustered",
+    }.items():
+        if getattr(symbol, attr):
+            fields.append(file_data)
+
+    exclude = Q()
+    for f in fields:
+        exclude |= Q(**{f: ""})
 
     trade_data = (
         TradeData.objects.filter(symbol=symbol)
-        .exclude(file_data="")
+        .exclude(exclude)
         .filter(
             timestamp__gte=timestamp_from,
             timestamp__lte=timestamp_to,
         )
-        .only(*list(mapping.keys()) + list(mapping.values()))
+        .only(*fields)
     )
     count = 0
     deleted = 0
     total = trade_data.count()
     for obj in trade_data:
         count += 1
-        for file_data, attr in mapping.items():
-            if getattr(obj, attr):
-                name = getattr(obj, file_data).name
-                if not obj.file_data.storage.exists(name):
+        for field in fields:
+            if getattr(obj, field):
+                f = getattr(obj, field)
+                if not f.storage.exists(f.name):
                     obj.delete()
                     break
                     deleted += 1
@@ -277,28 +284,38 @@ def clean_unlinked_trade_data_files(
     """Clean unlinked trade data files."""
     logging.info(_("Checking unlinked trade data files"))
 
-    mapping = dict(
-        zip(
-            FileData,
-            [
-                upload_raw_data_to,
-                upload_aggregated_data_to,
-                upload_filtered_data_to,
-                upload_clustered_data_to,
-                upload_candle_data_to,
-            ],
-            strict=True,
-        )
-    )
+    fields = [FileData.CANDLE]
+    for file_data, attr in {
+        FileData.RAW: "save_raw",
+        FileData.AGGREGATED: "save_aggregated",
+        FileData.FILTERED: "save_filtered",
+        FileData.CLUSTERED: "save_clustered",
+    }.items():
+        if getattr(symbol, attr):
+            fields.append(file_data)
 
-    deleted = 0
-    trade_data = (
-        TradeData.objects.filter(symbol=symbol).exclude(file_data="").only(*FileData)
-    )
+    exclude = Q()
+    for f in fields:
+        exclude |= Q(**{f: ""})
+
+    trade_data = TradeData.objects.filter(symbol=symbol).exclude(exclude).only(*fields)
     t = trade_data.filter(
         timestamp__gte=timestamp_from,
         timestamp__lte=timestamp_to,
     )
+
+    deleted = 0
+    mapping = {
+        k: v
+        for k, v in {
+            FileData.RAW: upload_raw_data_to,
+            FileData.AGGREGATED: upload_aggregated_data_to,
+            FileData.FILTERED: upload_filtered_data_to,
+            FileData.CLUSTERED: upload_clustered_data_to,
+            FileData.CANDLE: upload_candle_data_to,
+        }.items()
+        if k in fields
+    }
     if t.exists():
         min_timestamp_from = t.first().timestamp
         if timestamp_from < min_timestamp_from:
@@ -337,3 +354,4 @@ def clean_unlinked_trade_data_files(
         logging.info(
             _("Deleted {deleted} unlinked files").format(**{"deleted": deleted})
         )
+    logger.info("{symbol}: done".format(symbol=str(symbol)))
