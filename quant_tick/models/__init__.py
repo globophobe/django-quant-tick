@@ -2,7 +2,6 @@ from .candle_types import (
     AdaptiveCandle,
     ConstantCandle,
     ImbalanceCandle,
-    RenkoBrick,
     RunCandle,
     TimeBasedCandle,
 )
@@ -15,7 +14,6 @@ __all__ = [
     "ConstantCandle",
     "ImbalanceCandle",
     "RunCandle",
-    "RenkoBrick",
     "TimeBasedCandle",
     "Candle",
     "CandleCache",
