@@ -1,3 +1,4 @@
+import warnings
 from datetime import datetime
 
 import pandas as pd
@@ -148,12 +149,22 @@ class Candle(AbstractCodeName, PolymorphicModel):
                     if df is not None:
                         dfs.append(df)
             if dfs:
-                df = pd.concat(dfs)
+                # Ignore: The behavior of DataFrame concatenation with empty or
+                # all-NA entries is deprecated.
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=FutureWarning)
+                    df = pd.concat(dfs)
                 df.insert(2, "exchange", symbol.exchange)
                 df.insert(3, "symbol", symbol.symbol)
                 data_frames.append(df)
         if data_frames:
-            df = pd.concat(data_frames).sort_values(["timestamp", "nanoseconds"])
+            df = pd.concat(data_frames)
+            sort_values = ["timestamp"]
+            if "nanoseconds" in df.columns:
+                sort_values.append("nanoseconds")
+            if "price" not in df.columns and "close" in df.columns:
+                df["price"] = df["close"]
+            df = df.sort_values(sort_values)
             return (
                 filter_by_timestamp(df, timestamp_from, timestamp_to)
                 .reset_index()
@@ -230,6 +241,24 @@ class Candle(AbstractCodeName, PolymorphicModel):
             c = CandleData(candle=self, **kwargs)
             data.append(c)
         CandleData.objects.bulk_create(data)
+
+    def get_snapshot(
+        self,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+    ) -> list[dict]:
+        """Get snapshot."""
+        queryset = CandleData.objects.filter(candle=self)
+        if timestamp_from:
+            queryset = queryset.filter(timestamp__gte=timestamp_from)
+        if timestamp_to:
+            queryset = queryset.filter(timestamp__lt=timestamp_to)
+        data = []
+        for obj in queryset:
+            d = obj.json_data
+            d["incomplete"] = bool(d.get("incomplete", False))
+            data.append({"timestamp": obj.timestamp, **d})
+        return pd.DataFrame(data)
 
     class Meta:
         db_table = "quant_tick_candle"
