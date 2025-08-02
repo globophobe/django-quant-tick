@@ -67,7 +67,9 @@ def aggregate_candles(
         return data
 
 
-def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -> dict:
+def aggregate_candle(
+    data_frame: DataFrame, timestamp: datetime | None = None, top_n: int = 0
+) -> dict:
     """Aggregate candle"""
     first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
@@ -102,7 +104,7 @@ def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -
         buy_ticks = int(buy_data_frame.ticks.sum())
     else:
         buy_ticks = len(buy_data_frame)
-    return {
+    data = {
         "timestamp": timestamp if timestamp else first_row.timestamp,
         "open": first_row.price,
         "high": high,
@@ -115,6 +117,20 @@ def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -
         "ticks": ticks,
         "buyTicks": buy_ticks,
     }
+    if top_n:
+        if len(data_frame) <= top_n:
+            df = data_frame
+        else:
+            top_n_notional = pd.to_numeric(data_frame["notional"])
+            df = data_frame.loc[top_n_notional.nlargest(top_n).index]
+        buy_data = df[df.tickRule == 1]
+        data[f"top{top_n}Volume"] = df.volume.sum()
+        data[f"top{top_n}BuyVolume"] = buy_data.volume.sum()
+        data[f"top{top_n}Notional"] = df.notional.sum()
+        data[f"top{top_n}BuyNotional"] = buy_data.notional.sum()
+        data[f"top{top_n}Ticks"] = int(df.ticks.sum())
+        data[f"top{top_n}BuyTicks"] = int(buy_data.ticks.sum())
+    return data
 
 
 def validate_aggregated_candles(
