@@ -47,6 +47,13 @@ class Frequency(models.IntegerChoices):
     WEEK = 10080, _("week").capitalize()
 
 
+class Direction(models.TextChoices):
+    """Direction."""
+
+    LONG = "long", _("long")
+    SHORT = "short", _("short")
+
+
 class FileData(models.TextChoices):
     """File data."""
 
