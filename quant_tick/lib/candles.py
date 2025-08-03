@@ -73,6 +73,14 @@ def aggregate_candle(
     """Aggregate candle"""
     first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
+    if "open" in data_frame.columns:
+        open_price = first_row.open
+    else:
+        open_price = first_row.price
+    if "close" in data_frame.columns:
+        close_price = last_row.close
+    else:
+        close_price = last_row.price
     if "high" in data_frame.columns:
         high = data_frame.high.max()
     else:
@@ -112,10 +120,10 @@ def aggregate_candle(
         buy_ticks = len(buy_data_frame)
     data = {
         "timestamp": timestamp if timestamp else first_row.timestamp,
-        "open": first_row.price,
+        "open": open_price,
         "high": high,
         "low": low,
-        "close": last_row.price,
+        "close": close_price,
         "volume": volume,
         "buyVolume": buy_volume,
         "notional": notional,
