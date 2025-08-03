@@ -68,13 +68,19 @@ def aggregate_candles(
 
 
 def aggregate_candle(
-    data_frame: DataFrame, timestamp: datetime | None = None, top_n: int = 0
+    data_frame: DataFrame, timestamp: datetime | None = None, top_n: Decimal = ZERO
 ) -> dict:
     """Aggregate candle"""
     first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
-    high = data_frame.price.max()
-    low = data_frame.price.min()
+    if "high" in data_frame.columns:
+        high = data_frame.high.max()
+    else:
+        high = data_frame.price.max()
+    if "low" in data_frame.columns:
+        low = data_frame.low.min()
+    else:
+        low = data_frame.price.min()
     buy_data_frame = data_frame[data_frame.tickRule == 1]
     if "totalVolume" in data_frame.columns:
         volume = data_frame.totalVolume.sum()
@@ -118,18 +124,36 @@ def aggregate_candle(
         "buyTicks": buy_ticks,
     }
     if top_n:
-        if len(data_frame) <= top_n:
-            df = data_frame
+        if "totalNotional" in data_frame.columns:
+            top_n_notional = pd.to_numeric(data_frame["totalNotional"])
         else:
             top_n_notional = pd.to_numeric(data_frame["notional"])
-            df = data_frame.loc[top_n_notional.nlargest(top_n).index]
+        n_records = int(len(data_frame) * (top_n / Decimal(100)))
+        df = data_frame.loc[top_n_notional.nlargest(n_records).index]
         buy_data = df[df.tickRule == 1]
-        data[f"top{top_n}Volume"] = df.volume.sum()
-        data[f"top{top_n}BuyVolume"] = buy_data.volume.sum()
-        data[f"top{top_n}Notional"] = df.notional.sum()
-        data[f"top{top_n}BuyNotional"] = buy_data.notional.sum()
-        data[f"top{top_n}Ticks"] = int(df.ticks.sum())
-        data[f"top{top_n}BuyTicks"] = int(buy_data.ticks.sum())
+        if "totalVolume" in df.columns:
+            data[f"top{top_n}PercentVolume"] = df.totalVolume.sum()
+            data[f"top{top_n}PercentBuyVolume"] = buy_data.totalVolume.sum()
+        else:
+            data[f"top{top_n}PercentVolume"] = df.volume.sum()
+            data[f"top{top_n}PercentBuyVolume"] = buy_data.volume.sum()
+
+        if "totalNotional" in df.columns:
+            data[f"top{top_n}PercentNotional"] = df.totalNotional.sum()
+            data[f"top{top_n}PercentBuyNotional"] = buy_data.totalNotional.sum()
+        else:
+            data[f"top{top_n}PercentNotional"] = df.notional.sum()
+            data[f"top{top_n}PercentBuyNotional"] = buy_data.notional.sum()
+
+        if "totalTicks" in df.columns:
+            data[f"top{top_n}PercentTicks"] = int(df.totalTicks.sum())
+            data[f"top{top_n}PercentBuyTicks"] = int(buy_data.totalTicks.sum())
+        elif "ticks" in df.columns:
+            data[f"top{top_n}PercentTicks"] = int(df.ticks.sum())
+            data[f"top{top_n}PercentBuyTicks"] = int(buy_data.ticks.sum())
+        else:
+            data[f"top{top_n}PercentTicks"] = len(df)
+            data[f"top{top_n}PercentBuyTicks"] = len(buy_data)
     return data
 
 
