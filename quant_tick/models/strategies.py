@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import QuerySet
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
@@ -33,9 +34,8 @@ class Strategy(BaseStrategy, AbstractCodeName, PolymorphicModel):
         verbose_name=_("candle"),
     )
 
-    def get_data_frame(self, candle_data: CandleData) -> DataFrame:
+    def get_data_frame(self, queryset: QuerySet) -> DataFrame:
         """Get data frame."""
-        queryset = self.get_candle_data(candle_data)
         data = []
         for obj in queryset:
             is_incomplete = bool(obj.json_data.get("incomplete", False))
@@ -53,8 +53,8 @@ class Strategy(BaseStrategy, AbstractCodeName, PolymorphicModel):
         """Backtest."""
         raise NotImplementedError
 
-    def on_candle_data(self, candle_data: CandleData) -> None:
-        """On candle data."""
+    def live_trade(self, candle_data: CandleData) -> None:
+        """Live."""
         raise NotImplementedError
 
     def on_signal(self, candle_data: CandleData, **kwargs) -> None:
