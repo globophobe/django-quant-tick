@@ -136,7 +136,7 @@ def aggregate_candle(
             top_n_notional = pd.to_numeric(data_frame["totalNotional"])
         else:
             top_n_notional = pd.to_numeric(data_frame["notional"])
-        n_records = int(len(data_frame) * (top_n / Decimal(100)))
+        n_records = max(int(len(data_frame) * (top_n / Decimal(100))), 1)
         df = data_frame.loc[top_n_notional.nlargest(n_records).index]
         buy_data = df[df.tickRule == 1]
         if "totalVolume" in df.columns:
