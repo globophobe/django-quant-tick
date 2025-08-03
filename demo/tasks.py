@@ -185,17 +185,6 @@ def push_rest_workflow(
 ) -> None:
     """Push REST workflow."""
     url = f'https://{config("PRODUCTION_API_URL")}'
-    exchanges = ["bitfinex", "bitmex", "coinbase"]
-    workflow = get_workflow(url, exchanges)
-    push_workflow(ctx, name, workflow, location=location)
-
-
-@task
-def push_s3_workflow(
-    ctx: Any, name: str = "django-quant-tick-s3", location: str = "asia-northeast1"
-) -> None:
-    """Push S3 workflow."""
-    url = f'https://{config("PRODUCTION_API_URL")}'
-    exchanges = ["bybit"]
+    exchanges = ["binance", "bitfinex", "bitmex", "coinbase"]
     workflow = get_workflow(url, exchanges)
     push_workflow(ctx, name, workflow, location=location)

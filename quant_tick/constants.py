@@ -16,14 +16,10 @@ NUMERIC_SCALE = 38
 class Exchange(models.TextChoices):
     """Exchange."""
 
-    # ALPACA = "alpaca", "Alpaca"
     BINANCE = "binance", "Binance"
     BITFINEX = "bitfinex", "Bitfinex"
-    # BITFLYER = "bitflyer", "bitFlyer"
     BITMEX = "bitmex", "BitMEX"
-    BYBIT = "bybit", "Bybit"
     COINBASE = "coinbase", "Coinbase"
-    # UPBIT = "upbit", "Upbit"
 
 
 class SymbolType(models.TextChoices):
@@ -49,6 +45,13 @@ class Frequency(models.IntegerChoices):
     HOUR = 60, _("hour").capitalize()
     DAY = 1440, _("day").capitalize()
     WEEK = 10080, _("week").capitalize()
+
+
+class Direction(models.TextChoices):
+    """Direction."""
+
+    LONG = "long", _("long")
+    SHORT = "short", _("short")
 
 
 class FileData(models.TextChoices):

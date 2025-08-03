@@ -1,3 +1,4 @@
+import warnings
 from datetime import datetime
 
 import pandas as pd
@@ -148,12 +149,20 @@ class Candle(AbstractCodeName, PolymorphicModel):
                     if df is not None:
                         dfs.append(df)
             if dfs:
-                df = pd.concat(dfs)
+                # Ignore: The behavior of DataFrame concatenation with empty or
+                # all-NA entries is deprecated.
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=FutureWarning)
+                    df = pd.concat(dfs)
                 df.insert(2, "exchange", symbol.exchange)
                 df.insert(3, "symbol", symbol.symbol)
                 data_frames.append(df)
         if data_frames:
-            df = pd.concat(data_frames).sort_values(["timestamp", "nanoseconds"])
+            df = pd.concat(data_frames)
+            sort_values = ["timestamp"]
+            if "nanoseconds" in df.columns:
+                sort_values.append("nanoseconds")
+            df = df.sort_values(sort_values)
             return (
                 filter_by_timestamp(df, timestamp_from, timestamp_to)
                 .reset_index()
@@ -163,7 +172,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             return pd.DataFrame([])
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can aggregate."""
+        """Can aggregate?"""
         values = []
         for symbol in self.symbols.all():
             # Trade data may be daily, so timestamp from >= daily timestmap.

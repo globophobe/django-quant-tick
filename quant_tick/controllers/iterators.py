@@ -182,10 +182,7 @@ class CandleCacheIterator(BaseTimeFrameIterator):
     def get_existing(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
     ) -> list[datetime]:
-        """Get existing.
-
-        Retry only locally, as SQLite database not modifiable within Docker image.
-        """
+        """Get existing."""
         query = (
             Q(candle=self.candle)
             & Q(timestamp__gte=timestamp_from)
