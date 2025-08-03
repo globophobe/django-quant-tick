@@ -131,7 +131,7 @@ class TradeData(AbstractDataStorage):
     objects = TradeDataQuerySet.as_manager()
 
     def upload_path(self, directory: str, filename: str) -> str:
-        """Upload data to.
+        """Upload path.
 
         Example:
         trades / coinbase / BTCUSD / blaring-crocodile / raw / 2022-01-01 / 0000.parquet
