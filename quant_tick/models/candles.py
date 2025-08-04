@@ -29,7 +29,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         db_table="quant_tick_candle_symbol",
         verbose_name=_("symbols"),
     )
-    date_from = models.DateField(_("date from"), null=True)
+    date_from = models.DateField(_("date from"))
     date_to = models.DateField(_("date to"), null=True)
     json_data = JSONField(_("json data"), default=dict)
     is_active = models.BooleanField(_("active"), default=True)
