@@ -46,7 +46,8 @@ class TimeBasedCandle(Candle):
         cache_data = cache_data or {}
         data = []
         window = self.json_data["window"]
-        top_n = self.json_data.get("top_n")
+        bins = self.json_data.get("bins")
+        percent_range = self.json_data.get("percent_range")
         if "next" in cache_data:
             ts_from = cache_data["next"]["timestamp"]
         else:
@@ -56,7 +57,9 @@ class TimeBasedCandle(Candle):
         for ts_from, ts_to in iter_window(ts_from, max_ts_to, window):  # noqa: B020
             df = filter_by_timestamp(data_frame, ts_from, ts_to)
             if len(df):
-                candle = aggregate_candle(df, timestamp=ts_from, top_n=top_n)
+                candle = aggregate_candle(
+                    df, timestamp=ts_from, bins=bins, percent_range=percent_range
+                )
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
                     candle = merge_cache(previous, candle)

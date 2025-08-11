@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
+import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
@@ -68,7 +69,10 @@ def aggregate_candles(
 
 
 def aggregate_candle(
-    data_frame: DataFrame, timestamp: datetime | None = None, top_n: Decimal = ZERO
+    data_frame: DataFrame,
+    timestamp: datetime | None = None,
+    bins: int = 0,
+    percent_range: float = 2.0,
 ) -> dict:
     """Aggregate candle"""
     first_row = data_frame.iloc[0]
@@ -131,37 +135,43 @@ def aggregate_candle(
         "ticks": ticks,
         "buyTicks": buy_ticks,
     }
-    if top_n:
-        if "totalNotional" in data_frame.columns:
-            top_n_notional = pd.to_numeric(data_frame["totalNotional"])
-        else:
-            top_n_notional = pd.to_numeric(data_frame["notional"])
-        n_records = max(int(len(data_frame) * (top_n / Decimal(100))), 1)
-        df = data_frame.loc[top_n_notional.nlargest(n_records).index]
-        buy_data = df[df.tickRule == 1]
-        if "totalVolume" in df.columns:
-            data[f"top{top_n}PercentVolume"] = df.totalVolume.sum()
-            data[f"top{top_n}PercentBuyVolume"] = buy_data.totalVolume.sum()
-        else:
-            data[f"top{top_n}PercentVolume"] = df.volume.sum()
-            data[f"top{top_n}PercentBuyVolume"] = buy_data.volume.sum()
+    if bins:
+        price_center = data_frame["price"].median()
+        half_range = price_center * (percent_range / 100) / 2
 
-        if "totalNotional" in df.columns:
-            data[f"top{top_n}PercentNotional"] = df.totalNotional.sum()
-            data[f"top{top_n}PercentBuyNotional"] = buy_data.totalNotional.sum()
-        else:
-            data[f"top{top_n}PercentNotional"] = df.notional.sum()
-            data[f"top{top_n}PercentBuyNotional"] = buy_data.notional.sum()
+        price_min = price_center - half_range
+        price_max = price_center + half_range
+        price_edges = np.linspace(price_min, price_max, bins + 1)
+        column = (
+            "totalNotional" if "totalNotional" in data_frame.columns else "notional"
+        )
+        buy_data = data_frame[data_frame.tickRule == 1]
+        sell_data = data_frame[data_frame.tickRule == -1]
 
-        if "totalTicks" in df.columns:
-            data[f"top{top_n}PercentTicks"] = int(df.totalTicks.sum())
-            data[f"top{top_n}PercentBuyTicks"] = int(buy_data.totalTicks.sum())
-        elif "ticks" in df.columns:
-            data[f"top{top_n}PercentTicks"] = int(df.ticks.sum())
-            data[f"top{top_n}PercentBuyTicks"] = int(buy_data.ticks.sum())
-        else:
-            data[f"top{top_n}PercentTicks"] = len(df)
-            data[f"top{top_n}PercentBuyTicks"] = len(buy_data)
+        values = pd.to_numeric(data_frame[column])
+        notional_counts, _ = np.histogram(values, bins=bins)
+        price_counts, price_edges = np.histogram(
+            data_frame["price"], bins=price_edges, weights=values
+        )
+        buy_price_counts, _ = np.histogram(
+            buy_data["price"],
+            bins=price_edges,
+            weights=pd.to_numeric(buy_data[column]),
+        )
+        sell_price_counts, _ = np.histogram(
+            sell_data["price"],
+            bins=price_edges,
+            weights=pd.to_numeric(sell_data[column]),
+        )
+        data.update(
+            {
+                "priceDistribution": price_counts.tolist(),
+                "notionalDistribution": notional_counts.tolist(),
+                "priceBinEdges": price_edges.tolist(),
+                "buyBins": buy_price_counts.tolist(),
+                "sellBins": sell_price_counts.tolist(),
+            }
+        )
     return data
 
 
