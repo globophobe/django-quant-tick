@@ -19,6 +19,7 @@ httpx = "*"
 pandas = "*"
 pyarrow = "*"
 randomname = "*"
+scikit-learn = "*"
 
 [tool.poetry.dev-dependencies]
 black = "*"
