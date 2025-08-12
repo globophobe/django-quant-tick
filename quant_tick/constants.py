@@ -5,6 +5,7 @@ from django.db import models
 from quant_tick.utils import gettext_lazy as _
 
 ZERO = Decimal("0")
+ONE = Decimal("1")
 
 
 # Similar to BigQuery BigNumeric

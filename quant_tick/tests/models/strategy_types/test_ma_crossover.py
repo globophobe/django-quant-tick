@@ -2,7 +2,7 @@ import pandas as pd
 from django.test import TestCase
 
 from quant_tick.constants import Direction
-from quant_tick.models import Candle, CandleData, Position
+from quant_tick.models import Candle, CandleData, Signal
 from quant_tick.models.strategy_types import MACrossoverStrategy
 
 from ...base import BaseSymbolTest
@@ -33,9 +33,9 @@ class MACrossoverStrategyTest(BaseSymbolTest, TestCase):
             )
 
         self.strategy.backtest()
-        positions = Position.objects.filter(strategy=self.strategy)
-        self.assertEqual(len(positions), 1)
-        position = positions[0]
+        signals = Signal.objects.filter(strategy=self.strategy)
+        self.assertEqual(len(signals), 1)
+        position = signals[0]
         self.assertEqual(position.json_data["direction"], Direction.LONG.value)
 
     def test_backtest_with_direction_changes(self):
@@ -49,7 +49,7 @@ class MACrossoverStrategyTest(BaseSymbolTest, TestCase):
             )
 
         self.strategy.backtest()
-        positions = Position.objects.filter(strategy=self.strategy)
+        positions = Signal.objects.filter(strategy=self.strategy)
         self.assertEqual(len(positions), 2)
         self.assertEqual(positions[0].json_data["direction"], Direction.LONG.value)
         self.assertEqual(positions[1].json_data["direction"], Direction.SHORT.value)
@@ -73,7 +73,7 @@ class MACrossoverStrategyTest(BaseSymbolTest, TestCase):
             )
 
         self.strategy.backtest()
-        positions = Position.objects.filter(strategy=self.strategy)
+        positions = Signal.objects.filter(strategy=self.strategy)
         self.assertEqual(len(positions), 2)
         self.assertEqual(positions[0].json_data["direction"], Direction.LONG.value)
         self.assertEqual(positions[1].json_data["direction"], Direction.SHORT.value)
@@ -86,8 +86,8 @@ class MACrossoverStrategyTest(BaseSymbolTest, TestCase):
                 timestamp=self.timestamp_from + pd.Timedelta(f"{i}min"),
                 json_data={"close": 100 + i},
             )
-        self.strategy.live_trade(candle_data)
-        positions = Position.objects.filter(strategy=self.strategy)
+        self.strategy.live(candle_data)
+        positions = Signal.objects.filter(strategy=self.strategy)
         self.assertEqual(len(positions), 1)
         position = positions[0]
         self.assertEqual(position.json_data["direction"], Direction.LONG.value)
@@ -107,8 +107,8 @@ class MACrossoverStrategyTest(BaseSymbolTest, TestCase):
             timestamp=candle_data.timestamp + pd.Timedelta("1min"),
             json_data={"close": 100},
         )
-        self.strategy.live_trade(live_candle_data)
-        positions = Position.objects.filter(strategy=self.strategy)
+        self.strategy.live(live_candle_data)
+        positions = Signal.objects.filter(strategy=self.strategy)
         self.assertEqual(len(positions), 2)
         self.assertEqual(positions[0].json_data["direction"], Direction.LONG.value)
         self.assertEqual(positions[1].json_data["direction"], Direction.SHORT.value)

@@ -5,7 +5,7 @@ from quant_tick.constants import Direction
 from quant_tick.utils import gettext_lazy as _
 
 from ..candles import CandleData
-from ..strategies import Position, Strategy
+from ..strategies import Signal, Strategy
 
 
 class MACrossoverStrategy(Strategy):
@@ -34,14 +34,14 @@ class MACrossoverStrategy(Strategy):
     def backtest(self) -> None:
         """Backtest."""
         queryset = CandleData.objects.filter(candle=self.candle)
-        position = (
-            Position.objects.filter(strategy=self, close_candle_data__isnull=True)
+        signal = (
+            Signal.objects.filter(strategy=self, close_candle_data__isnull=True)
             .select_related("open_candle_data")
             .first()
         )
-        if position:
+        if signal:
             queryset = CandleData.objects.filter(
-                timestamp__gte=position.open_candle_data.timestamp
+                timestamp__gte=signal.open_candle_data.timestamp
             )
         data_frame = self.get_data_frame(queryset)
         for index, row in enumerate(data_frame.itertuples()):
@@ -49,10 +49,10 @@ class MACrossoverStrategy(Strategy):
                 direction = (
                     Direction.LONG if row.fast_ma > row.slow_ma else Direction.SHORT
                 )
-                position = self.on_signal(row.obj, direction, position)
+                signal = self.on_data(row.obj, direction, signal)
 
-    def live_trade(self, candle_data: CandleData) -> None:
-        """Live trade."""
+    def live(self, candle_data: CandleData) -> None:
+        """Live."""
         queryset = CandleData.objects.filter(
             candle=self.candle, timestamp__lte=candle_data.timestamp
         )
@@ -68,38 +68,38 @@ class MACrossoverStrategy(Strategy):
                 if last_row["fast_ma"] > last_row["slow_ma"]
                 else Direction.SHORT
             )
-            position = Position.objects.filter(
+            signal = Signal.objects.filter(
                 strategy=self, close_candle_data__isnull=True
             ).first()
-            self.on_signal(candle_data, direction, position)
+            self.on_data(candle_data, direction, signal)
 
-    def on_signal(
+    def on_data(
         self,
         candle_data: CandleData,
         direction: Direction,
-        position: Position | None = None,
+        signal: Signal | None = None,
         data: dict | None = None,
-    ) -> Position | None:
-        """On signal."""
+    ) -> Signal | None:
+        """On data."""
         data = data or {}
-        if position:
-            if position.json_data["direction"] != direction.value:
-                position.close_candle_data = candle_data
-                position.save()
-                position = Position.objects.create(
+        if signal:
+            if signal.json_data["direction"] != direction.value:
+                signal.close_candle_data = candle_data
+                signal.save()
+                signal = Signal.objects.create(
                     strategy=self,
                     open_candle_data=candle_data,
                     close_candle_data=None,
                     json_data={"direction": direction.value, **data},
                 )
         else:
-            position = Position.objects.create(
+            signal = Signal.objects.create(
                 strategy=self,
                 open_candle_data=candle_data,
                 close_candle_data=None,
                 json_data={"direction": direction.value, **data},
             )
-        return position
+        return signal
 
     class Meta:
         proxy = True

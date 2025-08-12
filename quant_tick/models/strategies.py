@@ -1,3 +1,4 @@
+import statistics
 from decimal import Decimal
 
 from django.conf import settings
@@ -6,7 +7,7 @@ from django.db.models import QuerySet
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
-from quant_tick.constants import ZERO, Direction
+from quant_tick.constants import ONE, ZERO, Direction
 from quant_tick.utils import gettext_lazy as _
 
 from .base import AbstractCodeName, JSONField
@@ -56,17 +57,95 @@ class Strategy(BaseStrategy, AbstractCodeName, PolymorphicModel):
         """Backtest."""
         raise NotImplementedError
 
-    def live_trade(self, candle_data: CandleData) -> None:
+    def live(self, candle_data: CandleData) -> None:
         """Live."""
         raise NotImplementedError
 
-    def on_signal(self, candle_data: CandleData, **kwargs) -> None:
-        """On signal."""
+    def on_data(self, candle_data: CandleData, **kwargs) -> None:
+        """On data."""
         raise NotImplementedError
 
     def __str__(self) -> str:
         """str."""
         return self.code_name
+
+    @property
+    def summary(self) -> dict:
+        """Summary."""
+        positions = list(
+            self.executions.filter(close_candle_data__isnull=False).select_related(
+                "open_candle_data", "close_candle_data"
+            )
+        )
+        if len(positions):
+            first_price = positions[0].open_candle_data.json_data["close"]
+            last_price = positions[-1].close_candle_data.json_data["close"]
+            buy_and_hold = (last_price - first_price) / first_price
+        else:
+            buy_and_hold = ZERO
+
+        returns = []
+        equity_curve = [ONE]
+        drawdowns = []
+
+        current_equity = ONE
+        max_equity = ONE
+
+        wins = 0
+        losses = 0
+
+        for position in positions:
+            open_price = position.open_candle_data.json_data["close"]
+            close_price = position.close_candle_data.json_data["close"]
+            direction = position.json_data["direction"]
+            if direction == Direction.LONG.value:
+                r = (close_price - open_price) / open_price
+            else:
+                r = (open_price - close_price) / open_price
+
+            returns.append(r)
+            current_equity *= Decimal("1") + r
+            equity_curve.append(current_equity)
+
+            if current_equity > max_equity:
+                max_equity = current_equity
+
+            drawdown = (
+                (max_equity - current_equity) / max_equity if max_equity > 0 else ZERO
+            )
+            drawdowns.append(drawdown)
+
+            if r > 0:
+                wins += 1
+            elif r < 0:
+                losses += 1
+
+        total = len(returns)
+
+        if total > 1:
+            avg_return = Decimal(str(statistics.mean([float(r) for r in returns])))
+            volatility = Decimal(str(statistics.stdev([float(r) for r in returns])))
+            sharpe_ratio = avg_return / volatility if volatility > 0 else ZERO
+        else:
+            avg_return = returns[0] if returns else ZERO
+            volatility = ZERO
+            sharpe_ratio = ZERO
+
+        max_drawdown = max(drawdowns) if drawdowns else ZERO
+
+        return {
+            "equity": current_equity,
+            "return": (current_equity - ONE) * 100,
+            "average_return": avg_return * 100,
+            "volatility": volatility * 100,
+            "sharpe_ratio": sharpe_ratio,
+            "max_drawdown": max_drawdown * 100,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": ((Decimal(wins) / Decimal(total) * 100) if total > 0 else ZERO),
+            "buy_and_hold": buy_and_hold,
+            "excess_return": (total - buy_and_hold) * 100,
+        }
 
     class Meta:
         db_table = "quant_tick_strategy"
@@ -102,25 +181,25 @@ class StrategyData(BaseStrategy):
         verbose_name = verbose_name_plural = _("strategy data")
 
 
-class Position(models.Model):
-    """Position."""
+class Signal(models.Model):
+    """Signal."""
 
     strategy = models.ForeignKey(
         "quant_tick.Strategy",
-        related_name="executions",
+        related_name="signals",
         on_delete=models.CASCADE,
         verbose_name=_("strategy"),
     )
     open_candle_data = models.ForeignKey(
         "quant_tick.CandleData",
         on_delete=models.CASCADE,
-        related_name="open_positions",
+        related_name="+",
         verbose_name=_("candle data"),
     )
     close_candle_data = models.ForeignKey(
         "quant_tick.CandleData",
         on_delete=models.CASCADE,
-        related_name="close_positions",
+        related_name="+",
         null=True,
         blank=True,
         verbose_name=_("candle data"),
@@ -152,6 +231,7 @@ class Position(models.Model):
         return ZERO
 
     class Meta:
-        db_table = "quant_tick_position"
-        verbose_name = _("position")
-        verbose_name_plural = _("positions")
+        db_table = "quant_tick_signal"
+        ordering = ("open_candle_data__timestamp",)
+        verbose_name = _("signal")
+        verbose_name_plural = _("signals")

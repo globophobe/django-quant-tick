@@ -1,11 +1,13 @@
 import warnings
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 from django.db import models
 from django.db.models import QuerySet
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
+from scipy import stats
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
@@ -29,7 +31,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         db_table="quant_tick_candle_symbol",
         verbose_name=_("symbols"),
     )
-    date_from = models.DateField(_("date from"))
+    date_from = models.DateField(_("date from"), null=True)
     date_to = models.DateField(_("date to"), null=True)
     json_data = JSONField(_("json data"), default=dict)
     is_active = models.BooleanField(_("active"), default=True)
@@ -239,6 +241,77 @@ class Candle(AbstractCodeName, PolymorphicModel):
             c = CandleData(candle=self, **kwargs)
             data.append(c)
         CandleData.objects.bulk_create(data)
+
+    def get_candle_data(self) -> DataFrame:
+        """Get candle data."""
+        return DataFrame(
+            [
+                {"timestamp": data["timestamp"], **data["json_data"]}
+                for data in self.candledata_set.order_by("timestamp").values(
+                    "timestamp", "json_data"
+                )
+            ]
+        )
+
+    def distribution_analysis(self, data_frame: DataFrame) -> str:
+        """López de Prado style distribution analysis."""
+        returns = data_frame["close"].pct_change().dropna()
+        standardized_returns = (returns - returns.mean()) / returns.std()
+
+        def ascii_histogram(data: list, bins: int = 30, width: int = 40) -> list:
+            """ASCII histogram"""
+            data = data[(data >= -3) & (data <= 3)]
+            if len(data) == 0:
+                return ["No data in range"]
+
+            hist, edges = np.histogram(data, bins=bins, density=True)
+            max_count = max(hist) if max(hist) > 0 else 1
+
+            lines = []
+            for i, count in enumerate(hist):
+                bar_length = int((count / max_count) * width)
+                bar = "█" * bar_length
+                bin_center = (edges[i] + edges[i + 1]) / 2
+                lines.append(f"{bin_center:6.2f} |{bar}")
+            return lines
+
+        sample_type = self.json_data["sample_type"]
+        target_candles = self.json_data.get("target_candles_per_day", "")
+
+        output = []
+        output.append(f"Distribution Analysis - {sample_type.title()} Sampling")
+        output.append("=" * 50)
+
+        if target_candles:
+            output.append(f"Target candles per day: {target_candles}")
+
+        output.append(
+            f"\nStandardized Returns ({len(standardized_returns)} observations):"
+        )
+        for line in ascii_histogram(standardized_returns):
+            output.append(line)
+
+        skew_val = stats.skew(standardized_returns)
+        kurt_val = stats.kurtosis(standardized_returns)
+
+        output.append("\nStatistics:")
+        output.append(f"  Skewness: {skew_val:.3f}")
+        output.append(f"  Kurtosis: {kurt_val:.3f}")
+        output.append(f"  Sample size: {len(standardized_returns)}")
+
+        # Normality test
+        if len(standardized_returns) > 7:  # Minimum for shapiro test
+            if len(standardized_returns) <= 5000:
+                _, p_val = stats.shapiro(standardized_returns)
+                test_name = "Shapiro-Wilk"
+            else:
+                _, p_val = stats.kstest(standardized_returns, "norm")
+                test_name = "Kolmogorov-Smirnov"
+
+            output.append(f"  {test_name} p-value: {p_val:.4f}")
+            output.append(f"  Normal? {'No' if p_val < 0.05 else 'Yes'} (α=0.05)")
+
+        return "\n".join(output)
 
     class Meta:
         db_table = "quant_tick_candle"
