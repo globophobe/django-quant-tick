@@ -11,7 +11,6 @@ from pandas import DataFrame
 from quant_tick.constants import Exchange
 from quant_tick.lib import (
     aggregate_trades,
-    cluster_trades,
     get_current_time,
     get_min_time,
     volume_filter_with_time_window,
@@ -118,7 +117,6 @@ class BaseSymbolTest:
         save_raw: bool = True,
         save_aggregated: bool = False,
         save_filtered: bool = False,
-        save_clustered: bool = False,
     ) -> Symbol:
         """Get symbol."""
         return Symbol.objects.create(
@@ -128,7 +126,6 @@ class BaseSymbolTest:
             save_raw=save_raw,
             save_aggregated=save_aggregated,
             save_filtered=save_filtered,
-            save_clustered=save_clustered,
         )
 
 
@@ -178,17 +175,6 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
             data_frame, min_volume=min_volume, window="1min"
         )
 
-    def get_clustered(
-        self,
-        timestamp: datetime,
-        nanoseconds: int = 0,
-        price: Decimal | None = None,
-        notional: Decimal | None = None,
-    ) -> DataFrame:
-        """Get clustered."""
-        data_frame = self.get_filtered(timestamp, nanoseconds, price, notional)
-        return cluster_trades(data_frame)
-
     def tearDown(self):
         # Files
         for obj in TradeData.objects.all():
@@ -197,7 +183,7 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         test_path = Path("test-trades")
         for obj in Symbol.objects.all():
             upload_path = Path("/".join(obj.upload_path))
-            for file_data in ("raw", "aggregated", "filtered", "clustered", "candles"):
+            for file_data in ("raw", "aggregated", "filtered", "candles"):
                 file_path = Path(file_data)
                 p = test_path / upload_path / file_path
                 if p.exists():
