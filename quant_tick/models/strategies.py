@@ -135,16 +135,13 @@ class Strategy(BaseStrategy, AbstractCodeName, PolymorphicModel):
 
         return {
             "equity": current_equity,
-            "return": (current_equity - ONE) * 100,
             "average_return": avg_return * 100,
             "volatility": volatility * 100,
             "sharpe_ratio": sharpe_ratio,
             "max_drawdown": max_drawdown * 100,
-            "wins": wins,
-            "losses": losses,
             "win_rate": ((Decimal(wins) / Decimal(total) * 100) if total > 0 else ZERO),
-            "buy_and_hold": buy_and_hold,
-            "excess_return": (total - buy_and_hold) * 100,
+            "buy_and_hold": buy_and_hold * 100,
+            "excess_return": ((current_equity - ONE) - buy_and_hold) * 100,
         }
 
     class Meta:
