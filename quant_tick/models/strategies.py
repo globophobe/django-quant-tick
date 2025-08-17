@@ -217,19 +217,6 @@ class Signal(models.Model):
             timestamp = open_timestamp
         return f"{code_name}: {timestamp}"
 
-    @property
-    def pnl(self) -> Decimal:
-        """Profit and loss."""
-        if self.close_candle_data:
-            direction = self.json_data["direction"]
-            open_price = self.open_candle_data.json_data["close"]
-            close_price = self.close_candle_data.json_data["close"]
-            if direction == Direction.LONG.value:
-                return close_price - open_price
-            elif direction == Direction.SHORT.value:
-                return open_price - close_price
-        return ZERO
-
     class Meta:
         db_table = "quant_tick_signal"
         ordering = ("open_candle_data__timestamp",)
