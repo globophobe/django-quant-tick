@@ -74,13 +74,12 @@ class ConstantCandle(Candle):
         start = 0
         data = []
         column = "total" + self.json_data["sample_type"].title()
-        bins = self.json_data.get("bins")
-        percent_range = self.json_data.get("percent_range")
+        quantiles = self.json_data.get("quantiles")
         for index, row in data_frame.iterrows():
             cache_data["sample_value"] += row[column]
             if self.should_aggregate_candle(cache_data):
                 df = data_frame.loc[start:index]
-                candle = aggregate_candle(df, bins=bins, percent_range=percent_range)
+                candle = aggregate_candle(df, quantiles=quantiles)
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
                     candle = merge_cache(previous, candle)

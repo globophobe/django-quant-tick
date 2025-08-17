@@ -1,7 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
 
-import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
@@ -71,10 +70,11 @@ def aggregate_candles(
 def aggregate_candle(
     data_frame: DataFrame,
     timestamp: datetime | None = None,
-    bins: int = 0,
-    percent_range: float = 2.0,
+    quantiles: list[int] | None = None,
 ) -> dict:
     """Aggregate candle"""
+    quantiles = quantiles or []
+
     first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
     if "open" in data_frame.columns:
@@ -135,43 +135,29 @@ def aggregate_candle(
         "ticks": ticks,
         "buyTicks": buy_ticks,
     }
-    if bins:
-        price_center = data_frame["price"].median()
-        half_range = price_center * (percent_range / 100) / 2
-
-        price_min = price_center - half_range
-        price_max = price_center + half_range
-        price_edges = np.linspace(price_min, price_max, bins + 1)
-        column = (
-            "totalNotional" if "totalNotional" in data_frame.columns else "notional"
-        )
-        buy_data = data_frame[data_frame.tickRule == 1]
-        sell_data = data_frame[data_frame.tickRule == -1]
-
-        values = pd.to_numeric(data_frame[column])
-        notional_counts, _ = np.histogram(values, bins=bins)
-        price_counts, price_edges = np.histogram(
-            data_frame["price"], bins=price_edges, weights=values
-        )
-        buy_price_counts, _ = np.histogram(
-            buy_data["price"],
-            bins=price_edges,
-            weights=pd.to_numeric(buy_data[column]),
-        )
-        sell_price_counts, _ = np.histogram(
-            sell_data["price"],
-            bins=price_edges,
-            weights=pd.to_numeric(sell_data[column]),
-        )
-        data.update(
-            {
-                "priceDistribution": price_counts.tolist(),
-                "notionalDistribution": notional_counts.tolist(),
-                "priceBinEdges": price_edges.tolist(),
-                "buyBins": buy_price_counts.tolist(),
-                "sellBins": sell_price_counts.tolist(),
-            }
-        )
+    if quantiles:
+        df = data_frame[data_frame.notional.notna()]
+        if len(df):
+            quants = [q / 100.0 for q in sorted(quantiles, reverse=True)]
+            numeric_notional = pd.to_numeric(df.notional)
+            thresholds = [numeric_notional.quantile(q) for q in quants]
+            for index, q in enumerate(quants):
+                if index == 0:
+                    q_df = df[numeric_notional >= thresholds[index]]
+                else:
+                    q_df = df[
+                        (numeric_notional >= thresholds[index])
+                        & (numeric_notional < thresholds[index - 1])
+                    ]
+                if len(q_df):
+                    q_buy_df = q_df[q_df.tickRule == 1]
+                    key = int(q * 100)
+                    data[f"q{key}Volume"] = q_df.volume.sum()
+                    data[f"q{key}BuyVolume"] = q_buy_df.volume.sum()
+                    data[f"q{key}Notional"] = q_df.notional.sum()
+                    data[f"q{key}BuyNotional"] = q_buy_df.notional.sum()
+                    data[f"q{key}Ticks"] = int(q_df.ticks.sum())
+                    data[f"q{key}BuyTicks"] = int(q_buy_df.ticks.sum())
     return data
 
 
