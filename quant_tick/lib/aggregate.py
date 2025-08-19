@@ -6,7 +6,7 @@ from pandas import DataFrame
 
 from quant_tick.constants import ZERO
 
-from .calendar import iter_once, iter_window, to_pydatetime
+from .calendar import iter_once, iter_window
 from .dataframe import is_decimal_close
 
 
