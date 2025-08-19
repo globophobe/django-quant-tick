@@ -27,6 +27,7 @@ black = "*"
 coverage = "*"
 django-filter = "*"
 django-semantic-admin = "*"
+django-semantic-forms = "*"
 django-storages = {version = "*", extras = ["google"]}
 gunicorn = "*"
 invoke = "*"
