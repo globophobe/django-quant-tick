@@ -29,6 +29,7 @@ SECRET_KEY = config("SECRET_KEY")
 # Application definition
 
 INSTALLED_APPS = [
+    "semantic_forms",
     "semantic_admin",
     "django.contrib.admin",
     "django.contrib.auth",
@@ -43,6 +44,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "whitenoise",
     # Main
+    "demo",
     "quant_tick",
 ]
 
@@ -59,6 +61,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+ROOT_URLCONF = "demo.urls"
 
 TEMPLATES = [
     {
