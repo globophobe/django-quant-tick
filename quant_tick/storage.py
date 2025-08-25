@@ -10,6 +10,7 @@ from django.db.models.functions import TruncDate
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
+    combine_clustered_trades,
     get_existing,
     get_min_time,
     get_next_time,
@@ -21,6 +22,7 @@ from quant_tick.models import Candle, CandleCache, Symbol, TradeData
 from quant_tick.models.trades import (
     upload_aggregated_data_to,
     upload_candle_data_to,
+    upload_clustered_data_to,
     upload_filtered_data_to,
     upload_raw_data_to,
 )
@@ -172,6 +174,9 @@ def convert_trade_data(
             actual = data_frame[key].sum()
             assert is_decimal_close(expected, actual)
 
+            if file_data == FileData.CLUSTERED:
+                data_frame = combine_clustered_trades(data_frame)
+
             # First, delete minutes, as naming convention is same as hourly or daily.
             for t in trade_data:
                 getattr(t, file_data).delete()
@@ -233,6 +238,7 @@ def clean_trade_data_with_non_existing_files(
         FileData.RAW: "save_raw",
         FileData.AGGREGATED: "save_aggregated",
         FileData.FILTERED: "save_filtered",
+        FileData.CLUSTERED: "save_clustered",
     }.items():
         if getattr(symbol, attr):
             fields.append(file_data)
@@ -283,6 +289,7 @@ def clean_unlinked_trade_data_files(
         FileData.RAW: "save_raw",
         FileData.AGGREGATED: "save_aggregated",
         FileData.FILTERED: "save_filtered",
+        FileData.CLUSTERED: "save_clustered",
     }.items():
         if getattr(symbol, attr):
             fields.append(file_data)
@@ -304,6 +311,7 @@ def clean_unlinked_trade_data_files(
             FileData.RAW: upload_raw_data_to,
             FileData.AGGREGATED: upload_aggregated_data_to,
             FileData.FILTERED: upload_filtered_data_to,
+            FileData.CLUSTERED: upload_clustered_data_to,
             FileData.CANDLE: upload_candle_data_to,
         }.items()
         if k in fields

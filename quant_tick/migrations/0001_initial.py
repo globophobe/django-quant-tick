@@ -559,7 +559,7 @@ class Migration(migrations.Migration):
             name="clustered_data",
             field=models.FileField(
                 blank=True,
-                upload_to=fake,
+                upload_to=quant_tick.models.trades.upload_clustered_data_to,
                 verbose_name="clustered data",
             ),
         ),

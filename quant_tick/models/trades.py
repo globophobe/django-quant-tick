@@ -12,6 +12,7 @@ from quant_tick.lib import (
     aggregate_candle,
     aggregate_candles,
     aggregate_trades,
+    cluster_trades,
     filter_by_timestamp,
     get_existing,
     get_missing,
@@ -40,6 +41,11 @@ def upload_aggregated_data_to(instance: "TradeData", filename: str) -> str:
 def upload_filtered_data_to(instance: "TradeData", filename: str) -> str:
     """Upload filtered data to."""
     return instance.upload_path("filtered", filename)
+
+
+def upload_clustered_data_to(instance: "TradeData", filename: str) -> str:
+    """Upload trade clustered data to."""
+    return instance.upload_path("clustered", filename)
 
 
 def upload_candle_data_to(instance: "TradeData", filename: str) -> str:
@@ -113,6 +119,9 @@ class TradeData(AbstractDataStorage):
     )
     filtered_data = models.FileField(
         _("filtered data"), blank=True, upload_to=upload_filtered_data_to
+    )
+    clustered_data = models.FileField(
+        _("clustered data"), blank=True, upload_to=upload_clustered_data_to
     )
     candle_data = models.FileField(
         _("candle data"), blank=True, upload_to=upload_candle_data_to
@@ -233,7 +242,7 @@ class TradeData(AbstractDataStorage):
         aggregated_candles = pd.DataFrame([])
         if len(trades):
             symbol = obj.symbol
-            if symbol.save_aggregated or symbol.save_filtered:
+            if symbol.save_aggregated or symbol.save_filtered or symbol.save_clustered:
                 aggregated = aggregate_trades(trades)
                 filtered = aggregated
             if symbol.save_raw:
@@ -246,6 +255,12 @@ class TradeData(AbstractDataStorage):
                         aggregated, min_volume=symbol.significant_trade_filter
                     )
                     obj.filtered_data = cls.prepare_data(filtered)
+            if symbol.save_clustered:
+                clustered = cluster_trades(filtered)
+                assert is_decimal_close(
+                    clustered.totalNotional.sum(), aggregated.notional.sum()
+                )
+                obj.clustered_data = cls.prepare_data(clustered)
             aggregated_candles = aggregate_candles(
                 trades,
                 obj.timestamp,

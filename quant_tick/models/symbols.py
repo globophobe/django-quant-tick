@@ -49,6 +49,11 @@ class Symbol(AbstractCodeName):
         help_text=_("Save filtered data?"),
         default=True,
     )
+    save_clustered = models.BooleanField(
+        _("save clustered"),
+        help_text=_("Save clustered data?"),
+        default=True,
+    )
     significant_trade_filter = models.PositiveIntegerField(
         _("significant trade filter"),
         help_text=_(

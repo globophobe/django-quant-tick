@@ -67,14 +67,8 @@ def aggregate_candles(
         return data
 
 
-def aggregate_candle(
-    data_frame: DataFrame,
-    timestamp: datetime | None = None,
-    quantiles: list[int] | None = None,
-) -> dict:
+def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -> dict:
     """Aggregate candle"""
-    quantiles = quantiles or []
-
     first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
     if "open" in data_frame.columns:
@@ -101,50 +95,30 @@ def aggregate_candle(
         "close": close_price,
     }
     buy_data_frame = data_frame[data_frame.tickRule == 1]
-    data["volume"] = data_frame.volume.sum()
-    data["buyVolume"] = buy_data_frame.volume.sum()
-    for column in ("totalVolume", "totalBuyVolume"):
-        if column in data_frame.columns:
-            data[column] = data_frame[column].sum()
-    data["notional"] = data_frame.notional.sum()
-    data["buyNotional"] = buy_data_frame.notional.sum()
-    for column in ("totalNotional", "totalBuyNotional"):
-        if column in data_frame.columns:
-            data[column] = data_frame[column].sum()
-    data["ticks"] = int(
-        data_frame.ticks.sum() if "ticks" in data_frame.columns else len(data_frame)
-    )
-    data["buyTicks"] = int(
-        buy_data_frame.ticks.sum()
-        if "ticks" in buy_data_frame.columns
-        else len(buy_data_frame)
-    )
-    for column in ("totalTicks", "totalBuyTicks"):
-        if column in data_frame.columns:
-            data[column] = int(data_frame[column].sum())
-    if quantiles:
-        df = data_frame[data_frame.notional.notna()]
-        if len(df):
-            quants = [q / 100.0 for q in sorted(quantiles, reverse=True)]
-            numeric_notional = pd.to_numeric(df.notional)
-            thresholds = [numeric_notional.quantile(q) for q in quants]
-            for index, q in enumerate(quants):
-                if index == 0:
-                    q_df = df[numeric_notional >= thresholds[index]]
-                else:
-                    q_df = df[
-                        (numeric_notional >= thresholds[index])
-                        & (numeric_notional < thresholds[index - 1])
-                    ]
-                if len(q_df):
-                    q_buy_df = q_df[q_df.tickRule == 1]
-                    key = int(q * 100)
-                    data[f"q{key}Volume"] = q_df.volume.sum()
-                    data[f"q{key}BuyVolume"] = q_buy_df.volume.sum()
-                    data[f"q{key}Notional"] = q_df.notional.sum()
-                    data[f"q{key}BuyNotional"] = q_buy_df.notional.sum()
-                    data[f"q{key}Ticks"] = int(q_df.ticks.sum())
-                    data[f"q{key}BuyTicks"] = int(q_buy_df.ticks.sum())
+    if "totalVolume" in data_frame.columns:
+        data["volume"] = data_frame.totalVolume.sum()
+        data["buyVolume"] = data_frame.totalBuyVolume.sum()
+    else:
+        data["volume"] = data_frame.volume.sum()
+        data["buyVolume"] = buy_data_frame.volume.sum()
+    if "totalNotional" in data_frame.columns:
+        data["notional"] = data_frame.totalNotional.sum()
+        data["buyNotional"] = data_frame.totalBuyNotional.sum()
+    else:
+        data["notional"] = data_frame.notional.sum()
+        data["buyNotional"] = buy_data_frame.notional.sum()
+    if "totalTicks" in data_frame.columns:
+        data["ticks"] = int(data_frame.totalTicks.sum())
+        data["buyTicks"] = int(data_frame.totalBuyTicks.sum())
+    else:
+        data["ticks"] = int(
+            data_frame.ticks.sum() if "ticks" in data_frame.columns else len(data_frame)
+        )
+        data["buyTicks"] = int(
+            buy_data_frame.ticks.sum()
+            if "ticks" in buy_data_frame.columns
+            else len(buy_data_frame)
+        )
     return data
 
 
