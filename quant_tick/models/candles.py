@@ -106,14 +106,13 @@ class Candle(AbstractCodeName, PolymorphicModel):
         only: list | str | None = None,
     ) -> QuerySet:
         """Get trade data."""
-        # Trade data may be daily, so timestamp from >= daily timestamp.
         if isinstance(only, str):
             only = [only]
         only = only or []
         return (
             TradeData.objects.filter(
                 symbol__in=self.symbols.all(),
-                timestamp__gte=get_min_time(timestamp_from, value="1d"),
+                timestamp__gte=get_min_time(timestamp_from, value="1h"),
                 timestamp__lt=timestamp_to,
             )
             .select_related("symbol")
@@ -212,7 +211,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         Delete previously saved data.
         """
         queryset = CandleCache.objects.filter(
-            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_from
+            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
         )
         queryset.delete()
         delta = timestamp_to - timestamp_from
