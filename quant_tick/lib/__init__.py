@@ -1,7 +1,5 @@
 from .aggregate import (
     aggregate_trades,
-    cluster_trades,
-    combine_clustered_trades,
     filter_by_timestamp,
     volume_filter_with_time_window,
 )
@@ -45,8 +43,6 @@ __all__ = [
     "aggregate_candle",
     "aggregate_candles",
     "aggregate_trades",
-    "cluster_trades",
-    "combine_clustered_trades",
     "filter_by_timestamp",
     "volume_filter_with_time_window",
     "get_next_cache",
