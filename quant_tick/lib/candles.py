@@ -94,31 +94,26 @@ def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -
         "low": low,
         "close": close_price,
     }
-    buy_data_frame = data_frame[data_frame.tickRule == 1]
-    if "totalVolume" in data_frame.columns:
+    has_totals = "totalVolume" in data_frame.columns
+    if has_totals:
         data["volume"] = data_frame.totalVolume.sum()
         data["buyVolume"] = data_frame.totalBuyVolume.sum()
-    else:
-        data["volume"] = data_frame.volume.sum()
-        data["buyVolume"] = buy_data_frame.volume.sum()
-    if "totalNotional" in data_frame.columns:
         data["notional"] = data_frame.totalNotional.sum()
         data["buyNotional"] = data_frame.totalBuyNotional.sum()
-    else:
-        data["notional"] = data_frame.notional.sum()
-        data["buyNotional"] = buy_data_frame.notional.sum()
-    if "totalTicks" in data_frame.columns:
         data["ticks"] = int(data_frame.totalTicks.sum())
         data["buyTicks"] = int(data_frame.totalBuyTicks.sum())
     else:
-        data["ticks"] = int(
-            data_frame.ticks.sum() if "ticks" in data_frame.columns else len(data_frame)
-        )
-        data["buyTicks"] = int(
-            buy_data_frame.ticks.sum()
-            if "ticks" in buy_data_frame.columns
-            else len(buy_data_frame)
-        )
+        is_buy = data_frame.tickRule == 1
+        data["volume"] = data_frame.volume.sum()
+        data["buyVolume"] = data_frame.loc[is_buy, "volume"].sum()
+        data["notional"] = data_frame.notional.sum()
+        data["buyNotional"] = data_frame.loc[is_buy, "notional"].sum()
+        if "ticks" in data_frame.columns:
+            data["ticks"] = int(data_frame.ticks.sum())
+            data["buyTicks"] = int(data_frame.loc[is_buy, "ticks"].sum())
+        else:
+            data["ticks"] = len(data_frame)
+            data["buyTicks"] = int(is_buy.sum())
     return data
 
 
