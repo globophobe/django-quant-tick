@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 import pandas as pd
 from pandas import DataFrame
@@ -73,9 +74,8 @@ class ConstantCandle(Candle):
         """Aggregate."""
         start = 0
         data = []
-        column = "total" + self.json_data["sample_type"].title()
         for index, row in data_frame.iterrows():
-            cache_data["sample_value"] += row[column]
+            cache_data["sample_value"] += self.get_sample_value(row)
             if self.should_aggregate_candle(cache_data):
                 df = data_frame.loc[start:index]
                 candle = aggregate_candle(df)
@@ -94,6 +94,11 @@ class ConstantCandle(Candle):
             cache_data = get_next_cache(df, cache_data)
         data, cache_data = self.get_incomplete_candle(timestamp_to, data, cache_data)
         return data, cache_data
+
+    def get_sample_value(self, row: tuple) -> Decimal | int:
+        """Get sample value."""
+        sample_type = "total" + self.json_data["sample_type"].title()
+        return row[sample_type]
 
     def should_aggregate_candle(self, data: dict) -> bool:
         """Should aggregate candle."""

@@ -5,9 +5,9 @@ from .run_candles import RunCandle
 from .time_based_candles import TimeBasedCandle
 
 __all__ = [
+    "AdaptiveCandle",
+    "ConstantCandle",
     "ImbalanceCandle",
     "RunCandle",
-    "ConstantCandle",
-    "AdaptiveCandle",
     "TimeBasedCandle",
 ]
