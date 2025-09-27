@@ -20,6 +20,7 @@ from .constants import (
     BITFINEX_TOTAL_REQUESTS,
     MAX_REQUESTS,
     MAX_REQUESTS_RESET,
+    MAX_RESULTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,13 @@ def get_bitfinex_api_pagination_id(
     """Get Bitfinex API pagination ID."""
     data = data or []
     if len(data):
-        return data[-1][1]
+        last_trade = data[-1]
+        last_id = last_trade[1]
+        # Is data fetched same as previous?
+        if len(data) == MAX_RESULTS and last_data and last_id == last_data[-1][1]:
+            return None
+        if len(data):
+            return last_id
 
 
 def get_bitfinex_api_timestamp(trade: dict) -> datetime:
