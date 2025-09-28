@@ -11,9 +11,11 @@ from quant_tick.constants import FileData, Frequency, SampleType
 from quant_tick.controllers import CandleCacheIterator, aggregate_candles
 from quant_tick.lib import (
     aggregate_candle,
+    aggregate_trades,
     get_current_time,
     get_min_time,
     get_next_cache,
+    volume_filter_with_time_window,
 )
 from quant_tick.models import (
     AdaptiveCandle,
@@ -21,6 +23,7 @@ from quant_tick.models import (
     CandleCache,
     CandleData,
     ConstantCandle,
+    ImbalanceCandle,
     TimeBasedCandle,
     TradeData,
 )
@@ -861,6 +864,116 @@ class ConstantNotionalDayFrequencyIrregularCandleTest(
         filtered = self.get_filtered(last_hour, notional=Decimal("0.5"))
         self.write_trade_data(last_hour, self.one_day_from_now, filtered)
         aggregate_candles(self.candle, last_hour, self.one_day_from_now)
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 1)
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, last_hour)
+        self.assertTrue(candle_data[0].json_data["incomplete"])
+
+
+@time_machine.travel(datetime(2009, 1, 4), tick=False)
+@patch(
+    "quant_tick.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
+    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
+)
+class ImbalanceNotionalHourFrequencyCandleTest(
+    BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
+):
+    """Imbalance notional hour frequency candle test (expected-imbalance)."""
+
+    def get_candle(self) -> Candle:
+        """Get candle."""
+        return ImbalanceCandle.objects.create(
+            json_data={
+                "source_data": FileData.RAW,
+                "sample_type": SampleType.NOTIONAL,
+                # Expected-imbalance knobs for deterministic tests
+                "alpha_x": 0.0,
+                "alpha_s": 1.0,
+                "alpha_n": 1.0,
+                "threshold_c": 1.5,
+                "initial_expected_trades_per_bar": 1.0,
+                "min_warmup_trades": 1,
+            }
+        )
+
+    def write_trade_data(
+        self, timestamp_from: datetime, timestamp_to: datetime, data_frame: DataFrame
+    ) -> None:
+        """Write trade data."""
+        TradeData.write(
+            self.symbol, timestamp_from, timestamp_to, data_frame, pd.DataFrame([])
+        )
+
+    def make_filtered_buy(self, timestamp: datetime, notional: Decimal) -> DataFrame:
+        """Create a single-row filtered DataFrame with buy-only totals."""
+        raw = pd.DataFrame(
+            [self.get_random_trade(timestamp=timestamp, notional=notional, tick_rule=1)]
+        )
+        aggregated = aggregate_trades(raw)
+        return volume_filter_with_time_window(
+            aggregated, min_volume=None, window="1min"
+        )
+
+    def test_no_candle_from_first_trade(self, mock_get_max_timestamp_to):
+        """With threshold > 1, first trade alone should not close a bar."""
+        filtered = self.make_filtered_buy(self.timestamp_from, Decimal("1"))
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        self.assertFalse(CandleData.objects.exists())
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 1)
+
+    def test_one_candle_after_two_trades(self, mock_get_max_timestamp_to):
+        """Two trades in the first hour should close one bar with our params."""
+        f1 = self.make_filtered_buy(self.timestamp_from, Decimal("1"))
+        f2 = self.make_filtered_buy(
+            self.timestamp_from + pd.Timedelta("1s"), Decimal("1")
+        )
+        filtered = pd.concat([f1, f2])
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+
+    def test_one_candle_with_existing_next_cache(self, mock_get_max_timestamp_to):
+        """Merges existing partial ('next') into the emitted candle."""
+        f1 = self.make_filtered_buy(self.timestamp_from, Decimal("1"))
+        # Save partial in cache
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.HOUR,
+            json_data=get_next_cache(f1, {}),
+        )
+        f2 = self.make_filtered_buy(
+            self.timestamp_from + pd.Timedelta("1s"), Decimal("1")
+        )
+        # Add another row to exceed the threshold and trigger close
+        f3 = self.make_filtered_buy(
+            self.timestamp_from + pd.Timedelta("2s"), Decimal("1")
+        )
+        self.write_trade_data(
+            self.timestamp_from, self.one_hour_from_now, pd.concat([f2, f3])
+        )
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+        last_candle_cache = CandleCache.objects.last()
+        self.assertEqual(last_candle_cache.json_data, {})
+
+    def test_incomplete_candle_on_day_reset(self, mock_get_max_timestamp_to):
+        """Saves incomplete candle when cache resets at day boundary."""
+        # Enable daily reset
+        self.candle.json_data["cache_reset"] = Frequency.DAY
+        last_hour = self.timestamp_from + pd.Timedelta("23h")
+        f = self.make_filtered_buy(last_hour, Decimal("1"))
+        one_day_from_now = self.timestamp_from + pd.Timedelta("1d")
+        self.write_trade_data(last_hour, one_day_from_now, f)
+        aggregate_candles(self.candle, last_hour, one_day_from_now)
         candle_cache = CandleCache.objects.all()
         self.assertEqual(candle_cache.count(), 1)
         candle_data = CandleData.objects.all()
