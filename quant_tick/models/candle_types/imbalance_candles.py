@@ -28,12 +28,25 @@ class ImbalanceCandle(ConstantCandle):
             {
                 "mu": 0.0,  # mean of x_t
                 "sigma2": 1e-12,  # variance estimate of x_t
-                "E_n": self._initial_E_n,  # expected trades per bar
+                "E_n": self._initial_e_n,  # expected trades per bar
                 "C": 0.0,  # detrended cumulative imbalance
                 "n_in_bar": 0,  # rows seen in current bar
             }
         )
         return cache
+
+    def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
+        """Get cache data."""
+        data = super().get_cache_data(timestamp, data)
+        # FIXME
+        if "mu" not in data or "sigma2" not in data or "E_n" not in data:
+            init = self.get_initial_cache(timestamp)
+            if "next" in data:
+                init["next"] = data["next"]
+            if "sample_value" in data:
+                init["sample_value"] = data["sample_value"]
+            data = init
+        return data
 
     @property
     def _alpha_x(self) -> float:
