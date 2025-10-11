@@ -24,6 +24,7 @@ from quant_tick.models import (
     CandleData,
     ConstantCandle,
     ImbalanceCandle,
+    RunCandle,
     TimeBasedCandle,
     TradeData,
 )
@@ -1154,3 +1155,77 @@ class AdaptiveNotionalCandleTest(
         self.assertEqual(candle_data.count(), 2)
         self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
         self.assertEqual(candle_data[1].timestamp, self.two_hours_from_now)
+
+
+
+@time_machine.travel(datetime(2009, 1, 4), tick=False)
+@patch(
+    "quant_tick.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
+    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
+)
+class RunNotionalHourFrequencyCandleTest(
+    BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
+):
+    """Run notional hour frequency candle test."""
+
+    def get_candle(self) -> Candle:
+        """Get candle."""
+        return RunCandle.objects.create(
+            json_data={
+                "source_data": FileData.RAW,
+                "sample_type": SampleType.NOTIONAL,
+                "alpha_x": 1.0,
+                "alpha_n": 1.0,
+                "initial_expected_trades_per_bar": 2.0,
+                "min_warmup_trades": 1,
+            }
+        )
+
+    def write_trade_data(
+        self, timestamp_from: datetime, timestamp_to: datetime, data_frame: DataFrame
+    ) -> None:
+        """Write trade data."""
+        TradeData.write(
+            self.symbol, timestamp_from, timestamp_to, data_frame, pd.DataFrame([])
+        )
+
+    def test_no_candle_from_single_buy_trade(self, mock_get_max_timestamp_to):
+        """Single buy trade does not close bar."""
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"), tick_rule=1)
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        self.assertFalse(CandleData.objects.exists())
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 1)
+        self.assertEqual(candle_cache[0].json_data["buy_run"], 1)
+        self.assertEqual(candle_cache[0].json_data["sell_run"], 0)
+
+    def test_one_candle_from_two_buy_trades(self, mock_get_max_timestamp_to):
+        """Two consecutive buy trades close bar."""
+        f1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"), tick_rule=1)
+        f2 = self.get_filtered(
+            self.timestamp_from + pd.Timedelta("1s"), notional=Decimal("1"), tick_rule=1
+        )
+        filtered = pd.concat([f1, f2])
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+
+    def test_run_counter_increments(self, mock_get_max_timestamp_to):
+        """Run counter increments with consecutive same-direction trades."""
+        f1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"), tick_rule=1)
+        f2 = self.get_filtered(
+            self.timestamp_from + pd.Timedelta("1s"), notional=Decimal("1"), tick_rule=1
+        )
+        f3 = self.get_filtered(
+            self.timestamp_from + pd.Timedelta("2s"), notional=Decimal("1"), tick_rule=1
+        )
+        filtered = pd.concat([f1, f2, f3])
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+
