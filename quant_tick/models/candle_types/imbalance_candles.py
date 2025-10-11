@@ -101,13 +101,13 @@ class ImbalanceCandle(ConstantCandle):
             # 1) signed imbalance x_t
             x_t = float(self.get_sample_value(row))
             # 2) Update EWMAs of mean and variance of x_t
-            mu_prev = float(cache_data["mu"])  # previous mean
+            mu_prev = float(cache_data["mu"])
             mu = self.ewma(mu_prev, x_t, alpha_x)
-            dev = x_t - mu
-            sigma2_prev = float(cache_data["sigma2"])  # previous estimate of variance
+            dev = x_t - mu_prev
+            sigma2_prev = float(cache_data["sigma2"])
             sigma2 = self.ewma(sigma2_prev, dev * dev, alpha_s)
             # 3) Update running state for current bar
-            C = float(cache_data["C"]) + dev  # detrended cumulative imbalance
+            C = float(cache_data["C"]) + (x_t - mu)
             n_in_bar = int(cache_data["n_in_bar"]) + 1
             # 4) Store state back into cache
             cache_data["mu"] = mu
