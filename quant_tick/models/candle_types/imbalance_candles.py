@@ -13,12 +13,11 @@ from .constant_candles import ConstantCandle
 class ImbalanceCandle(ConstantCandle):
     """Imbalance candle.
 
-    - x_t: signed imbalance per row = (2*buy) - total (from totalBuyX/totalX for chosen sample type).
-    - mu: EWMA(x_t)
-    - sigma2: EWMA((x_t - mu)^2)
+    - x_t: signed imbalance per row = (2*buy) - total
+    - E_x: EWMA(|x_t|)
     - E_n: EWMA(rows per bar)
-    - C: running detrended sum = Σ(x_t - mu) within the current bar
-    - Close when |C| >= c * sqrt(sigma2) * sqrt(E_n), with warmup
+    - theta: E_n * E_x
+    - Close when |Σx_t| >= theta, with warmup
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
@@ -26,11 +25,10 @@ class ImbalanceCandle(ConstantCandle):
         cache = super().get_initial_cache(timestamp)
         cache.update(
             {
-                "mu": 0.0,  # mean of x_t
-                "sigma2": 1e-12,  # variance estimate of x_t
-                "E_n": self._initial_e_n,  # expected trades per bar
-                "C": 0.0,  # detrended cumulative imbalance
-                "n_in_bar": 0,  # rows seen in current bar
+                "E_x": 0.0,
+                "E_n": self._initial_e_n,
+                "theta": 0.0,
+                "n_in_bar": 0,
             }
         )
         return cache
@@ -38,8 +36,7 @@ class ImbalanceCandle(ConstantCandle):
     def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
         """Get cache data."""
         data = super().get_cache_data(timestamp, data)
-        # FIXME
-        if "mu" not in data or "sigma2" not in data or "E_n" not in data:
+        if "E_x" not in data or "E_n" not in data:
             init = self.get_initial_cache(timestamp)
             if "next" in data:
                 init["next"] = data["next"]
@@ -50,23 +47,13 @@ class ImbalanceCandle(ConstantCandle):
 
     @property
     def _alpha_x(self) -> float:
-        """EWMA for imbalance mean."""
-        return float(self.json_data.get("alpha_x", 0.001))
-
-    @property
-    def _alpha_s(self) -> float:
-        """EWMA for imbalance variance."""
-        return float(self.json_data.get("alpha_s", 0.001))
+        """EWMA for expected imbalance."""
+        return float(self.json_data.get("alpha_x", 0.05))
 
     @property
     def _alpha_n(self) -> float:
         """EWMA for expected trades per bar."""
         return float(self.json_data.get("alpha_n", 0.05))
-
-    @property
-    def _c(self) -> float:
-        """Sensitivity multiplier for threshold."""
-        return float(self.json_data.get("threshold_c", 3.0))
 
     @property
     def _initial_e_n(self) -> float:
@@ -92,30 +79,20 @@ class ImbalanceCandle(ConstantCandle):
         """Aggregate."""
         start = 0
         data: list[dict] = []
-
         alpha_x = self._alpha_x
-        alpha_s = self._alpha_s
         alpha_n = self._alpha_n
 
         for index, row in data_frame.iterrows():
-            # 1) signed imbalance x_t
             x_t = float(self.get_sample_value(row))
-            # 2) Update EWMAs of mean and variance of x_t
-            mu_prev = float(cache_data["mu"])
-            mu = self.ewma(mu_prev, x_t, alpha_x)
-            dev = x_t - mu_prev
-            sigma2_prev = float(cache_data["sigma2"])
-            sigma2 = self.ewma(sigma2_prev, dev * dev, alpha_s)
-            # 3) Update running state for current bar
-            C = float(cache_data["C"]) + (x_t - mu)
+            E_x_prev = float(cache_data["E_x"])
+            E_x = self.ewma(E_x_prev, abs(x_t), alpha_x)
+            theta = float(cache_data["theta"]) + x_t
             n_in_bar = int(cache_data["n_in_bar"]) + 1
-            # 4) Store state back into cache
-            cache_data["mu"] = mu
-            cache_data["sigma2"] = sigma2
-            cache_data["C"] = C
+
+            cache_data["E_x"] = E_x
+            cache_data["theta"] = theta
             cache_data["n_in_bar"] = n_in_bar
 
-            # 5) Check stop condition
             if self.should_aggregate_candle(cache_data):
                 df = data_frame.loc[start:index]
                 candle = aggregate_candle(df)
@@ -123,16 +100,13 @@ class ImbalanceCandle(ConstantCandle):
                     previous = cache_data.pop("next")
                     candle = merge_cache(previous, candle)
                 data.append(candle)
-                # Reinitialize cache
                 E_n_prev = float(cache_data["E_n"])
                 cache_data["E_n"] = self.ewma(E_n_prev, n_in_bar, alpha_n)
-
-                cache_data["C"] = 0.0
+                cache_data["theta"] = 0.0
                 cache_data["n_in_bar"] = 0
                 cache_data["sample_value"] = 0
-                # Next index
                 start = index + 1
-        # Cache
+
         is_last_row = start == len(data_frame)
         if not is_last_row:
             df = data_frame.loc[start:]
@@ -151,12 +125,11 @@ class ImbalanceCandle(ConstantCandle):
 
     def should_aggregate_candle(self, cache: dict) -> bool:
         """Should aggregate candle."""
-        sigma = math.sqrt(max(cache["sigma2"], 1e-18))
-        theta = self._c * sigma * math.sqrt(max(cache["E_n"], 1.0))
+        threshold = cache["E_n"] * cache["E_x"]
         warmup = max(1, min(self._min_warmup_trades, int(cache["E_n"] * 0.25)))
         if cache["n_in_bar"] < warmup:
             return False
-        return abs(cache["C"]) >= theta
+        return abs(cache["theta"]) >= threshold
 
     class Meta:
         proxy = True
