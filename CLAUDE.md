@@ -18,7 +18,7 @@ cd demo && invoke coverage
 See `demo/tasks.py` for all available tasks. Run `invoke --list` to see all commands.
 
 ## Project Structure
-- `demo/` - Main Django application (contains tasks.py)
+- `demo/` - Main Django application
 - `quant_tick/` - Core application package
 - `demo/tasks.py` - Task automation using invoke
 
