@@ -6,6 +6,7 @@ from .candle_types import (
     TimeBasedCandle,
 )
 from .candles import Candle, CandleCache, CandleData
+from .ml import MLArtifact, MLConfig, MLFeatureData, MLRun, MLSignal
 from .strategies import Signal, Strategy
 from .strategy_types import MACrossoverStrategy
 from .symbols import GlobalSymbol, Symbol
@@ -20,6 +21,11 @@ __all__ = [
     "Candle",
     "CandleCache",
     "CandleData",
+    "MLArtifact",
+    "MLConfig",
+    "MLFeatureData",
+    "MLRun",
+    "MLSignal",
     "Signal",
     "Strategy",
     "MACrossoverStrategy",
