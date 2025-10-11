@@ -35,6 +35,18 @@ def coverage(ctx: Any) -> None:
 
 
 @task
+def makemigrations(ctx: Any) -> None:
+    """Make migrations."""
+    ctx.run("python manage.py makemigrations quant_tick")
+
+
+@task
+def migrate(ctx: Any) -> None:
+    """Run migrations."""
+    ctx.run("python manage.py migrate")
+
+
+@task
 def start_proxy(ctx: Any) -> None:
     """Start proxy."""
     host = config("PRODUCTION_DATABASE_HOST")

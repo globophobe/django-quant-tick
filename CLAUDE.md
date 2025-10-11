@@ -14,6 +14,16 @@ Run tests with coverage:
 cd demo && invoke coverage
 ```
 
+Make migrations:
+```bash
+cd demo && invoke makemigrations
+```
+
+Run migrations:
+```bash
+cd demo && invoke migrate
+```
+
 ### Available Tasks
 See `demo/tasks.py` for all available tasks. Run `invoke --list` to see all commands.
 
