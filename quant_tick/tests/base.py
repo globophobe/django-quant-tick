@@ -138,6 +138,7 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         nanoseconds: int = 0,
         price: Decimal | None = None,
         notional: Decimal | None = None,
+        tick_rule: int | None = None,
     ) -> DataFrame:
         """Get raw."""
         trades = [
@@ -146,6 +147,7 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
                 nanoseconds=nanoseconds,
                 price=price,
                 notional=notional,
+                tick_rule=tick_rule,
             )
         ]
         return pd.DataFrame(trades)
@@ -156,9 +158,10 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         nanoseconds: int = 0,
         price: Decimal | None = None,
         notional: Decimal | None = None,
+        tick_rule: int | None = None,
     ) -> DataFrame:
         """Get aggregated."""
-        data_frame = self.get_raw(timestamp, nanoseconds, price, notional)
+        data_frame = self.get_raw(timestamp, nanoseconds, price, notional, tick_rule)
         return aggregate_trades(data_frame)
 
     def get_filtered(
@@ -168,9 +171,10 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         price: Decimal | None = None,
         notional: Decimal | None = None,
         min_volume: Decimal | None = None,
+        tick_rule: int | None = None,
     ) -> DataFrame:
         """Get filtered."""
-        data_frame = self.get_aggregated(timestamp, nanoseconds, price, notional)
+        data_frame = self.get_aggregated(timestamp, nanoseconds, price, notional, tick_rule)
         return volume_filter_with_time_window(
             data_frame, min_volume=min_volume, window="1min"
         )
