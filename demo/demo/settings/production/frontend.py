@@ -6,7 +6,7 @@ from .base import *  # noqa
 
 ROOT_URLCONF = "demo.urls.frontend"
 
-ALLOWED_HOSTS = ["quant-tick.com"]
+ALLOWED_HOSTS = ["quant-tick.web.app"]
 
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
