@@ -23,8 +23,14 @@ def django_settings(ctx: Any, proxy: bool = False) -> Any:
 
 
 @task
+def test(ctx: Any) -> None:
+    """Run tests."""
+    ctx.run("python manage.py test quant_tick")
+
+
+@task
 def coverage(ctx: Any) -> None:
-    """Coverage."""
+    """Run tests with coverage."""
     ctx.run("coverage run --source=../ manage.py test quant_tick; coverage report")
 
 
