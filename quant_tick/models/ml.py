@@ -1,19 +1,25 @@
 import hashlib
+
+from django.conf import settings
 from django.db import models
+
 from quant_tick.utils import gettext_lazy as _
-from .base import AbstractCodeName, JSONField, AbstractDataStorage, BigDecimalField
+
+from .base import AbstractCodeName, AbstractDataStorage, BigDecimalField, JSONField
 
 
 def upload_artifact_to(instance: "MLArtifact", filename: str) -> str:
     """Upload artifact to."""
+    prefix = "test-ml" if settings.TEST else "ml"
     run_id = instance.ml_run.id
-    return f"ml/artifacts/run_{run_id}/{filename}"
+    return f"{prefix}/artifacts/run_{run_id}/{filename}"
 
 
 def upload_feature_data_to(instance: "MLFeatureData", filename: str) -> str:
     """Upload feature data to."""
-    candle_id = instance.candle.id
-    return f"ml/features/candle_{candle_id}/{filename}"
+    prefix = "test-ml" if settings.TEST else "ml"
+    candle_code = instance.candle.code_name
+    return f"{prefix}/features/{candle_code}/{filename}"
 
 
 class MLConfig(AbstractCodeName):
@@ -25,17 +31,28 @@ class MLConfig(AbstractCodeName):
         verbose_name=_("candle"),
         related_name="ml_configs",
     )
-    config_json = JSONField(
-        _("config json"),
-        help_text=_("symbols, time_window, features, labeling, cv, model_hparams, thresholds"),
+    symbol = models.ForeignKey(
+        "quant_tick.Symbol",
+        on_delete=models.CASCADE,
+        verbose_name=_("symbol"),
+        related_name="ml_configs",
+        help_text=_("Target symbol for trade execution"),
+        null=True,
+        blank=True,
+    )
+    json_data = JSONField(
+        _("json data"),
+        help_text=_(
+            "symbols, time_window, features, labeling, cv, model_hparams, thresholds"
+        ),
+        default=dict,
     )
     status = models.CharField(_("status"), max_length=50, default="active")
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
 
     class Meta:
         db_table = "quant_tick_ml_config"
-        verbose_name = _("ml config")
-        verbose_name_plural = _("ml configs")
+        verbose_name = verbose_name_plural = _("ml config")
 
 
 class MLRun(models.Model):
@@ -49,8 +66,9 @@ class MLRun(models.Model):
     )
     timestamp_from = models.DateTimeField(_("timestamp from"))
     timestamp_to = models.DateTimeField(_("timestamp to"))
-    metrics_json = JSONField(_("metrics json"), null=True, blank=True)
-    feature_importances_json = JSONField(_("feature importances json"), null=True, blank=True)
+    metrics = JSONField(_("metrics"), null=True, blank=True)
+    feature_importances = JSONField(_("feature importances"), null=True, blank=True)
+    metadata = JSONField(_("metadata"), null=True, blank=True)
     status = models.CharField(_("status"), max_length=50, default="pending")
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
 
@@ -74,7 +92,7 @@ class MLArtifact(models.Model):
     version = models.CharField(_("version"), max_length=100)
     sha256 = models.CharField(_("sha256"), max_length=64, blank=True)
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> "MLArtifact":
         """Save."""
         if self.artifact and not self.sha256:
             hasher = hashlib.sha256()
@@ -100,13 +118,15 @@ class MLFeatureData(AbstractDataStorage):
     )
     timestamp_from = models.DateTimeField(_("timestamp from"))
     timestamp_to = models.DateTimeField(_("timestamp to"))
-    data = models.FileField(_("data"), upload_to=upload_feature_data_to)
+    file_data = models.FileField(
+        _("file data"), upload_to=upload_feature_data_to, blank=True
+    )
     schema_hash = models.CharField(_("schema hash"), max_length=64, blank=True)
+    schema_version = models.CharField(_("schema version"), max_length=20, default="1.0")
 
     class Meta:
         db_table = "quant_tick_ml_feature_data"
-        verbose_name = _("ml feature data")
-        verbose_name_plural = _("ml feature data")
+        verbose_name = verbose_name_plural = _("ml feature data")
         ordering = ["-timestamp_to"]
 
 
@@ -131,8 +151,8 @@ class MLSignal(models.Model):
     probability = BigDecimalField(_("probability"))
     side = models.SmallIntegerField(_("side"))
     meta_label = models.SmallIntegerField(_("meta label"), null=True, blank=True)
-    position_size = BigDecimalField(_("position size"), null=True, blank=True)
-    notes_json = JSONField(_("notes json"), null=True, blank=True)
+    size = BigDecimalField(_("size"), null=True, blank=True)
+    json_data = JSONField(_("json data"), null=True, blank=True)
 
     class Meta:
         db_table = "quant_tick_ml_signal"
