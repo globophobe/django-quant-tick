@@ -22,6 +22,7 @@ class Exchange(models.TextChoices):
     BITMEX = "bitmex", "BitMEX"
     COINBASE = "coinbase", "Coinbase"
     DRIFT = "drift", "Drift"
+    HYPERLIQUID = "hyperliquid", "Hyperliquid"
 
 
 class SymbolType(models.TextChoices):
