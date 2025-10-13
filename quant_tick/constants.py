@@ -21,6 +21,7 @@ class Exchange(models.TextChoices):
     BITFINEX = "bitfinex", "Bitfinex"
     BITMEX = "bitmex", "BitMEX"
     COINBASE = "coinbase", "Coinbase"
+    DRIFT = "drift", "Drift"
 
 
 class SymbolType(models.TextChoices):
@@ -48,11 +49,29 @@ class Frequency(models.IntegerChoices):
     WEEK = 10080, _("week").capitalize()
 
 
-class Direction(models.TextChoices):
-    """Direction."""
+class PositionType(models.TextChoices):
+    """Position type."""
 
-    LONG = "long", _("long")
-    SHORT = "short", _("short")
+    BACKTEST = "backtest", _("backtest")
+    PAPER = "paper", _("paper")
+    LIVE = "live", _("live")
+
+
+class ExitReason(models.TextChoices):
+    """Exit reason."""
+
+    TAKE_PROFIT = "take_profit", _("take profit")
+    STOP_LOSS = "stop_loss", _("stop loss")
+    MAX_DURATION = "max_duration", _("max duration")
+
+
+class PositionStatus(models.TextChoices):
+    """Position status."""
+
+    PENDING = "pending", _("pending")
+    OPEN = "open", _("open")
+    CLOSED = "closed", _("closed")
+    FAILED = "failed", _("failed")
 
 
 class FileData(models.TextChoices):
