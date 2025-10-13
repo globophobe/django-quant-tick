@@ -1,50 +1,49 @@
-import math
 from decimal import Decimal
-
-import numpy as np
 
 
 def calc_volume_exponent(
-    volume: int, divisor: int = 10, decimal_places: int = 1
+    volume: int | Decimal, divisor: int = 10, decimal_places: int = 1
 ) -> int:
-    """Calculate volume exponent."""
-    if volume > 0:
-        is_round = volume % math.pow(divisor, decimal_places) == 0
-        if is_round:
-            decimal_places += 1
-            stop_execution = False
-            while not stop_execution:
-                is_round = volume % math.pow(divisor, decimal_places) == 0
-                if is_round:
-                    decimal_places += 1
-                else:
-                    stop_execution = True
-            return decimal_places - 1
-        else:
-            return 0
-    else:
-        # WTF Bybit!
+    """Calculate volume exponent.
+
+    Returns power of divisor if volume is a round integer (i.e. 100, 1000, 10000)
+    """
+    if volume <= 0:
         return 0
+
+    if volume % 1 != 0:
+        return 0
+
+    volume = int(volume)
+
+    if volume % (divisor**decimal_places) == 0:
+        decimal_places += 1
+        while volume % (divisor**decimal_places) == 0:
+            decimal_places += 1
+        return decimal_places - 1
+
+    return 0
 
 
 def calc_notional_exponent(
-    notional: Decimal, divisor: float = 0.1, decimal_places: int = 1
+    notional: Decimal, divisor: Decimal = Decimal("0.1"), decimal_places: int = 1
 ) -> int:
-    """Calculate notional exponent."""
-    if notional > 0:
-        # Not scientific notation, max 10 decimal places
-        decimal = format(notional, f".{10}f").lstrip().rstrip("0")
-        # Only mantissa, plus trailing zero
-        value = str(decimal).split(".")[1] + "0"
-        for i in range(len(value)):
-            val = float(f"0.{value[i:]}")
-            is_close = np.isclose(val, 0)
-            if not is_close:
+    """Calculate notional exponent.
+
+    Returns power of divisor if notional is a round decimal (i.e. 1.0, 10.5, 100.0)
+    """
+    if notional <= 0:
+        return 0
+
+    check_divisor = divisor * (Decimal("10") ** (decimal_places - 1))
+    if notional % check_divisor == 0:
+        decimal_places += 1
+        while True:
+            check_divisor = divisor * (Decimal("10") ** (decimal_places - 1))
+            if notional % check_divisor == 0:
                 decimal_places += 1
             else:
-                return -decimal_places + 1
-        else:
-            return 0
-    else:
-        # WTF Bybit!
-        return 0
+                break
+        return decimal_places - 1
+
+    return 0

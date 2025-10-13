@@ -7,6 +7,7 @@ from pandas import DataFrame
 from .aggregate import filter_by_timestamp
 from .calendar import iter_window
 from .dataframe import is_decimal_close
+from .experimental import calc_notional_exponent, calc_volume_exponent
 
 ZERO = Decimal("0")
 
@@ -67,7 +68,12 @@ def aggregate_candles(
         return data
 
 
-def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -> dict:
+def aggregate_candle(
+    data_frame: DataFrame,
+    timestamp: datetime | None = None,
+    min_volume_exponent: int = 2,
+    min_notional_exponent: int = 1,
+) -> dict:
     """Aggregate candle"""
     first_row = data_frame.iloc[0]
     last_row = data_frame.iloc[-1]
@@ -95,6 +101,7 @@ def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -
         "close": close_price,
     }
     has_totals = "totalVolume" in data_frame.columns
+    is_buy = data_frame.tickRule == 1
     if has_totals:
         data["volume"] = data_frame.totalVolume.sum()
         data["buyVolume"] = data_frame.totalBuyVolume.sum()
@@ -103,7 +110,6 @@ def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -
         data["ticks"] = int(data_frame.totalTicks.sum())
         data["buyTicks"] = int(data_frame.totalBuyTicks.sum())
     else:
-        is_buy = data_frame.tickRule == 1
         data["volume"] = data_frame.volume.sum()
         data["buyVolume"] = data_frame.loc[is_buy, "volume"].sum()
         data["notional"] = data_frame.notional.sum()
@@ -114,6 +120,18 @@ def aggregate_candle(data_frame: DataFrame, timestamp: datetime | None = None) -
         else:
             data["ticks"] = len(data_frame)
             data["buyTicks"] = int(is_buy.sum())
+    # Volume exponents
+    volume_exps = data_frame.volume.apply(calc_volume_exponent)
+    is_round_volume = volume_exps >= min_volume_exponent
+    data["roundVolume"] = data_frame.loc[is_round_volume, "volume"].sum()
+    data["roundBuyVolume"] = data_frame.loc[is_round_volume & is_buy, "volume"].sum()
+    # Notional exponents
+    notional_exps = data_frame.notional.apply(calc_notional_exponent)
+    is_round_notional = notional_exps >= min_notional_exponent
+    data["roundNotional"] = data_frame.loc[is_round_notional, "notional"].sum()
+    data["roundBuyNotional"] = data_frame.loc[
+        is_round_notional & is_buy, "notional"
+    ].sum()
     return data
 
 
