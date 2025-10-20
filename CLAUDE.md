@@ -37,4 +37,7 @@ See `demo/tasks.py` for all available tasks. Run `invoke --list` to see all comm
 - Prefer minimal code comments
 - No parenthetical clarifications in comments or docstrings
 - Write concise, readable code
+- Use distinct variable names to avoid shadowing
 - Avoid unnecessary intermediate variables unless better for readability
+- Use short but clear abbreviations consistently, e.g `data_frame` -> `df`, `config` -> `cfg`
+- Avoid calling functions inside f-strings
