@@ -19,8 +19,10 @@ httpx = "*"
 pandas = "*"
 pyarrow = "*"
 randomname = "*"
-seaborn = "*"
 scikit-learn = "*"
+seaborn = "*"
+shap = "*"
+treeinterpreter = "*"
 
 [tool.poetry.dev-dependencies]
 black = "*"
