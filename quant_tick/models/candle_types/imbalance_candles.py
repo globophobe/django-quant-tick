@@ -10,13 +10,28 @@ from .constant_candles import ConstantCandle
 
 
 class ImbalanceCandle(ConstantCandle):
-    """Imbalance candle.
+    """Information-driven bars that close when buy/sell imbalance hits a threshold.
 
-    - x_t: signed imbalance per row = (2*buy) - total
-    - E_x: EWMA(|x_t|)
-    - E_n: EWMA(rows per bar)
-    - theta: E_n * E_x
-    - Close when |Σx_t| >= theta, with warmup
+    Instead of closing bars every N ticks or every N seconds, imbalance bars close when
+    the cumulative buy/sell imbalance reaches a significant level. This captures periods
+    of strong directional pressure and filters out low-information noise.
+
+    How it works:
+    - For each tick, compute signed imbalance: x_t = (2 × buy_volume) - total_volume
+      (This gives +total for pure buy, -total for pure sell, 0 for balanced)
+    - Track cumulative imbalance: theta = Σx_t within current bar
+    - Close bar when |theta| >= threshold, where threshold = E_n × E_x
+      - E_x = EWMA of |x_t| (expected absolute imbalance per tick)
+      - E_n = EWMA of ticks per bar (expected bar length)
+    - Warmup period: require minimum ticks before allowing bar close
+
+    Why use imbalance bars? They adapt to market activity: during strong directional
+    moves, bars close faster. During choppy/balanced periods, bars stay open longer.
+    This gives you more bars when information is flowing and fewer bars when noise
+    dominates.
+
+    Based on AFML Chapter 2 - imbalance bars are one of the core information-driven
+    sampling methods that improve ML model performance over fixed-time sampling.
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:

@@ -10,14 +10,31 @@ from .imbalance_candles import ImbalanceCandle
 
 
 class RunCandle(ImbalanceCandle):
-    """Run candle.
+    """Information-driven bars that close when a buy or sell streak hits a threshold.
 
-    - θ_t: buy proportion per row = totalBuyX / totalX
-    - E_θ: EWMA(θ_t)
-    - E_n: EWMA(rows per bar)
-    - buy_run, sell_run: consecutive buy/sell sequence lengths
-    - max_run: max(buy_run, sell_run)
-    - Close when max_run >= E_n * E_θ, with warmup
+    Run bars focus on consecutive sequences of buy-dominated or sell-dominated ticks.
+    Instead of looking at cumulative imbalance, they detect when one side dominates
+    for an unusually long streak. This captures momentum and persistent directional
+    pressure.
+
+    How it works:
+    - For each tick, compute buy proportion: θ_t = buy_volume / total_volume
+    - If θ_t > 0.5: increment buy_run, reset sell_run = 0
+    - If θ_t ≤ 0.5: increment sell_run, reset buy_run = 0
+    - Close bar when max(buy_run, sell_run) >= threshold
+      - threshold = E_n × E_θ
+      - E_θ = EWMA of θ_t (expected buy proportion)
+      - E_n = EWMA of ticks per bar (expected bar length)
+    - Warmup period: require minimum ticks before allowing bar close
+
+    Why use run bars? They're sensitive to sustained directional flow. A long buy run
+    suggests persistent buying pressure (momentum), which is often more actionable than
+    a single large imbalanced tick. Run bars help identify when the market is trending
+    vs when it's just noisy.
+
+    Based on AFML Chapter 2 - run bars are another information-driven sampling method
+    that complements imbalance bars by focusing on sequence length rather than total
+    imbalance magnitude.
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:

@@ -12,11 +12,31 @@ from .constant_candles import ConstantCandle
 
 
 class AdaptiveCandle(ConstantCandle):
-    """Adaptive candle.
+    """Dynamic-threshold bars that adapt to recent average activity levels.
 
-    For example, 1 candle when:
-    * Ticks exceed the 7 day moving average, with a target of 24 candles a day.
-    * Volume exceeds the 50 day moving average, with a target of 6 candles a day.
+    Instead of using a fixed threshold like constant bars, adaptive bars adjust their
+    threshold based on recent market conditions. The threshold is the moving average
+    of activity divided by target bars per day.
+
+    How it works:
+    - Define a lookback period (e.g., 7 days, 50 days)
+    - Compute moving average of daily activity (ticks, volume, or dollar)
+    - Set threshold = MA / target_candles_per_day
+    - Close bar when accumulated activity >= threshold
+
+    For example, with 7-day MA and target of 24 bars/day:
+    - If recent avg is 240,000 ticks/day, threshold = 240,000 / 24 = 10,000 ticks/bar
+    - If market gets busier and avg rises to 480,000 ticks/day, threshold rises to 20,000
+    - This keeps bar frequency stable even as overall market activity changes
+
+    Why use adaptive bars? They maintain consistent bar frequency across different
+    market regimes. During bull markets with high activity, fixed thresholds would
+    create too many bars. During bear markets with low activity, fixed thresholds would
+    create too few bars. Adaptive bars solve this by tracking the moving average.
+
+    Common configurations:
+    - Short-term adaptive: 7-day MA, 24 bars/day (intraday trading)
+    - Long-term adaptive: 50-day MA, 6 bars/day (swing trading)
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:

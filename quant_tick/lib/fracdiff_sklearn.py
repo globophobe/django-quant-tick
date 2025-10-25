@@ -28,8 +28,7 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
-from functools import partial
-from typing import Optional, TypeVar
+from typing import TypeVar
 
 import numpy as np
 from scipy.special import binom
@@ -68,8 +67,8 @@ def fdiff(
     a: np.ndarray,
     n: float = 1.0,
     axis: int = -1,
-    prepend: Optional[np.ndarray] = None,
-    append: Optional[np.ndarray] = None,
+    prepend: np.ndarray | None = None,
+    append: np.ndarray | None = None,
     window: int = 10,
     mode: str = "same",
 ) -> np.ndarray:
@@ -158,22 +157,26 @@ class Fracdiff(TransformerMixin, BaseEstimator):
         mode: str = "same",
         window_policy: str = "fixed",
     ) -> None:
+        """Initialize fractional differencing transformer."""
         self.d = d
         self.window = window
         self.mode = mode
         self.window_policy = window_policy
 
     def __repr__(self) -> str:
+        """String representation."""
         name = self.__class__.__name__
         attrs = ["d", "window", "mode", "window_policy"]
         params = ", ".join(f"{attr}={getattr(self, attr)}" for attr in attrs)
         return f"{name}({params})"
 
     def fit(self: T, X: np.ndarray, y: None = None) -> T:
+        """Fit transformer."""
         self.coef_ = fdiff_coef(self.d, self.window)
         return self
 
     def transform(self, X: np.ndarray, y: None = None) -> np.ndarray:
+        """Transform data."""
         check_is_fitted(self, ["coef_"])
         check_array(X, estimator=self)
         return fdiff(X, n=self.d, axis=0, window=self.window, mode=self.mode)

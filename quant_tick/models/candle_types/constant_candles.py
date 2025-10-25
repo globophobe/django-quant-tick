@@ -12,12 +12,26 @@ from ..candles import Candle, CandleCache
 
 
 class ConstantCandle(Candle):
-    """Constant candle.
+    """Fixed-threshold bars that close after accumulating a constant amount of activity.
 
-    For example, 1 candle every:
-    * 1000 ticks.
-    * 10,000 notional.
-    * 1,000,000 dollars.
+    These bars close when a specific measure of market activity hits a fixed threshold.
+    Unlike time-based bars that close every N minutes regardless of activity, constant
+    bars adapt to market pace: they close faster during busy periods and slower during
+    quiet periods.
+
+    Common types:
+    - Tick bars: Close after N ticks (e.g., 1000 ticks per bar)
+    - Volume bars: Close after N contracts traded (e.g., 10,000 BTC)
+    - Dollar bars: Close after $N notional traded (e.g., $1M USD)
+
+    Why use constant bars instead of time bars? Market activity is not uniform. During
+    volatile periods, more information arrives per minute. During quiet periods, less
+    happens. Constant bars ensure each bar contains roughly the same amount of market
+    activity, making them more stationary and better for statistical analysis.
+
+    Based on AFML Chapter 2 - constant bars are the foundation for more advanced
+    information-driven sampling (imbalance bars, run bars). They're simple, effective,
+    and widely used in quantitative finance.
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
