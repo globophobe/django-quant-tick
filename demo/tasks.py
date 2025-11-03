@@ -35,6 +35,18 @@ def coverage(ctx: Any) -> None:
 
 
 @task
+def lint(ctx: Any) -> None:
+    """Run ruff linter."""
+    ctx.run("ruff check ../")
+
+
+@task
+def format(ctx: Any) -> None:
+    """Run ruff formatter."""
+    ctx.run("ruff check ../ --fix")
+
+
+@task
 def makemigrations(ctx: Any) -> None:
     """Make migrations."""
     ctx.run("python manage.py makemigrations quant_tick")

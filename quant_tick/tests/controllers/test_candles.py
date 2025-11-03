@@ -11,11 +11,9 @@ from quant_tick.constants import FileData, Frequency, SampleType
 from quant_tick.controllers import CandleCacheIterator, aggregate_candles
 from quant_tick.lib import (
     aggregate_candle,
-    aggregate_trades,
     get_current_time,
     get_min_time,
     get_next_cache,
-    volume_filter_with_time_window,
 )
 from quant_tick.models import (
     AdaptiveCandle,

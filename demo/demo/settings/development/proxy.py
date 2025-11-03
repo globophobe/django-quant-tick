@@ -39,7 +39,7 @@ LOGGING = {
 
 # GCP
 CREDENTIALS = (
-    BASE_DIR.parent.parent.parent / "keys" / config("GOOGLE_APPLICATION_CREDENTIALS")
+    BASE_DIR.parent.parent.parent / "keys" / config("GOOGLE_APPLICATION_CREDENTIALS")  # noqa: F405
 )
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(CREDENTIALS.resolve())
 

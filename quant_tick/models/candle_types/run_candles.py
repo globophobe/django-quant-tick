@@ -41,7 +41,7 @@ class RunCandle(ImbalanceCandle):
             return 0
         return buy / total
 
-    def aggregate(self, timestamp_from: datetime, timestamp_to: datetime, data_frame: DataFrame, cache_data: dict):
+    def aggregate(self, timestamp_from: datetime, timestamp_to: datetime, data_frame: DataFrame, cache_data: dict) -> None:
         """Aggregate."""
         start = 0
         data: list[dict] = []
