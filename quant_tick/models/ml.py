@@ -40,6 +40,15 @@ class MLConfig(AbstractCodeName):
         null=True,
         blank=True,
     )
+    last_candle_data = models.ForeignKey(
+        "quant_tick.CandleData",
+        on_delete=models.SET_NULL,
+        verbose_name=_("last candle data"),
+        related_name="+",
+        null=True,
+        blank=True,
+        help_text=_("Last CandleData processed for inference"),
+    )
     json_data = JSONField(
         _("json data"),
         help_text=_(
@@ -47,7 +56,7 @@ class MLConfig(AbstractCodeName):
         ),
         default=dict,
     )
-    status = models.CharField(_("status"), max_length=50, default="active")
+    is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
 
     class Meta:
@@ -89,6 +98,12 @@ class MLArtifact(models.Model):
         related_name="ml_artifacts",
     )
     artifact = models.FileField(_("artifact"), upload_to=upload_artifact_to)
+    artifact_type = models.CharField(
+        _("artifact type"),
+        max_length=50,
+        default="primary_model",
+        help_text=_("Type of artifact: primary_model or meta_model"),
+    )
     version = models.CharField(_("version"), max_length=100)
     sha256 = models.CharField(_("sha256"), max_length=64, blank=True)
 
@@ -148,9 +163,10 @@ class MLSignal(models.Model):
         blank=True,
     )
     timestamp = models.DateTimeField(_("timestamp"), db_index=True)
-    probability = BigDecimalField(_("probability"))
+    probability = models.FloatField(_("probability"))
     side = models.SmallIntegerField(_("side"))
     meta_label = models.SmallIntegerField(_("meta label"), null=True, blank=True)
+    meta_prob = models.FloatField(_("meta probability"), null=True, blank=True)
     size = BigDecimalField(_("size"), null=True, blank=True)
     json_data = JSONField(_("json data"), null=True, blank=True)
 
@@ -161,4 +177,118 @@ class MLSignal(models.Model):
         ordering = ["-timestamp"]
         indexes = [
             models.Index(fields=["candle", "timestamp"]),
+        ]
+
+
+class TrendScan(models.Model):
+    """Trend scan result."""
+
+    ml_config = models.ForeignKey(
+        "quant_tick.MLConfig",
+        on_delete=models.CASCADE,
+        verbose_name=_("ml config"),
+        related_name="trend_scans",
+    )
+    ml_run = models.ForeignKey(
+        "quant_tick.MLRun",
+        on_delete=models.CASCADE,
+        verbose_name=_("ml run"),
+        related_name="trend_scans",
+        null=True,
+        blank=True,
+        help_text=_("Associated backtest run if from backtest"),
+    )
+    timestamp = models.DateTimeField(
+        _("timestamp"),
+        db_index=True,
+        help_text=_("Timestamp when scan was performed"),
+    )
+    window_start_idx = models.IntegerField(_("window start index"))
+    window_end_idx = models.IntegerField(_("window end index"))
+    window_size = models.IntegerField(_("window size"))
+    timestamp_start = models.DateTimeField(_("timestamp start"))
+    timestamp_end = models.DateTimeField(_("timestamp end"))
+    score = models.FloatField(
+        _("score"), help_text=_("Trend statistic (Sharpe or t-stat)")
+    )
+    mean_return = models.FloatField(_("mean return"))
+    std_return = models.FloatField(_("std return"))
+    p_value = models.FloatField(_("p value"))
+    n_events = models.IntegerField(
+        _("n events"), help_text=_("Number of events in window")
+    )
+    method = models.CharField(
+        _("method"),
+        max_length=20,
+        default="sharpe",
+        help_text=_("Statistic method: sharpe or t_stat"),
+    )
+    returns_type = models.CharField(
+        _("returns type"),
+        max_length=50,
+        default="predictions",
+        help_text=_("Type of returns: predictions, realized_pnl, meta_filtered"),
+    )
+    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
+
+    class Meta:
+        db_table = "quant_tick_trend_scan"
+        verbose_name = _("trend scan")
+        verbose_name_plural = _("trend scans")
+        ordering = ["-timestamp", "-score"]
+        indexes = [
+            models.Index(fields=["ml_config", "timestamp"]),
+            models.Index(fields=["ml_run", "timestamp"]),
+        ]
+
+
+class TrendAlert(models.Model):
+    """Trend alert when structural break is detected."""
+
+    ml_config = models.ForeignKey(
+        "quant_tick.MLConfig",
+        on_delete=models.CASCADE,
+        verbose_name=_("ml config"),
+        related_name="trend_alerts",
+    )
+    timestamp = models.DateTimeField(
+        _("timestamp"),
+        db_index=True,
+        help_text=_("When alert was triggered"),
+    )
+    current_top_score = models.FloatField(_("current top score"))
+    previous_top_score = models.FloatField(
+        _("previous top score"), null=True, blank=True
+    )
+    deterioration = models.FloatField(_("deterioration"), null=True, blank=True)
+    threshold = models.FloatField(_("threshold"))
+    action = models.CharField(
+        _("action"),
+        max_length=50,
+        default="notification",
+        help_text=_("Action taken: pause_trading, notification"),
+    )
+    window_metadata = JSONField(
+        _("window metadata"),
+        null=True,
+        blank=True,
+        help_text=_("Top window details at alert time"),
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=50,
+        default="active",
+        help_text=_("active, acknowledged, resolved"),
+    )
+    resolved_at = models.DateTimeField(_("resolved at"), null=True, blank=True)
+    message = models.TextField(_("message"), blank=True)
+    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
+
+    class Meta:
+        db_table = "quant_tick_trend_alert"
+        verbose_name = _("trend alert")
+        verbose_name_plural = _("trend alerts")
+        ordering = ["-timestamp"]
+        indexes = [
+            models.Index(fields=["ml_config", "status", "timestamp"]),
         ]
