@@ -26,7 +26,7 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
 
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
-        return Symbol.objects.all()
+        return Symbol.objects.filter(is_active=True)
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
@@ -47,7 +47,6 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
         )
         parser.add_argument("--aggregate-trades", type=bool)
         parser.add_argument("--significant-trade-filter", type=int)
-        parser.add_argument("--is-active", action="store_true")
 
     def handle(self, *args, **options) -> dict | None:
         """Run command."""
@@ -57,7 +56,6 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
         aggregate_trades = options.get("aggregate_trades")
         significant_trade_filter = options.get("significant_trade_filter")
         symbols = self.get_queryset()
-        is_active = options.get("is_active")
         if exchanges:
             symbols = symbols.filter(exchange__in=exchanges)
         if api_symbols:
@@ -68,8 +66,6 @@ class BaseTradeDataCommand(BaseTimeFrameCommand):
             symbols = symbols.filter(aggregate_trades=aggregate_trades)
         if significant_trade_filter:
             symbols = symbols.filter(significant_trade_filter=significant_trade_filter)
-        if is_active:
-            symbols = symbols.filter(is_active=is_active)
         if symbols:
             timestamp_from, timestamp_to = parse_period_from_to(
                 date_from=options["date_from"],

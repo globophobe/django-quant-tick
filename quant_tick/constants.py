@@ -5,6 +5,7 @@ from django.db import models
 from quant_tick.utils import gettext_lazy as _
 
 ZERO = Decimal("0")
+ONE = Decimal("1")
 
 
 # Similar to BigQuery BigNumeric
@@ -20,6 +21,8 @@ class Exchange(models.TextChoices):
     BITFINEX = "bitfinex", "Bitfinex"
     BITMEX = "bitmex", "BitMEX"
     COINBASE = "coinbase", "Coinbase"
+    DRIFT = "drift", "Drift"
+    HYPERLIQUID = "hyperliquid", "Hyperliquid"
 
 
 class SymbolType(models.TextChoices):
@@ -47,11 +50,29 @@ class Frequency(models.IntegerChoices):
     WEEK = 10080, _("week").capitalize()
 
 
-class Direction(models.TextChoices):
-    """Direction."""
+class PositionType(models.TextChoices):
+    """Position type."""
 
-    LONG = "long", _("long")
-    SHORT = "short", _("short")
+    BACKTEST = "backtest", _("backtest")
+    PAPER = "paper", _("paper")
+    LIVE = "live", _("live")
+
+
+class ExitReason(models.TextChoices):
+    """Exit reason."""
+
+    TAKE_PROFIT = "take_profit", _("take profit")
+    STOP_LOSS = "stop_loss", _("stop loss")
+    MAX_DURATION = "max_duration", _("max duration")
+
+
+class PositionStatus(models.TextChoices):
+    """Position status."""
+
+    PENDING = "pending", _("pending")
+    OPEN = "open", _("open")
+    CLOSED = "closed", _("closed")
+    FAILED = "failed", _("failed")
 
 
 class FileData(models.TextChoices):
@@ -60,5 +81,4 @@ class FileData(models.TextChoices):
     RAW = "raw_data", _("raw")
     AGGREGATED = "aggregated_data", _("aggregated")
     FILTERED = "filtered_data", _("filtered")
-    CLUSTERED = "clustered_data", _("clustered")
     CANDLE = "candle_data", _("candles")

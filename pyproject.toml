@@ -19,12 +19,16 @@ httpx = "*"
 pandas = "*"
 pyarrow = "*"
 randomname = "*"
+scikit-learn = "*"
+seaborn = "*"
+shap = "*"
+treeinterpreter = "*"
 
 [tool.poetry.dev-dependencies]
-black = "*"
 coverage = "*"
 django-filter = "*"
 django-semantic-admin = "*"
+django-semantic-forms = "*"
 django-storages = {version = "*", extras = ["google"]}
 gunicorn = "*"
 invoke = "*"
@@ -45,11 +49,11 @@ exclude = [
 ]
 line-length = 88
 target-version = "py310"
+
+[tool.ruff.lint]
 ignore = [
     "ANN002", # Missing type annotation for *{name}
     "ANN003", # Missing type annotation for **{name}
-    "ANN101", # Missing type annotation for {name} in method
-    "ANN102", # Missing type annotation for {name} in classmethod
     "ANN401", # Dynamically typed expressions (typing.Any) are disallowed in {name}
     "B007", # Loop control variable not used within loop body
     "B904", # Within an except clause, raise exceptions with...
@@ -94,11 +98,11 @@ select = [
 ]
 unfixable = ["F401", "F841"]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "**/tests/*" = ["ANN", "D"]
 "**/migrations/*" = ["ANN", "D"]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["quant_tick"]
 
 [build-system]

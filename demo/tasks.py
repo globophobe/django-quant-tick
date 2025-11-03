@@ -23,9 +23,39 @@ def django_settings(ctx: Any, proxy: bool = False) -> Any:
 
 
 @task
+def test(ctx: Any) -> None:
+    """Run tests."""
+    ctx.run("python manage.py test quant_tick")
+
+
+@task
 def coverage(ctx: Any) -> None:
-    """Coverage."""
+    """Run tests with coverage."""
     ctx.run("coverage run --source=../ manage.py test quant_tick; coverage report")
+
+
+@task
+def lint(ctx: Any) -> None:
+    """Run ruff linter."""
+    ctx.run("ruff check ../")
+
+
+@task
+def format(ctx: Any) -> None:
+    """Run ruff formatter."""
+    ctx.run("ruff check ../ --fix")
+
+
+@task
+def makemigrations(ctx: Any) -> None:
+    """Make migrations."""
+    ctx.run("python manage.py makemigrations quant_tick")
+
+
+@task
+def migrate(ctx: Any) -> None:
+    """Run migrations."""
+    ctx.run("python manage.py migrate")
 
 
 @task
@@ -122,6 +152,7 @@ def get_workflow(url: str, exchanges: list[str]) -> dict:
     """Get workflow."""
     aggregate_trades = urljoin(url, "aggregate-trades/")
     aggregate_candles = urljoin(url, "aggregate-candles/")
+    inference = urljoin(url, "inference/")
     return {
         "main": {
             "steps": [
@@ -157,6 +188,15 @@ def get_workflow(url: str, exchanges: list[str]) -> dict:
                         "call": "http.get",
                         "args": {
                             "url": aggregate_candles,
+                            "auth": {"type": "OIDC"},
+                        },
+                    }
+                },
+                {
+                    "inference": {
+                        "call": "http.get",
+                        "args": {
+                            "url": inference,
                             "auth": {"type": "OIDC"},
                         },
                     }

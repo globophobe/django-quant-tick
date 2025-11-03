@@ -11,7 +11,6 @@ from pandas import DataFrame
 from quant_tick.constants import Exchange
 from quant_tick.lib import (
     aggregate_trades,
-    cluster_trades,
     get_current_time,
     get_min_time,
     volume_filter_with_time_window,
@@ -118,7 +117,6 @@ class BaseSymbolTest:
         save_raw: bool = True,
         save_aggregated: bool = False,
         save_filtered: bool = False,
-        save_clustered: bool = False,
     ) -> Symbol:
         """Get symbol."""
         return Symbol.objects.create(
@@ -128,7 +126,6 @@ class BaseSymbolTest:
             save_raw=save_raw,
             save_aggregated=save_aggregated,
             save_filtered=save_filtered,
-            save_clustered=save_clustered,
         )
 
 
@@ -141,6 +138,7 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         nanoseconds: int = 0,
         price: Decimal | None = None,
         notional: Decimal | None = None,
+        tick_rule: int | None = None,
     ) -> DataFrame:
         """Get raw."""
         trades = [
@@ -149,6 +147,7 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
                 nanoseconds=nanoseconds,
                 price=price,
                 notional=notional,
+                tick_rule=tick_rule,
             )
         ]
         return pd.DataFrame(trades)
@@ -159,9 +158,10 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         nanoseconds: int = 0,
         price: Decimal | None = None,
         notional: Decimal | None = None,
+        tick_rule: int | None = None,
     ) -> DataFrame:
         """Get aggregated."""
-        data_frame = self.get_raw(timestamp, nanoseconds, price, notional)
+        data_frame = self.get_raw(timestamp, nanoseconds, price, notional, tick_rule)
         return aggregate_trades(data_frame)
 
     def get_filtered(
@@ -171,25 +171,16 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         price: Decimal | None = None,
         notional: Decimal | None = None,
         min_volume: Decimal | None = None,
+        tick_rule: int | None = None,
     ) -> DataFrame:
         """Get filtered."""
-        data_frame = self.get_aggregated(timestamp, nanoseconds, price, notional)
+        data_frame = self.get_aggregated(timestamp, nanoseconds, price, notional, tick_rule)
         return volume_filter_with_time_window(
             data_frame, min_volume=min_volume, window="1min"
         )
 
-    def get_clustered(
-        self,
-        timestamp: datetime,
-        nanoseconds: int = 0,
-        price: Decimal | None = None,
-        notional: Decimal | None = None,
-    ) -> DataFrame:
-        """Get clustered."""
-        data_frame = self.get_filtered(timestamp, nanoseconds, price, notional)
-        return cluster_trades(data_frame)
-
     def tearDown(self):
+        """Teardown."""
         # Files
         for obj in TradeData.objects.all():
             obj.delete()

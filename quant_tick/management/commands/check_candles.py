@@ -70,7 +70,7 @@ class Command(BaseCandleCommand):
         self, candle: Candle, timestamp_from: datetime, timestamp_to: datetime
     ) -> None:
         """Check daily range."""
-        expected_ = candle.get_expected_daily_candle(timestamp_from, timestamp_to)
+        trade_data_summary = candle.get_expected_daily_candle(timestamp_from, timestamp_to)
         delta = timestamp_to - timestamp_from
         if len(trade_data_summary) == delta.days:
             candles = candle.get_data(timestamp_from, timestamp_to)

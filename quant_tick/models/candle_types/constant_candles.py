@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 import pandas as pd
 from pandas import DataFrame
@@ -11,12 +12,26 @@ from ..candles import Candle, CandleCache
 
 
 class ConstantCandle(Candle):
-    """Constant candle.
+    """Fixed-threshold bars that close after accumulating a constant amount of activity.
 
-    For example, 1 candle every:
-    * 1000 ticks.
-    * 10,000 notional.
-    * 1,000,000 dollars.
+    These bars close when a specific measure of market activity hits a fixed threshold.
+    Unlike time-based bars that close every N minutes regardless of activity, constant
+    bars adapt to market pace: they close faster during busy periods and slower during
+    quiet periods.
+
+    Common types:
+    - Tick bars: Close after N ticks (e.g., 1000 ticks per bar)
+    - Volume bars: Close after N contracts traded (e.g., 10,000 BTC)
+    - Dollar bars: Close after $N notional traded (e.g., $1M USD)
+
+    Why use constant bars instead of time bars? Market activity is not uniform. During
+    volatile periods, more information arrives per minute. During quiet periods, less
+    happens. Constant bars ensure each bar contains roughly the same amount of market
+    activity, making them more stationary and better for statistical analysis.
+
+    Based on AFML Chapter 2 - constant bars are the foundation for more advanced
+    information-driven sampling (imbalance bars, run bars). They're simple, effective,
+    and widely used in quantitative finance.
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
@@ -73,13 +88,11 @@ class ConstantCandle(Candle):
         """Aggregate."""
         start = 0
         data = []
-        column = "total" + self.json_data["sample_type"].title()
-        top_n = self.json_data.get("top_n")
         for index, row in data_frame.iterrows():
-            cache_data["sample_value"] += row[column]
+            cache_data["sample_value"] += self.get_sample_value(row)
             if self.should_aggregate_candle(cache_data):
                 df = data_frame.loc[start:index]
-                candle = aggregate_candle(df, top_n=top_n)
+                candle = aggregate_candle(df)
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
                     candle = merge_cache(previous, candle)
@@ -95,6 +108,11 @@ class ConstantCandle(Candle):
             cache_data = get_next_cache(df, cache_data)
         data, cache_data = self.get_incomplete_candle(timestamp_to, data, cache_data)
         return data, cache_data
+
+    def get_sample_value(self, row: tuple) -> Decimal | int:
+        """Get sample value."""
+        sample_type = "total" + self.json_data["sample_type"].title()
+        return row[sample_type]
 
     def should_aggregate_candle(self, data: dict) -> bool:
         """Should aggregate candle."""

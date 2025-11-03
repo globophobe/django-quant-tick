@@ -7,6 +7,7 @@ from pandas import DataFrame
 from .aggregate import filter_by_timestamp
 from .calendar import iter_window
 from .dataframe import is_decimal_close
+from .experimental import calc_notional_exponent, calc_volume_exponent
 
 ZERO = Decimal("0")
 
@@ -68,7 +69,10 @@ def aggregate_candles(
 
 
 def aggregate_candle(
-    data_frame: DataFrame, timestamp: datetime | None = None, top_n: Decimal = ZERO
+    data_frame: DataFrame,
+    timestamp: datetime | None = None,
+    min_volume_exponent: int = 2,
+    min_notional_exponent: int = 1,
 ) -> dict:
     """Aggregate candle"""
     first_row = data_frame.iloc[0]
@@ -89,79 +93,45 @@ def aggregate_candle(
         low = data_frame.low.min()
     else:
         low = data_frame.price.min()
-    buy_data_frame = data_frame[data_frame.tickRule == 1]
-    if "totalVolume" in data_frame.columns:
-        volume = data_frame.totalVolume.sum()
-    else:
-        volume = data_frame.volume.sum()
-    if "totalBuyVolume" in data_frame.columns:
-        buy_volume = data_frame.totalBuyVolume.sum()
-    else:
-        buy_volume = buy_data_frame.volume.sum()
-    if "totalNotional" in data_frame.columns:
-        notional = data_frame.totalNotional.sum()
-    else:
-        notional = data_frame.notional.sum()
-    if "totalBuyNotional" in data_frame.columns:
-        buy_notional = data_frame.totalBuyNotional.sum()
-    else:
-        buy_notional = buy_data_frame.notional.sum()
-    if "totalTicks" in data_frame.columns:
-        ticks = int(data_frame.totalTicks.sum())
-    elif "ticks" in data_frame.columns:
-        ticks = int(data_frame.ticks.sum())
-    else:
-        ticks = len(data_frame)
-    if "totalBuyTicks" in data_frame.columns:
-        buy_ticks = int(data_frame.totalBuyTicks.sum())
-    elif "ticks" in buy_data_frame.columns:
-        buy_ticks = int(buy_data_frame.ticks.sum())
-    else:
-        buy_ticks = len(buy_data_frame)
     data = {
         "timestamp": timestamp if timestamp else first_row.timestamp,
         "open": open_price,
         "high": high,
         "low": low,
         "close": close_price,
-        "volume": volume,
-        "buyVolume": buy_volume,
-        "notional": notional,
-        "buyNotional": buy_notional,
-        "ticks": ticks,
-        "buyTicks": buy_ticks,
     }
-    if top_n:
-        if "totalNotional" in data_frame.columns:
-            top_n_notional = pd.to_numeric(data_frame["totalNotional"])
+    has_totals = "totalVolume" in data_frame.columns
+    is_buy = data_frame.tickRule == 1
+    if has_totals:
+        data["volume"] = data_frame.totalVolume.sum()
+        data["buyVolume"] = data_frame.totalBuyVolume.sum()
+        data["notional"] = data_frame.totalNotional.sum()
+        data["buyNotional"] = data_frame.totalBuyNotional.sum()
+        data["ticks"] = int(data_frame.totalTicks.sum())
+        data["buyTicks"] = int(data_frame.totalBuyTicks.sum())
+    else:
+        data["volume"] = data_frame.volume.sum()
+        data["buyVolume"] = data_frame.loc[is_buy, "volume"].sum()
+        data["notional"] = data_frame.notional.sum()
+        data["buyNotional"] = data_frame.loc[is_buy, "notional"].sum()
+        if "ticks" in data_frame.columns:
+            data["ticks"] = int(data_frame.ticks.sum())
+            data["buyTicks"] = int(data_frame.loc[is_buy, "ticks"].sum())
         else:
-            top_n_notional = pd.to_numeric(data_frame["notional"])
-        n_records = max(int(len(data_frame) * (top_n / Decimal(100))), 1)
-        df = data_frame.loc[top_n_notional.nlargest(n_records).index]
-        buy_data = df[df.tickRule == 1]
-        if "totalVolume" in df.columns:
-            data[f"top{top_n}PercentVolume"] = df.totalVolume.sum()
-            data[f"top{top_n}PercentBuyVolume"] = buy_data.totalVolume.sum()
-        else:
-            data[f"top{top_n}PercentVolume"] = df.volume.sum()
-            data[f"top{top_n}PercentBuyVolume"] = buy_data.volume.sum()
-
-        if "totalNotional" in df.columns:
-            data[f"top{top_n}PercentNotional"] = df.totalNotional.sum()
-            data[f"top{top_n}PercentBuyNotional"] = buy_data.totalNotional.sum()
-        else:
-            data[f"top{top_n}PercentNotional"] = df.notional.sum()
-            data[f"top{top_n}PercentBuyNotional"] = buy_data.notional.sum()
-
-        if "totalTicks" in df.columns:
-            data[f"top{top_n}PercentTicks"] = int(df.totalTicks.sum())
-            data[f"top{top_n}PercentBuyTicks"] = int(buy_data.totalTicks.sum())
-        elif "ticks" in df.columns:
-            data[f"top{top_n}PercentTicks"] = int(df.ticks.sum())
-            data[f"top{top_n}PercentBuyTicks"] = int(buy_data.ticks.sum())
-        else:
-            data[f"top{top_n}PercentTicks"] = len(df)
-            data[f"top{top_n}PercentBuyTicks"] = len(buy_data)
+            data["ticks"] = len(data_frame)
+            data["buyTicks"] = int(is_buy.sum())
+    # Volume exponents
+    volume_exps = data_frame.volume.apply(calc_volume_exponent)
+    is_round_volume = volume_exps >= min_volume_exponent
+    data["roundVolume"] = data_frame.loc[is_round_volume, "volume"].sum()
+    data["roundBuyVolume"] = data_frame.loc[is_round_volume & is_buy, "volume"].sum()
+    # Notional exponents
+    notional_exps = data_frame.notional.apply(calc_notional_exponent)
+    is_round_notional = notional_exps >= min_notional_exponent
+    data["roundNotional"] = data_frame.loc[is_round_notional, "notional"].sum()
+    data["roundBuyNotional"] = data_frame.loc[
+        is_round_notional & is_buy, "notional"
+    ].sum()
     return data
 
 

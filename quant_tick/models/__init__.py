@@ -6,8 +6,8 @@ from .candle_types import (
     TimeBasedCandle,
 )
 from .candles import Candle, CandleCache, CandleData
-from .strategies import Position, Strategy
-from .strategy_types import MACrossoverStrategy
+from .ml import MLArtifact, MLConfig, MLFeatureData, MLRun, MLSignal, TrendScan, TrendAlert
+from .positions import Position
 from .symbols import GlobalSymbol, Symbol
 from .trades import TradeData
 
@@ -21,8 +21,13 @@ __all__ = [
     "CandleCache",
     "CandleData",
     "Position",
-    "Strategy",
-    "MACrossoverStrategy",
+    "MLArtifact",
+    "MLConfig",
+    "MLFeatureData",
+    "MLRun",
+    "MLSignal",
+    "TrendScan",
+    "TrendAlert",
     "GlobalSymbol",
     "Symbol",
     "TradeData",

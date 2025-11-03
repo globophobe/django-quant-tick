@@ -1,5 +1,4 @@
 import logging
-from typing import List, Union
 from unittest.mock import MagicMock
 
 from django.contrib.auth import get_user_model
@@ -33,7 +32,7 @@ class BaseTradeViewTest(BaseViewTest):
         raise NotImplementedError
 
     def get_symbols(
-        self, symbols: Union[List[str], str], exchange: Exchange = Exchange.COINBASE
+        self, symbols: list[str] | str, exchange: Exchange = Exchange.COINBASE
     ) -> dict:
         """Get symbols."""
         if isinstance(symbols, str):
@@ -49,11 +48,11 @@ class BaseTradeViewTest(BaseViewTest):
 
         return {"symbol": symbols}
 
-    def get_mock_params(self, mock_api: MagicMock) -> List[dict]:
+    def get_mock_params(self, mock_api: MagicMock) -> list[dict]:
         """Get mock params."""
         return [mock_call.args for mock_call in mock_api.mock_calls]
 
-    def get_mock_symbols(self, mock_api: MagicMock) -> List[str]:
+    def get_mock_symbols(self, mock_api: MagicMock) -> list[str]:
         """Get mock symbols."""
         mock_params = self.get_mock_params(mock_api)
         return [mock_param[0].api_symbol for mock_param in mock_params]
