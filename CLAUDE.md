@@ -24,6 +24,16 @@ Run migrations:
 cd demo && invoke migrate
 ```
 
+Run linter:
+```bash
+cd demo && invoke lint
+```
+
+Auto-fix linting issues:
+```bash
+cd demo && invoke format
+```
+
 ### Available Tasks
 See `demo/tasks.py` for all available tasks. Run `invoke --list` to see all commands.
 
@@ -41,3 +51,23 @@ See `demo/tasks.py` for all available tasks. Run `invoke --list` to see all comm
 - Avoid unnecessary intermediate variables unless better for readability
 - Use short but clear abbreviations consistently, e.g `data_frame` -> `df`, `config` -> `cfg`
 - Avoid calling functions inside f-strings
+
+## Linting
+The project uses Ruff for linting and formatting. Configuration is in `pyproject.toml`.
+
+Before committing:
+```bash
+cd demo && invoke lint
+```
+
+To auto-fix issues:
+```bash
+cd demo && invoke format
+```
+
+Ruff checks for:
+- Type annotations on all public functions
+- Import sorting (isort)
+- Code style (pycodestyle)
+- Common bugs (flake8-bugbear)
+- Modern Python idioms (pyupgrade - e.g., `list[str]` not `List[str]`, `X | None` not `Optional[X]`)
