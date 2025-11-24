@@ -7,7 +7,7 @@ import time_machine
 from django.test import TestCase
 from pandas import DataFrame
 
-from quant_tick.constants import FileData, Frequency, SampleType
+from quant_tick.constants import Exchange, FileData, Frequency, SampleType
 from quant_tick.controllers import CandleCacheIterator, aggregate_candles
 from quant_tick.lib import (
     aggregate_candle,
@@ -21,8 +21,7 @@ from quant_tick.models import (
     CandleCache,
     CandleData,
     ConstantCandle,
-    ImbalanceCandle,
-    RunCandle,
+    Symbol,
     TimeBasedCandle,
     TradeData,
 )
@@ -876,119 +875,6 @@ class ConstantNotionalDayFrequencyIrregularCandleTest(
     "quant_tick.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
     return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
 )
-class ImbalanceNotionalHourFrequencyCandleTest(
-    BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
-):
-    """Imbalance notional hour frequency candle test (expected-imbalance)."""
-
-    def get_candle(self) -> Candle:
-        """Get candle."""
-        return ImbalanceCandle.objects.create(
-            json_data={
-                "source_data": FileData.RAW,
-                "sample_type": SampleType.NOTIONAL,
-                "alpha_x": 1.0,
-                "alpha_n": 1.0,
-                "initial_expected_trades_per_bar": 2.0,
-                "min_warmup_trades": 1,
-            }
-        )
-
-    def write_trade_data(
-        self, timestamp_from: datetime, timestamp_to: datetime, data_frame: DataFrame
-    ) -> None:
-        """Write trade data."""
-        TradeData.write(
-            self.symbol, timestamp_from, timestamp_to, data_frame, pd.DataFrame([])
-        )
-
-    def test_no_candle_from_first_trade(self, mock_get_max_timestamp_to):
-        """With threshold > 1, first trade alone should not close a bar."""
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"), tick_rule=1)
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
-        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
-        self.assertFalse(CandleData.objects.exists())
-        candle_cache = CandleCache.objects.all()
-        self.assertEqual(candle_cache.count(), 1)
-
-    def test_one_candle_after_two_trades(self, mock_get_max_timestamp_to):
-        """Two trades in the first hour should close one bar with our params."""
-        f1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"), tick_rule=1)
-        f2 = self.get_filtered(
-            self.timestamp_from + pd.Timedelta("1s"), notional=Decimal("1"), tick_rule=1
-        )
-        filtered = pd.concat([f1, f2])
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
-        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
-        candle_data = CandleData.objects.all()
-        self.assertEqual(candle_data.count(), 1)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
-
-    def test_one_candle_with_existing_next_cache(self, mock_get_max_timestamp_to):
-        """Merges existing partial ('next') into the emitted candle."""
-        f1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"), tick_rule=1)
-        CandleCache.objects.create(
-            candle=self.candle,
-            timestamp=self.timestamp_from,
-            frequency=Frequency.MINUTE,
-            json_data=get_next_cache(f1, {}),
-        )
-        one_minute_from_now = self.timestamp_from + pd.Timedelta("1min")
-        f2 = self.get_filtered(one_minute_from_now, notional=Decimal("1"), tick_rule=1)
-        f3 = self.get_filtered(one_minute_from_now + pd.Timedelta("1s"), notional=Decimal("1"), tick_rule=1)
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, pd.concat([f2, f3]))
-        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
-        candle_data = CandleData.objects.all()
-        self.assertEqual(candle_data.count(), 1)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
-        last_candle_cache = CandleCache.objects.last()
-        expected_cache_keys = {'E_x', 'E_n', 'theta', 'n_in_bar', 'sample_value'}
-        self.assertEqual(set(last_candle_cache.json_data.keys()), expected_cache_keys)
-        self.assertNotIn("next", last_candle_cache.json_data)
-
-    def test_incomplete_candle_on_day_reset(self, mock_get_max_timestamp_to):
-        """Saves incomplete candle when cache resets at day boundary."""
-        self.candle.json_data["cache_reset"] = Frequency.DAY
-        last_hour = self.timestamp_from + pd.Timedelta("23h")
-        f = self.get_filtered(last_hour, notional=Decimal("1"), tick_rule=1)
-        one_day_from_now = self.timestamp_from + pd.Timedelta("1d")
-        self.write_trade_data(last_hour, one_day_from_now, f)
-        aggregate_candles(self.candle, last_hour, one_day_from_now)
-        candle_cache = CandleCache.objects.all()
-        self.assertEqual(candle_cache.count(), 1)
-        candle_data = CandleData.objects.all()
-        self.assertEqual(candle_data.count(), 1)
-        self.assertEqual(candle_data[0].timestamp, last_hour)
-        self.assertTrue(candle_data[0].json_data["incomplete"])
-
-    def test_one_candle_from_trade_with_existing_one_minute_candle_cache(
-        self, mock_get_max_timestamp_to
-    ):
-        """One candle from a trade, with existing one minute candle cache."""
-        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"), tick_rule=1)
-        CandleCache.objects.create(
-            candle=self.candle,
-            timestamp=self.timestamp_from,
-            frequency=Frequency.MINUTE,
-            json_data=get_next_cache(filtered_1, {"sample_value": 0}),
-        )
-        one_minute_from_now = self.timestamp_from + pd.Timedelta("1min")
-        filtered_2 = self.get_filtered(one_minute_from_now, notional=Decimal("1"), tick_rule=1)
-        filtered_3 = self.get_filtered(one_minute_from_now + pd.Timedelta("1s"), notional=Decimal("1"), tick_rule=1)
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, pd.concat([filtered_2, filtered_3]))
-        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
-        candle_data = CandleData.objects.all()
-        self.assertEqual(candle_data.count(), 1)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
-        candle_cache = CandleCache.objects.last()
-        self.assertNotIn("next", candle_cache.json_data)
-
-
-@time_machine.travel(datetime(2009, 1, 4), tick=False)
-@patch(
-    "quant_tick.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
-    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
-)
 class AdaptiveNotionalCandleTest(
     BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
 ):
@@ -1155,75 +1041,357 @@ class AdaptiveNotionalCandleTest(
         self.assertEqual(candle_data[1].timestamp, self.two_hours_from_now)
 
 
+@time_machine.travel(datetime(2009, 1, 4), tick=False)
+@patch(
+    "quant_tick.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
+    return_value=datetime(2009, 1, 4, 0, 3).replace(tzinfo=timezone.utc),
+)
+class TimeBasedMultiExchangeCandleTest(
+    BaseMinuteIteratorTest,
+    BaseWriteTradeDataTest,
+    BaseCandleCacheIteratorTest,
+    TestCase,
+):
+    """Time based candle with multiple exchanges."""
+
+    def get_candle(self) -> Candle:
+        """Get candle."""
+        return TimeBasedCandle.objects.create(
+            json_data={"source_data": FileData.RAW, "window": "1min"}
+        )
+
+    def get_second_symbol(self) -> Symbol:
+        """Get second symbol on different exchange."""
+        return Symbol.objects.create(
+            global_symbol=self.global_symbol,
+            exchange=Exchange.BINANCE,
+            api_symbol="test-binance",
+            save_raw=True,
+        )
+
+    def test_multi_exchange_candle(self, mock_get_max_timestamp_to):
+        """Multi exchange time based candle."""
+        symbol_2 = self.get_second_symbol()
+        self.candle.symbols.add(symbol_2)
+
+        filtered_1 = self.get_filtered(self.timestamp_from, price=100, notional=1)
+        TradeData.write(
+            self.symbol, self.timestamp_from, self.one_minute_from_now,
+            filtered_1, pd.DataFrame([])
+        )
+
+        filtered_2 = self.get_filtered(self.timestamp_from, price=101, notional=2)
+        TradeData.write(
+            symbol_2, self.timestamp_from, self.one_minute_from_now,
+            filtered_2, pd.DataFrame([])
+        )
+
+        aggregate_candles(self.candle, self.timestamp_from, self.one_minute_from_now)
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+
+        data = candle_data[0].json_data
+        self.assertIn("coinbaseOpen", data)
+        self.assertIn("coinbaseClose", data)
+        self.assertIn("binanceOpen", data)
+        self.assertIn("binanceClose", data)
+        self.assertIn("coinbaseVolume", data)
+        self.assertIn("binanceVolume", data)
+        self.assertIn("coinbaseRealizedVariance", data)
+        self.assertIn("binanceRealizedVariance", data)
+        self.assertIn("volume", data)
+        # No aggregate realizedVariance.
+        self.assertNotIn("realizedVariance", data)
+
+    def test_multi_exchange_cache_merge(self, mock_get_max_timestamp_to):
+        """Multi exchange time based candle cache merge."""
+        # Use 2-minute window to trigger cache merge
+        self.candle.json_data["window"] = "2min"
+        self.candle.save()
+
+        symbol_2 = self.get_second_symbol()
+        self.candle.symbols.add(symbol_2)
+
+        # Minute 1: coinbase=100, binance=200
+        filtered_cb_1 = self.get_filtered(self.timestamp_from, price=100, notional=1)
+        TradeData.write(
+            self.symbol, self.timestamp_from, self.one_minute_from_now,
+            filtered_cb_1, pd.DataFrame([])
+        )
+        filtered_bn_1 = self.get_filtered(self.timestamp_from, price=200, notional=2)
+        TradeData.write(
+            symbol_2, self.timestamp_from, self.one_minute_from_now,
+            filtered_bn_1, pd.DataFrame([])
+        )
+
+        # Minute 2: coinbase=110, binance=190
+        filtered_cb_2 = self.get_filtered(self.one_minute_from_now, price=110, notional=1)
+        TradeData.write(
+            self.symbol, self.one_minute_from_now, self.two_minutes_from_now,
+            filtered_cb_2, pd.DataFrame([])
+        )
+        filtered_bn_2 = self.get_filtered(self.one_minute_from_now, price=190, notional=2)
+        TradeData.write(
+            symbol_2, self.one_minute_from_now, self.two_minutes_from_now,
+            filtered_bn_2, pd.DataFrame([])
+        )
+
+        # Aggregate both minutes
+        for i in range(2):
+            aggregate_candles(
+                self.candle,
+                self.timestamp_from + pd.Timedelta(f"{i}min"),
+                self.one_minute_from_now + pd.Timedelta(f"{i}min"),
+            )
+
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+
+        data = candle_data[0].json_data
+        # Per-exchange open from first segment.
+        self.assertEqual(data["coinbaseOpen"], 100)
+        self.assertEqual(data["binanceOpen"], 200)
+        # Per-exchange close from second segment.
+        self.assertEqual(data["coinbaseClose"], 110)
+        self.assertEqual(data["binanceClose"], 190)
+        # Per-exchange volume summed.
+        cb_vol_1 = filtered_cb_1["volume"].sum()
+        cb_vol_2 = filtered_cb_2["volume"].sum()
+        bn_vol_1 = filtered_bn_1["volume"].sum()
+        bn_vol_2 = filtered_bn_2["volume"].sum()
+        self.assertEqual(data["coinbaseVolume"], cb_vol_1 + cb_vol_2)
+        self.assertEqual(data["binanceVolume"], bn_vol_1 + bn_vol_2)
+        # Per-exchange realized variance exists.
+        self.assertIn("coinbaseRealizedVariance", data)
+        self.assertIn("binanceRealizedVariance", data)
+
 
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
 @patch(
     "quant_tick.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
     return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
 )
-class RunNotionalHourFrequencyCandleTest(
+class ConstantMultiExchangeCandleTest(
     BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
 ):
-    """Run notional hour frequency candle test."""
+    """Constant candle with multiple exchanges."""
 
     def get_candle(self) -> Candle:
         """Get candle."""
-        return RunCandle.objects.create(
+        return ConstantCandle.objects.create(
             json_data={
                 "source_data": FileData.RAW,
                 "sample_type": SampleType.NOTIONAL,
-                "alpha_x": 1.0,
-                "alpha_n": 1.0,
-                "initial_expected_trades_per_bar": 2.0,
-                "min_warmup_trades": 1,
+                "target_value": 2,
             }
         )
 
-    def write_trade_data(
-        self, timestamp_from: datetime, timestamp_to: datetime, data_frame: DataFrame
-    ) -> None:
-        """Write trade data."""
+    def get_second_symbol(self) -> Symbol:
+        """Get second symbol on different exchange."""
+        return Symbol.objects.create(
+            global_symbol=self.global_symbol,
+            exchange=Exchange.BINANCE,
+            api_symbol="test-binance",
+            save_raw=True,
+        )
+
+    def test_multi_exchange_candle(self, mock_get_max_timestamp_to):
+        """Multi exchange constant candle."""
+        symbol_2 = self.get_second_symbol()
+        self.candle.symbols.add(symbol_2)
+
+        filtered_1 = self.get_filtered(self.timestamp_from, price=100, notional=1)
         TradeData.write(
-            self.symbol, timestamp_from, timestamp_to, data_frame, pd.DataFrame([])
+            self.symbol, self.timestamp_from, self.one_hour_from_now,
+            filtered_1, pd.DataFrame([])
         )
 
-    def test_no_candle_from_single_buy_trade(self, mock_get_max_timestamp_to):
-        """Single buy trade does not close bar."""
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"), tick_rule=1)
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
-        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
-        self.assertFalse(CandleData.objects.exists())
-        candle_cache = CandleCache.objects.all()
-        self.assertEqual(candle_cache.count(), 1)
-        self.assertEqual(candle_cache[0].json_data["buy_run"], 1)
-        self.assertEqual(candle_cache[0].json_data["sell_run"], 0)
-
-    def test_one_candle_from_two_buy_trades(self, mock_get_max_timestamp_to):
-        """Two consecutive buy trades close bar."""
-        f1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"), tick_rule=1)
-        f2 = self.get_filtered(
-            self.timestamp_from + pd.Timedelta("1s"), notional=Decimal("1"), tick_rule=1
+        filtered_2 = self.get_filtered(self.timestamp_from, price=101, notional=1)
+        TradeData.write(
+            symbol_2, self.timestamp_from, self.one_hour_from_now,
+            filtered_2, pd.DataFrame([])
         )
-        filtered = pd.concat([f1, f2])
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+
         aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
         candle_data = CandleData.objects.all()
         self.assertEqual(candle_data.count(), 1)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
 
-    def test_run_counter_increments(self, mock_get_max_timestamp_to):
-        """Run counter increments with consecutive same-direction trades."""
-        f1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"), tick_rule=1)
-        f2 = self.get_filtered(
-            self.timestamp_from + pd.Timedelta("1s"), notional=Decimal("1"), tick_rule=1
+        data = candle_data[0].json_data
+        self.assertIn("coinbaseOpen", data)
+        self.assertIn("binanceOpen", data)
+        self.assertIn("coinbaseVolume", data)
+        self.assertIn("binanceVolume", data)
+        self.assertIn("coinbaseRealizedVariance", data)
+        self.assertIn("binanceRealizedVariance", data)
+        self.assertIn("volume", data)
+        # No aggregate realizedVariance for multi-exchange.
+        self.assertNotIn("realizedVariance", data)
+
+    def test_multi_exchange_cache_merge(self, mock_get_max_timestamp_to):
+        """Multi exchange constant candle cache merge."""
+        # Higher target so data accumulates in cache before candle completes
+        self.candle.json_data["target_value"] = 10
+        self.candle.save()
+
+        symbol_2 = self.get_second_symbol()
+        self.candle.symbols.add(symbol_2)
+
+        # First batch: coinbase=100, binance=200 (notional=3 total, below target)
+        filtered_cb_1 = self.get_filtered(self.timestamp_from, price=100, notional=Decimal("1"))
+        TradeData.write(
+            self.symbol, self.timestamp_from, self.one_hour_from_now,
+            filtered_cb_1, pd.DataFrame([])
         )
-        f3 = self.get_filtered(
-            self.timestamp_from + pd.Timedelta("2s"), notional=Decimal("1"), tick_rule=1
+        filtered_bn_1 = self.get_filtered(self.timestamp_from, price=200, notional=Decimal("2"))
+        TradeData.write(
+            symbol_2, self.timestamp_from, self.one_hour_from_now,
+            filtered_bn_1, pd.DataFrame([])
         )
-        filtered = pd.concat([f1, f2, f3])
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
+
+        # Second batch: coinbase=110, binance=190 (notional=8 more, total=11 exceeds target)
+        filtered_cb_2 = self.get_filtered(self.one_hour_from_now, price=110, notional=Decimal("3"))
+        TradeData.write(
+            self.symbol, self.one_hour_from_now, self.two_hours_from_now,
+            filtered_cb_2, pd.DataFrame([])
+        )
+        filtered_bn_2 = self.get_filtered(self.one_hour_from_now, price=190, notional=Decimal("5"))
+        TradeData.write(
+            symbol_2, self.one_hour_from_now, self.two_hours_from_now,
+            filtered_bn_2, pd.DataFrame([])
+        )
+
+        # Aggregate both hours
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        aggregate_candles(self.candle, self.one_hour_from_now, self.two_hours_from_now)
+
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+
+        data = candle_data[0].json_data
+        self.assertEqual(data["coinbaseOpen"], 100)
+        self.assertEqual(data["binanceOpen"], 200)
+        self.assertIn("coinbaseVolume", data)
+        self.assertIn("binanceVolume", data)
+        self.assertIn("coinbaseRealizedVariance", data)
+        self.assertIn("binanceRealizedVariance", data)
+
+
+@time_machine.travel(datetime(2009, 1, 4), tick=False)
+@patch(
+    "quant_tick.controllers.iterators.CandleCacheIterator.get_max_timestamp_to",
+    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
+)
+class AdaptiveMultiExchangeCandleTest(
+    BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
+):
+    """Adaptive candle with multiple exchanges."""
+
+    def setUp(self):
+        """Set up."""
+        super().setUp()
+        # Moving average of 20 notional / 2 symbols / 1 day / 1 candle = 10 target
+        # This ensures both exchanges' rows are included before threshold is crossed
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=get_min_time(self.timestamp_from, value="1d") - pd.Timedelta("1d"),
+            frequency=Frequency.DAY,
+            json_data={"candle": {"notional": 20}},
+        )
+
+    def get_candle(self) -> Candle:
+        """Get candle."""
+        return AdaptiveCandle.objects.create(
+            json_data={
+                "source_data": FileData.RAW,
+                "sample_type": SampleType.NOTIONAL,
+                "moving_average_number_of_days": 1,
+                "target_candles_per_day": 1,
+            }
+        )
+
+    def get_second_symbol(self) -> Symbol:
+        """Get second symbol on different exchange."""
+        return Symbol.objects.create(
+            global_symbol=self.global_symbol,
+            exchange=Exchange.BINANCE,
+            api_symbol="test-binance",
+            save_raw=True,
+        )
+
+    def test_multi_exchange_candle(self, mock_get_max_timestamp_to):
+        """Multi exchange adaptive candle."""
+        symbol_2 = self.get_second_symbol()
+        self.candle.symbols.add(symbol_2)
+
+        # With target_value=10, use notional=5+6=11 to exceed threshold and create candle
+        filtered_1 = self.get_filtered(self.timestamp_from, price=100, notional=Decimal("5"))
+        TradeData.write(
+            self.symbol, self.timestamp_from, self.one_hour_from_now,
+            filtered_1, pd.DataFrame([])
+        )
+
+        filtered_2 = self.get_filtered(self.timestamp_from, price=101, notional=Decimal("6"))
+        TradeData.write(
+            symbol_2, self.timestamp_from, self.one_hour_from_now,
+            filtered_2, pd.DataFrame([])
+        )
+
         aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
         candle_data = CandleData.objects.all()
         self.assertEqual(candle_data.count(), 1)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
 
+        data = candle_data[0].json_data
+        self.assertIn("coinbaseOpen", data)
+        self.assertIn("binanceOpen", data)
+        self.assertIn("coinbaseVolume", data)
+        self.assertIn("binanceVolume", data)
+        self.assertIn("coinbaseRealizedVariance", data)
+        self.assertIn("binanceRealizedVariance", data)
+        self.assertIn("volume", data)
+        # No aggregate realizedVariance.
+        self.assertNotIn("realizedVariance", data)
+
+    def test_multi_exchange_cache_merge(self, mock_get_max_timestamp_to):
+        """Multi exchange adaptive candle cache merge."""
+        symbol_2 = self.get_second_symbol()
+        self.candle.symbols.add(symbol_2)
+
+        # First batch: coinbase=100, binance=200 (notional=3 total, below target of 10)
+        filtered_cb_1 = self.get_filtered(self.timestamp_from, price=100, notional=Decimal("1"))
+        TradeData.write(
+            self.symbol, self.timestamp_from, self.one_hour_from_now,
+            filtered_cb_1, pd.DataFrame([])
+        )
+        filtered_bn_1 = self.get_filtered(self.timestamp_from, price=200, notional=Decimal("2"))
+        TradeData.write(
+            symbol_2, self.timestamp_from, self.one_hour_from_now,
+            filtered_bn_1, pd.DataFrame([])
+        )
+
+        # Second batch: coinbase=110, binance=190 (notional=8 more, total=11 exceeds target)
+        filtered_cb_2 = self.get_filtered(self.one_hour_from_now, price=110, notional=Decimal("3"))
+        TradeData.write(
+            self.symbol, self.one_hour_from_now, self.two_hours_from_now,
+            filtered_cb_2, pd.DataFrame([])
+        )
+        filtered_bn_2 = self.get_filtered(self.one_hour_from_now, price=190, notional=Decimal("5"))
+        TradeData.write(
+            symbol_2, self.one_hour_from_now, self.two_hours_from_now,
+            filtered_bn_2, pd.DataFrame([])
+        )
+
+        # Aggregate both hours.
+        aggregate_candles(self.candle, self.timestamp_from, self.one_hour_from_now)
+        aggregate_candles(self.candle, self.one_hour_from_now, self.two_hours_from_now)
+
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+
+        data = candle_data[0].json_data
+        # Per-exchange open from first segment, close from last.
+        self.assertEqual(data["coinbaseOpen"], 100)
+        self.assertEqual(data["binanceOpen"], 200)
+        self.assertIn("coinbaseVolume", data)
+        self.assertIn("binanceVolume", data)
+        self.assertIn("coinbaseRealizedVariance", data)
+        self.assertIn("binanceRealizedVariance", data)
