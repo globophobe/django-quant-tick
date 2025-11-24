@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
+import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
@@ -74,64 +75,130 @@ def aggregate_candle(
     min_volume_exponent: int = 2,
     min_notional_exponent: int = 1,
 ) -> dict:
-    """Aggregate candle"""
-    first_row = data_frame.iloc[0]
-    last_row = data_frame.iloc[-1]
-    if "open" in data_frame.columns:
-        open_price = first_row.open
-    else:
-        open_price = first_row.price
-    if "close" in data_frame.columns:
-        close_price = last_row.close
-    else:
-        close_price = last_row.price
-    if "high" in data_frame.columns:
-        high = data_frame.high.max()
-    else:
-        high = data_frame.price.max()
-    if "low" in data_frame.columns:
-        low = data_frame.low.min()
-    else:
-        low = data_frame.price.min()
-    data = {
-        "timestamp": timestamp if timestamp else first_row.timestamp,
-        "open": open_price,
-        "high": high,
-        "low": low,
-        "close": close_price,
+    """Aggregate candle."""
+    # Multi exchange
+    if "exchange" in data_frame.columns:
+        exchanges = data_frame["exchange"].unique()
+        if len(exchanges) > 1:
+            return _aggregate_multi_exchange(
+                data_frame, exchanges, timestamp, min_volume_exponent, min_notional_exponent
+            )
+    # Single exchange
+    return agg_candle(data_frame, timestamp, min_volume_exponent, min_notional_exponent)
+
+
+def agg_candle(
+    df: DataFrame,
+    timestamp: datetime | None = None,
+    min_volume_exponent: int = 2,
+    min_notional_exponent: int = 1,
+) -> dict:
+    """Aggregate single-exchange candle data."""
+    ts = timestamp if timestamp else df.iloc[0].timestamp
+    data = {"timestamp": ts}
+    data.update(_aggregate_ohlc(df))
+    data.update(_aggregate_totals(df, min_volume_exponent, min_notional_exponent))
+    data.update(_aggregate_realized_variance(df))
+    return data
+
+
+def _aggregate_ohlc(df: DataFrame) -> dict:
+    """Aggregate OHLC from trade data."""
+    return {
+        "open": df.iloc[0].price,
+        "high": df.price.max(),
+        "low": df.price.min(),
+        "close": df.iloc[-1].price,
     }
-    has_totals = "totalVolume" in data_frame.columns
-    is_buy = data_frame.tickRule == 1
+
+
+def _aggregate_totals(
+    df: DataFrame,
+    min_volume_exponent: int = 2,
+    min_notional_exponent: int = 1,
+) -> dict:
+    """Aggregate volume, notional, ticks, and round fields."""
+    data = {}
+    has_totals = "totalVolume" in df.columns
+    is_buy = df.tickRule == 1
+
     if has_totals:
-        data["volume"] = data_frame.totalVolume.sum()
-        data["buyVolume"] = data_frame.totalBuyVolume.sum()
-        data["notional"] = data_frame.totalNotional.sum()
-        data["buyNotional"] = data_frame.totalBuyNotional.sum()
-        data["ticks"] = int(data_frame.totalTicks.sum())
-        data["buyTicks"] = int(data_frame.totalBuyTicks.sum())
+        data["volume"] = df.totalVolume.sum()
+        data["buyVolume"] = df.totalBuyVolume.sum()
+        data["notional"] = df.totalNotional.sum()
+        data["buyNotional"] = df.totalBuyNotional.sum()
+        data["ticks"] = int(df.totalTicks.sum())
+        data["buyTicks"] = int(df.totalBuyTicks.sum())
     else:
-        data["volume"] = data_frame.volume.sum()
-        data["buyVolume"] = data_frame.loc[is_buy, "volume"].sum()
-        data["notional"] = data_frame.notional.sum()
-        data["buyNotional"] = data_frame.loc[is_buy, "notional"].sum()
-        if "ticks" in data_frame.columns:
-            data["ticks"] = int(data_frame.ticks.sum())
-            data["buyTicks"] = int(data_frame.loc[is_buy, "ticks"].sum())
+        data["volume"] = df.volume.sum()
+        data["buyVolume"] = df.loc[is_buy, "volume"].sum()
+        data["notional"] = df.notional.sum()
+        data["buyNotional"] = df.loc[is_buy, "notional"].sum()
+        if "ticks" in df.columns:
+            data["ticks"] = int(df.ticks.sum())
+            data["buyTicks"] = int(df.loc[is_buy, "ticks"].sum())
         else:
-            data["ticks"] = len(data_frame)
+            data["ticks"] = len(df)
             data["buyTicks"] = int(is_buy.sum())
-    # Volume exponents
-    volume_exps = data_frame.volume.apply(calc_volume_exponent)
+    # Round volume
+    volume_exps = df.volume.apply(calc_volume_exponent)
     is_round_volume = volume_exps >= min_volume_exponent
-    data["roundVolume"] = data_frame.loc[is_round_volume, "volume"].sum()
-    data["roundBuyVolume"] = data_frame.loc[is_round_volume & is_buy, "volume"].sum()
-    # Notional exponents
-    notional_exps = data_frame.notional.apply(calc_notional_exponent)
+    data["roundVolume"] = df.loc[is_round_volume, "volume"].sum()
+    data["roundBuyVolume"] = df.loc[is_round_volume & is_buy, "volume"].sum()
+    # Round notional
+    notional_exps = df.notional.apply(calc_notional_exponent)
     is_round_notional = notional_exps >= min_notional_exponent
-    data["roundNotional"] = data_frame.loc[is_round_notional, "notional"].sum()
-    data["roundBuyNotional"] = data_frame.loc[
-        is_round_notional & is_buy, "notional"
-    ].sum()
+    data["roundNotional"] = df.loc[is_round_notional, "notional"].sum()
+    data["roundBuyNotional"] = df.loc[is_round_notional & is_buy, "notional"].sum()
+    return data
+
+
+def _aggregate_realized_variance(df: DataFrame) -> dict:
+    """Compute realized variance."""
+    if "price" not in df.columns or len(df) == 0:
+        return {"realizedVariance": ZERO}
+
+    if len(df) > 1:
+        prices = df.price.astype(float)
+        log_prices = np.log(prices)
+        log_returns = log_prices.diff().dropna()
+        return {"realizedVariance": Decimal(str((log_returns**2).sum()))}
+
+    return {"realizedVariance": ZERO}
+
+
+def _aggregate_multi_exchange(
+    df: DataFrame,
+    exchanges: list,
+    timestamp: datetime | None,
+    min_volume_exponent: int,
+    min_notional_exponent: int,
+) -> dict:
+    """Aggregate multi-exchange candle data."""
+    ts = timestamp if timestamp else df.iloc[0].timestamp
+    data = {"timestamp": ts}
+
+    # Per-exchange OHLCV and realized variance
+    for exchange in exchanges:
+        ex_df = df[df["exchange"] == exchange]
+        if len(ex_df) == 0:
+            continue
+        # OHLC with exchange prefix (binanceOpen, binanceHigh, etc.)
+        ohlc = _aggregate_ohlc(ex_df)
+        for k, v in ohlc.items():
+            data[f"{exchange}{k.title()}"] = v
+        # Per-exchange volume
+        has_totals = "totalVolume" in ex_df.columns
+        if has_totals:
+            data[f"{exchange}Volume"] = ex_df.totalVolume.sum()
+        else:
+            data[f"{exchange}Volume"] = ex_df.volume.sum()
+        # Per-exchange realized variance
+        rv = _aggregate_realized_variance(ex_df)
+        data[f"{exchange}RealizedVariance"] = rv["realizedVariance"]
+
+    # Aggregate across all exchanges
+    data.update(_aggregate_totals(df, min_volume_exponent, min_notional_exponent))
     return data
 
 
