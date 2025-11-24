@@ -30,7 +30,6 @@ class SymbolType(models.TextChoices):
 
     SPOT = "spot", _("spot")
     PERP = "perp", _("perp")
-    FUTURE = "future", _("future")
 
 
 class SampleType(models.TextChoices):
@@ -61,8 +60,9 @@ class PositionType(models.TextChoices):
 class ExitReason(models.TextChoices):
     """Exit reason."""
 
-    TAKE_PROFIT = "take_profit", _("take profit")
-    STOP_LOSS = "stop_loss", _("stop loss")
+    TOUCHED_LOWER = "touched_lower", _("touched lower")
+    TOUCHED_UPPER = "touched_upper", _("touched upper")
+    REBALANCED = "rebalanced", _("rebalanced")
     MAX_DURATION = "max_duration", _("max duration")
 
 
