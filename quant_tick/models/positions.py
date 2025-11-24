@@ -15,11 +15,13 @@ class Position(models.Model):
         verbose_name=_("symbol"),
         related_name="positions",
     )
-    ml_run = models.ForeignKey(
-        "quant_tick.MLRun",
+    ml_config = models.ForeignKey(
+        "quant_tick.MLConfig",
         on_delete=models.CASCADE,
-        verbose_name=_("ml run"),
+        verbose_name=_("ml config"),
         related_name="positions",
+        null=True,
+        blank=True,
     )
     ml_signal = models.ForeignKey(
         "quant_tick.MLSignal",
@@ -35,13 +37,25 @@ class Position(models.Model):
         choices=PositionType.choices,
         default=PositionType.BACKTEST,
     )
+    # LP Range Configuration
+    lower_bound = models.FloatField(
+        _("lower bound"),
+        help_text=_("Lower bound as fraction of entry price (e.g., -0.03)"),
+    )
+    upper_bound = models.FloatField(
+        _("upper bound"),
+        help_text=_("Upper bound as fraction of entry price (e.g., 0.05)"),
+    )
+    borrow_ratio = models.FloatField(
+        _("borrow ratio"),
+        help_text=_("Asset allocation (0.5 = balanced, >0.5 = bearish, <0.5 = bullish)"),
+    )
+    # Timing
     entry_timestamp = models.DateTimeField(_("entry timestamp"), db_index=True)
     entry_price = BigDecimalField(_("entry price"))
-    take_profit = BigDecimalField(_("take profit"), null=True, blank=True)
-    stop_loss = BigDecimalField(_("stop loss"), null=True, blank=True)
-    max_duration = models.DateTimeField(_("max duration"), null=True, blank=True)
     exit_timestamp = models.DateTimeField(_("exit timestamp"), null=True, blank=True)
     exit_price = BigDecimalField(_("exit price"), null=True, blank=True)
+    # Outcome
     exit_reason = models.CharField(
         _("exit reason"),
         max_length=50,
@@ -49,18 +63,25 @@ class Position(models.Model):
         null=True,
         blank=True,
     )
-    side = models.SmallIntegerField(_("side"))
-    size = BigDecimalField(_("size"))
-    fees = BigDecimalField(_("fees"), null=True, blank=True)
+    bars_held = models.IntegerField(
+        _("bars held"),
+        null=True,
+        blank=True,
+        help_text=_("Number of bars position was held"),
+    )
+    # Status & metadata
     status = models.CharField(
         _("status"),
         max_length=20,
         choices=PositionStatus.choices,
         default=PositionStatus.PENDING,
     )
-    json_data = JSONField(_("json data"), null=True, blank=True)
-    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
-    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+    json_data = JSONField(
+        _("json data"),
+        null=True,
+        blank=True,
+        help_text=_("Additional data: p_touch_lower, p_touch_upper, width, asymmetry"),
+    )
 
     class Meta:
         db_table = "quant_tick_position"
@@ -68,7 +89,7 @@ class Position(models.Model):
         verbose_name_plural = _("positions")
         ordering = ["-entry_timestamp"]
         indexes = [
-            models.Index(fields=["ml_run", "position_type"]),
+            models.Index(fields=["ml_config", "position_type"]),
             models.Index(fields=["position_type", "status"]),
             models.Index(fields=["entry_timestamp"]),
         ]

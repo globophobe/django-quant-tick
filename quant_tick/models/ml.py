@@ -77,7 +77,7 @@ class MLConfig(AbstractCodeName):
 
 
 class MLArtifact(models.Model):
-    """ML model artifact (serialized Random Forest model)."""
+    """ML Artifact."""
 
     ml_config = models.ForeignKey(
         "quant_tick.MLConfig",
