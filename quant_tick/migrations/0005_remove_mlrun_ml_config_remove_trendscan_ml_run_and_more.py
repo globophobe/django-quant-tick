@@ -287,4 +287,13 @@ class Migration(migrations.Migration):
         migrations.DeleteModel(
             name='MLRun',
         ),
+        migrations.RemoveField(
+            model_name='mlconfig',
+            name='lookback_bars',
+        ),
+        migrations.AddField(
+            model_name='mlconfig',
+            name='inference_lookback',
+            field=models.IntegerField(default=100, help_text='Number of bars to fetch for inference', verbose_name='inference lookback'),
+        ),
     ]
