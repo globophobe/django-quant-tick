@@ -21,7 +21,6 @@ pandas = "*"
 pyarrow = "*"
 randomname = "*"
 scikit-learn = "*"
-scikit-survival = "*"
 seaborn = "*"
 shap = "*"
 
