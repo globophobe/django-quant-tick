@@ -218,7 +218,7 @@ def generate_multi_config_labels(
 ) -> DataFrame:
     """Generate per-horizon touch labels for multiple bound configurations.
 
-    One row per bar+config, no person-period expansion. Direct binary targets per horizon.
+    One row per bar+config. Direct binary targets per horizon.
 
     Args:
         df: DataFrame with features and 'close' column

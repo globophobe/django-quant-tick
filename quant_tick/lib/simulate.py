@@ -97,39 +97,6 @@ def _run_backtest(
     asymmetries = config.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
     decision_horizons = config.json_data.get("decision_horizons", [60, 120, 180])
 
-    # Convert person-period format to bar-level if needed
-    if "t" in df.columns:
-        logger.info(f"{config}: detected person-period data, aggregating to bar-level")
-
-        # Group by bar_idx, width, asymmetry and take first interval deterministically
-        # This ensures correct bar-level data regardless of input ordering
-        group_cols = ["bar_idx", "width", "asymmetry"]
-        n_person_period_rows = len(df)
-
-        # Sort by t within groups to ensure we get t=1 consistently
-        df = df.sort_values(group_cols + ["t"])
-
-        # Take first row of each group (which will be t=1 after sorting)
-        df = df.groupby(group_cols, as_index=False).first()
-
-        # Remove person-period specific columns
-        person_period_cols = ["t", "hazard_lower", "hazard_upper", "bar_config_id"]
-        df = df.drop(columns=[c for c in person_period_cols if c in df.columns])
-
-        # Explicitly sort after aggregation to ensure correct ordering
-        if "bar_idx" in df.columns and "config_id" in df.columns:
-            df = df.sort_values(["bar_idx", "config_id"]).reset_index(drop=True)
-
-            # Validate structure after person-period aggregation
-            is_valid, error = MLSchema.validate_bar_config_structure(df, widths, asymmetries)
-            if not is_valid:
-                raise ValueError(f"Person-period aggregation broke structure: {error}")
-
-        logger.info(
-            f"{config}: aggregated from {n_person_period_rows} person-period rows "
-            f"to {len(df)} bar-level rows"
-        )
-
     # Build bar-level price data for efficient lookup
     # Use GroupBy instead of arithmetic to handle reordered data
     n_configs = len(widths) * len(asymmetries)

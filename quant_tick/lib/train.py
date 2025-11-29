@@ -77,8 +77,7 @@ def train_model_core(
     3. Calibrate on holdout set (isotonic or Platt)
     4. Return models + metrics
 
-    This is NOT a hazard model or survival model. It's just per-horizon
-    logistic regression with trees.
+    This is a per-horizon logistic regression with trees.
 
     Args:
         df: Feature dataframe with per-horizon binary targets (hit_lower_by_H, etc)

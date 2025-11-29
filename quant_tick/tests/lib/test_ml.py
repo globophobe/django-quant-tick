@@ -29,8 +29,8 @@ class GenerateMultiConfigLabelsTest(TestCase):
             }
         )
 
-    def test_augments_data(self):
-        """Multi-config labels generate person-period expanded data."""
+    def test_one_bar_per_config(self):
+        """Generate multi config labels should have one bar per config."""
         widths = [0.03, 0.05]
         asymmetries = [-0.2, 0, 0.2]
 
@@ -41,7 +41,6 @@ class GenerateMultiConfigLabelsTest(TestCase):
             decision_horizons=[60, 120, 180],
         )
 
-        # Should have one row per bar per config (no person-period expansion)
         n_rows_expected = (len(self.df) - 1) * len(widths) * len(asymmetries)
         self.assertEqual(len(result), n_rows_expected)
 
@@ -71,15 +70,9 @@ class GenerateMultiConfigLabelsTest(TestCase):
             decision_horizons=decision_horizons,
         )
 
-        # Should have per-horizon label columns
         for h in decision_horizons:
             self.assertIn(f"hit_lower_by_{h}", result.columns)
             self.assertIn(f"hit_upper_by_{h}", result.columns)
-
-        # Should NOT have person-period columns
-        self.assertNotIn("t", result.columns)
-        self.assertNotIn("hazard_lower", result.columns)
-        self.assertNotIn("hazard_upper", result.columns)
 
     def test_interleaved_ordering(self):
         """Generate multi config labels produces interleaved ordering for backtest indexing."""
