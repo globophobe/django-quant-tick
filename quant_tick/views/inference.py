@@ -1,205 +1,269 @@
 import logging
-from decimal import Decimal
+import pickle
+from io import BytesIO
+from typing import Any
 
-import numpy as np
+import joblib
 import pandas as pd
 from django.utils import timezone
 from rest_framework.generics import ListAPIView
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from quant_tick.execution.order_submission import create_and_submit_positions
-from quant_tick.lib.ml import trigger_ml_inference
-from quant_tick.lib.trend_scanning import (
-    detect_break,
-    generate_trend_windows,
-    rank_trends,
-    scan_trends,
+from quant_tick.lib.labels import _compute_features
+from quant_tick.lib.ml import (
+    DEFAULT_ASYMMETRIES,
+    DEFAULT_WIDTHS,
+    apply_calibration,
+    compute_bound_features,
+    enforce_monotonicity,
+    find_optimal_config,
+    prepare_features,
 )
-from quant_tick.models import CandleData, MLConfig, Position, TrendAlert, TrendScan
+from quant_tick.lib.schema import MLSchema
+from quant_tick.models import CandleData, MLArtifact, MLConfig, MLSignal
 
 logger = logging.getLogger(__name__)
 
 
 class InferenceView(ListAPIView):
-    """Inference view."""
+    """Inference API."""
 
     queryset = MLConfig.objects.filter(is_active=True)
 
-    def get(self, request: Request, *args, **kwargs) -> Response:
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Run inference for each active MLConfig."""
+        results = []
+
         for cfg in self.get_queryset():
-            candle = cfg.candle
-            lookback_bars = cfg.json_data.get("lookback_bars", 50)
+            result = self._run_inference(cfg)
+            results.append(result)
 
-            latest_candle = (
-                CandleData.objects.filter(candle=candle)
-                .order_by("-timestamp")
-                .first()
-            )
-            if not latest_candle:
-                logger.info(f"{cfg}: no CandleData available, skipping")
-                continue
+        return Response({"ok": True, "results": results})
 
-            timestamp_to = latest_candle.timestamp
+    def _run_inference(self, cfg: MLConfig) -> dict:
+        """Run inference for a single MLConfig."""
+        # Get decision horizons from config
+        decision_horizons = cfg.json_data.get("decision_horizons", [60, 120, 180])
 
-            if cfg.last_candle_data:
-                timestamp_from = cfg.last_candle_data.timestamp
-            else:
-                total_bars = CandleData.objects.filter(candle=candle).count()
-                if total_bars < lookback_bars:
-                    logger.info(
-                        f"{cfg}: insufficient data ({total_bars}/{lookback_bars} bars)"
-                    )
-                    continue
+        # Load per-horizon models
+        lower_models = {}  # {horizon: (model, calibrator, calibration_method)}
+        upper_models = {}  # {horizon: (model, calibrator, calibration_method)}
 
-                timestamp_from = latest_candle.timestamp
-
+        for h in decision_horizons:
+            # Load lower model
             try:
-                signals = trigger_ml_inference(candle, timestamp_from, timestamp_to)
-                if signals:
-                    count = len(signals)
-                    logger.info(f"{cfg}: created {count} signals")
+                artifact = cfg.ml_artifacts.get(model_type=f"lower_h{h}")
+                model = self._load_model(artifact)
+                calibrator, calibration_method = self._load_calibrator(artifact)
+                if model is not None:
+                    lower_models[h] = (model, calibrator, calibration_method)
+            except MLArtifact.DoesNotExist:
+                logger.warning(f"{cfg}: missing lower_h{h} artifact")
+                return {"config": cfg.code_name, "error": f"missing lower_h{h} model"}
 
-                    submitted = create_and_submit_positions(candle, signals)
-                    if submitted > 0:
-                        logger.info(f"{cfg}: submitted {submitted} positions")
+            # Load upper model
+            try:
+                artifact = cfg.ml_artifacts.get(model_type=f"upper_h{h}")
+                model = self._load_model(artifact)
+                calibrator, calibration_method = self._load_calibrator(artifact)
+                if model is not None:
+                    upper_models[h] = (model, calibrator, calibration_method)
+            except MLArtifact.DoesNotExist:
+                logger.warning(f"{cfg}: missing upper_h{h} artifact")
+                return {"config": cfg.code_name, "error": f"missing upper_h{h} model"}
 
-                    cfg.last_candle_data = latest_candle
-                    cfg.save(update_fields=["last_candle_data"])
-            except Exception as e:
-                logger.error(f"{cfg}: inference failed - {e}")
+        if not lower_models or not upper_models:
+            return {"config": cfg.code_name, "error": "failed to load models"}
 
-            if cfg.json_data.get("trend_scan", {}).get("enable_live_monitoring", False):
-                try:
-                    _run_trend_monitoring(cfg)
-                except Exception as e:
-                    logger.error(f"{cfg}: trend monitoring failed - {e}")
+        # Get feature columns from one of the artifacts
+        first_artifact = cfg.ml_artifacts.filter(model_type__startswith="lower_h").first()
+        feature_cols = first_artifact.feature_columns if first_artifact else []
 
-        return Response({"ok": True})
+        # Get recent candle data
+        features_df = self._get_latest_features(cfg)
+        if features_df is None or len(features_df) == 0:
+            logger.warning(f"{cfg}: no feature data available")
+            return {"config": cfg.code_name, "error": "no data"}
 
+        # Check for missing features
+        # Get decision horizons for schema filtering
+        decision_horizons = cfg.json_data.get("decision_horizons", [60, 120, 180])
 
-def _run_trend_monitoring(cfg: MLConfig) -> None:
-    """Run trend scanning on recent realized returns and alert on structural breaks."""
-    trend_cfg = cfg.json_data.get("trend_scan", {})
-    monitoring_window = trend_cfg.get("monitoring_window_bars", 1000)
-    window_sizes = trend_cfg.get("window_sizes", [250, 500, 1000])
-    window_step = trend_cfg.get("step", 100)
-    min_obs = trend_cfg.get("min_obs", 100)
-    method = trend_cfg.get("method", "sharpe")
-    threshold = trend_cfg.get("break_threshold", 1.5)
-    alert_action = trend_cfg.get("alert_action", "notification")
+        # Use centralized schema to get data features (excludes config cols added during prediction)
+        data_feature_cols = MLSchema.get_data_features(feature_cols, decision_horizons)
+        available_cols = set(features_df.columns)
+        missing_cols = [c for c in data_feature_cols if c not in available_cols]
+        if missing_cols:
+            raise ValueError(
+                f"{cfg}: Cannot run inference - {len(missing_cols)} required feature(s) missing: "
+                f"{', '.join(missing_cols[:10])}{'...' if len(missing_cols) > 10 else ''}. "
+                f"Model expects features: {data_feature_cols}. "
+                f"Ensure all features are available in candle data."
+            )
 
-    recent_positions = Position.objects.filter(
-        ml_run__ml_config=cfg,
-        position_type="live",
-        exit_timestamp__isnull=False
-    ).order_by("-exit_timestamp")[:monitoring_window]
+        # Get the latest bar's features
+        latest = features_df.iloc[[-1]].copy()
 
-    if recent_positions.count() < min_obs:
-        logger.debug(f"{cfg}: insufficient positions for trend monitoring ({recent_positions.count()}/{min_obs})")
-        return
+        # Prediction workflow for range touch probabilities:
+        #
+        # 1. Load trained models (one per horizon+side, e.g., lower_h60, upper_h180)
+        # 2. For each horizon H:
+        #    - Get raw model prediction: P_raw(hit_by_H)
+        #    - Apply calibrator: P_cal = calibrator.transform(P_raw)
+        #    - Store in horizon_probs dict
+        # 3. Enforce monotonicity: P_60 ≤ P_120 ≤ P_180 (cumulative max)
+        # 4. Return monotone probabilities
+        #
+        # These probabilities represent: "What % chance does this bound get touched
+        # within the next H bars, given current features?"
+        #
+        # NOT predicted: direction, magnitude, timing within horizon, fee earnings
 
-    positions = list(recent_positions.reverse())
+        # Create prediction functions for per-horizon direct classifiers
+        def predict_lower(features: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
+            """Predict max risk across horizons for lower bound using per-horizon models."""
+            feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
 
-    returns = []
-    timestamps = []
-    for pos in positions:
-        if pos.side == 1:
-            pnl = (pos.exit_price - pos.entry_price) / pos.entry_price if pos.exit_price else Decimal("0")
-        else:
-            pnl = (pos.entry_price - pos.exit_price) / pos.entry_price if pos.exit_price else Decimal("0")
-        returns.append(float(pnl))
-        timestamps.append(pos.entry_timestamp)
+            # Align to training columns with missing indicators and sentinel
+            X_inference, _ = prepare_features(feat_with_bounds, feature_cols)
 
-    returns = np.array(returns)
+            # Predict P(hit_lower_by_H) for each horizon
+            horizon_probs = {}
+            for h, (model, calibrator, calibration_method) in lower_models.items():
+                proba = model.predict_proba(X_inference)[0, 1]
 
-    df = pd.DataFrame({'timestamp': timestamps})
-    windows = generate_trend_windows(df, window_sizes, window_step, min_obs)
+                # Apply calibration if available
+                proba = apply_calibration(proba, calibrator, calibration_method)
 
-    if not windows:
-        logger.debug(f"{cfg}: no valid windows for trend monitoring")
-        return
+                horizon_probs[h] = proba
 
-    scan_results = scan_trends(returns, None, None, windows, 0, method)
-    top_trends = rank_trends(scan_results, top_k=5)
+            # Enforce monotonicity: P(hit_by_H) must be non-decreasing
+            horizon_probs = enforce_monotonicity(horizon_probs)
 
-    now = timezone.now()
-    for trend_result in top_trends[:1]:
-        window = trend_result['window']
-        stat = trend_result['statistic']
+            # Return max risk across horizons (conservative)
+            return float(max(horizon_probs.values()))
 
-        TrendScan.objects.create(
-            ml_config=cfg,
-            ml_run=None,
-            timestamp=now,
-            window_start_idx=window['start_idx'],
-            window_end_idx=window['end_idx'],
-            window_size=window['size'],
-            timestamp_start=window['timestamp_start'],
-            timestamp_end=window['timestamp_end'],
-            score=Decimal(str(stat['score'])),
-            mean_return=Decimal(str(stat['mean'])),
-            std_return=Decimal(str(stat['std'])),
-            p_value=Decimal(str(stat['p_value'])),
-            n_events=trend_result['n_events'],
-            method=method,
-            returns_type="realized_pnl"
+        def predict_upper(features: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
+            """Predict max risk across horizons for upper bound using per-horizon models."""
+            feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
+
+            # Align to training columns with missing indicators and sentinel
+            X_inference, _ = prepare_features(feat_with_bounds, feature_cols)
+
+            # Predict P(hit_upper_by_H) for each horizon
+            horizon_probs = {}
+            for h, (model, calibrator, calibration_method) in upper_models.items():
+                proba = model.predict_proba(X_inference)[0, 1]
+                proba = apply_calibration(proba, calibrator, calibration_method)
+                horizon_probs[h] = proba
+
+            # Enforce monotonicity
+            horizon_probs = enforce_monotonicity(horizon_probs)
+
+            # Return max risk across horizons
+            return float(max(horizon_probs.values()))
+
+        # Find optimal config
+        widths = cfg.json_data.get("widths", DEFAULT_WIDTHS)
+        asymmetries = cfg.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
+
+        optimal = find_optimal_config(
+            predict_lower,
+            predict_upper,
+            latest,
+            touch_tolerance=cfg.touch_tolerance,
+            widths=widths,
+            asymmetries=asymmetries,
         )
 
-    previous_scans = TrendScan.objects.filter(
-        ml_config=cfg,
-        ml_run__isnull=True,
-        returns_type="realized_pnl"
-    ).order_by("-timestamp")[:2]
+        if optimal is None:
+            logger.info(f"{cfg}: no valid config found")
+            return {"config": cfg.code_name, "error": "no valid config"}
 
-    if previous_scans.count() >= 2:
-        current_scan_records = [previous_scans[0]]
-        previous_scan_records = [previous_scans[1]]
+        timestamp = latest["timestamp"].iloc[0] if "timestamp" in latest.columns else timezone.now()
 
-        current_scan = [
-            {
-                'window': {'size': s.window_size},
-                'statistic': {'score': float(s.score)},
-                'n_events': s.n_events
-            }
-            for s in current_scan_records
-        ]
-        previous_scan = [
-            {
-                'window': {'size': s.window_size},
-                'statistic': {'score': float(s.score)},
-                'n_events': s.n_events
-            }
-            for s in previous_scan_records
-        ]
+        # Skip if already processed.
+        if cfg.last_processed_timestamp and timestamp <= cfg.last_processed_timestamp:
+            logger.info(f"{cfg}: skipping already processed bar at {timestamp}")
+            return {"config": cfg.code_name, "skipped": True, "timestamp": str(timestamp)}
 
-        break_info = detect_break(current_scan, previous_scan, threshold, top_k=5)
+        # Create MLSignal
+        signal = MLSignal.objects.create(
+            ml_config=cfg,
+            timestamp=timestamp,
+            lower_bound=optimal.lower_pct,
+            upper_bound=optimal.upper_pct,
+            borrow_ratio=optimal.borrow_ratio,
+            p_touch_lower=optimal.p_touch_lower,
+            p_touch_upper=optimal.p_touch_upper,
+            json_data={
+                "width": optimal.width,
+                "asymmetry": optimal.asymmetry,
+            },
+        )
 
-        if break_info['break_detected']:
-            logger.warning(f"{cfg}: structural break detected - {break_info['message']}")
+        cfg.last_processed_timestamp = timestamp
+        cfg.save(update_fields=["last_processed_timestamp"])
 
-            TrendAlert.objects.create(
-                ml_config=cfg,
-                timestamp=now,
-                current_top_score=Decimal(str(break_info['current_top_score'])),
-                previous_top_score=Decimal(str(break_info['previous_top_score'])) if break_info['previous_top_score'] else None,
-                deterioration=Decimal(str(break_info['deterioration'])) if break_info['deterioration'] else None,
-                threshold=Decimal(str(threshold)),
-                action=alert_action,
-                window_metadata={'top_trends': [
-                    {
-                        'window_size': t['window']['size'],
-                        'score': t['statistic']['score'],
-                        'n_events': t['n_events']
-                    }
-                    for t in top_trends
-                ]},
-                status="active",
-                message=break_info['message']
-            )
+        logger.info(
+            f"{cfg}: signal created - bounds=[{optimal.lower_pct:.3f}, {optimal.upper_pct:.3f}], "
+            f"borrow_ratio={optimal.borrow_ratio:.2f}"
+        )
 
-            if alert_action == "pause_trading":
-                cfg.is_active = False
-                cfg.save(update_fields=["is_active"])
-                logger.warning(f"{cfg}: trading paused due to structural break")
+        return {
+            "config": cfg.code_name,
+            "signal_id": signal.id,
+            "lower_bound": optimal.lower_pct,
+            "upper_bound": optimal.upper_pct,
+            "borrow_ratio": optimal.borrow_ratio,
+            "p_touch_lower": optimal.p_touch_lower,
+            "p_touch_upper": optimal.p_touch_upper,
+        }
+
+    def _load_model(self, artifact: MLArtifact) -> Any:
+        """Load model."""
+        try:
+            artifact.artifact.seek(0)
+            buf = BytesIO(artifact.artifact.read())
+            return joblib.load(buf)
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+            return None
+
+    def _load_calibrator(self, artifact: MLArtifact) -> tuple[Any, str]:
+        """Load calibrator.
+
+        Returns:
+            Tuple of (calibrator, calibration_method)
+        """
+        if not artifact.calibrator:
+            return None, "none"
+        try:
+            calibrator = pickle.loads(artifact.calibrator)
+            calibration_method = artifact.calibration_method
+            return calibrator, calibration_method
+        except Exception as e:
+            logger.warning(f"Failed to load calibrator: {e}")
+            return None, "none"
+
+    def _get_latest_features(self, config: MLConfig) -> pd.DataFrame | None:
+        """Get latest features."""
+        candle_data = (
+            CandleData.objects.filter(candle=config.candle)
+            .order_by("-timestamp")[:config.inference_lookback]
+        )
+
+        if not candle_data:
+            return None
+
+        df = pd.DataFrame([
+            {"timestamp": cd.timestamp, **cd.json_data}
+            for cd in reversed(candle_data)
+        ])
+
+        if df.empty:
+            return None
+
+        df = _compute_features(df)
+        return df.dropna(subset=["close"]) if "close" in df.columns else df
