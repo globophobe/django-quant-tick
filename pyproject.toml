@@ -22,7 +22,6 @@ pyarrow = "*"
 randomname = "*"
 scikit-learn = "*"
 seaborn = "*"
-shap = "*"
 
 [tool.poetry.dev-dependencies]
 coverage = "*"
