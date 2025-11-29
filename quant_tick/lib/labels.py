@@ -2,7 +2,7 @@ import hashlib
 import logging
 
 import numpy as np
-import pandas as pd
+from pandas import DataFrame
 
 from quant_tick.lib.ml import (
     DEFAULT_ASYMMETRIES,
@@ -14,27 +14,97 @@ from quant_tick.models import Candle, MLConfig, MLFeatureData, Symbol
 logger = logging.getLogger(__name__)
 
 
+def generate_labels_from_config(config: MLConfig) -> MLFeatureData | None:
+    """Generate labels from config.
+
+    Args:
+        config: MLConfig instance with candle, symbol, json_data
+
+    Returns:
+        MLFeatureData if successful, None otherwise
+    """
+    candle = config.candle
+    decision_horizons = config.json_data.get("decision_horizons", [60, 120, 180])
+    widths = config.json_data.get("widths", DEFAULT_WIDTHS)
+    asymmetries = config.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
+    min_bars = 1000
+
+    # Load candle data
+    df = candle.get_candle_data()
+    if df is None or len(df) < min_bars:
+        n = len(df) if df is not None else 0
+        logger.error(f"{config}: insufficient data ({n}/{min_bars})")
+        return None
+
+    logger.info(f"{config}: loaded {len(df)} bars with {len(df.columns)} columns")
+
+    # Compute derived features from per-exchange columns
+    df = _compute_features(df)
+
+    # Generate labels
+    labeled = generate_multi_config_labels(
+        df,
+        widths=widths,
+        asymmetries=asymmetries,
+        decision_horizons=decision_horizons,
+    )
+
+    n_configs = len(widths) * len(asymmetries)
+    logger.info(
+        f"{config}: generated {len(labeled)} rows "
+        f"({len(df)} bars x {n_configs} configs)"
+    )
+
+    # Compute schema hash
+    schema_cols = sorted(labeled.columns.tolist())
+    schema_hash = hashlib.sha256(",".join(schema_cols).encode()).hexdigest()[:16]
+
+    # Save to MLFeatureData (don't modify config)
+    timestamp_from = df["timestamp"].min()
+    timestamp_to = df["timestamp"].max()
+
+    feature_data, created = MLFeatureData.objects.get_or_create(
+        candle=candle,
+        timestamp_from=timestamp_from,
+        timestamp_to=timestamp_to,
+        defaults={"schema_hash": schema_hash},
+    )
+
+    feature_data.file_data = MLFeatureData.prepare_data(labeled)
+    feature_data.schema_hash = schema_hash
+    feature_data.save()
+
+    action = "Created" if created else "Updated"
+    logger.info(
+        f"{action} MLFeatureData: {timestamp_from} to {timestamp_to}, "
+        f"schema={schema_hash}"
+    )
+
+    return feature_data
+
+
 def generate_labels(
     candle: Candle,
     symbol: Symbol,
-    horizon_bars: int = 60,
+    decision_horizons: list[int] | None = None,
     min_bars: int = 1000,
     widths: list[float] | None = None,
     asymmetries: list[float] | None = None,
 ) -> MLConfig | None:
-    """Generate ML labels and feature data.
+    """Generate labels.
 
     Args:
         candle: Candle to generate labels for
         symbol: Symbol for position tracking
-        horizon_bars: Prediction horizon in bars
+        decision_horizons: List of decision horizons in bars
         min_bars: Minimum bars required
-        widths: Range widths (default: DEFAULT_WIDTHS)
-        asymmetries: Asymmetries (default: DEFAULT_ASYMMETRIES)
+        widths: Range widths
+        asymmetries: Asymmetries
 
     Returns:
-        MLConfig if successful, None otherwise
+        MLConfig or None
     """
+    decision_horizons = decision_horizons or [60, 120, 180]
     widths = widths or DEFAULT_WIDTHS
     asymmetries = asymmetries or DEFAULT_ASYMMETRIES
 
@@ -55,7 +125,7 @@ def generate_labels(
         df,
         widths=widths,
         asymmetries=asymmetries,
-        horizon_bars=horizon_bars,
+        decision_horizons=decision_horizons,
     )
 
     n_configs = len(widths) * len(asymmetries)
@@ -69,12 +139,14 @@ def generate_labels(
     schema_hash = hashlib.sha256(",".join(schema_cols).encode()).hexdigest()[:16]
 
     # Get or create MLConfig
+    max_horizon = max(decision_horizons)
     config, created = MLConfig.objects.get_or_create(
         candle=candle,
         symbol=symbol,
         defaults={
-            "horizon_bars": horizon_bars,
+            "horizon_bars": max_horizon,
             "json_data": {
+                "decision_horizons": decision_horizons,
                 "widths": widths,
                 "asymmetries": asymmetries,
             },
@@ -107,69 +179,95 @@ def generate_labels(
     return config
 
 
-def _is_multi_exchange(df: pd.DataFrame) -> bool:
-    """Check if dataframe has per-exchange columns like binanceClose, coinbaseClose."""
+def _compute_features(df: DataFrame) -> DataFrame:
+    """Compute features."""
+    if _is_multi_exchange(df):
+        return _compute_multi_exchange_features(df)
+    else:
+        return _compute_single_exchange_features(df)
+
+
+def _is_multi_exchange(df: DataFrame) -> bool:
+    """Is multi exchange?"""
     return any(c.endswith("Close") and c != "close" for c in df.columns)
 
 
-def _compute_single_exchange_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute features for single-exchange candle data."""
-    result = df.copy()
-    if "close" not in df.columns:
-        logger.warning("No close column found in candle data")
-        return result
+def _compute_single_exchange_features(data_frame: DataFrame) -> DataFrame:
+    """Compute single exchange features."""
+    df = data_frame.copy()
+    returns = df["close"].pct_change()
 
-    ret = df["close"].pct_change()
-    result["realizedVol"] = ret.rolling(20).std()
-    result["realizedVol5"] = ret.rolling(5).std()
-    return result
+    # Volatility features
+    df["realizedVol"] = returns.rolling(20).std()
+    df["realizedVol5"] = returns.rolling(5).std()
+
+    # Vol regime indicators
+    vol_slow = returns.rolling(60).std()
+    df["volRatio"] = df["realizedVol5"] / df["realizedVol"]
+    df["volZScore"] = (df["realizedVol"] - vol_slow) / vol_slow.rolling(60).std()
+    df["volPercentile"] = df["realizedVol"].rolling(100).rank(pct=True)
+    df["isHighVol"] = (df["volPercentile"] > 0.75).astype(int)
+    df["isLowVol"] = (df["volPercentile"] < 0.25).astype(int)
+
+    # Rolling Sharpe ratio (momentum quality)
+    rolling_mean = returns.rolling(20).mean()
+    rolling_std = returns.rolling(20).std()
+    df["rollingSharpe20"] = rolling_mean / (rolling_std + 1e-8)
+
+    return df
 
 
-def _compute_multi_exchange_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute features for multi-exchange candle data."""
-    result = df.copy()
+def _compute_multi_exchange_features(data_frame: DataFrame) -> DataFrame:
+    """Compute multi exchange features."""
+    df = data_frame.copy()
 
-    close_cols = [c for c in df.columns if c.endswith("Close") and c != "close"]
+    close_cols = [c for c in data_frame.columns if c.endswith("Close") and c != "close"]
     canonical_col = close_cols[0]
     canonical_name = canonical_col.replace("Close", "")
-    canonical_close = df[canonical_col]
+    canonical_close = data_frame[canonical_col]
 
     if "close" not in df.columns:
-        result["close"] = canonical_close
+        df["close"] = canonical_close
 
-    canonical_ret = canonical_close.pct_change()
-    result[f"{canonical_name}Ret"] = canonical_ret
+    canonical_returns = canonical_close.pct_change()
+    df[f"{canonical_name}Ret"] = canonical_returns
 
     for close_col in close_cols[1:]:
         other_name = close_col.replace("Close", "")
         other_close = df[close_col]
 
-        result[f"{other_name}Missing"] = other_close.isna().astype(int)
-        result[f"basis{other_name.title()}"] = other_close - canonical_close
-        result[f"basisPct{other_name.title()}"] = (other_close - canonical_close) / canonical_close
+        df[f"{other_name}Missing"] = other_close.isna().astype(int)
+        df[f"basis{other_name.title()}"] = other_close - canonical_close
+        df[f"basisPct{other_name.title()}"] = (other_close - canonical_close) / canonical_close
 
-        other_ret = other_close.pct_change()
-        result[f"{other_name}Ret"] = other_ret
-        result[f"retDivergence{other_name.title()}"] = other_ret - canonical_ret
+        other_returns = other_close.pct_change()
+        df[f"{other_name}Ret"] = other_returns
+        df[f"retDivergence{other_name.title()}"] = other_returns - canonical_returns
 
         for lag in [1, 2, 3, 5]:
-            result[f"{other_name}RetLag{lag}"] = other_ret.shift(lag)
+            df[f"{other_name}RetLag{lag}"] = other_returns.shift(lag)
 
         other_vol_col = f"{other_name}Volume"
         canon_vol_col = f"{canonical_name}Volume"
         if other_vol_col in df.columns and canon_vol_col in df.columns:
-            result[f"volRatio{other_name.title()}"] = (
+            df[f"volRatio{other_name.title()}"] = (
                 df[other_vol_col] / df[canon_vol_col].replace(0, np.nan)
             )
 
-    result["realizedVol"] = canonical_ret.rolling(20).std()
-    result["realizedVol5"] = canonical_ret.rolling(5).std()
+    # Volatility features
+    df["realizedVol"] = canonical_returns.rolling(20).std()
+    df["realizedVol5"] = canonical_returns.rolling(5).std()
 
-    return result
+    # Vol regime indicators
+    vol_slow = canonical_returns.rolling(60).std()
+    df["volRatio"] = df["realizedVol5"] / df["realizedVol"]
+    df["volZScore"] = (df["realizedVol"] - vol_slow) / vol_slow.rolling(60).std()
+    df["volPercentile"] = df["realizedVol"].rolling(100).rank(pct=True)
+    df["isHighVol"] = (df["volPercentile"] > 0.75).astype(int)
+    df["isLowVol"] = (df["volPercentile"] < 0.25).astype(int)
 
-
-def _compute_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute derived features from candle data."""
-    if _is_multi_exchange(df):
-        return _compute_multi_exchange_features(df)
-    return _compute_single_exchange_features(df)
+    # Rolling Sharpe ratio
+    rolling_mean = canonical_returns.rolling(20).mean()
+    rolling_std = canonical_returns.rolling(20).std()
+    df["rollingSharpe20"] = rolling_mean / (rolling_std + 1e-8)
+    return df
