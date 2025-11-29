@@ -1,5 +1,3 @@
-"""Generate ML labels for LP range optimization."""
-
 import logging
 from typing import Any
 
@@ -13,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    """Generate ML labels for training ML models."""
+    """Generate ML labels."""
 
     help = "Generate ML labels across multiple bound configurations"
 
@@ -32,10 +30,10 @@ class Command(BaseCommand):
             help="Symbol code name for position tracking",
         )
         parser.add_argument(
-            "--horizon-bars",
-            type=int,
-            default=60,
-            help="Prediction horizon in bars (default: 60)",
+            "--decision-horizons",
+            type=str,
+            default=None,
+            help="Comma-separated decision horizons in bars (e.g., '60,120,180')",
         )
         parser.add_argument(
             "--min-bars",
@@ -60,8 +58,14 @@ class Command(BaseCommand):
         """Run command."""
         candle_code = options["candle"]
         symbol_code = options["symbol"]
-        horizon_bars = options["horizon_bars"]
         min_bars = options["min_bars"]
+
+        horizons_str = options.get("decision_horizons")
+        decision_horizons = (
+            [int(x) for x in horizons_str.split(",")]
+            if horizons_str
+            else [60, 120, 180]
+        )
 
         widths_str = options.get("widths")
         widths = (
@@ -92,7 +96,7 @@ class Command(BaseCommand):
         generate_labels(
             candle=candle,
             symbol=symbol,
-            horizon_bars=horizon_bars,
+            decision_horizons=decision_horizons,
             min_bars=min_bars,
             widths=widths,
             asymmetries=asymmetries,

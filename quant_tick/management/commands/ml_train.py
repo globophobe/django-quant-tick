@@ -1,5 +1,3 @@
-"""Train ML models using Random Forest."""
-
 import logging
 from typing import Any
 
@@ -12,71 +10,89 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    """Train Random Forest ML models."""
+    """Train ML model."""
 
-    help = "Train ML models for upper/lower bound prediction"
+    help = "Train per-horizon ML model for upper/lower bound touch prediction."
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
         parser.add_argument(
-            "--config-code-name",
+            "--code-name",
             type=str,
             required=True,
-            help="MLConfig code name",
+            help="MLConfig",
         )
         parser.add_argument(
             "--n-splits",
             type=int,
             default=5,
-            help="Number of CV folds (default: 5)",
+            help="Number of CV folds",
         )
         parser.add_argument(
             "--embargo-bars",
             type=int,
             default=96,
-            help="Embargo period in bars (default: 96)",
+            help="Embargo bars between folds",
         )
         parser.add_argument(
             "--n-estimators",
             type=int,
-            default=500,
-            help="Number of trees (default: 500)",
+            default=300,
+            help="Number of boosting iterations",
         )
         parser.add_argument(
             "--max-depth",
             type=int,
-            default=None,
-            help="Max tree depth (default: None, unlimited)",
+            default=6,
+            help="Max tree depth",
         )
         parser.add_argument(
             "--min-samples-leaf",
             type=int,
             default=50,
-            help="Minimum samples per leaf (default: 50)",
+            help="Minimum samples per leaf",
         )
         parser.add_argument(
-            "--max-features",
-            type=str,
-            default="sqrt",
-            help="Max features per split (default: sqrt)",
+            "--learning-rate",
+            type=float,
+            default=0.05,
+            help="Boosting learning rate",
+        )
+        parser.add_argument(
+            "--subsample",
+            type=float,
+            default=0.75,
+            help="Fraction of samples for each tree",
+        )
+        parser.add_argument(
+            "--holdout-pct",
+            type=float,
+            default=0.2,
+            help="Holdout percentage",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
         """Run command."""
-        config_code = options["config_code_name"]
-
+        code_name = options["code_name"]
         try:
-            config = MLConfig.objects.get(code_name=config_code)
+            config = MLConfig.objects.get(code_name=code_name)
         except MLConfig.DoesNotExist:
-            logger.error(f"MLConfig '{config_code}' not found")
+            logger.error(f"MLConfig '{code_name}' not found")
             return
 
-        train_models(
+        success = train_models(
             config=config,
             n_splits=options["n_splits"],
             embargo_bars=options["embargo_bars"],
             n_estimators=options["n_estimators"],
             max_depth=options["max_depth"],
             min_samples_leaf=options["min_samples_leaf"],
-            max_features=options["max_features"],
+            learning_rate=options["learning_rate"],
+            subsample=options["subsample"],
+            holdout_pct=options["holdout_pct"],
         )
+
+        if success:
+            self.stdout.write(self.style.SUCCESS(f"✓ Training complete for {config}"))
+        else:
+            self.stderr.write(self.style.ERROR(f"✗ Training failed for {config}"))
