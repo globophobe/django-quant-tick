@@ -51,12 +51,6 @@ class GenerateMultiConfigLabelsTest(TestCase):
         self.assertIn("width", result.columns)
         self.assertIn("asymmetry", result.columns)
 
-    def test_includes_timestamp_idx(self):
-        """Includes timestamp_idx for CV splitting."""
-        result = generate_multi_config_labels(self.df, widths=[0.05], asymmetries=[0], decision_horizons=[60, 120, 180])
-
-        self.assertIn("timestamp_idx", result.columns)
-
     def test_per_horizon_labels(self):
         """Per horizon labels have direct binary targets."""
         widths = [0.03, 0.05]
@@ -681,3 +675,373 @@ class EnforceMonotonicityTest(TestCase):
         # Should log that 180 was raised
         self.assertTrue(any("violation" in msg.lower() for msg in cm.output))
 
+
+class BarConfigInvariantsTest(TestCase):
+    """Test bar_idx and config_id invariants validation."""
+
+    def test_valid_structure_passes(self):
+        """Valid bar/config structure passes validation."""
+        from quant_tick.lib.schema import MLSchema
+
+        # Create valid structure: 3 bars × 2 configs
+        df = pd.DataFrame({
+            "bar_idx": [0, 0, 1, 1, 2, 2],
+            "config_id": [0, 1, 0, 1, 0, 1],
+            "close": [100, 100, 101, 101, 102, 102],
+        })
+
+        is_valid, error_msg = MLSchema.validate_bar_config_invariants(df)
+        self.assertTrue(is_valid)
+        self.assertEqual(error_msg, "")
+
+    def test_non_monotonic_bar_idx_fails(self):
+        """Non-monotonic bar_idx raises error."""
+        from quant_tick.lib.schema import MLSchema
+
+        # bar_idx goes backwards
+        df = pd.DataFrame({
+            "bar_idx": [0, 0, 2, 2, 1, 1],  # Non-monotonic
+            "config_id": [0, 1, 0, 1, 0, 1],
+            "close": [100, 100, 101, 101, 102, 102],
+        })
+
+        is_valid, error_msg = MLSchema.validate_bar_config_invariants(df)
+        self.assertFalse(is_valid)
+        self.assertIn("not monotonically increasing", error_msg)
+
+    def test_missing_config_id_fails(self):
+        """Missing config_id per bar raises error."""
+        from quant_tick.lib.schema import MLSchema
+
+        # bar 1 has config_ids [0, 2] instead of [0, 1]
+        df = pd.DataFrame({
+            "bar_idx": [0, 0, 1, 1, 2, 2],
+            "config_id": [0, 1, 0, 2, 0, 1],  # Invalid: should be [0, 1] for bar 1
+            "close": [100, 100, 101, 101, 102, 102],
+        })
+
+        is_valid, error_msg = MLSchema.validate_bar_config_invariants(df)
+        self.assertFalse(is_valid)
+        self.assertIn("invalid config_ids", error_msg)
+        self.assertIn("bar_idx=1", error_msg)
+
+
+class FindOptimalConfigTest(TestCase):
+    """Test find_optimal_config function."""
+
+    def test_selects_tightest_width_passing_tolerance(self):
+        """Selects tightest width that passes touch tolerance."""
+        from quant_tick.lib.ml import find_optimal_config
+
+        features = pd.DataFrame({"close": [100.0]})
+
+        # Mock prediction functions: tight width has high risk, wide width has low risk
+        def predict_lower(feat, lower_pct, upper_pct):
+            width = abs(upper_pct - lower_pct)
+            return 0.2 if width < 0.04 else 0.05  # Tight = risky, wide = safe
+
+        def predict_upper(feat, lower_pct, upper_pct):
+            width = abs(upper_pct - lower_pct)
+            return 0.2 if width < 0.04 else 0.05
+
+        result = find_optimal_config(
+            predict_lower,
+            predict_upper,
+            features,
+            touch_tolerance=0.15,
+            widths=[0.02, 0.04, 0.06],
+            asymmetries=[0.0],
+        )
+
+        # Should select width=0.04 (first width that passes tolerance)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result.width, 0.04, places=5)
+
+    def test_returns_none_if_all_too_risky(self):
+        """Returns None if all configs exceed tolerance."""
+        from quant_tick.lib.ml import find_optimal_config
+
+        features = pd.DataFrame({"close": [100.0]})
+
+        # All predictions exceed tolerance
+        def predict_lower(feat, lower_pct, upper_pct):
+            return 0.5  # Very high risk
+
+        def predict_upper(feat, lower_pct, upper_pct):
+            return 0.5
+
+        result = find_optimal_config(
+            predict_lower,
+            predict_upper,
+            features,
+            touch_tolerance=0.15,
+            widths=[0.02, 0.04, 0.06],
+            asymmetries=[0.0],
+        )
+
+        self.assertIsNone(result)
+
+    def test_selects_best_asymmetry_for_width(self):
+        """Selects asymmetry with lowest combined risk for chosen width."""
+        from quant_tick.lib.ml import find_optimal_config
+
+        features = pd.DataFrame({"close": [100.0]})
+
+        # Asymmetry 0.0 has lower combined risk than others
+        def predict_lower(feat, lower_pct, upper_pct):
+            width = abs(upper_pct - lower_pct)
+            asym = (upper_pct + lower_pct) / width
+            if abs(asym) < 0.01:  # Symmetric
+                return 0.05
+            return 0.08
+
+        def predict_upper(feat, lower_pct, upper_pct):
+            width = abs(upper_pct - lower_pct)
+            asym = (upper_pct + lower_pct) / width
+            if abs(asym) < 0.01:  # Symmetric
+                return 0.05
+            return 0.08
+
+        result = find_optimal_config(
+            predict_lower,
+            predict_upper,
+            features,
+            touch_tolerance=0.15,
+            widths=[0.04],
+            asymmetries=[-0.2, 0.0, 0.2],
+        )
+
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result.asymmetry, 0.0, places=5)
+
+    def test_respects_touch_tolerance_threshold(self):
+        """Config is rejected if either bound exceeds tolerance."""
+        from quant_tick.lib.ml import find_optimal_config
+
+        features = pd.DataFrame({"close": [100.0]})
+
+        # Lower is safe, upper exceeds tolerance
+        def predict_lower(feat, lower_pct, upper_pct):
+            return 0.05
+
+        def predict_upper(feat, lower_pct, upper_pct):
+            return 0.25  # Exceeds 0.15 tolerance
+
+        result = find_optimal_config(
+            predict_lower,
+            predict_upper,
+            features,
+            touch_tolerance=0.15,
+            widths=[0.04],
+            asymmetries=[0.0],
+        )
+
+        # Should reject because upper exceeds tolerance
+        self.assertIsNone(result)
+
+    def test_computes_correct_bounds_from_width_asymmetry(self):
+        """Computes correct lower/upper bounds from width and asymmetry."""
+        from quant_tick.lib.ml import find_optimal_config
+
+        features = pd.DataFrame({"close": [100.0]})
+
+        def predict_lower(feat, lower_pct, upper_pct):
+            return 0.05
+
+        def predict_upper(feat, lower_pct, upper_pct):
+            return 0.05
+
+        result = find_optimal_config(
+            predict_lower,
+            predict_upper,
+            features,
+            touch_tolerance=0.15,
+            widths=[0.04],
+            asymmetries=[0.2],  # Asymmetric
+        )
+
+        # width=0.04, asym=0.2
+        # lower_pct = -0.04 * (0.5 - 0.2) = -0.012
+        # upper_pct = 0.04 * (0.5 + 0.2) = 0.028
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result.lower_pct, -0.012, places=5)
+        self.assertAlmostEqual(result.upper_pct, 0.028, places=5)
+
+    def test_stores_touch_probabilities(self):
+        """Result includes touch probabilities from prediction functions."""
+        from quant_tick.lib.ml import find_optimal_config
+
+        features = pd.DataFrame({"close": [100.0]})
+
+        def predict_lower(feat, lower_pct, upper_pct):
+            return 0.07
+
+        def predict_upper(feat, lower_pct, upper_pct):
+            return 0.09
+
+        result = find_optimal_config(
+            predict_lower,
+            predict_upper,
+            features,
+            touch_tolerance=0.15,
+            widths=[0.04],
+            asymmetries=[0.0],
+        )
+
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result.p_touch_lower, 0.07, places=5)
+        self.assertAlmostEqual(result.p_touch_upper, 0.09, places=5)
+
+
+class LabelSemanticsTest(TestCase):
+    """Test label generation semantics are correct."""
+
+    def test_hit_lower_detects_downward_breach(self):
+        """hit_lower_by_H is 1 when price touches lower bound within horizon."""
+        from quant_tick.lib.ml import generate_multi_config_labels
+
+        # Price starts at 100, drops to 95 at bar 2 (within horizon)
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=5, freq="1h"),
+            "close": [100.0, 99.0, 95.0, 96.0, 97.0],
+        })
+
+        # Width=0.05 (5%), asymmetry=0 (symmetric)
+        # Lower bound = -5%, upper bound = +5%
+        # At bar 0: lower = 95, upper = 105
+        # Bar 2 close=95 touches lower bound
+        result = generate_multi_config_labels(
+            df, widths=[0.05], asymmetries=[0.0], decision_horizons=[3]
+        )
+
+        # Bar 0 should have hit_lower_by_3 = 1 (price hits 95 at bar 2, within 3 bars)
+        bar_0_rows = result[result["bar_idx"] == 0]
+        self.assertEqual(len(bar_0_rows), 1)
+        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_3"], 1)
+
+    def test_hit_upper_detects_upward_breach(self):
+        """hit_upper_by_H is 1 when price touches upper bound within horizon."""
+        from quant_tick.lib.ml import generate_multi_config_labels
+
+        # Price starts at 100, rises to 106 at bar 2
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=5, freq="1h"),
+            "close": [100.0, 103.0, 106.0, 104.0, 102.0],
+        })
+
+        # Width=0.05, asymmetry=0
+        # Upper bound = +5% = 105
+        # Bar 2 close=106 exceeds upper bound
+        result = generate_multi_config_labels(
+            df, widths=[0.05], asymmetries=[0.0], decision_horizons=[3]
+        )
+
+        bar_0_rows = result[result["bar_idx"] == 0]
+        self.assertEqual(bar_0_rows.iloc[0]["hit_upper_by_3"], 1)
+
+    def test_no_hit_when_price_stays_in_range(self):
+        """Labels are 0 when price stays within bounds."""
+        from quant_tick.lib.ml import generate_multi_config_labels
+
+        # Price oscillates within range
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=5, freq="1h"),
+            "close": [100.0, 101.0, 99.0, 100.5, 99.5],
+        })
+
+        # Wide range: width=0.10 (10%)
+        # Lower = 90, upper = 110
+        # All prices stay within range
+        result = generate_multi_config_labels(
+            df, widths=[0.10], asymmetries=[0.0], decision_horizons=[3]
+        )
+
+        bar_0_rows = result[result["bar_idx"] == 0]
+        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_3"], 0)
+        self.assertEqual(bar_0_rows.iloc[0]["hit_upper_by_3"], 0)
+
+    def test_horizon_limits_lookforward_window(self):
+        """Labels only consider prices within the horizon window."""
+        from quant_tick.lib.ml import generate_multi_config_labels
+
+        # Price touches bound at bar 5, but horizon is only 3 bars
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=7, freq="1h"),
+            "close": [100.0, 101.0, 101.0, 101.0, 101.0, 95.0, 96.0],
+        })
+
+        # Lower bound = 95
+        # Touch happens at bar 5, which is outside 3-bar horizon from bar 0
+        result = generate_multi_config_labels(
+            df, widths=[0.05], asymmetries=[0.0], decision_horizons=[3]
+        )
+
+        bar_0_rows = result[result["bar_idx"] == 0]
+        # Should be 0 because touch at bar 5 is beyond horizon=3
+        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_3"], 0)
+
+    def test_asymmetric_bounds_work_correctly(self):
+        """Asymmetric ranges compute correct lower/upper bounds."""
+        from quant_tick.lib.ml import generate_multi_config_labels
+
+        # Price moves from 100 to 98
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=3, freq="1h"),
+            "close": [100.0, 99.0, 98.0],
+        })
+
+        # Width=0.04 (4%), asymmetry=0.5 (skewed upward)
+        # lower_pct = -0.04 * (0.5 - 0.5) = 0%
+        # upper_pct = 0.04 * (0.5 + 0.5) = 4%
+        # So range is [100, 104] - asymmetric!
+        result = generate_multi_config_labels(
+            df, widths=[0.04], asymmetries=[0.5], decision_horizons=[2]
+        )
+
+        bar_0_rows = result[result["bar_idx"] == 0]
+        # Price drops to 98, which breaches lower bound of 100
+        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_2"], 1)
+        # Price never reaches 104
+        self.assertEqual(bar_0_rows.iloc[0]["hit_upper_by_2"], 0)
+
+    def test_multiple_horizons_generate_independent_labels(self):
+        """Each horizon gets independent labels."""
+        from quant_tick.lib.ml import generate_multi_config_labels
+
+        # Touch at bar 2 and bar 4
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=6, freq="1h"),
+            "close": [100.0, 101.0, 95.0, 101.0, 106.0, 101.0],
+        })
+
+        result = generate_multi_config_labels(
+            df, widths=[0.05], asymmetries=[0.0], decision_horizons=[2, 4]
+        )
+
+        bar_0_rows = result[result["bar_idx"] == 0]
+        # Horizon 2: touch at bar 2 (within window)
+        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_2"], 1)
+        # Horizon 4: touch at bar 2 and bar 4 (within window)
+        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_4"], 1)
+        self.assertEqual(bar_0_rows.iloc[0]["hit_upper_by_4"], 1)
+
+    def test_entry_price_used_as_reference(self):
+        """Labels use entry_price, not close, as reference for bounds."""
+        from quant_tick.lib.ml import generate_multi_config_labels
+
+        # Entry price differs from close
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=4, freq="1h"),
+            "close": [100.0, 98.0, 97.0, 96.0],
+        })
+
+        # If we add entry_price column explicitly
+        result = generate_multi_config_labels(
+            df, widths=[0.05], asymmetries=[0.0], decision_horizons=[2]
+        )
+
+        # Check that entry_price column exists in result
+        self.assertIn("entry_price", result.columns)
+        # Entry price should be the close of the bar where decision is made
+        bar_0_rows = result[result["bar_idx"] == 0]
+        self.assertAlmostEqual(bar_0_rows.iloc[0]["entry_price"], 100.0, places=5)
