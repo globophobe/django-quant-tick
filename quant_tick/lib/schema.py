@@ -1,5 +1,7 @@
 from typing import Any
 
+import numpy as np
+
 
 class MLSchema:
     """ML Schema."""
@@ -7,7 +9,6 @@ class MLSchema:
     # Metadata columns, excluded from features
     METADATA_COLS = {
         "timestamp",
-        "timestamp_idx",
         "bar_idx",
         "config_id",
         "entry_price",
@@ -160,5 +161,39 @@ class MLSchema:
         expected_configs = list(range(n_configs))
         if unique_configs != expected_configs:
             return False, f"Config IDs mismatch: got {unique_configs}, expected {expected_configs}"
+
+        return True, ""
+
+    @staticmethod
+    def validate_bar_config_invariants(df: Any) -> tuple[bool, str]:
+        """Validate bar_idx and config_id invariants.
+
+        Checks:
+        - bar_idx is monotonically increasing
+        - config_id is contiguous 0..(n_configs-1) per bar
+
+        Args:
+            df: DataFrame to validate
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if "bar_idx" not in df.columns:
+            return False, "Missing bar_idx column"
+        if "config_id" not in df.columns:
+            return False, "Missing config_id column"
+
+        # Check bar_idx monotonicity
+        bar_idx_vals = df["bar_idx"].values
+        if not np.all(bar_idx_vals[1:] >= bar_idx_vals[:-1]):
+            return False, "bar_idx is not monotonically increasing"
+
+        # Check config_id per bar
+        for bar_idx in df["bar_idx"].unique():
+            bar_rows = df[df["bar_idx"] == bar_idx]
+            config_ids = sorted(bar_rows["config_id"].values)
+            expected = list(range(len(config_ids)))
+            if config_ids != expected:
+                return False, f"bar_idx={bar_idx} has invalid config_ids: {config_ids}, expected {expected}"
 
         return True, ""

@@ -16,6 +16,7 @@ from quant_tick.lib.ml import (
     LPConfig,
     apply_calibration,
     check_position_change_allowed,
+    compute_bound_features,
     enforce_monotonicity,
     prepare_features,
 )
@@ -372,71 +373,58 @@ def _find_optimal_config(
     touch_tolerance: float,
     decision_horizons: list[int],
 ) -> LPConfig | None:
-    """Find optimal config for a single bar using per-horizon direct classifiers."""
-    # For each config, predict max risk across horizons
-    p_lower_list = []
-    p_upper_list = []
+    """Adapter to use canonical find_optimal_config from ml.py with simulate.py models.
 
-    for _, row in bar_rows.iterrows():
-        # Prepare features for this config (one row per config)
-        row_df = pd.DataFrame([row])
-        X_inference, _ = prepare_features(row_df, feature_cols)
+    This replaces duplicate logic by wrapping the canonical implementation with
+    predict functions that use the loaded models.
+    """
+    from quant_tick.lib.ml import find_optimal_config
 
-        # Predict P(hit_by_H) for each horizon using per-horizon models
-        horizon_probs_lower = {}
+    # Extract widths and asymmetries from bar_rows
+    widths = sorted(bar_rows["width"].unique()) if "width" in bar_rows.columns else None
+    asymmetries = sorted(bar_rows["asymmetry"].unique()) if "asymmetry" in bar_rows.columns else None
+
+    # Get first row as features (all rows have same base features, just different width/asymmetry)
+    features = bar_rows.iloc[[0]].copy()
+
+    # Create prediction functions that use the loaded models
+    def predict_lower(feat: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
+        """Predict max risk across horizons for lower bound."""
+        feat_with_bounds = compute_bound_features(feat, lower_pct, upper_pct)
+        X_inference, _ = prepare_features(feat_with_bounds, feature_cols)
+
+        horizon_probs = {}
         for h, (model, calibrator, calibration_method) in lower_models.items():
             proba = model.predict_proba(X_inference)[0, 1]
             proba = apply_calibration(proba, calibrator, calibration_method)
-            horizon_probs_lower[h] = proba
+            horizon_probs[h] = proba
 
-        horizon_probs_upper = {}
+        horizon_probs = enforce_monotonicity(horizon_probs)
+        return float(max(horizon_probs.values()))
+
+    def predict_upper(feat: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
+        """Predict max risk across horizons for upper bound."""
+        feat_with_bounds = compute_bound_features(feat, lower_pct, upper_pct)
+        X_inference, _ = prepare_features(feat_with_bounds, feature_cols)
+
+        horizon_probs = {}
         for h, (model, calibrator, calibration_method) in upper_models.items():
             proba = model.predict_proba(X_inference)[0, 1]
             proba = apply_calibration(proba, calibrator, calibration_method)
-            horizon_probs_upper[h] = proba
+            horizon_probs[h] = proba
 
-        # Enforce monotonicity
-        horizon_probs_lower = enforce_monotonicity(horizon_probs_lower)
-        horizon_probs_upper = enforce_monotonicity(horizon_probs_upper)
+        horizon_probs = enforce_monotonicity(horizon_probs)
+        return float(max(horizon_probs.values()))
 
-        # Max risk across horizons (conservative)
-        max_risk_lower = max(horizon_probs_lower.values())
-        max_risk_upper = max(horizon_probs_upper.values())
-
-        p_lower_list.append(max_risk_lower)
-        p_upper_list.append(max_risk_upper)
-
-    p_lower = np.array(p_lower_list)
-    p_upper = np.array(p_upper_list)
-
-    # Find best config (narrowest width that satisfies tolerance)
-    best = None
-    best_width = float("inf")
-
-    for i, row in enumerate(bar_rows.itertuples()):
-        if p_lower[i] < touch_tolerance and p_upper[i] < touch_tolerance:
-            width = getattr(row, "width", None)
-            asym = getattr(row, "asymmetry", None)
-
-            if width is None or asym is None:
-                continue
-
-            if width < best_width:
-                best_width = width
-                lower_pct = -width * (0.5 - asym)
-                upper_pct = width * (0.5 + asym)
-
-                best = LPConfig(
-                    lower_pct=lower_pct,
-                    upper_pct=upper_pct,
-                    borrow_ratio=0.5 + asym,
-                    p_touch_lower=p_lower[i],
-                    p_touch_upper=p_upper[i],
-                    width=width,
-                    asymmetry=asym,
-                )
-
-    return best
+    # Use canonical implementation from ml.py
+    return find_optimal_config(
+        predict_lower_fn=predict_lower,
+        predict_upper_fn=predict_upper,
+        features=features,
+        touch_tolerance=touch_tolerance,
+        widths=widths,
+        asymmetries=asymmetries,
+    )
 
 
 def _config_significantly_different(
@@ -531,6 +519,9 @@ def ml_simulate(
     windows_attempted = len(cutoffs)
     windows_skipped = 0
 
+    # Track base rates across windows for drift detection
+    window_base_rates = {}
+
     for i, cutoff in enumerate(cutoffs):
         logger.info(f"{config}: window {i+1}/{len(cutoffs)} - cutoff={cutoff}")
 
@@ -561,12 +552,35 @@ def ml_simulate(
                 n_splits=3,  # Fewer splits for speed
                 embargo_bars=96,
                 holdout_pct=0.15,  # Smaller holdout for walk-forward
+                optuna_n_trials=0,  # Never run Optuna in walk-forward (too slow)
             )
         except Exception as e:
             logger.error(f"{config}: training failed for cutoff {cutoff}: {e}")
             windows_skipped += 1
             skip_reasons["training_failed"] = skip_reasons.get("training_failed", 0) + 1
             continue
+
+        # Extract base rates for rare event monitoring
+        base_rates = holdout_metrics.get("base_rates", {})
+
+        # Track base rates across windows
+        if i == 0:
+            # First window sets baseline
+            window_base_rates["baseline"] = base_rates.copy()
+        else:
+            # Compare current window to baseline
+            baseline_rates = window_base_rates.get("baseline", {})
+            for model_key, current_rate in base_rates.items():
+                baseline_rate = baseline_rates.get(model_key)
+                if baseline_rate is not None and baseline_rate > 0:
+                    drift_ratio = abs(current_rate - baseline_rate) / baseline_rate
+                    # Warn if base rate changed by >30%
+                    if drift_ratio > 0.3:
+                        logger.warning(
+                            f"{config}: {model_key} base rate drift detected - "
+                            f"baseline={baseline_rate:.4f}, current={current_rate:.4f} "
+                            f"({drift_ratio:.1%} change)"
+                        )
 
         # Extract per-horizon models with calibrators
         lower_models = {}
@@ -601,6 +615,15 @@ def ml_simulate(
             windows_skipped += 1
             skip_reasons["no_scoring_data"] = skip_reasons.get("no_scoring_data", 0) + 1
             continue
+
+        # Validate scoring window grid structure
+        if "bar_idx" in score_df.columns and "config_id" in score_df.columns:
+            is_valid, error = MLSchema.validate_bar_config_structure(score_df, widths, asymmetries)
+            if not is_valid:
+                logger.warning(f"Window {cutoff}: scoring data invalid - {error}")
+                windows_skipped += 1
+                skip_reasons["scoring_bar_config_invalid"] = skip_reasons.get("scoring_bar_config_invalid", 0) + 1
+                continue
 
         # Validate features match using centralized schema
         # Use centralized schema to get data features (excludes config cols added during prediction)

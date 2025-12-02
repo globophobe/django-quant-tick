@@ -157,56 +157,79 @@ def generate_per_horizon_labels(
         DataFrame of features and labels
         - hit_lower_by_{h}: Binary label (0 or 1)
         - hit_upper_by_{h}: Binary label (0 or 1)
-        - bar_idx, timestamp_idx: For time-series CV
+        - bar_idx: For time-series CV
     """
     close = df["close"].values
-    high = df["high"].values
-    low = df["low"].values
+
+    # Use high/low if available, else fall back to close
+    if "high" in df.columns and "low" in df.columns:
+        high = df["high"].values
+        low = df["low"].values
+    else:
+        logger.warning(
+            "High/low columns not available, using close-only labeling. "
+            "This may undercount touches and create conservative bias."
+        )
+        high = close
+        low = close
+
     n = len(close)
 
-    result_rows = []
-    for bar_idx in range(n - 1):
-        entry_price = close[bar_idx]
-        lower_bound = entry_price * (1 + lower_pct)
-        upper_bound = entry_price * (1 + upper_pct)
-
-        # Copy base row
-        row = df.iloc[[bar_idx]].copy()
-        row["bar_idx"] = bar_idx
-        row["timestamp_idx"] = bar_idx
-
-        # Add metadata
-        row["entry_price"] = entry_price
-        row["lower_bound_pct"] = lower_pct
-        row["upper_bound_pct"] = upper_pct
-
-        # Add config/bound features (critical for models to differentiate ranges)
-        row["width"] = upper_pct - lower_pct
-        row["asymmetry"] = upper_pct + lower_pct
-        row["range_width"] = upper_pct - lower_pct
-        row["range_asymmetry"] = upper_pct + lower_pct
-        row["dist_to_lower_pct"] = (entry_price - lower_bound) / entry_price
-        row["dist_to_upper_pct"] = (upper_bound - entry_price) / entry_price
-
-        # For each decision horizon, check if bounds touched within next H bars
-        for h in decision_horizons:
-            # +1 to include exactly h bars in slice (Python slices are end-exclusive)
-            end_idx = min(bar_idx + h + 1, n)
-
-            future_lows = low[bar_idx + 1 : end_idx]
-            future_highs = high[bar_idx + 1 : end_idx]
-            hit_lower = (future_lows <= lower_bound).any() if len(future_lows) > 0 else False
-            hit_upper = (future_highs >= upper_bound).any() if len(future_highs) > 0 else False
-
-            row[f"hit_lower_by_{h}"] = 1 if hit_lower else 0
-            row[f"hit_upper_by_{h}"] = 1 if hit_upper else 0
-
-        result_rows.append(row)
-
-    if len(result_rows) == 0:
+    # Drop last bar (no future data)
+    if n <= 1:
         return pd.DataFrame()
 
-    result = pd.concat(result_rows, ignore_index=True)
+    n_samples = n - 1
+
+    # Vectorized computation of bounds
+    entry_prices = close[:n_samples]
+    lower_bounds = entry_prices * (1 + lower_pct)
+    upper_bounds = entry_prices * (1 + upper_pct)
+
+    # Create result dataframe from first n-1 rows
+    result = df.iloc[:n_samples].copy()
+
+    # Add metadata columns (vectorized)
+    result["bar_idx"] = np.arange(n_samples)
+    result["entry_price"] = entry_prices
+    result["lower_bound_pct"] = lower_pct
+    result["upper_bound_pct"] = upper_pct
+
+    # Add config/bound features (vectorized)
+    width = upper_pct - lower_pct
+    asymmetry = upper_pct + lower_pct
+    result["width"] = width
+    result["asymmetry"] = asymmetry
+    result["range_width"] = width
+    result["range_asymmetry"] = asymmetry
+    result["dist_to_lower_pct"] = (entry_prices - lower_bounds) / entry_prices
+    result["dist_to_upper_pct"] = (upper_bounds - entry_prices) / entry_prices
+
+    # Vectorized touch detection for each horizon
+    for h in decision_horizons:
+        # Pre-allocate arrays for this horizon
+        hit_lower_arr = np.zeros(n_samples, dtype=np.int32)
+        hit_upper_arr = np.zeros(n_samples, dtype=np.int32)
+
+        # Check each bar's future window
+        for i in range(n_samples):
+            h_end = min(i + h + 1, n)
+            if h_end <= i + 1:
+                continue
+
+            # Get future window for this horizon
+            future_lows = low[i + 1 : h_end]
+            future_highs = high[i + 1 : h_end]
+
+            # Check if bounds touched
+            if len(future_lows) > 0:
+                hit_lower_arr[i] = 1 if np.any(future_lows <= lower_bounds[i]) else 0
+                hit_upper_arr[i] = 1 if np.any(future_highs >= upper_bounds[i]) else 0
+
+        # Assign to dataframe
+        result[f"hit_lower_by_{h}"] = hit_lower_arr
+        result[f"hit_upper_by_{h}"] = hit_upper_arr
+
     return result
 
 

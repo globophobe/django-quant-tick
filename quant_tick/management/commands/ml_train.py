@@ -70,6 +70,12 @@ class Command(BaseCommand):
             default=0.2,
             help="Holdout percentage",
         )
+        parser.add_argument(
+            "--optuna-n-trials",
+            type=int,
+            default=None,
+            help="Optuna trials per model (default: 20 from config). Set to 0 to disable.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         """Run command."""
@@ -79,6 +85,11 @@ class Command(BaseCommand):
         except MLConfig.DoesNotExist:
             logger.error(f"MLConfig '{code_name}' not found")
             return
+
+        # Update config with Optuna trials if specified
+        if options["optuna_n_trials"] is not None:
+            config.json_data["optuna_n_trials"] = options["optuna_n_trials"]
+            config.save(update_fields=["json_data"])
 
         success = train_models(
             config=config,

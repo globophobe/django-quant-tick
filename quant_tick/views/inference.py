@@ -80,6 +80,22 @@ class InferenceView(ListAPIView):
         first_artifact = cfg.ml_artifacts.filter(model_type__startswith="lower_h").first()
         feature_cols = first_artifact.feature_columns if first_artifact else []
 
+        # Validate feature hash for drift detection
+        from quant_tick.lib.train import compute_feature_hash
+        current_hash = compute_feature_hash(feature_cols)
+        stored_hashes = cfg.json_data.get("feature_hashes", {})
+
+        # Check if any model's hash matches (they should all be the same)
+        if stored_hashes:
+            first_model_key = next(iter(stored_hashes))
+            stored_hash = stored_hashes[first_model_key]
+            if current_hash != stored_hash:
+                logger.warning(
+                    f"{cfg}: Feature schema drift detected! "
+                    f"Current hash={current_hash}, stored hash={stored_hash}. "
+                    f"Models may produce incorrect predictions."
+                )
+
         # Get recent candle data
         features_df = self._get_latest_features(cfg)
         if features_df is None or len(features_df) == 0:

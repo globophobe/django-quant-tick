@@ -215,7 +215,7 @@ class MLFeatureData(AbstractDataStorage):
         asymmetries = config.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
         decision_horizons = config.json_data.get("decision_horizons", [60, 120, 180])
         df = self.get_data_frame("file_data")
-        if not df:
+        if df is None or df.empty:
             return False, _("No feature data.")
         return MLSchema.validate_schema(df, widths, asymmetries, decision_horizons)
 

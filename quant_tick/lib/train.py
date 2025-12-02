@@ -7,8 +7,10 @@ from typing import Any
 import joblib
 import lightgbm as lgb
 import numpy as np
+import optuna
 import pandas as pd
 from django.core.files.base import ContentFile
+from sklearn.metrics import brier_score_loss
 
 from quant_tick.lib.ml import (
     PurgedKFold,
@@ -25,28 +27,126 @@ def compute_feature_hash(feature_cols: list[str]) -> str:
     return hashlib.sha256(cols_str.encode()).hexdigest()[:16]
 
 
-# Feature columns to exclude from training (per-horizon direct classifiers)
-# NOTE: width, asymmetry, and bound features are NOW INCLUDED as features
-# This allows models to differentiate between different range configurations
-EXCLUDE_COLS = [
-    "timestamp",
-    "timestamp_idx",
-    "bar_idx",
-    "config_id",  # Explicit config identifier (metadata only)
-    "entry_price",
-]
+def _cv_brier_for_params(
+    X_train_full: np.ndarray,
+    y_train_full: np.ndarray,
+    timestamp_idx_train: np.ndarray,
+    horizon: int,
+    n_splits: int,
+    embargo_bars: int,
+    lgbm_params: dict[str, Any],
+) -> float:
+    """Compute mean CV Brier score using PurgedKFold.
+
+    Args:
+        X_train_full: Training features
+        y_train_full: Training labels
+        timestamp_idx_train: Timestamp indices for purging
+        horizon: Decision horizon for event_end_idx calculation
+        n_splits: Number of CV folds
+        embargo_bars: Embargo period in bars
+        lgbm_params: LightGBM parameters dict
+
+    Returns:
+        Mean Brier score across CV folds
+
+    Raises:
+        ValueError: If PurgedKFold yields zero folds
+    """
+    cv = PurgedKFold(n_splits=n_splits, embargo_bars=embargo_bars)
+    event_end_idx = timestamp_idx_train + horizon + 1
+
+    fold_list = list(cv.split(
+        X_train_full,
+        event_end_idx=event_end_idx,
+        timestamp_idx=timestamp_idx_train,
+    ))
+
+    if len(fold_list) == 0:
+        raise ValueError(
+            f"PurgedKFold yielded zero folds with n_splits={n_splits}, "
+            f"embargo_bars={embargo_bars}. Purging/embargo too aggressive for dataset size."
+        )
+
+    brier_scores = []
+    for train_idx, test_idx in fold_list:
+        model = lgb.LGBMClassifier(**lgbm_params)
+        model.fit(X_train_full[train_idx], y_train_full[train_idx])
+        y_pred = model.predict_proba(X_train_full[test_idx])[:, 1]
+        brier_scores.append(brier_score_loss(y_train_full[test_idx], y_pred))
+
+    return float(np.mean(brier_scores))
 
 
-def _get_exclude_cols_for_df(df: pd.DataFrame) -> list[str]:
-    """Get list of columns to exclude from features, including per-horizon targets."""
-    exclude = list(EXCLUDE_COLS)
+def _tune_lgbm_hyperparams_optuna(
+    X_train_full: np.ndarray,
+    y_train_full: np.ndarray,
+    timestamp_idx_train: np.ndarray,
+    horizon: int,
+    side: str,
+    n_splits: int,
+    embargo_bars: int,
+    base_lgbm_params: dict[str, Any],
+    n_trials: int = 20,
+) -> dict[str, Any]:
+    """Tune LightGBM hyperparameters using Optuna.
 
-    # Dynamically add per-horizon target columns
-    for col in df.columns:
-        if col.startswith("hit_lower_by_") or col.startswith("hit_upper_by_"):
-            exclude.append(col)
+    Search space:
+    - learning_rate: log-uniform [0.01, 0.2]
+    - max_depth: int [3, 8]
+    - n_estimators: int [100, 400]
 
-    return exclude
+    Fixed (not tuned): subsample, min_child_samples, objective, etc.
+
+    Args:
+        X_train_full: Training features
+        y_train_full: Training labels
+        timestamp_idx_train: Timestamp indices for purging
+        horizon: Decision horizon
+        side: "lower" or "upper" (for logging)
+        n_splits: Number of CV folds
+        embargo_bars: Embargo period in bars
+        base_lgbm_params: Base LightGBM params (non-tuned params copied from here)
+        n_trials: Number of Optuna trials (default: 20)
+
+    Returns:
+        Best LightGBM params (base params + tuned values)
+    """
+    def objective(trial: Any) -> float:
+        trial_params = base_lgbm_params.copy()
+        trial_params.update({
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
+            "max_depth": trial.suggest_int("max_depth", 3, 8),
+            "n_estimators": trial.suggest_int("n_estimators", 100, 400),
+        })
+
+        return _cv_brier_for_params(
+            X_train_full=X_train_full,
+            y_train_full=y_train_full,
+            timestamp_idx_train=timestamp_idx_train,
+            horizon=horizon,
+            n_splits=n_splits,
+            embargo_bars=embargo_bars,
+            lgbm_params=trial_params,
+        )
+
+    study = optuna.create_study(
+        direction="minimize",
+        sampler=optuna.samplers.TPESampler(seed=42),
+    )
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    logger.info(f"Optuna tuning {side}_h{horizon} ({n_trials} trials)...")
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+
+    logger.info(
+        f"{side}_h{horizon}: best Brier={study.best_trial.value:.4f}, "
+        f"params={study.best_trial.params}"
+    )
+
+    best_params = base_lgbm_params.copy()
+    best_params.update(study.best_trial.params)
+    return best_params
 
 
 def train_model_core(
@@ -61,6 +161,7 @@ def train_model_core(
     subsample: float = 0.75,
     holdout_pct: float = 0.2,
     calibration_pct: float = 0.1,
+    optuna_n_trials: int = 20,
 ) -> tuple[dict[str, Any], list[str], dict, dict]:
     """Train per-horizon binary classifiers for range touch prediction.
 
@@ -90,6 +191,8 @@ def train_model_core(
         learning_rate: Boosting learning rate
         subsample: Fraction of samples for each tree
         holdout_pct: Fraction of data held out for final calibration
+        optuna_n_trials: Number of Optuna trials per model (default: 20).
+            Set to 0 to disable tuning and use fixed params.
 
     Returns:
         Tuple of (models_dict, feature_cols, cv_metrics, holdout_metrics)
@@ -98,9 +201,27 @@ def train_model_core(
         - cv_metrics: Cross-validation Brier scores
         - holdout_metrics: Holdout Brier scores and calibration gaps
     """
-    # Identify feature columns (exclude targets and metadata)
-    exclude_cols = _get_exclude_cols_for_df(df)
-    feature_cols = [c for c in df.columns if c not in exclude_cols]
+    from quant_tick.lib.schema import MLSchema
+
+    # Validate bar_idx and config_id invariants
+    is_valid, error_msg = MLSchema.validate_bar_config_invariants(df)
+    if not is_valid:
+        raise ValueError(f"Bar/config invariants validation failed: {error_msg}")
+
+    # Infer widths and asymmetries from data if available
+    widths = None
+    asymmetries = None
+    if "width" in df.columns and "asymmetry" in df.columns:
+        widths = sorted(df["width"].unique())
+        asymmetries = sorted(df["asymmetry"].unique())
+
+        # Validate complete grid structure at input
+        is_valid, error_msg = MLSchema.validate_bar_config_structure(df, widths, asymmetries)
+        if not is_valid:
+            raise ValueError(f"Input grid structure validation failed: {error_msg}")
+
+    # Identify feature columns using MLSchema
+    feature_cols = MLSchema.get_training_features(df.columns.tolist(), decision_horizons)
 
     # Prepare features with missing indicators and sentinel fill
     X, feature_cols = prepare_features(df, feature_cols)
@@ -135,6 +256,20 @@ def train_model_core(
 
     # Purge calibration: exclude samples within max_horizon of test
     calib_bars_purged = max(0, calib_bars - (max_horizon + 1))
+
+    # Log detailed purging math
+    logger.info(
+        f"Purging math:\n"
+        f"  Total bars: {n_bars}\n"
+        f"  Max horizon: {max_horizon}\n"
+        f"  Initial split: train={train_bars_initial}, calib={calib_bars}, test={test_bars}\n"
+        f"  Purge amounts: train loses {train_bars_initial - train_bars_purged} bars, "
+        f"calib loses {calib_bars - calib_bars_purged} bars\n"
+        f"  After purging: train={train_bars_purged}, calib={calib_bars_purged}, test={test_bars}\n"
+        f"  Bar ranges: train=[0, {train_bars_purged}), "
+        f"calib=[{first_calib_bar}, {first_calib_bar + calib_bars_purged}), "
+        f"test=[{first_test_bar}, {first_test_bar + test_bars})"
+    )
 
     # Check minimum requirements after purging
     if train_bars_purged < MIN_BARS_PER_SPLIT:
@@ -180,6 +315,13 @@ def train_model_core(
     X_test = X[test_idx]
     timestamp_idx_train = timestamp_idx[train_idx]
 
+    # Validate purged training set has complete grids
+    if widths is not None and asymmetries is not None:
+        train_df = df.iloc[train_idx]
+        is_valid, error_msg = MLSchema.validate_bar_config_structure(train_df, widths, asymmetries)
+        if not is_valid:
+            raise ValueError(f"Purged training set grid validation failed: {error_msg}")
+
     logger.info(
         f"Purged split (horizon={max_horizon}): {train_bars_purged} train bars "
         f"(from {train_bars_initial}), {calib_bars_purged} calib bars (from {calib_bars}), "
@@ -208,6 +350,7 @@ def train_model_core(
     holdout_brier_scores = {}
     holdout_calibration_gaps = {}
     base_rates = {}  # Training base rates for rare event monitoring
+    optuna_best_params = {}  # Store best Optuna params for all models
 
     for h in decision_horizons:
         for side in ["lower", "upper"]:
@@ -225,45 +368,45 @@ def train_model_core(
             train_base_rate = float(np.mean(y_train_full))
             base_rates[model_key] = train_base_rate
 
-            # Cross-validation
-            cv = PurgedKFold(n_splits=n_splits, embargo_bars=embargo_bars)
-            cv_brier_fold_scores = []
-
-            # Create event end timestamps for purging
-            # +1 to match corrected label horizon (labels depend on prices up to bar_idx + h)
-            event_end_idx = timestamp_idx_train + h + 1
-
-            fold_list = list(cv.split(
-                X_train_full,
-                event_end_idx=event_end_idx,
-                timestamp_idx=timestamp_idx_train,
-            ))
-
-            if len(fold_list) == 0:
-                raise ValueError(
-                    f"PurgedKFold yielded zero folds for {model_key} with n_splits={n_splits}, "
-                    f"embargo_bars={embargo_bars}. Purging/embargo too aggressive for dataset size."
+            # Determine params for this model (with or without Optuna)
+            if optuna_n_trials > 0:
+                # Run Optuna tuning for this (side, horizon) model
+                tuned_params = _tune_lgbm_hyperparams_optuna(
+                    X_train_full=X_train_full,
+                    y_train_full=y_train_full,
+                    timestamp_idx_train=timestamp_idx_train,
+                    horizon=h,
+                    side=side,
+                    n_splits=n_splits,
+                    embargo_bars=embargo_bars,
+                    base_lgbm_params=lgbm_params,
+                    n_trials=optuna_n_trials,
                 )
+                # Store best params for this model
+                optuna_best_params[model_key] = {
+                    k: tuned_params[k]
+                    for k in ["learning_rate", "max_depth", "n_estimators"]
+                }
+                model_params = tuned_params
+            else:
+                # Use fixed params (no Optuna)
+                model_params = lgbm_params
 
-            for train_fold_idx, test_fold_idx in fold_list:
-                X_cv_train = X_train_full[train_fold_idx]
-                y_cv_train = y_train_full[train_fold_idx]
-                X_cv_test = X_train_full[test_fold_idx]
-                y_cv_test = y_train_full[test_fold_idx]
+            # Cross-validation with final params
+            # (This recomputes CV with tuned params - necessary for honest CV metric)
+            mean_cv_brier = _cv_brier_for_params(
+                X_train_full=X_train_full,
+                y_train_full=y_train_full,
+                timestamp_idx_train=timestamp_idx_train,
+                horizon=h,
+                n_splits=n_splits,
+                embargo_bars=embargo_bars,
+                lgbm_params=model_params,
+            )
+            cv_brier_scores[model_key] = mean_cv_brier
 
-                # Train model
-                cv_model = lgb.LGBMClassifier(**lgbm_params)
-                cv_model.fit(X_cv_train, y_cv_train)
-
-                # Evaluate on test fold
-                y_pred_proba = cv_model.predict_proba(X_cv_test)[:, 1]
-
-                from sklearn.metrics import brier_score_loss
-                brier = brier_score_loss(y_cv_test, y_pred_proba)
-                cv_brier_fold_scores.append(brier)
-
-            # Train final model on full train set
-            final_model = lgb.LGBMClassifier(**lgbm_params)
+            # Train final model on full train set with chosen params
+            final_model = lgb.LGBMClassifier(**model_params)
             final_model.fit(X_train_full, y_train_full)
 
             # Predict on calibration set
@@ -306,13 +449,13 @@ def train_model_core(
             calibrators_dict[model_key] = calibrator
             calibration_methods_dict[model_key] = calib_method
 
-            cv_brier_scores[model_key] = float(np.mean(cv_brier_fold_scores))
             holdout_brier_scores[model_key] = float(brier_test_calibrated)  # CALIBRATED
             holdout_calibration_gaps[model_key] = calib_gap_calibrated  # CALIBRATED
 
             # Log detailed metrics (both raw and calibrated for comparison)
+            optuna_status = "(Optuna tuned)" if optuna_n_trials > 0 else "(fixed params)"
             logger.info(
-                f"{model_key}: CV Brier={cv_brier_scores[model_key]:.4f}, "
+                f"{model_key} {optuna_status}: CV Brier={mean_cv_brier:.4f}, "
                 f"Test Brier (raw)={brier_test_raw:.4f}, "
                 f"Test Brier (calibrated)={brier_test_calibrated:.4f}, "
                 f"Calib gap (raw)={calib_gap_raw:.4f}, "
@@ -329,6 +472,7 @@ def train_model_core(
         "cv_brier_scores": cv_brier_scores,  # Keep per-model for debugging
         "avg_brier_lower": float(np.mean(lower_cv_briers)),
         "avg_brier_upper": float(np.mean(upper_cv_briers)),
+        "optuna_best_params": optuna_best_params,  # Best Optuna params per model
     }
 
     # Build per-horizon dicts for config storage
@@ -404,6 +548,9 @@ def train_models(
     # Get decision horizons from config or use defaults
     decision_horizons = config.json_data.get("decision_horizons", [60, 120, 180])
 
+    # Get Optuna config (default: 20 trials)
+    optuna_n_trials = config.json_data.get("optuna_n_trials", 20)
+
     # Train models using core function
     models_dict, feature_cols, cv_metrics, holdout_metrics = train_model_core(
         df=df,
@@ -416,6 +563,7 @@ def train_models(
         learning_rate=learning_rate,
         subsample=subsample,
         holdout_pct=holdout_pct,
+        optuna_n_trials=optuna_n_trials,
     )
 
     logger.info(
@@ -449,9 +597,18 @@ def train_models(
         "brier_holdout": holdout_metrics.get("avg_brier_upper", 0.0),
         "per_horizon_brier": holdout_metrics.get("per_horizon_brier_upper", {}),
     }
+
+    # Store Optuna best params if tuning was enabled
+    if optuna_n_trials > 0:
+        optuna_best_params = cv_metrics.get("optuna_best_params", {})
+        if optuna_best_params:
+            config.json_data["optuna_best_params"] = optuna_best_params
+            logger.info(f"{config}: stored Optuna best params for {len(optuna_best_params)} models")
+
     config.save(update_fields=["json_data"])
 
     # Save per-horizon models
+    base_rates = holdout_metrics.get("base_rates", {})
     for h in decision_horizons:
         lower_key = f"lower_h{h}"
         upper_key = f"upper_h{h}"
@@ -461,8 +618,9 @@ def train_models(
             lower_brier = holdout_metrics.get("per_horizon_brier_lower", {}).get(h, 0.0)
             calibrator = getattr(lower_model, "calibrator_", None)
             calib_method = getattr(lower_model, "calibration_method_", "none")
+            lower_base_rate = base_rates.get(lower_key)
             _save_per_horizon_artifact(
-                config, lower_model, lower_key, feature_cols, lower_brier, feature_hash, calibrator, h, calib_method
+                config, lower_model, lower_key, feature_cols, lower_brier, feature_hash, calibrator, h, calib_method, lower_base_rate
             )
 
         if upper_key in models_dict:
@@ -470,8 +628,9 @@ def train_models(
             upper_brier = holdout_metrics.get("per_horizon_brier_upper", {}).get(h, 0.0)
             calibrator = getattr(upper_model, "calibrator_", None)
             calib_method = getattr(upper_model, "calibration_method_", "none")
+            upper_base_rate = base_rates.get(upper_key)
             _save_per_horizon_artifact(
-                config, upper_model, upper_key, feature_cols, upper_brier, feature_hash, calibrator, h, calib_method
+                config, upper_model, upper_key, feature_cols, upper_brier, feature_hash, calibrator, h, calib_method, upper_base_rate
             )
 
     logger.info(f"{config}: training complete (feature_hash={feature_hash})")
