@@ -208,16 +208,26 @@ class MLFeatureData(AbstractDataStorage):
     def validate_schema(self, config: "MLConfig") -> tuple[bool, str]:
         """Validate stored schema matches config requirements.
 
+        Dispatches to appropriate validator based on schema_type.
+
         Returns:
             Tuple of (is_valid, error_message)
         """
-        widths = config.json_data.get("widths", DEFAULT_WIDTHS)
-        asymmetries = config.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
-        decision_horizons = config.json_data.get("decision_horizons", [60, 120, 180])
         df = self.get_data_frame("file_data")
         if df is None or df.empty:
             return False, _("No feature data.")
-        return MLSchema.validate_schema(df, widths, asymmetries, decision_horizons)
+
+        schema_type = self.json_data.get("schema_type", "per_horizon")
+
+        widths = config.json_data.get("widths", DEFAULT_WIDTHS)
+        asymmetries = config.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
+
+        if schema_type == "hazard":
+            max_horizon = self.json_data.get("max_horizon", config.horizon_bars)
+            return MLSchema.validate_hazard_schema(df, widths, asymmetries, max_horizon)
+        else:
+            decision_horizons = config.json_data.get("decision_horizons", [60, 120, 180])
+            return MLSchema.validate_schema(df, widths, asymmetries, decision_horizons)
 
     class Meta:
         db_table = "quant_tick_ml_feature_data"

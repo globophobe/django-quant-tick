@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    """Train ML model."""
+    """Train hazard-based survival models."""
 
-    help = "Train per-horizon ML model for upper/lower bound touch prediction."
+    help = "Train hazard-based survival models for range touch prediction using discrete-time hazard framework."
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""

@@ -14,14 +14,13 @@ from quant_tick.lib.ml import (
     DEFAULT_ASYMMETRIES,
     DEFAULT_WIDTHS,
     LPConfig,
-    apply_calibration,
     check_position_change_allowed,
     compute_bound_features,
-    enforce_monotonicity,
+    hazard_to_per_horizon_probs,
     prepare_features,
 )
 from quant_tick.lib.schema import MLSchema
-from quant_tick.lib.train import train_model_core
+from quant_tick.lib.train import train_hazard_core
 from quant_tick.models import MLConfig, MLFeatureData, Position
 
 logger = logging.getLogger(__name__)
@@ -58,8 +57,8 @@ class WalkForwardResult:
 
 def _run_backtest(
     config: MLConfig,
-    lower_models: dict[int, tuple[Any, Any]],
-    upper_models: dict[int, tuple[Any, Any]],
+    lower_model: Any,
+    upper_model: Any,
     feature_cols: list[str],
     df: pd.DataFrame,
     model_cutoff: Any | None = None,
@@ -69,8 +68,8 @@ def _run_backtest(
 
     Args:
         config: MLConfig to backtest
-        lower_models: Dict of {horizon: (model, calibrator)} for lower bound
-        upper_models: Dict of {horizon: (model, calibrator)} for upper bound
+        lower_model: Hazard model for lower bound
+        upper_model: Hazard model for upper bound
         feature_cols: Feature column names
         df: Feature DataFrame
         model_cutoff: Optional timestamp to tag positions with (for walk-forward)
@@ -117,13 +116,16 @@ def _run_backtest(
 
     logger.info(f"{config}: {n_bars} bars, {n_configs} configs")
 
+    # Get max_horizon from config
+    max_horizon = config.json_data.get("max_horizon", config.horizon_bars)
+
     # Run backtest
     result = _run_backtest_loop(
         config=config,
         symbol=symbol,
         df=df,
-        lower_models=lower_models,
-        upper_models=upper_models,
+        lower_model=lower_model,
+        upper_model=upper_model,
         feature_cols=feature_cols,
         widths=widths,
         asymmetries=asymmetries,
@@ -131,6 +133,7 @@ def _run_backtest(
         min_hold_bars=min_hold_bars,
         n_bars=n_bars,
         decision_horizons=decision_horizons,
+        max_horizon=max_horizon,
         bar_prices=bar_prices,
         bar_timestamps=bar_timestamps,
         model_cutoff=model_cutoff,
@@ -158,8 +161,8 @@ def _run_backtest_loop(
     config: MLConfig,
     symbol: Any,
     df: pd.DataFrame,
-    lower_models: dict[int, tuple[Any, Any]],
-    upper_models: dict[int, tuple[Any, Any]],
+    lower_model: Any,
+    upper_model: Any,
     feature_cols: list[str],
     widths: list[float],
     asymmetries: list[float],
@@ -167,6 +170,7 @@ def _run_backtest_loop(
     min_hold_bars: int,
     n_bars: int,
     decision_horizons: list[int],
+    max_horizon: int,
     bar_prices: dict[int, float],
     bar_timestamps: dict[int, Any],
     model_cutoff: Any | None = None,
@@ -274,11 +278,12 @@ def _run_backtest_loop(
             # Find optimal config for this bar
             best_config = _find_optimal_config(
                 bar_rows=bar_rows,
-                lower_models=lower_models,
-                upper_models=upper_models,
+                lower_model=lower_model,
+                upper_model=upper_model,
                 feature_cols=feature_cols,
                 touch_tolerance=touch_tolerance,
                 decision_horizons=decision_horizons,
+                max_horizon=max_horizon,
             )
 
             if best_config is None:
@@ -367,16 +372,16 @@ def _run_backtest_loop(
 
 def _find_optimal_config(
     bar_rows: pd.DataFrame,
-    lower_models: dict[int, tuple[Any, Any, str]],
-    upper_models: dict[int, tuple[Any, Any, str]],
+    lower_model: Any,
+    upper_model: Any,
     feature_cols: list[str],
     touch_tolerance: float,
     decision_horizons: list[int],
+    max_horizon: int,
 ) -> LPConfig | None:
-    """Adapter to use canonical find_optimal_config from ml.py with simulate.py models.
+    """Find optimal LP config using hazard models.
 
-    This replaces duplicate logic by wrapping the canonical implementation with
-    predict functions that use the loaded models.
+    BREAKING CHANGE: Only works with hazard models.
     """
     from quant_tick.lib.ml import find_optimal_config
 
@@ -384,43 +389,42 @@ def _find_optimal_config(
     widths = sorted(bar_rows["width"].unique()) if "width" in bar_rows.columns else None
     asymmetries = sorted(bar_rows["asymmetry"].unique()) if "asymmetry" in bar_rows.columns else None
 
-    # Get first row as features (all rows have same base features, just different width/asymmetry)
-    features = bar_rows.iloc[[0]].copy()
+    # Get base features (all configs have same features, differ only in bounds)
+    base_features = bar_rows.iloc[0:1][
+        [c for c in feature_cols if c not in {"k", "width", "asymmetry", "dist_to_lower_pct", "dist_to_upper_pct"}]
+    ]
 
-    # Create prediction functions that use the loaded models
-    def predict_lower(feat: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
-        """Predict max risk across horizons for lower bound."""
-        feat_with_bounds = compute_bound_features(feat, lower_pct, upper_pct)
-        X_inference, _ = prepare_features(feat_with_bounds, feature_cols)
+    # Exclude k from prepare_features (not in live candle data)
+    base_feature_cols = [c for c in feature_cols if c != "k"]
 
-        horizon_probs = {}
-        for h, (model, calibrator, calibration_method) in lower_models.items():
-            proba = model.predict_proba(X_inference)[0, 1]
-            proba = apply_calibration(proba, calibrator, calibration_method)
-            horizon_probs[h] = proba
+    # Define prediction functions
+    def predict_lower_fn(features: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
+        feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
+        X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
+        X_df = pd.DataFrame(X_array, columns=expanded_cols)
+        X_base = X_df.iloc[[0]]
 
-        horizon_probs = enforce_monotonicity(horizon_probs)
+        horizon_probs = hazard_to_per_horizon_probs(
+            lower_model, X_base, feature_cols, decision_horizons, max_horizon
+        )
         return float(max(horizon_probs.values()))
 
-    def predict_upper(feat: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
-        """Predict max risk across horizons for upper bound."""
-        feat_with_bounds = compute_bound_features(feat, lower_pct, upper_pct)
-        X_inference, _ = prepare_features(feat_with_bounds, feature_cols)
+    def predict_upper_fn(features: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
+        feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
+        X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
+        X_df = pd.DataFrame(X_array, columns=expanded_cols)
+        X_base = X_df.iloc[[0]]
 
-        horizon_probs = {}
-        for h, (model, calibrator, calibration_method) in upper_models.items():
-            proba = model.predict_proba(X_inference)[0, 1]
-            proba = apply_calibration(proba, calibrator, calibration_method)
-            horizon_probs[h] = proba
-
-        horizon_probs = enforce_monotonicity(horizon_probs)
+        horizon_probs = hazard_to_per_horizon_probs(
+            upper_model, X_base, feature_cols, decision_horizons, max_horizon
+        )
         return float(max(horizon_probs.values()))
 
-    # Use canonical implementation from ml.py
+    # Call unified config selection
     return find_optimal_config(
-        predict_lower_fn=predict_lower,
-        predict_upper_fn=predict_upper,
-        features=features,
+        predict_lower_fn=predict_lower_fn,
+        predict_upper_fn=predict_upper_fn,
+        features=base_features,
         touch_tolerance=touch_tolerance,
         widths=widths,
         asymmetries=asymmetries,
@@ -535,20 +539,21 @@ def ml_simulate(
             skip_reasons["no_training_data"] = skip_reasons.get("no_training_data", 0) + 1
             continue
 
-        # Validate complete bar/config structure after timestamp filtering (if columns exist)
-        if "bar_idx" in train_df.columns and "config_id" in train_df.columns:
-            is_valid, error = MLSchema.validate_bar_config_structure(train_df, widths, asymmetries)
+        # Validate hazard schema structure after timestamp filtering
+        max_horizon = config.json_data.get("max_horizon", config.horizon_bars)
+        if "bar_idx" in train_df.columns and "config_id" in train_df.columns and "k" in train_df.columns:
+            is_valid, error = MLSchema.validate_hazard_schema(train_df, widths, asymmetries, max_horizon)
             if not is_valid:
                 logger.error(f"{config}: Training window invalid - {error}, skipping")
                 windows_skipped += 1
-                skip_reasons["bar_config_structure_invalid"] = skip_reasons.get("bar_config_structure_invalid", 0) + 1
+                skip_reasons["hazard_schema_invalid"] = skip_reasons.get("hazard_schema_invalid", 0) + 1
                 continue
 
         # Train models on window
         try:
-            models_dict, feature_cols, cv_metrics, holdout_metrics = train_model_core(
+            models_dict, feature_cols, cv_metrics, holdout_metrics = train_hazard_core(
                 df=train_df,
-                decision_horizons=decision_horizons,
+                max_horizon=max_horizon,
                 n_splits=3,  # Fewer splits for speed
                 embargo_bars=96,
                 holdout_pct=0.15,  # Smaller holdout for walk-forward
@@ -582,28 +587,15 @@ def ml_simulate(
                             f"({drift_ratio:.1%} change)"
                         )
 
-        # Extract per-horizon models with calibrators
-        lower_models = {}
-        upper_models = {}
-        for h in decision_horizons:
-            lower_key = f"lower_h{h}"
-            upper_key = f"upper_h{h}"
+        # Extract hazard models
+        if "lower" not in models_dict or "upper" not in models_dict:
+            logger.error(f"{config}: missing hazard models")
+            windows_skipped += 1
+            skip_reasons["missing_models"] = skip_reasons.get("missing_models", 0) + 1
+            continue
 
-            if lower_key not in models_dict or upper_key not in models_dict:
-                logger.error(f"{config}: missing models for horizon {h}")
-                continue
-
-            lower_model = models_dict[lower_key]
-            upper_model = models_dict[upper_key]
-
-            # Get calibrators and calibration methods from model attributes
-            lower_cal = getattr(lower_model, "calibrator_", None)
-            upper_cal = getattr(upper_model, "calibrator_", None)
-            lower_cal_method = getattr(lower_model, "calibration_method_", "none")
-            upper_cal_method = getattr(upper_model, "calibration_method_", "none")
-
-            lower_models[h] = (lower_model, lower_cal, lower_cal_method)
-            upper_models[h] = (upper_model, upper_cal, upper_cal_method)
+        lower_model = models_dict["lower"]
+        upper_model = models_dict["upper"]
 
         # Scoring slice: next cadence period
         score_start = cutoff
@@ -616,13 +608,13 @@ def ml_simulate(
             skip_reasons["no_scoring_data"] = skip_reasons.get("no_scoring_data", 0) + 1
             continue
 
-        # Validate scoring window grid structure
-        if "bar_idx" in score_df.columns and "config_id" in score_df.columns:
-            is_valid, error = MLSchema.validate_bar_config_structure(score_df, widths, asymmetries)
+        # Validate scoring window hazard schema
+        if "bar_idx" in score_df.columns and "config_id" in score_df.columns and "k" in score_df.columns:
+            is_valid, error = MLSchema.validate_hazard_schema(score_df, widths, asymmetries, max_horizon)
             if not is_valid:
                 logger.warning(f"Window {cutoff}: scoring data invalid - {error}")
                 windows_skipped += 1
-                skip_reasons["scoring_bar_config_invalid"] = skip_reasons.get("scoring_bar_config_invalid", 0) + 1
+                skip_reasons["scoring_hazard_schema_invalid"] = skip_reasons.get("scoring_hazard_schema_invalid", 0) + 1
                 continue
 
         # Validate features match using centralized schema
@@ -647,8 +639,8 @@ def ml_simulate(
         # Run backtest on scoring slice with trained models (don't clear positions from previous slices)
         backtest_result = _run_backtest(
             config=config,
-            lower_models=lower_models,
-            upper_models=upper_models,
+            lower_model=lower_model,
+            upper_model=upper_model,
             feature_cols=feature_cols,
             df=score_df,
             model_cutoff=cutoff,

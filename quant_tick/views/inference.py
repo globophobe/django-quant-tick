@@ -14,10 +14,9 @@ from quant_tick.lib.labels import _compute_features
 from quant_tick.lib.ml import (
     DEFAULT_ASYMMETRIES,
     DEFAULT_WIDTHS,
-    apply_calibration,
     compute_bound_features,
-    enforce_monotonicity,
     find_optimal_config,
+    hazard_to_per_horizon_probs,
     prepare_features,
 )
 from quant_tick.lib.schema import MLSchema
@@ -46,39 +45,29 @@ class InferenceView(ListAPIView):
         # Get decision horizons from config
         decision_horizons = cfg.json_data.get("decision_horizons", [60, 120, 180])
 
-        # Load per-horizon models
-        lower_models = {}  # {horizon: (model, calibrator, calibration_method)}
-        upper_models = {}  # {horizon: (model, calibrator, calibration_method)}
+        # Load hazard models
+        try:
+            lower_artifact = cfg.ml_artifacts.get(model_type="hazard_lower")
+            upper_artifact = cfg.ml_artifacts.get(model_type="hazard_upper")
+        except MLArtifact.DoesNotExist:
+            logger.error(f"{cfg}: No hazard models found. Train models first.")
+            return {"config": cfg.code_name, "error": "missing hazard models"}
 
-        for h in decision_horizons:
-            # Load lower model
-            try:
-                artifact = cfg.ml_artifacts.get(model_type=f"lower_h{h}")
-                model = self._load_model(artifact)
-                calibrator, calibration_method = self._load_calibrator(artifact)
-                if model is not None:
-                    lower_models[h] = (model, calibrator, calibration_method)
-            except MLArtifact.DoesNotExist:
-                logger.warning(f"{cfg}: missing lower_h{h} artifact")
-                return {"config": cfg.code_name, "error": f"missing lower_h{h} model"}
+        # Load models from artifacts
+        lower_model = self._load_model(lower_artifact)
+        upper_model = self._load_model(upper_artifact)
 
-            # Load upper model
-            try:
-                artifact = cfg.ml_artifacts.get(model_type=f"upper_h{h}")
-                model = self._load_model(artifact)
-                calibrator, calibration_method = self._load_calibrator(artifact)
-                if model is not None:
-                    upper_models[h] = (model, calibrator, calibration_method)
-            except MLArtifact.DoesNotExist:
-                logger.warning(f"{cfg}: missing upper_h{h} artifact")
-                return {"config": cfg.code_name, "error": f"missing upper_h{h} model"}
-
-        if not lower_models or not upper_models:
+        if lower_model is None or upper_model is None:
             return {"config": cfg.code_name, "error": "failed to load models"}
 
-        # Get feature columns from one of the artifacts
-        first_artifact = cfg.ml_artifacts.filter(model_type__startswith="lower_h").first()
-        feature_cols = first_artifact.feature_columns if first_artifact else []
+        # Get feature columns and max_horizon
+        feature_cols = lower_artifact.feature_columns
+        max_horizon = cfg.json_data.get("max_horizon", cfg.horizon_bars)
+
+        logger.info(
+            f"{cfg}: Loaded hazard models: max_horizon={max_horizon}, "
+            f"decision_horizons={decision_horizons}"
+        )
 
         # Validate feature hash for drift detection
         from quant_tick.lib.train import compute_feature_hash
@@ -136,48 +125,49 @@ class InferenceView(ListAPIView):
         #
         # NOT predicted: direction, magnitude, timing within horizon, fee earnings
 
-        # Create prediction functions for per-horizon direct classifiers
+        # Create prediction functions using hazard models
         def predict_lower(features: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
-            """Predict max risk across horizons for lower bound using per-horizon models."""
+            """Predict max P(hit_lower) across decision horizons using hazard model."""
+            # Add bound features
             feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
 
-            # Align to training columns with missing indicators and sentinel
-            X_inference, _ = prepare_features(feat_with_bounds, feature_cols)
+            # Exclude k from prepare_features (not in live candle data)
+            base_feature_cols = [c for c in feature_cols if c != "k"]
+            X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
 
-            # Predict P(hit_lower_by_H) for each horizon
-            horizon_probs = {}
-            for h, (model, calibrator, calibration_method) in lower_models.items():
-                proba = model.predict_proba(X_inference)[0, 1]
+            # Rebuild DataFrame (no k yet)
+            X_df = pd.DataFrame(X_array, columns=expanded_cols)
+            X_base = X_df.iloc[[0]]
 
-                # Apply calibration if available
-                proba = apply_calibration(proba, calibrator, calibration_method)
+            # Reconstruct per-horizon probabilities from hazard model
+            # Pass full feature_cols (includes k) - hazard_to_per_horizon_probs will add it
+            horizon_probs = hazard_to_per_horizon_probs(
+                lower_model,
+                X_base,
+                feature_cols,  # Full training order WITH k
+                decision_horizons,
+                max_horizon,
+            )
 
-                horizon_probs[h] = proba
-
-            # Enforce monotonicity: P(hit_by_H) must be non-decreasing
-            horizon_probs = enforce_monotonicity(horizon_probs)
-
-            # Return max risk across horizons (conservative)
+            # Return max risk (conservative)
             return float(max(horizon_probs.values()))
 
         def predict_upper(features: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
-            """Predict max risk across horizons for upper bound using per-horizon models."""
+            """Predict max P(hit_upper) across decision horizons using hazard model."""
             feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
+            base_feature_cols = [c for c in feature_cols if c != "k"]
+            X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
+            X_df = pd.DataFrame(X_array, columns=expanded_cols)
+            X_base = X_df.iloc[[0]]
 
-            # Align to training columns with missing indicators and sentinel
-            X_inference, _ = prepare_features(feat_with_bounds, feature_cols)
+            horizon_probs = hazard_to_per_horizon_probs(
+                upper_model,
+                X_base,
+                feature_cols,  # Full training order WITH k
+                decision_horizons,
+                max_horizon,
+            )
 
-            # Predict P(hit_upper_by_H) for each horizon
-            horizon_probs = {}
-            for h, (model, calibrator, calibration_method) in upper_models.items():
-                proba = model.predict_proba(X_inference)[0, 1]
-                proba = apply_calibration(proba, calibrator, calibration_method)
-                horizon_probs[h] = proba
-
-            # Enforce monotonicity
-            horizon_probs = enforce_monotonicity(horizon_probs)
-
-            # Return max risk across horizons
             return float(max(horizon_probs.values()))
 
         # Find optimal config

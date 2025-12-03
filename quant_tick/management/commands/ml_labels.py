@@ -3,17 +3,17 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from quant_tick.lib.labels import generate_labels
+from quant_tick.lib.labels import generate_hazard_labels_from_config
 from quant_tick.lib.ml import DEFAULT_ASYMMETRIES, DEFAULT_WIDTHS
-from quant_tick.models import Candle, Symbol
+from quant_tick.models import Candle, MLConfig, Symbol
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    """Generate ML labels."""
+    """Generate hazard-based survival model labels for ML training."""
 
-    help = "Generate ML labels across multiple bound configurations"
+    help = "Generate hazard-based survival labels for ML training"
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
@@ -93,11 +93,42 @@ class Command(BaseCommand):
             logger.error(f"Symbol '{symbol_code}' not found")
             return
 
-        generate_labels(
+        # Get or create MLConfig
+        max_horizon = max(decision_horizons)
+        config, created = MLConfig.objects.get_or_create(
             candle=candle,
             symbol=symbol,
-            decision_horizons=decision_horizons,
-            min_bars=min_bars,
-            widths=widths,
-            asymmetries=asymmetries,
+            defaults={
+                "horizon_bars": max_horizon,
+                "json_data": {
+                    "decision_horizons": decision_horizons,
+                    "widths": widths,
+                    "asymmetries": asymmetries,
+                },
+            },
         )
+
+        if created:
+            logger.info(f"Created MLConfig for {candle_code} / {symbol_code}")
+        else:
+            # Update existing config if parameters provided
+            update_needed = False
+            if config.horizon_bars != max_horizon:
+                config.horizon_bars = max_horizon
+                update_needed = True
+            if config.json_data.get("decision_horizons") != decision_horizons:
+                config.json_data["decision_horizons"] = decision_horizons
+                update_needed = True
+            if config.json_data.get("widths") != widths:
+                config.json_data["widths"] = widths
+                update_needed = True
+            if config.json_data.get("asymmetries") != asymmetries:
+                config.json_data["asymmetries"] = asymmetries
+                update_needed = True
+
+            if update_needed:
+                config.save()
+                logger.info(f"Updated MLConfig for {candle_code} / {symbol_code}")
+
+        # Generate hazard labels
+        generate_hazard_labels_from_config(config)

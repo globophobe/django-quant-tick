@@ -14,6 +14,8 @@ from sklearn.metrics import brier_score_loss
 
 from quant_tick.lib.ml import (
     PurgedKFold,
+    apply_calibration,
+    calibrate_per_horizon,
     prepare_features,
 )
 from quant_tick.models import MLArtifact, MLConfig, MLFeatureData
@@ -34,7 +36,7 @@ def _cv_brier_for_params(
     horizon: int,
     n_splits: int,
     embargo_bars: int,
-    lgbm_params: dict[str, Any],
+    model_params: dict[str, Any],
 ) -> float:
     """Compute mean CV Brier score using PurgedKFold.
 
@@ -44,8 +46,8 @@ def _cv_brier_for_params(
         timestamp_idx_train: Timestamp indices for purging
         horizon: Decision horizon for event_end_idx calculation
         n_splits: Number of CV folds
-        embargo_bars: Embargo period in bars
-        lgbm_params: LightGBM parameters dict
+        embargo_bars: Embargo_bars period in bars
+        model_params: Model parameters dict
 
     Returns:
         Mean Brier score across CV folds
@@ -70,7 +72,7 @@ def _cv_brier_for_params(
 
     brier_scores = []
     for train_idx, test_idx in fold_list:
-        model = lgb.LGBMClassifier(**lgbm_params)
+        model = lgb.LGBMClassifier(**model_params)
         model.fit(X_train_full[train_idx], y_train_full[train_idx])
         y_pred = model.predict_proba(X_train_full[test_idx])[:, 1]
         brier_scores.append(brier_score_loss(y_train_full[test_idx], y_pred))
@@ -127,7 +129,7 @@ def _tune_lgbm_hyperparams_optuna(
             horizon=horizon,
             n_splits=n_splits,
             embargo_bars=embargo_bars,
-            lgbm_params=trial_params,
+            model_params=trial_params,
         )
 
     study = optuna.create_study(
@@ -149,9 +151,9 @@ def _tune_lgbm_hyperparams_optuna(
     return best_params
 
 
-def train_model_core(
-    df: Any,
-    decision_horizons: list[int],
+def train_hazard_core(
+    df: pd.DataFrame,
+    max_horizon: int,
     n_splits: int = 5,
     embargo_bars: int = 96,
     n_estimators: int = 300,
@@ -163,337 +165,211 @@ def train_model_core(
     calibration_pct: float = 0.1,
     optuna_n_trials: int = 20,
 ) -> tuple[dict[str, Any], list[str], dict, dict]:
-    """Train per-horizon binary classifiers for range touch prediction.
+    """Train discrete-time hazard models for survival analysis.
 
-    Trains separate LightGBM classifiers for each decision horizon and side:
-    - lower_h60, lower_h120, lower_h180: P(lower bound touched by horizon H)
-    - upper_h60, upper_h120, upper_h180: P(upper bound touched by horizon H)
-
-    Each classifier is a simple binary model: given current features, will this
-    bound get touched within the next H bars? (Yes=1, No=0)
-
-    Process:
-    1. Purged K-fold cross-validation (prevents lookahead bias)
-    2. Train LightGBM with early stopping
-    3. Calibrate on holdout set (isotonic or Platt)
-    4. Return models + metrics
-
-    This is a per-horizon logistic regression with trees.
+    Trains 2 models (lower, upper) for all time steps up to max_horizon,
+    using discrete-time hazard framework for competing risks.
 
     Args:
-        df: Feature dataframe with per-horizon binary targets (hit_lower_by_H, etc)
-        decision_horizons: Horizons to train models for (e.g., [60, 120, 180])
-        n_splits: Number of cross-validation folds
-        embargo_bars: Buffer between train/test to prevent leakage
-        n_estimators: Number of boosting iterations
-        max_depth: Max tree depth
-        min_samples_leaf: Minimum samples per leaf
-        learning_rate: Boosting learning rate
-        subsample: Fraction of samples for each tree
-        holdout_pct: Fraction of data held out for final calibration
-        optuna_n_trials: Number of Optuna trials per model (default: 20).
-            Set to 0 to disable tuning and use fixed params.
+        df: Hazard-labeled DataFrame (n_bars × n_configs × max_horizon rows)
+        max_horizon: Maximum time steps (T)
+        n_splits: PurgedKFold splits
+        embargo_bars: Embargo buffer for purging
+        n_estimators: LightGBM n_estimators
+        max_depth: LightGBM max_depth
+        min_samples_leaf: LightGBM min_child_samples
+        learning_rate: LightGBM learning_rate
+        subsample: LightGBM subsample
+        holdout_pct: Final test set fraction
+        calibration_pct: Calibration set fraction
+        optuna_n_trials: Hyperparameter tuning trials (0=disable)
 
     Returns:
         Tuple of (models_dict, feature_cols, cv_metrics, holdout_metrics)
-        - models_dict: {model_key: trained_model} with calibrator attached as .calibrator_
-        - feature_cols: List of feature names used
+        - models_dict: {"lower": model, "upper": model}
+            Each model has calibrator_ and calibration_method_ attributes
+        - feature_cols: List of feature names (includes "k")
         - cv_metrics: Cross-validation Brier scores
-        - holdout_metrics: Holdout Brier scores and calibration gaps
+        - holdout_metrics: Holdout performance and base rates
     """
     from quant_tick.lib.schema import MLSchema
 
-    # Validate bar_idx and config_id invariants
-    is_valid, error_msg = MLSchema.validate_bar_config_invariants(df)
-    if not is_valid:
-        raise ValueError(f"Bar/config invariants validation failed: {error_msg}")
+    logger.info("Starting hazard model training")
 
-    # Infer widths and asymmetries from data if available
-    widths = None
-    asymmetries = None
-    if "width" in df.columns and "asymmetry" in df.columns:
-        widths = sorted(df["width"].unique())
-        asymmetries = sorted(df["asymmetry"].unique())
-
-        # Validate complete grid structure at input
-        is_valid, error_msg = MLSchema.validate_bar_config_structure(df, widths, asymmetries)
-        if not is_valid:
-            raise ValueError(f"Input grid structure validation failed: {error_msg}")
-
-    # Identify feature columns using MLSchema
-    feature_cols = MLSchema.get_training_features(df.columns.tolist(), decision_horizons)
-
-    # Prepare features with missing indicators and sentinel fill
+    feature_cols = MLSchema.get_hazard_training_features(df.columns.tolist())
     X, feature_cols = prepare_features(df, feature_cols)
 
-    # Get timestamp for splitting
-    timestamp_idx = df["bar_idx"].values  # Use bar_idx as timestamp
+    logger.info(f"Training features: {len(feature_cols)} columns (includes k)")
 
-    # Three-way split at bar-level with horizon-aware purging
-    # Determine number of configs per bar
     unique_bar_indices = df["bar_idx"].unique()
     n_bars = len(unique_bar_indices)
-    n_configs = len(df) // n_bars
 
-    # Get max horizon for purging (labels depend on prices up to bar_idx + max_horizon)
-    max_horizon = max(decision_horizons)
+    rows_per_bar = len(df[df["bar_idx"] == unique_bar_indices[0]])
+    n_configs = rows_per_bar // max_horizon
 
-    # Minimum bar requirements
-    MIN_BARS_PER_SPLIT = 5
+    if rows_per_bar != n_configs * max_horizon:
+        raise ValueError(
+            f"Invalid row count per bar: {rows_per_bar} != {n_configs} × {max_horizon}"
+        )
 
-    # Initial bar-based split (before purging)
+    logger.info(
+        f"Grid structure: {n_bars} bars × {n_configs} configs × {max_horizon} time steps "
+        f"= {len(df)} rows"
+    )
+
     test_bars = int(n_bars * holdout_pct)
     calib_bars = int(n_bars * calibration_pct)
     train_bars_initial = n_bars - test_bars - calib_bars
 
-    # Purge training samples whose event horizon overlaps with calib/test
-    # Training can only use bars where bar_idx + max_horizon + 1 <= first_calib_bar
-    first_calib_bar = train_bars_initial
-    first_test_bar = train_bars_initial + calib_bars
-
-    # Purge training: exclude samples within max_horizon of calib
     train_bars_purged = max(0, train_bars_initial - (max_horizon + 1))
-
-    # Purge calibration: exclude samples within max_horizon of test
     calib_bars_purged = max(0, calib_bars - (max_horizon + 1))
 
-    # Log detailed purging math
-    logger.info(
-        f"Purging math:\n"
-        f"  Total bars: {n_bars}\n"
-        f"  Max horizon: {max_horizon}\n"
-        f"  Initial split: train={train_bars_initial}, calib={calib_bars}, test={test_bars}\n"
-        f"  Purge amounts: train loses {train_bars_initial - train_bars_purged} bars, "
-        f"calib loses {calib_bars - calib_bars_purged} bars\n"
-        f"  After purging: train={train_bars_purged}, calib={calib_bars_purged}, test={test_bars}\n"
-        f"  Bar ranges: train=[0, {train_bars_purged}), "
-        f"calib=[{first_calib_bar}, {first_calib_bar + calib_bars_purged}), "
-        f"test=[{first_test_bar}, {first_test_bar + test_bars})"
+    if train_bars_purged < 100:
+        raise ValueError(
+            f"Insufficient training data after purging: {train_bars_purged} bars"
+        )
+
+    rows_per_bar_total = n_configs * max_horizon
+
+    train_idx = np.arange(train_bars_purged * rows_per_bar_total)
+
+    first_calib_bar = train_bars_purged + max_horizon + 1
+    calib_idx = np.arange(
+        first_calib_bar * rows_per_bar_total,
+        (first_calib_bar + calib_bars_purged) * rows_per_bar_total
     )
 
-    # Check minimum requirements after purging
-    if train_bars_purged < MIN_BARS_PER_SPLIT:
-        raise ValueError(
-            f"After purging with horizon={max_horizon}, train has only {train_bars_purged} bars "
-            f"(need {MIN_BARS_PER_SPLIT}). Total bars: {n_bars}. "
-            f"Collect more data or reduce horizons."
-        )
-    if calib_bars_purged < MIN_BARS_PER_SPLIT:
-        raise ValueError(
-            f"After purging with horizon={max_horizon}, calib has only {calib_bars_purged} bars "
-            f"(need {MIN_BARS_PER_SPLIT}). Total bars: {n_bars}. "
-            f"Collect more data or reduce horizons/calibration_pct."
-        )
-    if test_bars < MIN_BARS_PER_SPLIT:
-        raise ValueError(
-            f"Test has only {test_bars} bars (need {MIN_BARS_PER_SPLIT}). "
-            f"Total bars: {n_bars}. Increase holdout_pct or collect more data."
-        )
+    first_test_bar = first_calib_bar + calib_bars_purged + max_horizon + 1
+    test_idx = np.arange(first_test_bar * rows_per_bar_total, len(df))
 
-    # Convert bar-level split to row indices (blocks of n_configs)
-    # Training uses only purged bars
-    train_idx = np.arange(train_bars_purged * n_configs)
-
-    # Calibration starts at first_calib_bar, uses only purged bars
-    calib_start_row = first_calib_bar * n_configs
-    calib_idx = np.arange(calib_start_row, calib_start_row + calib_bars_purged * n_configs)
-
-    # Test starts at first_test_bar, uses all test bars (no purging needed after test)
-    test_start_row = first_test_bar * n_configs
-    test_idx = np.arange(test_start_row, test_start_row + test_bars * n_configs)
-
-    # Verify no bar_idx overlap
-    train_bar_set = set(df.iloc[train_idx]["bar_idx"].unique())
-    calib_bar_set = set(df.iloc[calib_idx]["bar_idx"].unique())
-    test_bar_set = set(df.iloc[test_idx]["bar_idx"].unique())
-    assert len(train_bar_set & calib_bar_set) == 0, "Train/calib overlap detected"
-    assert len(train_bar_set & test_bar_set) == 0, "Train/test overlap detected"
-    assert len(calib_bar_set & test_bar_set) == 0, "Calib/test overlap detected"
+    logger.info(
+        f"Train bars: {train_bars_purged}, "
+        f"Calib bars: {calib_bars_purged}, "
+        f"Test bars: {n_bars - first_test_bar}"
+    )
 
     X_train_full = X[train_idx]
     X_calib = X[calib_idx]
     X_test = X[test_idx]
-    timestamp_idx_train = timestamp_idx[train_idx]
 
-    # Validate purged training set has complete grids
-    if widths is not None and asymmetries is not None:
-        train_df = df.iloc[train_idx]
-        is_valid, error_msg = MLSchema.validate_bar_config_structure(train_df, widths, asymmetries)
-        if not is_valid:
-            raise ValueError(f"Purged training set grid validation failed: {error_msg}")
+    timestamp_idx_train = df.iloc[train_idx]["bar_idx"].values
 
-    logger.info(
-        f"Purged split (horizon={max_horizon}): {train_bars_purged} train bars "
-        f"(from {train_bars_initial}), {calib_bars_purged} calib bars (from {calib_bars}), "
-        f"{test_bars} test bars ({n_configs} configs/bar)"
-    )
+    models_dict = {}
+    cv_metrics = {"cv_brier_scores": {}, "optuna_best_params": {}}
+    holdout_metrics = {"holdout_brier_scores": {}, "base_rates": {}}
 
-    # LightGBM parameters
-    lgbm_params = {
-        "n_estimators": n_estimators,
-        "learning_rate": learning_rate,
-        "max_depth": max_depth,
+    base_lgbm_params = {
+        "objective": "binary",
+        "metric": "binary_logloss",
         "min_child_samples": min_samples_leaf,
         "subsample": subsample,
-        "objective": "binary",
-        "class_weight": "balanced",
+        "subsample_freq": 1,
         "random_state": 42,
-        "n_jobs": -1,
         "verbose": -1,
+        "n_jobs": 1,
     }
 
-    # Train models per horizon+side
-    models_dict = {}
-    calibrators_dict = {}
-    calibration_methods_dict = {}
-    cv_brier_scores = {}
-    holdout_brier_scores = {}
-    holdout_calibration_gaps = {}
-    base_rates = {}  # Training base rates for rare event monitoring
-    optuna_best_params = {}  # Store best Optuna params for all models
+    for side in ["lower", "upper"]:
+        label_col = f"hazard_{side}"
+        model_key = side
 
-    for h in decision_horizons:
-        for side in ["lower", "upper"]:
-            label_col = f"hit_{side}_by_{h}"
-            model_key = f"{side}_h{h}"
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Training {side} hazard model")
+        logger.info(f"{'='*60}")
 
-            logger.info(f"Training {model_key}...")
+        y_train_full = df.iloc[train_idx][label_col].values
+        y_calib = df.iloc[calib_idx][label_col].values
+        y_test = df.iloc[test_idx][label_col].values
 
-            # Get target variables
-            y_train_full = df.iloc[train_idx][label_col].values
-            y_calib = df.iloc[calib_idx][label_col].values
-            y_test = df.iloc[test_idx][label_col].values
+        train_base_rate = float(y_train_full.mean())
+        logger.info(f"Training set base rate (P(hazard=1)): {train_base_rate:.4f}")
 
-            # Compute training base rate for rare event monitoring
-            train_base_rate = float(np.mean(y_train_full))
-            base_rates[model_key] = train_base_rate
+        if optuna_n_trials > 0:
+            logger.info(f"Starting Optuna tuning: {optuna_n_trials} trials")
 
-            # Determine params for this model (with or without Optuna)
-            if optuna_n_trials > 0:
-                # Run Optuna tuning for this (side, horizon) model
-                tuned_params = _tune_lgbm_hyperparams_optuna(
-                    X_train_full=X_train_full,
-                    y_train_full=y_train_full,
-                    timestamp_idx_train=timestamp_idx_train,
-                    horizon=h,
-                    side=side,
-                    n_splits=n_splits,
-                    embargo_bars=embargo_bars,
-                    base_lgbm_params=lgbm_params,
-                    n_trials=optuna_n_trials,
-                )
-                # Store best params for this model
-                optuna_best_params[model_key] = {
-                    k: tuned_params[k]
-                    for k in ["learning_rate", "max_depth", "n_estimators"]
-                }
-                model_params = tuned_params
-            else:
-                # Use fixed params (no Optuna)
-                model_params = lgbm_params
-
-            # Cross-validation with final params
-            # (This recomputes CV with tuned params - necessary for honest CV metric)
-            mean_cv_brier = _cv_brier_for_params(
-                X_train_full=X_train_full,
-                y_train_full=y_train_full,
-                timestamp_idx_train=timestamp_idx_train,
-                horizon=h,
+            tuned_params = _tune_lgbm_hyperparams_optuna(
+                X_train_full,
+                y_train_full,
+                timestamp_idx_train,
+                horizon=max_horizon,
+                side=side,
+                n_trials=optuna_n_trials,
                 n_splits=n_splits,
                 embargo_bars=embargo_bars,
-                lgbm_params=model_params,
-            )
-            cv_brier_scores[model_key] = mean_cv_brier
-
-            # Train final model on full train set with chosen params
-            final_model = lgb.LGBMClassifier(**model_params)
-            final_model.fit(X_train_full, y_train_full)
-
-            # Predict on calibration set
-            y_calib_pred_proba = final_model.predict_proba(X_calib)[:, 1]
-
-            # Fit calibrator on calibration set
-            from quant_tick.lib.ml import calibrate_per_horizon
-            calibrator, calib_method = calibrate_per_horizon(y_calib, y_calib_pred_proba)
-            logger.info(f"{model_key}: fitted {calib_method} calibrator on {len(y_calib)} samples")
-
-            # Predict on test set
-            y_test_pred_proba_raw = final_model.predict_proba(X_test)[:, 1]
-
-            # Apply calibration to test predictions
-            if calibrator is not None:
-                if calib_method == "isotonic":
-                    y_test_pred_proba = calibrator.transform(y_test_pred_proba_raw)
-                elif calib_method == "platt":
-                    y_test_pred_proba = calibrator.predict_proba(
-                        y_test_pred_proba_raw.reshape(-1, 1)
-                    )[:, 1]
-                else:
-                    y_test_pred_proba = y_test_pred_proba_raw
-            else:
-                y_test_pred_proba = y_test_pred_proba_raw
-
-            # Compute test metrics AFTER calibration
-            brier_test_calibrated = brier_score_loss(y_test, y_test_pred_proba)
-            brier_test_raw = brier_score_loss(y_test, y_test_pred_proba_raw)
-
-            # Calibration metrics
-            empirical_rate = float(np.mean(y_test))
-            predicted_rate_calibrated = float(np.mean(y_test_pred_proba))
-            predicted_rate_raw = float(np.mean(y_test_pred_proba_raw))
-            calib_gap_calibrated = abs(predicted_rate_calibrated - empirical_rate)
-            calib_gap_raw = abs(predicted_rate_raw - empirical_rate)
-
-            # Store models, calibrators, and metrics
-            models_dict[model_key] = final_model
-            calibrators_dict[model_key] = calibrator
-            calibration_methods_dict[model_key] = calib_method
-
-            holdout_brier_scores[model_key] = float(brier_test_calibrated)  # CALIBRATED
-            holdout_calibration_gaps[model_key] = calib_gap_calibrated  # CALIBRATED
-
-            # Log detailed metrics (both raw and calibrated for comparison)
-            optuna_status = "(Optuna tuned)" if optuna_n_trials > 0 else "(fixed params)"
-            logger.info(
-                f"{model_key} {optuna_status}: CV Brier={mean_cv_brier:.4f}, "
-                f"Test Brier (raw)={brier_test_raw:.4f}, "
-                f"Test Brier (calibrated)={brier_test_calibrated:.4f}, "
-                f"Calib gap (raw)={calib_gap_raw:.4f}, "
-                f"Calib gap (calibrated)={calib_gap_calibrated:.4f}"
+                base_lgbm_params=base_lgbm_params,
             )
 
-    # Aggregate metrics by side
-    lower_cv_briers = [cv_brier_scores[f"lower_h{h}"] for h in decision_horizons]
-    upper_cv_briers = [cv_brier_scores[f"upper_h{h}"] for h in decision_horizons]
-    lower_holdout_briers = [holdout_brier_scores[f"lower_h{h}"] for h in decision_horizons]
-    upper_holdout_briers = [holdout_brier_scores[f"upper_h{h}"] for h in decision_horizons]
+            model_params = tuned_params
+            cv_metrics["optuna_best_params"][model_key] = tuned_params
+        else:
+            model_params = base_lgbm_params.copy()
+            model_params.update({
+                "n_estimators": n_estimators,
+                "max_depth": max_depth,
+                "learning_rate": learning_rate,
+            })
 
-    cv_metrics = {
-        "cv_brier_scores": cv_brier_scores,  # Keep per-model for debugging
-        "avg_brier_lower": float(np.mean(lower_cv_briers)),
-        "avg_brier_upper": float(np.mean(upper_cv_briers)),
-        "optuna_best_params": optuna_best_params,  # Best Optuna params per model
-    }
+        logger.info("Running cross-validation with PurgedKFold")
 
-    # Build per-horizon dicts for config storage
-    per_horizon_brier_lower = {h: holdout_brier_scores[f"lower_h{h}"] for h in decision_horizons}
-    per_horizon_brier_upper = {h: holdout_brier_scores[f"upper_h{h}"] for h in decision_horizons}
+        mean_cv_brier = _cv_brier_for_params(
+            X_train_full,
+            y_train_full,
+            timestamp_idx_train,
+            horizon=max_horizon,
+            n_splits=n_splits,
+            embargo_bars=embargo_bars,
+            model_params=model_params,
+        )
 
-    holdout_metrics = {
-        "holdout_brier_scores": holdout_brier_scores,  # Keep per-model
-        "calibration_gaps": holdout_calibration_gaps,  # Keep per-model
-        "avg_brier_lower": float(np.mean(lower_holdout_briers)),
-        "avg_brier_upper": float(np.mean(upper_holdout_briers)),
-        "per_horizon_brier_lower": per_horizon_brier_lower,
-        "per_horizon_brier_upper": per_horizon_brier_upper,
-        "base_rates": base_rates,  # Training base rates for drift monitoring
-    }
+        cv_metrics["cv_brier_scores"][model_key] = mean_cv_brier
+        logger.info(f"CV Brier score: {mean_cv_brier:.4f}")
 
-    # Store calibrators and methods with models (for later serialization)
-    for key, calibrator in calibrators_dict.items():
-        if calibrator is not None:
-            models_dict[key].calibrator_ = calibrator
-        models_dict[key].calibration_method_ = calibration_methods_dict.get(key, "none")
+        logger.info("Training final model on full training set")
+
+        final_model = lgb.LGBMClassifier(**model_params)
+        final_model.fit(
+            X_train_full,
+            y_train_full,
+            eval_set=[(X_calib, y_calib)],
+            eval_metric="binary_logloss",
+            callbacks=[lgb.early_stopping(50, verbose=False)],
+        )
+
+        logger.info(f"Training complete: {final_model.n_estimators_} trees")
+
+        logger.info("Calibrating on calibration set")
+
+        y_calib_pred_proba = final_model.predict_proba(X_calib)[:, 1]
+        calibrator, calib_method = calibrate_per_horizon(y_calib, y_calib_pred_proba)
+
+        final_model.calibrator_ = calibrator
+        final_model.calibration_method_ = calib_method
+
+        logger.info(f"Calibration: method={calib_method}")
+
+        logger.info("Evaluating on holdout test set")
+
+        y_test_pred_proba_raw = final_model.predict_proba(X_test)[:, 1]
+        y_test_pred_proba = apply_calibration(
+            y_test_pred_proba_raw, calibrator, calib_method
+        )
+
+        holdout_brier = brier_score_loss(y_test, y_test_pred_proba)
+        holdout_metrics["holdout_brier_scores"][model_key] = holdout_brier
+        holdout_metrics["base_rates"][model_key] = train_base_rate
+
+        logger.info(f"Holdout Brier score: {holdout_brier:.4f}")
+
+        models_dict[model_key] = final_model
+
+    cv_metrics["avg_brier"] = float(np.mean(list(cv_metrics["cv_brier_scores"].values())))
+    holdout_metrics["avg_brier"] = float(np.mean(list(holdout_metrics["holdout_brier_scores"].values())))
+
+    logger.info("\n" + "="*60)
+    logger.info("Training complete")
+    logger.info(f"Average CV Brier: {cv_metrics['avg_brier']:.4f}")
+    logger.info(f"Average holdout Brier: {holdout_metrics['avg_brier']:.4f}")
+    logger.info("="*60 + "\n")
 
     return models_dict, feature_cols, cv_metrics, holdout_metrics
 
@@ -508,21 +384,32 @@ def train_models(
     learning_rate: float = 0.05,
     subsample: float = 0.75,
     holdout_pct: float = 0.2,
+    calibration_pct: float = 0.1,
 ) -> bool:
-    """Train per-horizon direct classifiers.
+    """Train hazard models for MLConfig.
+
+    BREAKING CHANGE: This only trains hazard models. Per-horizon models removed.
 
     Args:
-        config: MLConfig to train models for
-        n_splits: Number of CV folds
-        embargo_bars: Embargo period in bars
-        n_estimators: Number of boosting iterations
-        max_depth: Max tree depth
-        min_samples_leaf: Minimum samples per leaf
-        learning_rate: Boosting learning rate
-        subsample: Fraction of samples for each tree
-        holdout_pct: Fraction of bars to reserve as holdout
+        config: MLConfig with associated MLFeatureData (hazard schema)
+        n_splits: PurgedKFold splits
+        embargo_bars: Embargo buffer
+        n_estimators: LightGBM n_estimators
+        max_depth: LightGBM max_depth
+        min_samples_leaf: LightGBM min_child_samples
+        learning_rate: LightGBM learning_rate
+        subsample: LightGBM subsample
+        holdout_pct: Final test set fraction
+        calibration_pct: Calibration set fraction
+
+    Returns:
+        True if training succeeded, False otherwise
+
+    Raises:
+        ValueError: If no feature data or schema validation fails
     """
-    # Get latest feature data
+    logger.info(f"Training hazard models for config: {config.code_name}")
+
     feature_data = MLFeatureData.objects.filter(
         candle=config.candle
     ).order_by("-timestamp_to").first()
@@ -531,30 +418,36 @@ def train_models(
         logger.error(f"{config}: no feature data available")
         return False
 
-    # Validate schema matches config
     is_valid, error_msg = feature_data.validate_schema(config)
     if not is_valid:
         logger.error(
             f"{config}: schema validation failed - {error_msg}. "
-            f"Run ml_labels command to regenerate features with correct schema."
+            f"Run ml_labels to regenerate features."
         )
         return False
 
-    logger.info(f"{config}: schema validation passed")
+    schema_type = feature_data.json_data.get("schema_type", "per_horizon")
+    if schema_type != "hazard":
+        logger.error(
+            f"{config}: schema_type='{schema_type}', expected 'hazard'. "
+            f"Run ml_labels to regenerate features."
+        )
+        return False
 
     df = feature_data.get_data_frame("file_data")
-    logger.info(f"{config}: loaded {len(df)} rows from feature data")
+    max_horizon = feature_data.json_data.get("max_horizon", config.horizon_bars)
 
-    # Get decision horizons from config or use defaults
-    decision_horizons = config.json_data.get("decision_horizons", [60, 120, 180])
+    logger.info(
+        f"{config}: loaded {len(df)} rows, "
+        f"max_horizon={max_horizon}, "
+        f"schema_hash={feature_data.schema_hash[:8]}"
+    )
 
-    # Get Optuna config (default: 20 trials)
     optuna_n_trials = config.json_data.get("optuna_n_trials", 20)
 
-    # Train models using core function
-    models_dict, feature_cols, cv_metrics, holdout_metrics = train_model_core(
-        df=df,
-        decision_horizons=decision_horizons,
+    models_dict, feature_cols, cv_metrics, holdout_metrics = train_hazard_core(
+        df,
+        max_horizon=max_horizon,
         n_splits=n_splits,
         embargo_bars=embargo_bars,
         n_estimators=n_estimators,
@@ -563,177 +456,93 @@ def train_models(
         learning_rate=learning_rate,
         subsample=subsample,
         holdout_pct=holdout_pct,
+        calibration_pct=calibration_pct,
         optuna_n_trials=optuna_n_trials,
     )
 
-    logger.info(
-        f"{config}: CV Brier - lower={cv_metrics.get('avg_brier_lower', 0):.4f}, "
-        f"upper={cv_metrics.get('avg_brier_upper', 0):.4f}"
-    )
-    logger.info(
-        f"{config}: Holdout Brier - lower={holdout_metrics.get('avg_brier_lower', 0):.4f}, "
-        f"upper={holdout_metrics.get('avg_brier_upper', 0):.4f}"
-    )
+    for side, model in models_dict.items():
+        _save_hazard_artifact(
+            config=config,
+            model=model,
+            side=side,
+            feature_cols=feature_cols,
+            brier_score=holdout_metrics["holdout_brier_scores"][side],
+            base_rate=holdout_metrics["base_rates"][side],
+        )
 
-    # Compute feature hash for drift detection
-    feature_hash = compute_feature_hash(feature_cols)
+    config.json_data["model_kind"] = "hazard"
+    config.json_data["model_version"] = "3.0"
+    config.json_data["max_horizon"] = max_horizon
+    config.json_data["cv_metrics"] = cv_metrics
+    config.json_data["holdout_metrics"] = holdout_metrics
+    config.json_data["feature_hash"] = compute_feature_hash(feature_cols)
 
-    # Store model metadata in config
-    config.json_data["model_kind"] = "per_horizon_lgbm"
-    config.json_data["model_version"] = "2.0"
-    if "decision_horizons" not in config.json_data:
-        config.json_data["decision_horizons"] = decision_horizons
-
-    # Store holdout metrics in config
-    if "holdout_metrics" not in config.json_data:
-        config.json_data["holdout_metrics"] = {}
-    config.json_data["holdout_metrics"]["lower"] = {
-        "brier_cv": cv_metrics.get("avg_brier_lower", 0.0),
-        "brier_holdout": holdout_metrics.get("avg_brier_lower", 0.0),
-        "per_horizon_brier": holdout_metrics.get("per_horizon_brier_lower", {}),
-    }
-    config.json_data["holdout_metrics"]["upper"] = {
-        "brier_cv": cv_metrics.get("avg_brier_upper", 0.0),
-        "brier_holdout": holdout_metrics.get("avg_brier_upper", 0.0),
-        "per_horizon_brier": holdout_metrics.get("per_horizon_brier_upper", {}),
-    }
-
-    # Store Optuna best params if tuning was enabled
     if optuna_n_trials > 0:
         optuna_best_params = cv_metrics.get("optuna_best_params", {})
         if optuna_best_params:
             config.json_data["optuna_best_params"] = optuna_best_params
-            logger.info(f"{config}: stored Optuna best params for {len(optuna_best_params)} models")
 
     config.save(update_fields=["json_data"])
 
-    # Save per-horizon models
-    base_rates = holdout_metrics.get("base_rates", {})
-    for h in decision_horizons:
-        lower_key = f"lower_h{h}"
-        upper_key = f"upper_h{h}"
-
-        if lower_key in models_dict:
-            lower_model = models_dict[lower_key]
-            lower_brier = holdout_metrics.get("per_horizon_brier_lower", {}).get(h, 0.0)
-            calibrator = getattr(lower_model, "calibrator_", None)
-            calib_method = getattr(lower_model, "calibration_method_", "none")
-            lower_base_rate = base_rates.get(lower_key)
-            _save_per_horizon_artifact(
-                config, lower_model, lower_key, feature_cols, lower_brier, feature_hash, calibrator, h, calib_method, lower_base_rate
-            )
-
-        if upper_key in models_dict:
-            upper_model = models_dict[upper_key]
-            upper_brier = holdout_metrics.get("per_horizon_brier_upper", {}).get(h, 0.0)
-            calibrator = getattr(upper_model, "calibrator_", None)
-            calib_method = getattr(upper_model, "calibration_method_", "none")
-            upper_base_rate = base_rates.get(upper_key)
-            _save_per_horizon_artifact(
-                config, upper_model, upper_key, feature_cols, upper_brier, feature_hash, calibrator, h, calib_method, upper_base_rate
-            )
-
-    logger.info(f"{config}: training complete (feature_hash={feature_hash})")
+    logger.info(f"{config}: hazard model training complete")
     return True
 
 
-def _save_artifact(
+def _save_hazard_artifact(
     config: MLConfig,
     model: Any,
-    model_type: str,
+    side: str,
     feature_cols: list[str],
     brier_score: float,
-    feature_hash: str,
-) -> None:
-    """Save model artifact with feature hash for drift detection."""
-    # Delete existing artifacts of same type
+    base_rate: float,
+) -> MLArtifact:
+    """Save hazard model artifact.
+
+    Args:
+        config: MLConfig
+        model: Trained LightGBM model with calibrator_ attribute
+        side: "lower" or "upper"
+        feature_cols: Ordered list of feature names
+        brier_score: Holdout Brier score
+        base_rate: Training set base rate (P(hazard=1))
+
+    Returns:
+        Saved MLArtifact
+    """
+    model_type = f"hazard_{side}"
+
     MLArtifact.objects.filter(
         ml_config=config,
         model_type=model_type,
     ).delete()
 
-    # Serialize model
-    buf = BytesIO()
-    joblib.dump(model, buf)
-    buf.seek(0)
+    logger.info(f"Saving {model_type} artifact")
 
-    artifact = MLArtifact(
+    buffer = BytesIO()
+    joblib.dump(model, buffer)
+    buffer.seek(0)
+
+    calibrator = getattr(model, "calibrator_", None)
+    calibration_method = getattr(model, "calibration_method_", "none")
+
+    artifact = MLArtifact.objects.create(
         ml_config=config,
         model_type=model_type,
         brier_score=brier_score,
         feature_columns=feature_cols,
-    )
-    artifact.artifact.save(
-        f"ml_{model_type}.joblib",
-        ContentFile(buf.read()),
-    )
-    # Store feature hash in json_data on config for drift detection
-    if "feature_hashes" not in config.json_data:
-        config.json_data["feature_hashes"] = {}
-    config.json_data["feature_hashes"][model_type] = feature_hash
-    config.save(update_fields=["json_data"])
-
-    artifact.save()
-
-    logger.info(f"{config}: saved {model_type} model artifact (feature_hash={feature_hash})")
-
-
-def _save_per_horizon_artifact(
-    config: MLConfig,
-    model: Any,
-    model_type: str,
-    feature_cols: list[str],
-    brier_score: float,
-    feature_hash: str,
-    calibrator: Any,
-    horizon: int,
-    calibration_method: str = "none",
-    base_rate: float | None = None,
-) -> None:
-    """Save per-horizon model artifact with calibrator and base rate."""
-    # Delete existing artifacts of same type
-    MLArtifact.objects.filter(
-        ml_config=config,
-        model_type=model_type,
-    ).delete()
-
-    # Serialize model
-    buf = BytesIO()
-    joblib.dump(model, buf)
-    buf.seek(0)
-
-    # Serialize calibrator if exists
-    calibrator_bytes = None
-    if calibrator is not None:
-        calibrator_bytes = pickle.dumps(calibrator)
-
-    # Prepare metadata
-    json_data = {}
-    if base_rate is not None:
-        json_data["base_rate"] = base_rate
-
-    artifact = MLArtifact(
-        ml_config=config,
-        model_type=model_type,
-        brier_score=brier_score,
-        feature_columns=feature_cols,
-        calibrator=calibrator_bytes,
-        horizon=horizon,
+        calibrator=pickle.dumps(calibrator) if calibrator else b"",
         calibration_method=calibration_method,
-        json_data=json_data,
-    )
-    artifact.artifact.save(
-        f"ml_{model_type}.joblib",
-        ContentFile(buf.read()),
+        json_data={"base_rate": base_rate},
     )
 
-    # Store feature hash in json_data on config for drift detection
-    if "feature_hashes" not in config.json_data:
-        config.json_data["feature_hashes"] = {}
-    config.json_data["feature_hashes"][model_type] = feature_hash
-    config.save(update_fields=["json_data"])
-
+    artifact.artifact.save(f"{model_type}.joblib", ContentFile(buffer.read()))
     artifact.save()
 
-    cal_status = "with calibrator" if calibrator is not None else "no calibrator"
-    logger.info(f"{config}: saved {model_type} model artifact ({cal_status}, feature_hash={feature_hash})")
+    logger.info(
+        f"Saved {model_type}: "
+        f"brier={brier_score:.4f}, "
+        f"base_rate={base_rate:.4f}, "
+        f"sha256={artifact.sha256[:8]}"
+    )
+
+    return artifact

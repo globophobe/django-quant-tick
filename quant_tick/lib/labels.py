@@ -7,61 +7,45 @@ from pandas import DataFrame
 from quant_tick.lib.ml import (
     DEFAULT_ASYMMETRIES,
     DEFAULT_WIDTHS,
-    generate_multi_config_labels,
+    generate_hazard_labels,
 )
-from quant_tick.models import Candle, MLConfig, MLFeatureData, Symbol
+from quant_tick.models import MLConfig, MLFeatureData
 
 logger = logging.getLogger(__name__)
 
 
-def generate_labels_from_config(config: MLConfig) -> MLFeatureData | None:
-    """Generate labels from config.
+def generate_hazard_labels_from_config(config: MLConfig) -> MLFeatureData | None:
+    """Generate hazard-style survival labels for MLConfig.
+
+    Produces hazard schema with discrete-time survival modeling.
 
     Args:
-        config: MLConfig instance with candle, symbol, json_data
+        config: MLConfig with candle, widths, asymmetries, horizon_bars
 
     Returns:
-        MLFeatureData if successful, None otherwise
+        MLFeatureData with schema_type="hazard" in json_data
     """
     candle = config.candle
-    decision_horizons = config.json_data.get("decision_horizons", [60, 120, 180])
-    widths = config.json_data.get("widths", DEFAULT_WIDTHS)
-    asymmetries = config.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
-    min_bars = 1000
 
-    # Load candle data
     df = candle.get_candle_data()
-    if df is None or len(df) < min_bars:
-        n = len(df) if df is not None else 0
-        logger.error(f"{config}: insufficient data ({n}/{min_bars})")
+    if df is None or len(df) == 0:
+        logger.error(f"{config}: no candle data found")
         return None
 
-    logger.info(f"{config}: loaded {len(df)} bars with {len(df.columns)} columns")
-
-    # Compute derived features from per-exchange columns
     df = _compute_features(df)
 
-    # Generate labels
-    labeled = generate_multi_config_labels(
-        df,
-        widths=widths,
-        asymmetries=asymmetries,
-        decision_horizons=decision_horizons,
-    )
+    widths = config.json_data.get("widths", DEFAULT_WIDTHS)
+    asymmetries = config.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
+    max_horizon = config.horizon_bars
 
-    n_configs = len(widths) * len(asymmetries)
-    logger.info(
-        f"{config}: generated {len(labeled)} rows "
-        f"({len(df)} bars x {n_configs} configs)"
-    )
+    labeled = generate_hazard_labels(df, widths, asymmetries, max_horizon)
 
-    # Compute schema hash
-    schema_cols = sorted(labeled.columns.tolist())
-    schema_hash = hashlib.sha256(",".join(schema_cols).encode()).hexdigest()[:16]
+    schema_hash = hashlib.sha256(
+        ",".join(sorted(labeled.columns)).encode()
+    ).hexdigest()[:16]
 
-    # Save to MLFeatureData (don't modify config)
-    timestamp_from = df["timestamp"].min()
-    timestamp_to = df["timestamp"].max()
+    timestamp_from = labeled["timestamp"].min()
+    timestamp_to = labeled["timestamp"].max()
 
     feature_data, created = MLFeatureData.objects.get_or_create(
         candle=candle,
@@ -72,111 +56,21 @@ def generate_labels_from_config(config: MLConfig) -> MLFeatureData | None:
 
     feature_data.file_data = MLFeatureData.prepare_data(labeled)
     feature_data.schema_hash = schema_hash
+    feature_data.json_data = {
+        "schema_type": "hazard",
+        "max_horizon": max_horizon,
+        "n_bars": len(df) - 1,
+        "n_configs": len(widths) * len(asymmetries),
+    }
     feature_data.save()
 
     action = "Created" if created else "Updated"
     logger.info(
-        f"{action} MLFeatureData: {timestamp_from} to {timestamp_to}, "
-        f"schema={schema_hash}"
+        f"{action} hazard MLFeatureData for {candle.code_name}: "
+        f"{len(labeled)} rows, schema_hash={schema_hash}"
     )
 
     return feature_data
-
-
-def generate_labels(
-    candle: Candle,
-    symbol: Symbol,
-    decision_horizons: list[int] | None = None,
-    min_bars: int = 1000,
-    widths: list[float] | None = None,
-    asymmetries: list[float] | None = None,
-) -> MLConfig | None:
-    """Generate labels.
-
-    Args:
-        candle: Candle to generate labels for
-        symbol: Symbol for position tracking
-        decision_horizons: List of decision horizons in bars
-        min_bars: Minimum bars required
-        widths: Range widths
-        asymmetries: Asymmetries
-
-    Returns:
-        MLConfig or None
-    """
-    decision_horizons = decision_horizons or [60, 120, 180]
-    widths = widths or DEFAULT_WIDTHS
-    asymmetries = asymmetries or DEFAULT_ASYMMETRIES
-
-    # Load candle data
-    df = candle.get_candle_data()
-    if df is None or len(df) < min_bars:
-        n = len(df) if df is not None else 0
-        logger.error(f"{candle}: insufficient data ({n}/{min_bars})")
-        return None
-
-    logger.info(f"{candle}: loaded {len(df)} bars with {len(df.columns)} columns")
-
-    # Compute derived features from per-exchange columns
-    df = _compute_features(df)
-
-    # Generate labels
-    labeled = generate_multi_config_labels(
-        df,
-        widths=widths,
-        asymmetries=asymmetries,
-        decision_horizons=decision_horizons,
-    )
-
-    n_configs = len(widths) * len(asymmetries)
-    logger.info(
-        f"{candle}: generated {len(labeled)} rows "
-        f"({len(df)} bars x {n_configs} configs)"
-    )
-
-    # Compute schema hash
-    schema_cols = sorted(labeled.columns.tolist())
-    schema_hash = hashlib.sha256(",".join(schema_cols).encode()).hexdigest()[:16]
-
-    # Get or create MLConfig
-    max_horizon = max(decision_horizons)
-    config, created = MLConfig.objects.get_or_create(
-        candle=candle,
-        symbol=symbol,
-        defaults={
-            "horizon_bars": max_horizon,
-            "json_data": {
-                "decision_horizons": decision_horizons,
-                "widths": widths,
-                "asymmetries": asymmetries,
-            },
-        },
-    )
-    if created:
-        logger.info(f"Created MLConfig for {candle}")
-
-    # Save to MLFeatureData
-    timestamp_from = df["timestamp"].min()
-    timestamp_to = df["timestamp"].max()
-
-    feature_data, created = MLFeatureData.objects.get_or_create(
-        candle=candle,
-        timestamp_from=timestamp_from,
-        timestamp_to=timestamp_to,
-        defaults={"schema_hash": schema_hash},
-    )
-
-    feature_data.file_data = MLFeatureData.prepare_data(labeled)
-    feature_data.schema_hash = schema_hash
-    feature_data.save()
-
-    action = "Created" if created else "Updated"
-    logger.info(
-        f"{action} MLFeatureData: {timestamp_from} to {timestamp_to}, "
-        f"schema={schema_hash}"
-    )
-
-    return config
 
 
 def _compute_features(df: DataFrame) -> DataFrame:

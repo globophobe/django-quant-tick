@@ -125,176 +125,268 @@ DEFAULT_WIDTHS = [0.02, 0.03, 0.04, 0.05, 0.07, 0.10]
 DEFAULT_ASYMMETRIES = [-0.4, -0.2, 0.0, 0.2, 0.4]
 
 
-def generate_per_horizon_labels(
-    df: DataFrame,
-    lower_pct: float,
-    upper_pct: float,
-    decision_horizons: list[int],
-) -> DataFrame:
-    """Generate binary touch labels for range breach prediction.
+def compute_first_touch_bars(
+    low: np.ndarray,
+    high: np.ndarray,
+    lower_bounds: np.ndarray,
+    upper_bounds: np.ndarray,
+    max_horizon: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute first touch time for each entry bar.
 
-    Creates simple yes/no labels for each horizon: did price touch this bound
-    within the next H bars?
+    Scans future price path to find first bar where bound is breached.
+    Uses high/low for accuracy.
 
-    Label logic per bar:
-    - hit_lower_by_60: 1 if low price touches lower bound in next 60 bars, else 0
-    - hit_upper_by_60: 1 if high price touches upper bound in next 60 bars, else 0
-    - Repeat for each horizon (60, 120, 180, etc.)
+    Args:
+        low: Low prices (n,)
+        high: High prices (n,)
+        lower_bounds: Lower bound per bar (n,)
+        upper_bounds: Upper bound per bar (n,)
+        max_horizon: Maximum lookahead in bars
+
+    Returns:
+        Tuple of (first_touch_lower, first_touch_upper)
+        - Shape: (n-1,) each (last bar dropped, no future available)
+        - Values: 1-indexed bar offset (1..max_horizon), or max_horizon+1 if censored
 
     Example:
-        If current price = 100, lower_pct = -0.03, decision_horizons = [60]:
-        - Lower bound = 97
-        - If price dips to 96.5 within next 60 bars: hit_lower_by_60 = 1
-        - Otherwise: hit_lower_by_60 = 0
-
-    Args:
-        df: DataFrame of features
-        lower_pct: Lower bound as fraction (e.g., -0.03 for -3%)
-        upper_pct: Upper bound as fraction (e.g., 0.05 for +5%)
-        decision_horizons: List of horizons to label (e.g., [60, 120, 180])
-
-    Returns:
-        DataFrame of features and labels
-        - hit_lower_by_{h}: Binary label (0 or 1)
-        - hit_upper_by_{h}: Binary label (0 or 1)
-        - bar_idx: For time-series CV
+        Bar 0: close=100, lower_bound=97, upper_bound=103
+        Future prices: [102, 98, 104, ...]
+        Result: first_touch_lower[0] = 2 (98 <= 97 at bar i+2)
+                first_touch_upper[0] = 3 (104 >= 103 at bar i+3)
     """
-    close = df["close"].values
+    n = len(low)
+    first_touch_lower = np.full(n - 1, max_horizon + 1, dtype=np.int32)
+    first_touch_upper = np.full(n - 1, max_horizon + 1, dtype=np.int32)
 
-    # Use high/low if available, else fall back to close
-    if "high" in df.columns and "low" in df.columns:
-        high = df["high"].values
-        low = df["low"].values
-    else:
-        logger.warning(
-            "High/low columns not available, using close-only labeling. "
-            "This may undercount touches and create conservative bias."
-        )
-        high = close
-        low = close
+    for i in range(n - 1):
+        h_end = min(i + max_horizon + 1, n)
+        future_lows = low[i + 1 : h_end]
+        future_highs = high[i + 1 : h_end]
 
-    n = len(close)
+        lower_breaches = np.where(future_lows <= lower_bounds[i])[0]
+        upper_breaches = np.where(future_highs >= upper_bounds[i])[0]
 
-    # Drop last bar (no future data)
-    if n <= 1:
-        return pd.DataFrame()
+        if len(lower_breaches) > 0:
+            first_touch_lower[i] = lower_breaches[0] + 1
 
-    n_samples = n - 1
+        if len(upper_breaches) > 0:
+            first_touch_upper[i] = upper_breaches[0] + 1
 
-    # Vectorized computation of bounds
-    entry_prices = close[:n_samples]
-    lower_bounds = entry_prices * (1 + lower_pct)
-    upper_bounds = entry_prices * (1 + upper_pct)
-
-    # Create result dataframe from first n-1 rows
-    result = df.iloc[:n_samples].copy()
-
-    # Add metadata columns (vectorized)
-    result["bar_idx"] = np.arange(n_samples)
-    result["entry_price"] = entry_prices
-    result["lower_bound_pct"] = lower_pct
-    result["upper_bound_pct"] = upper_pct
-
-    # Add config/bound features (vectorized)
-    width = upper_pct - lower_pct
-    asymmetry = upper_pct + lower_pct
-    result["width"] = width
-    result["asymmetry"] = asymmetry
-    result["range_width"] = width
-    result["range_asymmetry"] = asymmetry
-    result["dist_to_lower_pct"] = (entry_prices - lower_bounds) / entry_prices
-    result["dist_to_upper_pct"] = (upper_bounds - entry_prices) / entry_prices
-
-    # Vectorized touch detection for each horizon
-    for h in decision_horizons:
-        # Pre-allocate arrays for this horizon
-        hit_lower_arr = np.zeros(n_samples, dtype=np.int32)
-        hit_upper_arr = np.zeros(n_samples, dtype=np.int32)
-
-        # Check each bar's future window
-        for i in range(n_samples):
-            h_end = min(i + h + 1, n)
-            if h_end <= i + 1:
-                continue
-
-            # Get future window for this horizon
-            future_lows = low[i + 1 : h_end]
-            future_highs = high[i + 1 : h_end]
-
-            # Check if bounds touched
-            if len(future_lows) > 0:
-                hit_lower_arr[i] = 1 if np.any(future_lows <= lower_bounds[i]) else 0
-                hit_upper_arr[i] = 1 if np.any(future_highs >= upper_bounds[i]) else 0
-
-        # Assign to dataframe
-        result[f"hit_lower_by_{h}"] = hit_lower_arr
-        result[f"hit_upper_by_{h}"] = hit_upper_arr
-
-    return result
+    return first_touch_lower, first_touch_upper
 
 
-def generate_multi_config_labels(
+def generate_hazard_labels(
     df: DataFrame,
-    widths: list[float] | None = None,
-    asymmetries: list[float] | None = None,
-    decision_horizons: list[int] | None = None,
+    widths: list[float],
+    asymmetries: list[float],
+    max_horizon: int,
 ) -> DataFrame:
-    """Generate per-horizon touch labels for multiple bound configurations.
+    """Generate discrete-time hazard labels.
 
-    One row per bar+config. Direct binary targets per horizon.
+    Expands data over (bar, config, k) dimensions. For each entry bar and config,
+    creates max_horizon rows (one per time step k). Sets hazard_lower(k) = 1
+    if first touch occurs at step k.
 
     Args:
-        df: DataFrame with features and 'close' column
-        widths: List of range widths (e.g., [0.03, 0.05, 0.07])
-        asymmetries: List of asymmetries (e.g., [-0.2, 0, 0.2])
-        decision_horizons: List of horizons to label (e.g., [60, 120, 180])
+        df: DataFrame with OHLC and base features
+        widths: Range widths to test
+        asymmetries: Range asymmetries
+        max_horizon: Maximum time steps to generate
 
     Returns:
-        DataFrame with one row per bar+config containing per-horizon touch labels
+        DataFrame with shape (n_bars * n_configs * max_horizon, n_features)
+
+        Schema:
+        - Metadata: bar_idx, config_id, k, timestamp, entry_price
+        - Config: width, asymmetry, lower_bound_pct, upper_bound_pct,
+                  range_width, range_asymmetry, dist_to_lower_pct, dist_to_upper_pct
+        - Base features: close, volume, realizedVol, rollingSharpe20, etc.
+        - Labels: hazard_lower, hazard_upper, event_lower, event_upper
+
+        Row ordering: Interleaved by (bar_idx, k, config_id)
+            [bar0_k1_cfg0, bar0_k1_cfg1, ..., bar0_k2_cfg0, ..., bar1_k1_cfg0, ...]
+
+    Invariants:
+        - sum(hazard_lower over k) <= 1 for each (bar, config)
+        - hazard_lower(k) = 1 implies event_lower = 1
+        - event_lower = 0 implies all hazard_lower(k) = 0 (censored)
     """
-    if widths is None:
-        widths = DEFAULT_WIDTHS
-    if asymmetries is None:
-        asymmetries = DEFAULT_ASYMMETRIES
-    if decision_horizons is None:
-        decision_horizons = [60, 120, 180]
+    if "close" not in df.columns:
+        raise ValueError("Missing close column")
+    if "timestamp" not in df.columns:
+        raise ValueError("Missing timestamp column")
+
+    close = df["close"].values
+    low = df["low"].values if "low" in df.columns else close.copy()
+    high = df["high"].values if "high" in df.columns else close.copy()
+
+    if "low" not in df.columns:
+        logger.warning(
+            "No 'low' column found, using 'close' for lower bound touch detection. "
+            "This may underestimate touch probabilities."
+        )
 
     configs = [(w, a) for w in widths for a in asymmetries]
+    config_id_map = {cfg: i for i, cfg in enumerate(configs)}
+    n_configs = len(configs)
+    n_bars = len(df) - 1
 
-    # Generate per-horizon labels for all configs
-    # Build dict of config -> labeled df first
-    config_dfs = {}
+    all_rows = []
+
     for width, asym in configs:
         lower_pct = -width * (0.5 - asym)
         upper_pct = width * (0.5 + asym)
 
-        # Get labels for this config
-        labeled = generate_per_horizon_labels(df, lower_pct, upper_pct, decision_horizons)
-        config_dfs[(width, asym)] = labeled
+        lower_bounds = close * (1 + lower_pct)
+        upper_bounds = close * (1 + upper_pct)
 
-    if len(config_dfs) == 0:
-        return pd.DataFrame()
+        first_touch_lower, first_touch_upper = compute_first_touch_bars(
+            low, high, lower_bounds, upper_bounds, max_horizon
+        )
 
-    # Interleave bar-by-bar instead of appending entire config dataframes
-    # This produces ordering: [bar0_cfg0, bar0_cfg1, ..., bar1_cfg0, bar1_cfg1, ...]
-    # which matches _run_backtest_loop's expectation: row_start = bar_idx * n_configs
-    # Note: generate_per_horizon_labels returns n-1 rows (drops last bar with no future)
-    first_config_df = next(iter(config_dfs.values()))
-    n_bars = len(first_config_df)
-    all_rows = []
+        cfg_id = config_id_map[(width, asym)]
 
-    # Assign explicit config_id for each (width, asymmetry) pair
-    config_id_map = {cfg: idx for idx, cfg in enumerate(configs)}
+        for bar_idx in range(n_bars):
+            base_row = df.iloc[bar_idx].to_dict()
 
-    for bar_idx in range(n_bars):
-        for width, asym in configs:
-            row = config_dfs[(width, asym)].iloc[bar_idx].copy()
-            row["width"] = width
-            row["asymmetry"] = asym
-            row["config_id"] = config_id_map[(width, asym)]  # Explicit composite key
-            all_rows.append(row)
+            base_row["bar_idx"] = bar_idx
+            base_row["config_id"] = cfg_id
+            base_row["entry_price"] = close[bar_idx]
+            base_row["width"] = width
+            base_row["asymmetry"] = asym
+            base_row["lower_bound_pct"] = lower_pct
+            base_row["upper_bound_pct"] = upper_pct
+            base_row["range_width"] = upper_pct - lower_pct
+            base_row["range_asymmetry"] = upper_pct + lower_pct
+            base_row["dist_to_lower_pct"] = (close[bar_idx] - lower_bounds[bar_idx]) / close[bar_idx]
+            base_row["dist_to_upper_pct"] = (upper_bounds[bar_idx] - close[bar_idx]) / close[bar_idx]
+
+            t_lower = first_touch_lower[bar_idx]
+            t_upper = first_touch_upper[bar_idx]
+
+            event_lower = 0 if t_lower > max_horizon else 1
+            event_upper = 0 if t_upper > max_horizon else 1
+
+            for k in range(1, max_horizon + 1):
+                row = base_row.copy()
+                row["k"] = k
+                row["hazard_lower"] = 1 if t_lower == k else 0
+                row["hazard_upper"] = 1 if t_upper == k else 0
+                row["event_lower"] = event_lower
+                row["event_upper"] = event_upper
+                all_rows.append(row)
 
     result = pd.DataFrame(all_rows)
+
+    expected_rows = n_bars * n_configs * max_horizon
+    result_by_bar_k = {}
+    for _, row in result.iterrows():
+        key = (row["bar_idx"], row["k"])
+        if key not in result_by_bar_k:
+            result_by_bar_k[key] = []
+        result_by_bar_k[key].append(row)
+
+    interleaved_rows = []
+    for bar_idx in range(n_bars):
+        for k in range(1, max_horizon + 1):
+            key = (bar_idx, k)
+            if key in result_by_bar_k:
+                interleaved_rows.extend(result_by_bar_k[key])
+
+    result = pd.DataFrame(interleaved_rows).reset_index(drop=True)
+
+    logger.info(
+        f"Generated hazard labels: {len(result)} rows = "
+        f"{n_bars} bars × {n_configs} configs × {max_horizon} time steps"
+    )
+
+    return result
+
+
+def hazard_to_per_horizon_probs(
+    hazard_model: Any,
+    X_base: DataFrame,
+    feature_cols: list[str],
+    decision_horizons: list[int],
+    max_horizon: int,
+) -> dict[int, float]:
+    """Reconstruct per-horizon probabilities from hazard model.
+
+    Predicts h(k) for k=1..max_horizon, composes into survival curve S(k),
+    then extracts P(hit_by_H) for decision horizons.
+
+    This bridges the gap between hazard models and the existing inference
+    interface which expects P(hit_by_60), P(hit_by_120), P(hit_by_180).
+
+    Args:
+        hazard_model: Trained LightGBM with calibrator_ attribute
+        X_base: Single-row DataFrame with base features (no k column)
+        feature_cols: Training feature order from artifact (includes k)
+        decision_horizons: Horizons to extract (e.g., [60, 120, 180])
+        max_horizon: Maximum k to predict (e.g., 180)
+
+    Returns:
+        Dict mapping H -> P(hit_by_H)
+
+        Guarantees:
+        - P(hit_by_H1) <= P(hit_by_H2) <= P(hit_by_H3) (monotonic)
+        - P(hit_by_H) ∈ [0, 1] (valid probability)
+
+    Example:
+        X_base = pd.DataFrame([{"close": 100, "volume": 1000, ...}])
+        probs = hazard_to_per_horizon_probs(
+            model, X_base, feature_cols, [60, 120, 180], max_horizon=180
+        )
+        # probs = {60: 0.23, 120: 0.35, 180: 0.42}
+    """
+    # feature_cols = training feature order from artifact (includes 'k')
+    base_row = X_base.iloc[0].to_dict()
+
+    # Expand over k=1..max_horizon
+    rows = []
+    for k in range(1, max_horizon + 1):
+        row = base_row.copy()
+        row["k"] = k
+        rows.append(row)
+
+    X_expanded = pd.DataFrame(rows)
+
+    # Ensure all training features exist; fill missing with sentinel
+    for col in feature_cols:
+        if col not in X_expanded.columns:
+            X_expanded[col] = MISSING_SENTINEL
+
+    # Reindex columns to training order (critical for LightGBM position-based matching)
+    X_expanded = X_expanded[feature_cols]
+
+    # Predict hazard h(k) for k=1..max_horizon
+    h_k_raw = hazard_model.predict_proba(X_expanded)[:, 1]
+
+    # Apply calibration (vectorized)
+    calibrator = getattr(hazard_model, "calibrator_", None)
+    calibration_method = getattr(hazard_model, "calibration_method_", "none")
+
+    h_k = apply_calibration(h_k_raw, calibrator, calibration_method)
+
+    # Clip to [0, 1] for numerical stability
+    h_k = np.clip(h_k, 0.0, 1.0)
+
+    # Compute survival curve: S(k) = ∏(j=1 to k) [1 - h(j)]
+    S_k = np.cumprod(1.0 - h_k)
+
+    # Convert to cumulative touch: P(hit_by_k) = 1 - S(k)
+    P_hit_by_k = 1.0 - S_k
+
+    # Extract decision horizons
+    result = {}
+    for h in decision_horizons:
+        if h <= max_horizon:
+            result[h] = float(P_hit_by_k[h - 1])  # k is 1-indexed, array is 0-indexed
+        else:
+            # Horizon beyond max_horizon: use final value
+            result[h] = float(P_hit_by_k[-1])
+
     return result
 
 
@@ -424,31 +516,44 @@ def calibrate_per_horizon(
 
 
 def apply_calibration(
-    proba: float,
+    proba: float | np.ndarray,
     calibrator: IsotonicRegression | LogisticRegression | None,
     calibration_method: str,
-) -> float:
+) -> float | np.ndarray:
     """Apply calibrator to raw probability.
 
+    Supports both scalar and array inputs for vectorized calibration.
+
     Args:
-        proba: Raw predicted probability
+        proba: Raw predicted probability (scalar or array)
         calibrator: Trained calibrator (isotonic or platt)
         calibration_method: "isotonic", "platt", or "none"
 
     Returns:
         Calibrated probability (or raw if no calibrator)
+        Returns same type as input (scalar -> scalar, array -> array)
     """
     if calibrator is None or calibration_method == "none":
         return proba
 
+    # Track if input was scalar
+    is_scalar = np.isscalar(proba)
+    proba_array = np.asarray(proba)
+
     try:
         if calibration_method == "isotonic":
-            return float(calibrator.transform([proba])[0])
+            calibrated = calibrator.transform(proba_array)
         elif calibration_method == "platt":
-            return float(calibrator.predict_proba([[proba]])[0, 1])
+            calibrated = calibrator.predict_proba(proba_array.reshape(-1, 1))[:, 1]
         else:
             logger.warning(f"Unknown calibration method: {calibration_method}")
             return proba
+
+        # Return scalar if input was scalar
+        if is_scalar:
+            return float(calibrated[0] if calibrated.ndim > 0 else calibrated)
+        return calibrated
+
     except Exception as e:
         logger.warning(f"Calibration application failed: {e}, using raw probability")
         return proba
