@@ -10,110 +10,13 @@ from quant_tick.lib.ml import (
     PurgedKFold,
     check_position_change_allowed,
     compute_bound_features,
+    compute_first_touch_bars,
     enforce_monotonicity,
     find_optimal_config,
-    generate_multi_config_labels,
+    generate_hazard_labels,
+    hazard_to_per_horizon_probs,
     prepare_features,
 )
-
-
-class GenerateMultiConfigLabelsTest(TestCase):
-    """Generate multi config labels test."""
-
-    def setUp(self):
-        """Set up."""
-        self.df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=100, freq="1min"),
-                "close": np.random.randn(100).cumsum() + 100,
-            }
-        )
-
-    def test_one_bar_per_config(self):
-        """Generate multi config labels should have one bar per config."""
-        widths = [0.03, 0.05]
-        asymmetries = [-0.2, 0, 0.2]
-
-        result = generate_multi_config_labels(
-            self.df,
-            widths=widths,
-            asymmetries=asymmetries,
-            decision_horizons=[60, 120, 180],
-        )
-
-        n_rows_expected = (len(self.df) - 1) * len(widths) * len(asymmetries)
-        self.assertEqual(len(result), n_rows_expected)
-
-    def test_includes_config_features(self):
-        """Includes width and asymmetry columns."""
-        result = generate_multi_config_labels(self.df, widths=[0.05], asymmetries=[0], decision_horizons=[60, 120, 180])
-
-        self.assertIn("width", result.columns)
-        self.assertIn("asymmetry", result.columns)
-
-    def test_per_horizon_labels(self):
-        """Per horizon labels have direct binary targets."""
-        widths = [0.03, 0.05]
-        asymmetries = [-0.2, 0, 0.2]
-        decision_horizons = [60, 120, 180]
-
-        result = generate_multi_config_labels(
-            self.df,
-            widths=widths,
-            asymmetries=asymmetries,
-            decision_horizons=decision_horizons,
-        )
-
-        for h in decision_horizons:
-            self.assertIn(f"hit_lower_by_{h}", result.columns)
-            self.assertIn(f"hit_upper_by_{h}", result.columns)
-
-    def test_interleaved_ordering(self):
-        """Generate multi config labels produces interleaved ordering for backtest indexing."""
-        widths = [0.03, 0.05]
-        asymmetries = [0.0, 0.2]
-        decision_horizons = [60, 120, 180]
-
-        result = generate_multi_config_labels(
-            self.df,
-            widths=widths,
-            asymmetries=asymmetries,
-            decision_horizons=decision_horizons,
-        )
-
-        n_configs = len(widths) * len(asymmetries)
-        n_bars = len(self.df) - 1
-
-        # Check total rows
-        self.assertEqual(len(result), n_bars * n_configs)
-
-        # Check interleaving: first n_configs rows should all have same timestamp
-        first_block = result.iloc[:n_configs]
-        unique_timestamps = first_block["timestamp"].unique()
-        self.assertEqual(len(unique_timestamps), 1)
-
-        # Check all configs present in first block
-        widths_in_block = sorted(first_block["width"].unique())
-        asyms_in_block = sorted(first_block["asymmetry"].unique())
-        self.assertEqual(widths_in_block, sorted(widths))
-        self.assertEqual(asyms_in_block, sorted(asymmetries))
-
-        # Check second block has different timestamp
-        second_block = result.iloc[n_configs:n_configs*2]
-        self.assertNotEqual(
-            first_block.iloc[0]["timestamp"],
-            second_block.iloc[0]["timestamp"]
-        )
-
-        # Verify backtest indexing assumption: row_start = bar_idx * n_configs
-        # should give all configs for that bar
-        for bar_idx in range(min(3, n_bars)):
-            row_start = bar_idx * n_configs
-            bar_rows = result.iloc[row_start : row_start + n_configs]
-            bar_timestamps = bar_rows["timestamp"].unique()
-            self.assertEqual(len(bar_timestamps), 1)
-            bar_configs = len(bar_rows)
-            self.assertEqual(bar_configs, n_configs)
 
 
 class ComputeBoundFeaturesTest(TestCase):
@@ -565,32 +468,31 @@ class WalkForwardIntegrationTest(TestCase):
             mock_filter.return_value.order_by.return_value.first.return_value = mock_feature_data
 
             with patch("quant_tick.lib.simulate._run_backtest", side_effect=mock_run_backtest):
-                with patch("quant_tick.lib.simulate.train_model_core") as mock_train:
-                    # Mock training to return per-horizon models dict
+                with patch("quant_tick.lib.simulate.train_hazard_core") as mock_train:
+                    # Mock training to return hazard models dict (2 models, not 6)
+                    mock_lower_model = MagicMock()
+                    mock_upper_model = MagicMock()
+                    mock_lower_model.calibrator_ = None
+                    mock_lower_model.calibration_method_ = "none"
+                    mock_upper_model.calibrator_ = None
+                    mock_upper_model.calibration_method_ = "none"
+
                     mock_models_dict = {
-                        "lower_h60": MagicMock(),
-                        "lower_h120": MagicMock(),
-                        "lower_h180": MagicMock(),
-                        "upper_h60": MagicMock(),
-                        "upper_h120": MagicMock(),
-                        "upper_h180": MagicMock(),
+                        "lower": mock_lower_model,
+                        "upper": mock_upper_model,
                     }
-                    # Set calibrator_ attr to None for all models
-                    for model in mock_models_dict.values():
-                        model.calibrator_ = None
 
                     mock_train.return_value = (
-                        mock_models_dict,  # models_dict
-                        ["feature_0", "feature_1"],  # feature_cols (includes feature_1!)
+                        mock_models_dict,  # models_dict (2 models: lower, upper)
+                        ["feature_0", "feature_1", "k"],  # feature_cols (includes k!)
                         {
-                            "avg_brier_lower": 0.15,
-                            "avg_brier_upper": 0.14,
+                            "cv_brier_scores": {"lower": 0.05, "upper": 0.06},
+                            "avg_brier": 0.055,
                         },  # cv_metrics
                         {
-                            "avg_brier_lower": 0.16,
-                            "avg_brier_upper": 0.15,
-                            "per_horizon_brier_lower": {60: 0.15, 120: 0.17, 180: 0.16},
-                            "per_horizon_brier_upper": {60: 0.14, 120: 0.16, 180: 0.15},
+                            "holdout_brier_scores": {"lower": 0.05, "upper": 0.06},
+                            "avg_brier": 0.055,
+                            "base_rates": {"lower": 0.02, "upper": 0.02},
                         },  # holdout_metrics
                     )
 
@@ -893,155 +795,239 @@ class FindOptimalConfigTest(TestCase):
         self.assertAlmostEqual(result.p_touch_upper, 0.09, places=5)
 
 
-class LabelSemanticsTest(TestCase):
-    """Test label generation semantics are correct."""
+class HazardLabelTests(TestCase):
+    """Tests for hazard label generation."""
 
-    def test_hit_lower_detects_downward_breach(self):
-        """hit_lower_by_H is 1 when price touches lower bound within horizon."""
-        from quant_tick.lib.ml import generate_multi_config_labels
-
-        # Price starts at 100, drops to 95 at bar 2 (within horizon)
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=5, freq="1h"),
-            "close": [100.0, 99.0, 95.0, 96.0, 97.0],
+    def setUp(self):
+        """Create synthetic price path with known touches."""
+        self.df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=5, freq="1min"),
+            "close": [100.0, 102.0, 98.0, 104.0, 96.0],
+            "low": [100.0, 102.0, 98.0, 104.0, 96.0],
+            "high": [100.0, 102.0, 98.0, 104.0, 96.0],
+            "volume": [1000, 1100, 900, 1200, 800],
         })
 
-        # Width=0.05 (5%), asymmetry=0 (symmetric)
-        # Lower bound = -5%, upper bound = +5%
-        # At bar 0: lower = 95, upper = 105
-        # Bar 2 close=95 touches lower bound
-        result = generate_multi_config_labels(
-            df, widths=[0.05], asymmetries=[0.0], decision_horizons=[3]
+    def test_compute_first_touch_bars_simple(self):
+        """Test first touch detection on synthetic data."""
+        lower_bounds = np.array([97.0, 99.0, 95.0, 101.0, 93.0])
+        upper_bounds = np.array([103.0, 105.0, 101.0, 107.0, 99.0])
+
+        ft_lower, ft_upper = compute_first_touch_bars(
+            low=self.df["low"].values,
+            high=self.df["high"].values,
+            lower_bounds=lower_bounds,
+            upper_bounds=upper_bounds,
+            max_horizon=4,
         )
 
-        # Bar 0 should have hit_lower_by_3 = 1 (price hits 95 at bar 2, within 3 bars)
-        bar_0_rows = result[result["bar_idx"] == 0]
-        self.assertEqual(len(bar_0_rows), 1)
-        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_3"], 1)
+        self.assertEqual(ft_lower[0], 4)
+        self.assertEqual(ft_upper[0], 3)
 
-    def test_hit_upper_detects_upward_breach(self):
-        """hit_upper_by_H is 1 when price touches upper bound within horizon."""
-        from quant_tick.lib.ml import generate_multi_config_labels
+        self.assertEqual(ft_lower[1], 1)
+        self.assertEqual(ft_upper[1], 5)
 
-        # Price starts at 100, rises to 106 at bar 2
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=5, freq="1h"),
-            "close": [100.0, 103.0, 106.0, 104.0, 102.0],
-        })
-
-        # Width=0.05, asymmetry=0
-        # Upper bound = +5% = 105
-        # Bar 2 close=106 exceeds upper bound
-        result = generate_multi_config_labels(
-            df, widths=[0.05], asymmetries=[0.0], decision_horizons=[3]
+    def test_hazard_labels_sum_equals_one(self):
+        """Verify sum of hazard labels equals 1 for touched bars."""
+        labeled = generate_hazard_labels(
+            self.df,
+            widths=[0.03],
+            asymmetries=[0.0],
+            max_horizon=4,
         )
 
-        bar_0_rows = result[result["bar_idx"] == 0]
-        self.assertEqual(bar_0_rows.iloc[0]["hit_upper_by_3"], 1)
+        for bar_idx in range(len(self.df) - 1):
+            bar_data = labeled[labeled["bar_idx"] == bar_idx]
 
-    def test_no_hit_when_price_stays_in_range(self):
-        """Labels are 0 when price stays within bounds."""
-        from quant_tick.lib.ml import generate_multi_config_labels
+            hazard_sum_lower = bar_data["hazard_lower"].sum()
+            hazard_sum_upper = bar_data["hazard_upper"].sum()
 
-        # Price oscillates within range
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=5, freq="1h"),
-            "close": [100.0, 101.0, 99.0, 100.5, 99.5],
-        })
+            self.assertIn(hazard_sum_lower, [0, 1])
+            self.assertIn(hazard_sum_upper, [0, 1])
 
-        # Wide range: width=0.10 (10%)
-        # Lower = 90, upper = 110
-        # All prices stay within range
-        result = generate_multi_config_labels(
-            df, widths=[0.10], asymmetries=[0.0], decision_horizons=[3]
+            if bar_data.iloc[0]["event_lower"] == 0:
+                self.assertEqual(hazard_sum_lower, 0)
+            if bar_data.iloc[0]["event_upper"] == 0:
+                self.assertEqual(hazard_sum_upper, 0)
+
+    def test_hazard_schema_structure(self):
+        """Verify hazard schema has correct columns and row count."""
+        labeled = generate_hazard_labels(
+            self.df,
+            widths=[0.02, 0.03],
+            asymmetries=[-0.2, 0.0, 0.2],
+            max_horizon=10,
         )
 
-        bar_0_rows = result[result["bar_idx"] == 0]
-        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_3"], 0)
-        self.assertEqual(bar_0_rows.iloc[0]["hit_upper_by_3"], 0)
+        n_bars = len(self.df) - 1
+        n_configs = 2 * 3
+        expected_rows = n_bars * n_configs * 10
+        self.assertEqual(len(labeled), expected_rows)
 
-    def test_horizon_limits_lookforward_window(self):
-        """Labels only consider prices within the horizon window."""
-        from quant_tick.lib.ml import generate_multi_config_labels
+        required_cols = [
+            "bar_idx", "config_id", "k", "timestamp", "entry_price",
+            "width", "asymmetry", "hazard_lower", "hazard_upper",
+            "event_lower", "event_upper",
+        ]
+        for col in required_cols:
+            self.assertIn(col, labeled.columns)
 
-        # Price touches bound at bar 5, but horizon is only 3 bars
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=7, freq="1h"),
-            "close": [100.0, 101.0, 101.0, 101.0, 101.0, 95.0, 96.0],
-        })
+        self.assertEqual(labeled["k"].min(), 1)
+        self.assertEqual(labeled["k"].max(), 10)
 
-        # Lower bound = 95
-        # Touch happens at bar 5, which is outside 3-bar horizon from bar 0
-        result = generate_multi_config_labels(
-            df, widths=[0.05], asymmetries=[0.0], decision_horizons=[3]
+        self.assertEqual(labeled["config_id"].min(), 0)
+        self.assertEqual(labeled["config_id"].max(), 5)
+
+
+class HazardInferenceTests(TestCase):
+    """Tests for hazard model inference and survival reconstruction."""
+
+    class MockHazardModel:
+        """Mock model with constant hazard rate."""
+
+        def __init__(self, hazard_rate: float):
+            self.hazard_rate = hazard_rate
+            self.calibrator_ = None
+            self.calibration_method_ = "none"
+
+        def predict_proba(self, X):
+            n = len(X)
+            probs = np.zeros((n, 2))
+            probs[:, 1] = self.hazard_rate
+            probs[:, 0] = 1 - self.hazard_rate
+            return probs
+
+    def test_survival_matches_constant_hazard(self):
+        """Test reconstructing P(hit_by_H) from constant hazard rate."""
+        # h(k) = 0.01 for all k (constant hazard)
+        # Expected S(k) = (1 - 0.01)^k = 0.99^k
+        model = self.MockHazardModel(hazard_rate=0.01)
+        X_base = pd.DataFrame([{"feature1": 1.0}])
+        feature_cols = ["feature1", "k"]
+
+        probs = hazard_to_per_horizon_probs(
+            model,
+            X_base,
+            feature_cols,
+            decision_horizons=[60, 120, 180],
+            max_horizon=180,
         )
 
-        bar_0_rows = result[result["bar_idx"] == 0]
-        # Should be 0 because touch at bar 5 is beyond horizon=3
-        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_3"], 0)
+        # Verify against analytical solution
+        # P(hit_by_60) = 1 - 0.99^60
+        expected_60 = 1 - 0.99**60
+        expected_120 = 1 - 0.99**120
+        expected_180 = 1 - 0.99**180
 
-    def test_asymmetric_bounds_work_correctly(self):
-        """Asymmetric ranges compute correct lower/upper bounds."""
-        from quant_tick.lib.ml import generate_multi_config_labels
+        self.assertAlmostEqual(probs[60], expected_60, places=4)
+        self.assertAlmostEqual(probs[120], expected_120, places=4)
+        self.assertAlmostEqual(probs[180], expected_180, places=4)
 
-        # Price moves from 100 to 98
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=3, freq="1h"),
-            "close": [100.0, 99.0, 98.0],
-        })
+        # Verify monotonicity (automatic with survival curve)
+        self.assertLessEqual(probs[60], probs[120])
+        self.assertLessEqual(probs[120], probs[180])
 
-        # Width=0.04 (4%), asymmetry=0.5 (skewed upward)
-        # lower_pct = -0.04 * (0.5 - 0.5) = 0%
-        # upper_pct = 0.04 * (0.5 + 0.5) = 4%
-        # So range is [100, 104] - asymmetric!
-        result = generate_multi_config_labels(
-            df, widths=[0.04], asymmetries=[0.5], decision_horizons=[2]
+    def test_monotonicity_guaranteed_with_noisy_model(self):
+        """Verify monotonicity holds even with random predictions."""
+
+        class NoisyModel:
+            calibrator_ = None
+            calibration_method_ = "none"
+
+            def predict_proba(self, X):
+                np.random.seed(42)
+                n = len(X)
+                probs = np.zeros((n, 2))
+                probs[:, 1] = np.random.uniform(0, 0.1, size=n)
+                probs[:, 0] = 1 - probs[:, 1]
+                return probs
+
+        X_base = pd.DataFrame([{"feature": 1.0}])
+        feature_cols = ["feature", "k"]
+
+        horizon_probs = hazard_to_per_horizon_probs(
+            NoisyModel(),
+            X_base,
+            feature_cols,
+            decision_horizons=[60, 120, 180],
+            max_horizon=180,
         )
 
-        bar_0_rows = result[result["bar_idx"] == 0]
-        # Price drops to 98, which breaches lower bound of 100
-        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_2"], 1)
-        # Price never reaches 104
-        self.assertEqual(bar_0_rows.iloc[0]["hit_upper_by_2"], 0)
+        # Monotonicity MUST hold (guaranteed by survival curve math)
+        self.assertLessEqual(horizon_probs[60], horizon_probs[120])
+        self.assertLessEqual(horizon_probs[120], horizon_probs[180])
 
-    def test_multiple_horizons_generate_independent_labels(self):
-        """Each horizon gets independent labels."""
-        from quant_tick.lib.ml import generate_multi_config_labels
+    def test_column_ordering_preserved(self):
+        """Test that feature column ordering matches training order."""
 
-        # Touch at bar 2 and bar 4
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=6, freq="1h"),
-            "close": [100.0, 101.0, 95.0, 101.0, 106.0, 101.0],
-        })
+        class OrderSensitiveModel:
+            """Model that returns different values based on column order."""
 
-        result = generate_multi_config_labels(
-            df, widths=[0.05], asymmetries=[0.0], decision_horizons=[2, 4]
+            calibrator_ = None
+            calibration_method_ = "none"
+
+            def predict_proba(self, X):
+                # If columns are in correct order, k should be in last position
+                # Check that X has correct column order
+                n = len(X)
+                probs = np.zeros((n, 2))
+                # Check if k is in the right position (last) and has expected value for first row
+                if X.iloc[0, -1] == 1:  # k should be 1 for first row
+                    probs[:, 1] = 0.001  # Low hazard -> low cumulative probability
+                else:
+                    probs[:, 1] = 0.05  # Higher hazard -> high cumulative probability
+                probs[:, 0] = 1 - probs[:, 1]
+                return probs
+
+        X_base = pd.DataFrame([{"feature_a": 100.0, "feature_b": 200.0}])
+        feature_cols = ["feature_a", "feature_b", "k"]
+
+        probs = hazard_to_per_horizon_probs(
+            OrderSensitiveModel(),
+            X_base,
+            feature_cols,
+            decision_horizons=[60],
+            max_horizon=60,
         )
 
-        bar_0_rows = result[result["bar_idx"] == 0]
-        # Horizon 2: touch at bar 2 (within window)
-        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_2"], 1)
-        # Horizon 4: touch at bar 2 and bar 4 (within window)
-        self.assertEqual(bar_0_rows.iloc[0]["hit_lower_by_4"], 1)
-        self.assertEqual(bar_0_rows.iloc[0]["hit_upper_by_4"], 1)
+        # Should get low probability (0.05) if column order is correct
+        self.assertLess(probs[60], 0.5)
 
-    def test_entry_price_used_as_reference(self):
-        """Labels use entry_price, not close, as reference for bounds."""
-        from quant_tick.lib.ml import generate_multi_config_labels
+    def test_inference_path_with_k_missing_from_input(self):
+        """Integration test: mimics full inference path where k is not in raw features."""
+        from quant_tick.lib.ml import prepare_features
 
-        # Entry price differs from close
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=4, freq="1h"),
-            "close": [100.0, 98.0, 97.0, 96.0],
-        })
+        # Simulate training feature order (includes k and *_missing indicators)
+        feature_cols = ["feature_a", "feature_b", "feature_a_missing", "k"]
 
-        # If we add entry_price column explicitly
-        result = generate_multi_config_labels(
-            df, widths=[0.05], asymmetries=[0.0], decision_horizons=[2]
+        # Simulate live candle data (no k, no *_missing)
+        feat_with_bounds = pd.DataFrame([{
+            "feature_a": 100.0,
+            "feature_b": 200.0,
+            "width": 0.03,
+            "asymmetry": 0.0,
+        }])
+
+        # This is what inference does: exclude k from prepare_features
+        base_feature_cols = [c for c in feature_cols if c != "k"]
+        X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
+        X_df = pd.DataFrame(X_array, columns=expanded_cols)
+        X_base = X_df.iloc[[0]]
+
+        # Should not have k yet
+        self.assertNotIn("k", X_base.columns)
+
+        # Now call hazard_to_per_horizon_probs with full feature_cols (includes k)
+        model = self.MockHazardModel(hazard_rate=0.01)
+        horizon_probs = hazard_to_per_horizon_probs(
+            model,
+            X_base,
+            feature_cols,  # Full training order WITH k
+            decision_horizons=[60],
+            max_horizon=60,
         )
 
-        # Check that entry_price column exists in result
-        self.assertIn("entry_price", result.columns)
-        # Entry price should be the close of the bar where decision is made
-        bar_0_rows = result[result["bar_idx"] == 0]
-        self.assertAlmostEqual(bar_0_rows.iloc[0]["entry_price"], 100.0, places=5)
+        # Should complete without error and return valid probability
+        self.assertIn(60, horizon_probs)
+        self.assertGreater(horizon_probs[60], 0)
+        self.assertLess(horizon_probs[60], 1)
