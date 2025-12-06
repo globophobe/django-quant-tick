@@ -1,5 +1,3 @@
-"""ML models for LP range optimization."""
-
 import hashlib
 
 from django.conf import settings
@@ -43,28 +41,12 @@ class MLConfig(AbstractCodeName):
     5. Enforce monotonicity: longer horizons must have equal or higher touch probability
     6. Filter ranges: reject any range where total touch risk exceeds touch_tolerance
 
-    What is it:
+    What it is:
     - A risk filter that screens out ranges likely to get breached
     - A dual-barrier probability estimator for range survival
 
     Use this to avoid placing LP positions in ranges that are too tight for current
-    market conditions. Separate modules should handle fee optimization and IL modeling.
-
-    ## Strategy-specific recommendations:
-
-    LP (Liquidity Providing) Strategy:
-    - touch_tolerance: 0.08 - 0.12 (conservative, prefer wider ranges)
-    - widths: [0.05, 0.07, 0.10] (wider to stay in range longer)
-    - asymmetries: [-0.1, 0.0, 0.1] (more symmetric for balanced risk)
-    - decision_horizons: [120, 180, 240] (longer hold periods)
-    - min_hold_bars: 100+ (avoid churn, reduce gas/fees)
-
-    Perp (Perpetual Futures) Strategy:
-    - touch_tolerance: 0.15 - 0.25 (aggressive, allow tighter ranges)
-    - widths: [0.02, 0.03, 0.05] (tighter for more leverage)
-    - asymmetries: [-0.3, -0.1, 0.1, 0.3] (directional bias ok)
-    - decision_horizons: [60, 120, 180] (shorter risk windows)
-    - min_hold_bars: 20-50 (faster rebalancing)
+    market conditions.
 
     The key tradeoff:
     - Lower touch_tolerance = wider ranges selected = lower APY but safer for LP
