@@ -37,42 +37,12 @@ class MLSchema:
     }
 
     @staticmethod
-    def get_label_cols(horizons: list[int]) -> set[str]:
-        """Get label column names for given horizons.
-
-        Args:
-            horizons: List of decision horizons (e.g., [60, 120, 180])
-
-        Returns:
-            Set of label column names
-        """
-        labels = set()
-        for h in horizons:
-            labels.add(f"hit_lower_by_{h}")
-            labels.add(f"hit_upper_by_{h}")
-        return labels
-
-    @staticmethod
-    def get_training_features(all_cols: list[str], horizons: list[int]) -> list[str]:
-        """Get training features.
-
-        Args:
-            all_cols: All column names in DataFrame
-            horizons: List of decision horizons
-
-        Returns:
-            List of feature column names for training
-        """
-        exclude = MLSchema.METADATA_COLS | MLSchema.get_label_cols(horizons)
-        return [c for c in all_cols if c not in exclude]
-
-    @staticmethod
     def get_data_features(all_cols: list[str], horizons: list[int]) -> list[str]:
         """Get data features.
 
         Config cols like width, asymmetry, range_width are added dynamically when
         testing multiple configs per bar during inference. This method returns
-        features that must be present in the input candle data.
+        features that must be present in the input data.
 
         Filters out:
         - CONFIG_COLS (k, width, asymmetry, bounds, etc.)
@@ -80,65 +50,16 @@ class MLSchema:
 
         Args:
             all_cols: All column names expected during training
-            horizons: List of decision horizons
+            horizons: List of decision horizons (unused, kept for backward compatibility)
 
         Returns:
             List of feature names that must exist in input data
         """
-        training_features = MLSchema.get_training_features(all_cols, horizons)
+        training_features = MLSchema.get_training_features(all_cols)
         return [
             c for c in training_features
             if c not in MLSchema.CONFIG_COLS and not c.endswith("_missing")
         ]
-
-    @staticmethod
-    def validate_schema(
-        df: Any,
-        widths: list[float],
-        asymmetries: list[float],
-        horizons: list[int],
-    ) -> tuple[bool, str]:
-        """Validate dataframe matches schema.
-
-        Args:
-            df: DataFrame to validate
-            widths: Expected range widths
-            asymmetries: Expected asymmetries
-            horizons: Expected decision horizons
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
-        # Check config columns exist
-        if "width" not in df.columns or "asymmetry" not in df.columns:
-            return False, "Missing width/asymmetry columns"
-
-        # Verify config values match
-        actual_widths = sorted(df["width"].unique())
-        actual_asymmetries = sorted(df["asymmetry"].unique())
-
-        if list(sorted(widths)) != list(actual_widths):
-            return False, f"Width mismatch: expected={widths}, actual={actual_widths}"
-
-        if list(sorted(asymmetries)) != list(actual_asymmetries):
-            return (
-                False,
-                f"Asymmetry mismatch: expected={asymmetries}, actual={actual_asymmetries}",
-            )
-
-        # Verify horizon labels exist
-        for h in horizons:
-            if f"hit_lower_by_{h}" not in df.columns:
-                return False, f"Missing label column hit_lower_by_{h}"
-            if f"hit_upper_by_{h}" not in df.columns:
-                return False, f"Missing label column hit_upper_by_{h}"
-
-        # Verify row count divisible by n_configs
-        n_configs = len(widths) * len(asymmetries)
-        if len(df) % n_configs != 0:
-            return False, f"Row count {len(df)} not divisible by {n_configs} configs"
-
-        return True, ""
 
     @staticmethod
     def validate_bar_config_structure(
@@ -230,14 +151,14 @@ class MLSchema:
         }
 
     @staticmethod
-    def get_hazard_training_features(all_cols: list[str]) -> list[str]:
-        """Get training features for hazard models.
+    def get_training_features(all_cols: list[str]) -> list[str]:
+        """Get training features for survival models.
 
         Excludes metadata and labels, but INCLUDES k as a feature.
         This is critical: k (time since entry) is a predictor.
 
         Args:
-            all_cols: All column names from hazard DataFrame
+            all_cols: All column names from training DataFrame
 
         Returns:
             List of feature column names (includes k, excludes labels)
@@ -246,23 +167,23 @@ class MLSchema:
         return [c for c in all_cols if c not in exclude]
 
     @staticmethod
-    def validate_hazard_schema(
+    def validate_schema(
         df: Any,
         widths: list[float],
         asymmetries: list[float],
         max_horizon: int,
     ) -> tuple[bool, str]:
-        """Validate hazard dataframe schema.
+        """Validate training dataframe schema.
 
         Checks:
-        - Required columns exist (bar_idx, config_id, k, hazard labels)
+        - Required columns exist (bar_idx, config_id, k, label columns)
         - k range is 1..max_horizon
         - Row count = n_bars × n_configs × max_horizon
         - Config values match expected widths/asymmetries
         - Config structure is valid (complete grid)
 
         Args:
-            df: Hazard-labeled DataFrame
+            df: Training DataFrame
             widths: Expected width values
             asymmetries: Expected asymmetry values
             max_horizon: Expected max k value

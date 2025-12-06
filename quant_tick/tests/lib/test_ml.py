@@ -13,7 +13,7 @@ from quant_tick.lib.ml import (
     compute_first_touch_bars,
     enforce_monotonicity,
     find_optimal_config,
-    generate_hazard_labels,
+    generate_labels,
     hazard_to_per_horizon_probs,
     prepare_features,
 )
@@ -468,8 +468,8 @@ class WalkForwardIntegrationTest(TestCase):
             mock_filter.return_value.order_by.return_value.first.return_value = mock_feature_data
 
             with patch("quant_tick.lib.simulate._run_backtest", side_effect=mock_run_backtest):
-                with patch("quant_tick.lib.simulate.train_hazard_core") as mock_train:
-                    # Mock training to return hazard models dict (2 models, not 6)
+                with patch("quant_tick.lib.simulate.train_core") as mock_train:
+                    # Mock training to return models dict (2 models)
                     mock_lower_model = MagicMock()
                     mock_upper_model = MagicMock()
                     mock_lower_model.calibrator_ = None
@@ -795,8 +795,8 @@ class FindOptimalConfigTest(TestCase):
         self.assertAlmostEqual(result.p_touch_upper, 0.09, places=5)
 
 
-class HazardLabelTests(TestCase):
-    """Tests for hazard label generation."""
+class LabelGenerationTests(TestCase):
+    """Tests for label generation."""
 
     def setUp(self):
         """Create synthetic price path with known touches."""
@@ -828,8 +828,8 @@ class HazardLabelTests(TestCase):
         self.assertEqual(ft_upper[1], 5)
 
     def test_hazard_labels_sum_equals_one(self):
-        """Verify sum of hazard labels equals 1 for touched bars."""
-        labeled = generate_hazard_labels(
+        """Verify sum of labels equals 1 for touched bars."""
+        labeled = generate_labels(
             self.df,
             widths=[0.03],
             asymmetries=[0.0],
@@ -852,7 +852,7 @@ class HazardLabelTests(TestCase):
 
     def test_hazard_schema_structure(self):
         """Verify hazard schema has correct columns and row count."""
-        labeled = generate_hazard_labels(
+        labeled = generate_labels(
             self.df,
             widths=[0.02, 0.03],
             asymmetries=[-0.2, 0.0, 0.2],
@@ -879,8 +879,8 @@ class HazardLabelTests(TestCase):
         self.assertEqual(labeled["config_id"].max(), 5)
 
 
-class HazardInferenceTests(TestCase):
-    """Tests for hazard model inference and survival reconstruction."""
+class SurvivalInferenceTests(TestCase):
+    """Tests for survival model inference and survival reconstruction."""
 
     class MockHazardModel:
         """Mock model with constant hazard rate."""
@@ -1031,3 +1031,122 @@ class HazardInferenceTests(TestCase):
         self.assertIn(60, horizon_probs)
         self.assertGreater(horizon_probs[60], 0)
         self.assertLess(horizon_probs[60], 1)
+
+
+class MultiExchangeCanonicalTest(TestCase):
+    """Test canonical exchange selection for multi-exchange candles."""
+
+    def test_canonical_uses_specified_exchange(self):
+        """Canonical exchange matches specified exchange parameter."""
+        from quant_tick.lib.labels import _compute_features
+
+        # Create multi-exchange DataFrame with coinbase and binance
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
+            "coinbaseClose": [100 + i for i in range(10)],
+            "binanceClose": [101 + i for i in range(10)],
+            "coinbaseOpen": [99 + i for i in range(10)],
+            "binanceOpen": [100 + i for i in range(10)],
+            "coinbaseHigh": [102 + i for i in range(10)],
+            "binanceHigh": [103 + i for i in range(10)],
+            "coinbaseLow": [98 + i for i in range(10)],
+            "binanceLow": [99 + i for i in range(10)],
+            "coinbaseVolume": [1000] * 10,
+            "binanceVolume": [1100] * 10,
+        })
+
+        # Compute features with coinbase as canonical
+        result = _compute_features(df, canonical_exchange="coinbase")
+
+        # Verify close column equals coinbaseClose
+        self.assertTrue("close" in result.columns)
+        pd.testing.assert_series_equal(
+            result["close"],
+            df["coinbaseClose"],
+            check_names=False
+        )
+
+        # Verify binance features exist (basis, divergence, etc.)
+        self.assertIn("basisBinance", result.columns)
+        self.assertIn("basisPctBinance", result.columns)
+
+    def test_canonical_uses_binance_when_specified(self):
+        """Canonical can be different exchange (binance)."""
+        from quant_tick.lib.labels import _compute_features
+
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
+            "coinbaseClose": [100 + i for i in range(10)],
+            "binanceClose": [101 + i for i in range(10)],
+            "coinbaseOpen": [99 + i for i in range(10)],
+            "binanceOpen": [100 + i for i in range(10)],
+            "coinbaseHigh": [102 + i for i in range(10)],
+            "binanceHigh": [103 + i for i in range(10)],
+            "coinbaseLow": [98 + i for i in range(10)],
+            "binanceLow": [99 + i for i in range(10)],
+            "coinbaseVolume": [1000] * 10,
+            "binanceVolume": [1100] * 10,
+        })
+
+        # Compute features with binance as canonical
+        result = _compute_features(df, canonical_exchange="binance")
+
+        # Verify close column equals binanceClose
+        pd.testing.assert_series_equal(
+            result["close"],
+            df["binanceClose"],
+            check_names=False
+        )
+
+        # Verify coinbase features exist (now coinbase is "other")
+        self.assertIn("basisCoinbase", result.columns)
+        self.assertIn("basisPctCoinbase", result.columns)
+
+    def test_missing_canonical_raises_error(self):
+        """Raises error if canonical exchange not in data."""
+        from quant_tick.lib.labels import _compute_features
+
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
+            "coinbaseClose": [100 + i for i in range(10)],
+            "binanceClose": [101 + i for i in range(10)],
+            "coinbaseOpen": [99 + i for i in range(10)],
+            "binanceOpen": [100 + i for i in range(10)],
+            "coinbaseHigh": [102 + i for i in range(10)],
+            "binanceHigh": [103 + i for i in range(10)],
+            "coinbaseLow": [98 + i for i in range(10)],
+            "binanceLow": [99 + i for i in range(10)],
+            "coinbaseVolume": [1000] * 10,
+            "binanceVolume": [1100] * 10,
+        })
+
+        # Should raise ValueError for missing exchange
+        with self.assertRaises(ValueError) as ctx:
+            _compute_features(df, canonical_exchange="kraken")
+
+        self.assertIn("kraken", str(ctx.exception))
+        self.assertIn("not found", str(ctx.exception).lower())
+
+    def test_none_canonical_raises_error(self):
+        """Raises error if canonical_exchange is None for multi-exchange."""
+        from quant_tick.lib.labels import _compute_features
+
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
+            "coinbaseClose": [100 + i for i in range(10)],
+            "binanceClose": [101 + i for i in range(10)],
+            "coinbaseOpen": [99 + i for i in range(10)],
+            "binanceOpen": [100 + i for i in range(10)],
+            "coinbaseHigh": [102 + i for i in range(10)],
+            "binanceHigh": [103 + i for i in range(10)],
+            "coinbaseLow": [98 + i for i in range(10)],
+            "binanceLow": [99 + i for i in range(10)],
+            "coinbaseVolume": [1000] * 10,
+            "binanceVolume": [1100] * 10,
+        })
+
+        # Should raise ValueError when canonical_exchange is None
+        with self.assertRaises(ValueError) as ctx:
+            _compute_features(df, canonical_exchange=None)
+
+        self.assertIn("required", str(ctx.exception).lower())

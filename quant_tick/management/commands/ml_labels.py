@@ -3,7 +3,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from quant_tick.lib.labels import generate_hazard_labels_from_config
+from quant_tick.lib.labels import generate_labels_from_config
 from quant_tick.lib.ml import DEFAULT_ASYMMETRIES, DEFAULT_WIDTHS
 from quant_tick.models import Candle, MLConfig, Symbol
 
@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    """Generate hazard-based survival model labels for ML training."""
+    """Generate survival labels for ML training."""
 
-    help = "Generate hazard-based survival labels for ML training"
+    help = "Generate survival labels for ML training"
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
@@ -130,5 +130,5 @@ class Command(BaseCommand):
                 config.save()
                 logger.info(f"Updated MLConfig for {candle_code} / {symbol_code}")
 
-        # Generate hazard labels
-        generate_hazard_labels_from_config(config)
+        # Generate labels
+        generate_labels_from_config(config)

@@ -176,13 +176,13 @@ def compute_first_touch_bars(
     return first_touch_lower, first_touch_upper
 
 
-def generate_hazard_labels(
+def generate_labels(
     df: DataFrame,
     widths: list[float],
     asymmetries: list[float],
     max_horizon: int,
 ) -> DataFrame:
-    """Generate discrete-time hazard labels.
+    """Generate survival training labels.
 
     Expands data over (bar, config, k) dimensions. For each entry bar and config,
     creates max_horizon rows (one per time step k). Sets hazard_lower(k) = 1
@@ -297,7 +297,7 @@ def generate_hazard_labels(
     result = pd.DataFrame(interleaved_rows).reset_index(drop=True)
 
     logger.info(
-        f"Generated hazard labels: {len(result)} rows = "
+        f"Generated survival labels: {len(result)} rows = "
         f"{n_bars} bars × {n_configs} configs × {max_horizon} time steps"
     )
 
@@ -316,7 +316,7 @@ def hazard_to_per_horizon_probs(
     Predicts h(k) for k=1..max_horizon, composes into survival curve S(k),
     then extracts P(hit_by_H) for decision horizons.
 
-    This bridges the gap between hazard models and the existing inference
+    This bridges the gap between survival models and the existing inference
     interface which expects P(hit_by_60), P(hit_by_120), P(hit_by_180).
 
     Args:

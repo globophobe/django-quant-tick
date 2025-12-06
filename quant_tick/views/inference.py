@@ -45,13 +45,13 @@ class InferenceView(ListAPIView):
         # Get decision horizons from config
         decision_horizons = cfg.json_data.get("decision_horizons", [60, 120, 180])
 
-        # Load hazard models
+        # Load survival models
         try:
             lower_artifact = cfg.ml_artifacts.get(model_type="hazard_lower")
             upper_artifact = cfg.ml_artifacts.get(model_type="hazard_upper")
         except MLArtifact.DoesNotExist:
-            logger.error(f"{cfg}: No hazard models found. Train models first.")
-            return {"config": cfg.code_name, "error": "missing hazard models"}
+            logger.error(f"{cfg}: No survival models found. Train models first.")
+            return {"config": cfg.code_name, "error": "missing survival models"}
 
         # Load models from artifacts
         lower_model = self._load_model(lower_artifact)
@@ -65,25 +65,21 @@ class InferenceView(ListAPIView):
         max_horizon = cfg.json_data.get("max_horizon", cfg.horizon_bars)
 
         logger.info(
-            f"{cfg}: Loaded hazard models: max_horizon={max_horizon}, "
+            f"{cfg}: Loaded survival models: max_horizon={max_horizon}, "
             f"decision_horizons={decision_horizons}"
         )
 
         # Validate feature hash for drift detection
         from quant_tick.lib.train import compute_feature_hash
         current_hash = compute_feature_hash(feature_cols)
-        stored_hashes = cfg.json_data.get("feature_hashes", {})
+        stored_hash = cfg.json_data.get("feature_hash")
 
-        # Check if any model's hash matches (they should all be the same)
-        if stored_hashes:
-            first_model_key = next(iter(stored_hashes))
-            stored_hash = stored_hashes[first_model_key]
-            if current_hash != stored_hash:
-                logger.warning(
-                    f"{cfg}: Feature schema drift detected! "
-                    f"Current hash={current_hash}, stored hash={stored_hash}. "
-                    f"Models may produce incorrect predictions."
-                )
+        if stored_hash and current_hash != stored_hash:
+            logger.warning(
+                f"{cfg}: Feature schema drift detected! "
+                f"Current hash={current_hash}, stored hash={stored_hash}. "
+                f"Models may produce incorrect predictions."
+            )
 
         # Get recent candle data
         features_df = self._get_latest_features(cfg)
@@ -125,9 +121,9 @@ class InferenceView(ListAPIView):
         #
         # NOT predicted: direction, magnitude, timing within horizon, fee earnings
 
-        # Create prediction functions using hazard models
+        # Create prediction functions using survival models
         def predict_lower(features: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
-            """Predict max P(hit_lower) across decision horizons using hazard model."""
+            """Predict max P(hit_lower) across decision horizons using survival model."""
             # Add bound features
             feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
 
@@ -153,7 +149,7 @@ class InferenceView(ListAPIView):
             return float(max(horizon_probs.values()))
 
         def predict_upper(features: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
-            """Predict max P(hit_upper) across decision horizons using hazard model."""
+            """Predict max P(hit_upper) across decision horizons using survival model."""
             feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
             base_feature_cols = [c for c in feature_cols if c != "k"]
             X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
@@ -237,22 +233,6 @@ class InferenceView(ListAPIView):
             logger.error(f"Failed to load model: {e}")
             return None
 
-    def _load_calibrator(self, artifact: MLArtifact) -> tuple[Any, str]:
-        """Load calibrator.
-
-        Returns:
-            Tuple of (calibrator, calibration_method)
-        """
-        if not artifact.calibrator:
-            return None, "none"
-        try:
-            calibrator = pickle.loads(artifact.calibrator)
-            calibration_method = artifact.calibration_method
-            return calibrator, calibration_method
-        except Exception as e:
-            logger.warning(f"Failed to load calibrator: {e}")
-            return None, "none"
-
     def _get_latest_features(self, config: MLConfig) -> pd.DataFrame | None:
         """Get latest features."""
         candle_data = (
@@ -271,5 +251,6 @@ class InferenceView(ListAPIView):
         if df.empty:
             return None
 
-        df = _compute_features(df)
+        # Use config.symbol.exchange as canonical for multi-exchange candles
+        df = _compute_features(df, canonical_exchange=config.symbol.exchange)
         return df.dropna(subset=["close"]) if "close" in df.columns else df

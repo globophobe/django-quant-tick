@@ -20,7 +20,7 @@ from quant_tick.lib.ml import (
     prepare_features,
 )
 from quant_tick.lib.schema import MLSchema
-from quant_tick.lib.train import train_hazard_core
+from quant_tick.lib.train import train_core
 from quant_tick.models import MLConfig, MLFeatureData, Position
 
 logger = logging.getLogger(__name__)
@@ -379,9 +379,9 @@ def _find_optimal_config(
     decision_horizons: list[int],
     max_horizon: int,
 ) -> LPConfig | None:
-    """Find optimal LP config using hazard models.
+    """Find optimal LP config using survival models.
 
-    BREAKING CHANGE: Only works with hazard models.
+    BREAKING CHANGE: Only works with survival models.
     """
     from quant_tick.lib.ml import find_optimal_config
 
@@ -542,7 +542,7 @@ def ml_simulate(
         # Validate hazard schema structure after timestamp filtering
         max_horizon = config.json_data.get("max_horizon", config.horizon_bars)
         if "bar_idx" in train_df.columns and "config_id" in train_df.columns and "k" in train_df.columns:
-            is_valid, error = MLSchema.validate_hazard_schema(train_df, widths, asymmetries, max_horizon)
+            is_valid, error = MLSchema.validate_schema(train_df, widths, asymmetries, max_horizon)
             if not is_valid:
                 logger.error(f"{config}: Training window invalid - {error}, skipping")
                 windows_skipped += 1
@@ -551,7 +551,7 @@ def ml_simulate(
 
         # Train models on window
         try:
-            models_dict, feature_cols, cv_metrics, holdout_metrics = train_hazard_core(
+            models_dict, feature_cols, cv_metrics, holdout_metrics = train_core(
                 df=train_df,
                 max_horizon=max_horizon,
                 n_splits=3,  # Fewer splits for speed
@@ -587,9 +587,9 @@ def ml_simulate(
                             f"({drift_ratio:.1%} change)"
                         )
 
-        # Extract hazard models
+        # Extract models
         if "lower" not in models_dict or "upper" not in models_dict:
-            logger.error(f"{config}: missing hazard models")
+            logger.error(f"{config}: missing models")
             windows_skipped += 1
             skip_reasons["missing_models"] = skip_reasons.get("missing_models", 0) + 1
             continue
@@ -610,7 +610,7 @@ def ml_simulate(
 
         # Validate scoring window hazard schema
         if "bar_idx" in score_df.columns and "config_id" in score_df.columns and "k" in score_df.columns:
-            is_valid, error = MLSchema.validate_hazard_schema(score_df, widths, asymmetries, max_horizon)
+            is_valid, error = MLSchema.validate_schema(score_df, widths, asymmetries, max_horizon)
             if not is_valid:
                 logger.warning(f"Window {cutoff}: scoring data invalid - {error}")
                 windows_skipped += 1

@@ -214,68 +214,6 @@ class TuneLGBMHyperparamsOptunaTest(TestCase):
         self.assertLessEqual(tuned_params["n_estimators"], 400)
 
 
-class MLSchemaFeatureSelectionTest(TestCase):
-    """Test that MLSchema is used for feature selection."""
-
-    def test_metadata_columns_excluded(self):
-        """Metadata columns are excluded from features."""
-        from quant_tick.lib.schema import MLSchema
-
-        df_cols = [
-            "timestamp",
-            "bar_idx",
-            "config_id",
-            "entry_price",
-            "close",
-            "volume",
-            "hit_lower_by_10",
-            "hit_upper_by_10",
-        ]
-
-        features = MLSchema.get_training_features(df_cols, [10])
-
-        # Should only have close and volume
-        self.assertEqual(sorted(features), ["close", "volume"])
-
-    def test_label_columns_excluded(self):
-        """Label columns are excluded from features."""
-        from quant_tick.lib.schema import MLSchema
-
-        df_cols = [
-            "close",
-            "volume",
-            "hit_lower_by_30",
-            "hit_upper_by_30",
-            "hit_lower_by_60",
-            "hit_upper_by_60",
-        ]
-
-        features = MLSchema.get_training_features(df_cols, [30, 60])
-
-        # Should only have close and volume
-        self.assertEqual(sorted(features), ["close", "volume"])
-
-    def test_config_columns_included(self):
-        """Config columns like width/asymmetry are included in features."""
-        from quant_tick.lib.schema import MLSchema
-
-        df_cols = [
-            "close",
-            "width",
-            "asymmetry",
-            "range_width",
-            "hit_lower_by_10",
-        ]
-
-        features = MLSchema.get_training_features(df_cols, [10])
-
-        # Should include width, asymmetry, range_width (config cols)
-        self.assertIn("width", features)
-        self.assertIn("asymmetry", features)
-        self.assertIn("range_width", features)
-        self.assertNotIn("hit_lower_by_10", features)
-
-
 class FeatureHashValidationTest(TestCase):
     """Test feature hash computation and validation."""
 

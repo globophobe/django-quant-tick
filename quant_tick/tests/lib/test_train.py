@@ -1,17 +1,17 @@
-"""Tests for hazard model training."""
+"""Tests for survival model training."""
 
 import numpy as np
 import pandas as pd
 from django.test import TestCase
 
-from quant_tick.lib.train import train_hazard_core
+from quant_tick.lib.train import train_core
 
 
-class TrainHazardCoreTests(TestCase):
-    """Tests for train_hazard_core function."""
+class TrainModelsTests(TestCase):
+    """Tests for train_core function."""
 
-    def test_train_hazard_core_on_synthetic(self):
-        """Test training hazard models on synthetic geometric survival data."""
+    def test_train_core_on_synthetic(self):
+        """Test training survival models on synthetic geometric survival data."""
         np.random.seed(42)
         n_bars = 500
         n_configs = 2
@@ -49,8 +49,8 @@ class TrainHazardCoreTests(TestCase):
 
         df = pd.DataFrame(rows)
 
-        # Train hazard models
-        models, feature_cols, cv_metrics, holdout_metrics = train_hazard_core(
+        # Train survival models
+        models, feature_cols, cv_metrics, holdout_metrics = train_core(
             df=df,
             max_horizon=max_horizon,
             n_splits=3,
@@ -80,8 +80,8 @@ class TrainHazardCoreTests(TestCase):
         self.assertGreater(holdout_metrics["base_rates"]["lower"], 0.005)
         self.assertLess(holdout_metrics["base_rates"]["lower"], 0.05)
 
-    def test_train_hazard_core_validates_input(self):
-        """Test that train_hazard_core validates input structure."""
+    def test_train_core_validates_input(self):
+        """Test that train_models validates input structure."""
         # Create invalid data (missing k column)
         df = pd.DataFrame({
             "bar_idx": [0, 0],
@@ -95,9 +95,9 @@ class TrainHazardCoreTests(TestCase):
 
         # Should raise an error due to missing k
         with self.assertRaises(Exception):
-            train_hazard_core(df, max_horizon=10, n_splits=2, optuna_n_trials=0)
+            train_core(df, max_horizon=10, n_splits=2, optuna_n_trials=0)
 
-    def test_train_hazard_core_feature_extraction(self):
+    def test_train_core_feature_extraction(self):
         """Test that k is properly included as a feature."""
         np.random.seed(42)
         n_bars = 200
@@ -126,7 +126,7 @@ class TrainHazardCoreTests(TestCase):
 
         df = pd.DataFrame(rows)
 
-        models, feature_cols, cv_metrics, holdout_metrics = train_hazard_core(
+        models, feature_cols, cv_metrics, holdout_metrics = train_core(
             df, max_horizon=max_horizon, n_splits=2, embargo_bars=5, optuna_n_trials=0
         )
 

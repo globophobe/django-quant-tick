@@ -7,17 +7,17 @@ from pandas import DataFrame
 from quant_tick.lib.ml import (
     DEFAULT_ASYMMETRIES,
     DEFAULT_WIDTHS,
-    generate_hazard_labels,
+    generate_labels,
 )
 from quant_tick.models import MLConfig, MLFeatureData
 
 logger = logging.getLogger(__name__)
 
 
-def generate_hazard_labels_from_config(config: MLConfig) -> MLFeatureData | None:
-    """Generate hazard-style survival labels for MLConfig.
+def generate_labels_from_config(config: MLConfig) -> MLFeatureData | None:
+    """Generate survival labels for MLConfig.
 
-    Produces hazard schema with discrete-time survival modeling.
+    Produces survival training labels with discrete-time modeling.
 
     Args:
         config: MLConfig with candle, widths, asymmetries, horizon_bars
@@ -32,13 +32,14 @@ def generate_hazard_labels_from_config(config: MLConfig) -> MLFeatureData | None
         logger.error(f"{config}: no candle data found")
         return None
 
-    df = _compute_features(df)
+    # Use config.symbol.exchange as canonical for multi-exchange candles
+    df = _compute_features(df, canonical_exchange=config.symbol.exchange)
 
     widths = config.json_data.get("widths", DEFAULT_WIDTHS)
     asymmetries = config.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
     max_horizon = config.horizon_bars
 
-    labeled = generate_hazard_labels(df, widths, asymmetries, max_horizon)
+    labeled = generate_labels(df, widths, asymmetries, max_horizon)
 
     schema_hash = hashlib.sha256(
         ",".join(sorted(labeled.columns)).encode()
@@ -73,10 +74,17 @@ def generate_hazard_labels_from_config(config: MLConfig) -> MLFeatureData | None
     return feature_data
 
 
-def _compute_features(df: DataFrame) -> DataFrame:
-    """Compute features."""
+def _compute_features(df: DataFrame, canonical_exchange: str | None = None) -> DataFrame:
+    """Compute features.
+
+    Args:
+        df: Candle data
+        canonical_exchange: Exchange to use as canonical for multi-exchange (e.g., "coinbase")
+                           Required for multi-exchange candles, raises ValueError if missing.
+                           Ignored for single-exchange candles.
+    """
     if _is_multi_exchange(df):
-        return _compute_multi_exchange_features(df)
+        return _compute_multi_exchange_features(df, canonical_exchange)
     else:
         return _compute_single_exchange_features(df)
 
@@ -111,12 +119,39 @@ def _compute_single_exchange_features(data_frame: DataFrame) -> DataFrame:
     return df
 
 
-def _compute_multi_exchange_features(data_frame: DataFrame) -> DataFrame:
-    """Compute multi exchange features."""
+def _compute_multi_exchange_features(
+    data_frame: DataFrame,
+    canonical_exchange: str | None
+) -> DataFrame:
+    """Compute multi exchange features.
+
+    Args:
+        data_frame: Candle data with per-exchange columns
+        canonical_exchange: Exchange to use as canonical (e.g., "coinbase").
+                           Must be provided, raises ValueError if None.
+
+    Raises:
+        ValueError: If canonical_exchange is None or not found in data
+    """
     df = data_frame.copy()
 
     close_cols = [c for c in data_frame.columns if c.endswith("Close") and c != "close"]
-    canonical_col = close_cols[0]
+
+    if not canonical_exchange:
+        raise ValueError(
+            "canonical_exchange is required for multi-exchange candles. "
+            f"Available exchanges: {[c.replace('Close', '') for c in close_cols]}"
+        )
+
+    # Use specified canonical exchange
+    preferred_col = f"{canonical_exchange}Close"
+    if preferred_col not in close_cols:
+        raise ValueError(
+            f"Canonical exchange '{canonical_exchange}' not found in candle data. "
+            f"Available exchanges: {[c.replace('Close', '') for c in close_cols]}"
+        )
+
+    canonical_col = preferred_col
     canonical_name = canonical_col.replace("Close", "")
     canonical_close = data_frame[canonical_col]
 
@@ -126,7 +161,8 @@ def _compute_multi_exchange_features(data_frame: DataFrame) -> DataFrame:
     canonical_returns = canonical_close.pct_change()
     df[f"{canonical_name}Ret"] = canonical_returns
 
-    for close_col in close_cols[1:]:
+    # Loop over all non-canonical exchanges
+    for close_col in [c for c in close_cols if c != canonical_col]:
         other_name = close_col.replace("Close", "")
         other_close = df[close_col]
 

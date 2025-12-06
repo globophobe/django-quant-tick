@@ -151,7 +151,7 @@ def _tune_lgbm_hyperparams_optuna(
     return best_params
 
 
-def train_hazard_core(
+def train_core(
     df: pd.DataFrame,
     max_horizon: int,
     n_splits: int = 5,
@@ -165,10 +165,10 @@ def train_hazard_core(
     calibration_pct: float = 0.1,
     optuna_n_trials: int = 20,
 ) -> tuple[dict[str, Any], list[str], dict, dict]:
-    """Train discrete-time hazard models for survival analysis.
+    """Train survival models for range touch prediction.
 
     Trains 2 models (lower, upper) for all time steps up to max_horizon,
-    using discrete-time hazard framework for competing risks.
+    using discrete-time survival analysis for competing risks.
 
     Args:
         df: Hazard-labeled DataFrame (n_bars × n_configs × max_horizon rows)
@@ -194,9 +194,9 @@ def train_hazard_core(
     """
     from quant_tick.lib.schema import MLSchema
 
-    logger.info("Starting hazard model training")
+    logger.info("Starting model training")
 
-    feature_cols = MLSchema.get_hazard_training_features(df.columns.tolist())
+    feature_cols = MLSchema.get_training_features(df.columns.tolist())
     X, feature_cols = prepare_features(df, feature_cols)
 
     logger.info(f"Training features: {len(feature_cols)} columns (includes k)")
@@ -274,7 +274,7 @@ def train_hazard_core(
         model_key = side
 
         logger.info(f"\n{'='*60}")
-        logger.info(f"Training {side} hazard model")
+        logger.info(f"Training {side} model")
         logger.info(f"{'='*60}")
 
         y_train_full = df.iloc[train_idx][label_col].values
@@ -386,12 +386,12 @@ def train_models(
     holdout_pct: float = 0.2,
     calibration_pct: float = 0.1,
 ) -> bool:
-    """Train hazard models for MLConfig.
+    """Train survival models for MLConfig.
 
-    BREAKING CHANGE: This only trains hazard models. Per-horizon models removed.
+    BREAKING CHANGE: This only trains survival models. Per-horizon models removed.
 
     Args:
-        config: MLConfig with associated MLFeatureData (hazard schema)
+        config: MLConfig with associated MLFeatureData
         n_splits: PurgedKFold splits
         embargo_bars: Embargo buffer
         n_estimators: LightGBM n_estimators
@@ -408,7 +408,7 @@ def train_models(
     Raises:
         ValueError: If no feature data or schema validation fails
     """
-    logger.info(f"Training hazard models for config: {config.code_name}")
+    logger.info(f"Training models for config: {config.code_name}")
 
     feature_data = MLFeatureData.objects.filter(
         candle=config.candle
@@ -445,7 +445,7 @@ def train_models(
 
     optuna_n_trials = config.json_data.get("optuna_n_trials", 20)
 
-    models_dict, feature_cols, cv_metrics, holdout_metrics = train_hazard_core(
+    models_dict, feature_cols, cv_metrics, holdout_metrics = train_core(
         df,
         max_horizon=max_horizon,
         n_splits=n_splits,
@@ -461,7 +461,7 @@ def train_models(
     )
 
     for side, model in models_dict.items():
-        _save_hazard_artifact(
+        _save_artifact(
             config=config,
             model=model,
             side=side,
@@ -484,11 +484,11 @@ def train_models(
 
     config.save(update_fields=["json_data"])
 
-    logger.info(f"{config}: hazard model training complete")
+    logger.info(f"{config}: model training complete")
     return True
 
 
-def _save_hazard_artifact(
+def _save_artifact(
     config: MLConfig,
     model: Any,
     side: str,
@@ -496,7 +496,7 @@ def _save_hazard_artifact(
     brier_score: float,
     base_rate: float,
 ) -> MLArtifact:
-    """Save hazard model artifact.
+    """Save trained model artifact.
 
     Args:
         config: MLConfig

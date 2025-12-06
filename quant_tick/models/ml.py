@@ -34,12 +34,14 @@ class MLConfig(AbstractCodeName):
     upper or lower bounds of a liquidity range within a given time horizon.
 
     How it works:
-    1. Train separate binary classifiers for each horizon (e.g., 60/120/180 bars)
-       and each side (lower bound, upper bound)
-    2. Each classifier predicts: P(price touches this bound within H bars)
-    3. Calibrate predictions to fix probability miscalibration
-    4. Enforce monotonicity: longer horizons must have equal or higher touch probability
-    5. Filter ranges: reject any range where total touch risk exceeds touch_tolerance
+    1. Train survival models using discrete-time hazard functions for each side
+       (lower bound, upper bound)
+    2. Each model predicts h(k) = P(first touch at step k | survived to k-1)
+    3. Reconstruct survival curves S(k) and compute P(touch by horizon H) via
+       hazard_to_per_horizon_probs for decision horizons (e.g., 60/120/180 bars)
+    4. Calibrate predictions using isotonic regression to fix miscalibration
+    5. Enforce monotonicity: longer horizons must have equal or higher touch probability
+    6. Filter ranges: reject any range where total touch risk exceeds touch_tolerance
 
     What is it:
     - A risk filter that screens out ranges likely to get breached
@@ -208,8 +210,6 @@ class MLFeatureData(AbstractDataStorage):
     def validate_schema(self, config: "MLConfig") -> tuple[bool, str]:
         """Validate stored schema matches config requirements.
 
-        Dispatches to appropriate validator based on schema_type.
-
         Returns:
             Tuple of (is_valid, error_message)
         """
@@ -217,17 +217,11 @@ class MLFeatureData(AbstractDataStorage):
         if df is None or df.empty:
             return False, _("No feature data.")
 
-        schema_type = self.json_data.get("schema_type", "per_horizon")
-
         widths = config.json_data.get("widths", DEFAULT_WIDTHS)
         asymmetries = config.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
+        max_horizon = self.json_data.get("max_horizon", config.horizon_bars)
 
-        if schema_type == "hazard":
-            max_horizon = self.json_data.get("max_horizon", config.horizon_bars)
-            return MLSchema.validate_hazard_schema(df, widths, asymmetries, max_horizon)
-        else:
-            decision_horizons = config.json_data.get("decision_horizons", [60, 120, 180])
-            return MLSchema.validate_schema(df, widths, asymmetries, decision_horizons)
+        return MLSchema.validate_schema(df, widths, asymmetries, max_horizon)
 
     class Meta:
         db_table = "quant_tick_ml_feature_data"
