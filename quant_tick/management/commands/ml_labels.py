@@ -1,106 +1,134 @@
-import hashlib
 import logging
-from io import BytesIO
 from typing import Any
 
-import pandas as pd
-from django.core.files.base import ContentFile
-from django.core.management.base import CommandParser
+from django.core.management.base import BaseCommand, CommandParser
 
-from quant_tick.lib.ml import apply_triple_barrier, compute_sample_weights, cusum_events
-from quant_tick.management.base import BaseCandleCommand
-from quant_tick.models import MLFeatureData
+from quant_tick.lib.labels import generate_labels_from_config
+from quant_tick.lib.ml import DEFAULT_ASYMMETRIES, DEFAULT_WIDTHS
+from quant_tick.models import Candle, MLConfig, Symbol
 
 logger = logging.getLogger(__name__)
 
 
-class Command(BaseCandleCommand):
-    r"""Label feature data using triple-barrier method with optional CUSUM events.
+class Command(BaseCommand):
+    """Generate survival labels for ML training."""
 
-    This command adds labels and sample weights to feature data. Each bar (or event)
-    gets labeled based on which barrier is hit first: profit-target (+1), stop-loss (-1),
-    or time limit (0). Sample weights are computed based on event uniqueness.
-
-    Two labeling modes:
-    1. Event-based (--cusum-threshold): Use CUSUM to detect significant price moves,
-       then apply triple-barrier to those events only. More selective, focuses on
-       clear directional moves. Recommended for live trading.
-    2. Bar-based (no threshold): Apply triple-barrier to every bar. More labels but
-       noisier, includes lots of neutral/timeout cases. Useful for research.
-
-    The pt_mult and sl_mult parameters define barriers as multiples of recent volatility.
-    For example, pt_mult=2.0 means take-profit at 2× recent EWMA volatility. This
-    adapts to changing market conditions automatically.
-
-    Sample weights penalize overlapping events (low uniqueness) to reduce overfitting
-    on correlated samples during cross-validation.
-
-    Typical usage:
-        python manage.py ml_labels --symbol BTCUSDT --exchange bybit \\
-            --bar-type time --resolution 5m --pt-mult 2.0 --sl-mult 1.0 \\
-            --max-holding 48 --cusum-threshold 0.02
-    """
-
-    help = "Generate triple barrier labels from ML features."
+    help = "Generate survival labels for ML training"
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
-        super().add_arguments(parser)
-        parser.add_argument("--pt-mult", type=float, default=2.0)
-        parser.add_argument("--sl-mult", type=float, default=1.0)
-        parser.add_argument("--max-holding", type=int, default=48)
-        parser.add_argument("--cusum-threshold", type=float, default=None, help="CUSUM threshold for event detection (e.g., 0.02 for 2%% moves). If None, labels all bars.")
+        parser.add_argument(
+            "--candle",
+            type=str,
+            required=True,
+            help="Candle code name",
+        )
+        parser.add_argument(
+            "--symbol",
+            type=str,
+            required=True,
+            help="Symbol code name for position tracking",
+        )
+        parser.add_argument(
+            "--decision-horizons",
+            type=str,
+            default=None,
+            help="Comma-separated decision horizons in bars (e.g., '60,120,180')",
+        )
+        parser.add_argument(
+            "--min-bars",
+            type=int,
+            default=1000,
+            help="Minimum bars required (default: 1000)",
+        )
+        parser.add_argument(
+            "--widths",
+            type=str,
+            default=None,
+            help="Comma-separated range widths (e.g., '0.03,0.05,0.07')",
+        )
+        parser.add_argument(
+            "--asymmetries",
+            type=str,
+            default=None,
+            help="Comma-separated asymmetries (e.g., '-0.2,0,0.2')",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         """Run command."""
-        pt_mult = options["pt_mult"]
-        sl_mult = options["sl_mult"]
-        max_holding = options["max_holding"]
-        cusum_threshold = options["cusum_threshold"]
+        candle_code = options["candle"]
+        symbol_code = options["symbol"]
+        min_bars = options["min_bars"]
 
-        kwargs = super().handle(*args, **options)
-        for k in kwargs:
-            candle = k["candle"]
-            timestamp_from = k["timestamp_from"]
-            timestamp_to = k["timestamp_to"]
+        horizons_str = options.get("decision_horizons")
+        decision_horizons = (
+            [int(x) for x in horizons_str.split(",")]
+            if horizons_str
+            else [60, 120, 180]
+        )
 
-            logger.info(f"{candle}: generating labels from {timestamp_from} to {timestamp_to}")
+        widths_str = options.get("widths")
+        widths = (
+            [float(x) for x in widths_str.split(",")]
+            if widths_str
+            else DEFAULT_WIDTHS
+        )
 
-            feature_data = MLFeatureData.objects.filter(
-                candle=candle,
-                timestamp_from=timestamp_from,
-                timestamp_to=timestamp_to
-            ).first()
+        asym_str = options.get("asymmetries")
+        asymmetries = (
+            [float(x) for x in asym_str.split(",")]
+            if asym_str
+            else DEFAULT_ASYMMETRIES
+        )
 
-            if not feature_data or not feature_data.file_data:
-                logger.warning(f"{candle}: no feature data found")
-                continue
+        try:
+            candle = Candle.objects.get(code_name=candle_code)
+        except Candle.DoesNotExist:
+            logger.error(f"Candle '{candle_code}' not found")
+            return
 
-            df = pd.read_parquet(feature_data.file_data.open())
+        try:
+            symbol = Symbol.objects.get(code_name=symbol_code)
+        except Symbol.DoesNotExist:
+            logger.error(f"Symbol '{symbol_code}' not found")
+            return
 
-            event_idx = None
-            if cusum_threshold is not None:
-                event_idx = cusum_events(df, cusum_threshold)
-                logger.info(f"{candle}: detected {len(event_idx)} CUSUM events (threshold={cusum_threshold})")
+        # Get or create MLConfig
+        max_horizon = max(decision_horizons)
+        config, created = MLConfig.objects.get_or_create(
+            candle=candle,
+            symbol=symbol,
+            defaults={
+                "horizon_bars": max_horizon,
+                "json_data": {
+                    "decision_horizons": decision_horizons,
+                    "widths": widths,
+                    "asymmetries": asymmetries,
+                },
+            },
+        )
 
-            df = apply_triple_barrier(df, pt_mult, sl_mult, max_holding, event_idx=event_idx)
-            df = compute_sample_weights(df)
+        if created:
+            logger.info(f"Created MLConfig for {candle_code} / {symbol_code}")
+        else:
+            # Update existing config if parameters provided
+            update_needed = False
+            if config.horizon_bars != max_horizon:
+                config.horizon_bars = max_horizon
+                update_needed = True
+            if config.json_data.get("decision_horizons") != decision_horizons:
+                config.json_data["decision_horizons"] = decision_horizons
+                update_needed = True
+            if config.json_data.get("widths") != widths:
+                config.json_data["widths"] = widths
+                update_needed = True
+            if config.json_data.get("asymmetries") != asymmetries:
+                config.json_data["asymmetries"] = asymmetries
+                update_needed = True
 
-            buf = BytesIO()
-            df.to_parquet(buf, engine="auto", compression="snappy")
-            buf.seek(0)
+            if update_needed:
+                config.save()
+                logger.info(f"Updated MLConfig for {candle_code} / {symbol_code}")
 
-            schema = str(sorted(df.columns))
-            schema_hash = hashlib.sha256(schema.encode()).hexdigest()
-
-            ts_from = timestamp_from.strftime('%Y%m%d_%H%M%S')
-            ts_to = timestamp_to.strftime('%Y%m%d_%H%M%S')
-            filename = f"features_labels_{ts_from}_{ts_to}.parquet"
-            content = ContentFile(buf.read(), filename)
-
-            feature_data.file_data = content
-            feature_data.schema_hash = schema_hash
-            feature_data.save()
-
-            counts = df["label"].value_counts().to_dict()
-            logger.info(f"{candle}: added labels {counts}")
+        # Generate labels
+        generate_labels_from_config(config)
