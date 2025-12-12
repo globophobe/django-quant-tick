@@ -15,15 +15,13 @@ logger = logging.getLogger(__name__)
 
 
 def generate_labels_from_config(config: MLConfig) -> MLFeatureData | None:
-    """Generate survival labels for MLConfig.
-
-    Produces survival training labels with discrete-time modeling.
+    """Generate labels for MLConfig.
 
     Args:
         config: MLConfig with candle, widths, asymmetries, horizon_bars
 
     Returns:
-        MLFeatureData with schema_type="hazard" in json_data
+        MLFeatureData
     """
     candle = config.candle
 
@@ -74,7 +72,9 @@ def generate_labels_from_config(config: MLConfig) -> MLFeatureData | None:
     return feature_data
 
 
-def _compute_features(df: DataFrame, canonical_exchange: str | None = None) -> DataFrame:
+def _compute_features(
+    df: DataFrame, canonical_exchange: str | None = None
+) -> DataFrame:
     """Compute features.
 
     Args:
@@ -120,8 +120,7 @@ def _compute_single_exchange_features(data_frame: DataFrame) -> DataFrame:
 
 
 def _compute_multi_exchange_features(
-    data_frame: DataFrame,
-    canonical_exchange: str | None
+    data_frame: DataFrame, canonical_exchange: str | None
 ) -> DataFrame:
     """Compute multi exchange features.
 
@@ -168,7 +167,9 @@ def _compute_multi_exchange_features(
 
         df[f"{other_name}Missing"] = other_close.isna().astype(int)
         df[f"basis{other_name.title()}"] = other_close - canonical_close
-        df[f"basisPct{other_name.title()}"] = (other_close - canonical_close) / canonical_close
+        df[f"basisPct{other_name.title()}"] = (
+            other_close - canonical_close
+        ) / canonical_close
 
         other_returns = other_close.pct_change()
         df[f"{other_name}Ret"] = other_returns
@@ -180,9 +181,9 @@ def _compute_multi_exchange_features(
         other_vol_col = f"{other_name}Volume"
         canon_vol_col = f"{canonical_name}Volume"
         if other_vol_col in df.columns and canon_vol_col in df.columns:
-            df[f"volRatio{other_name.title()}"] = (
-                df[other_vol_col] / df[canon_vol_col].replace(0, np.nan)
-            )
+            df[f"volRatio{other_name.title()}"] = df[other_vol_col] / df[
+                canon_vol_col
+            ].replace(0, np.nan)
 
     # Volatility features
     df["realizedVol"] = canonical_returns.rolling(20).std()

@@ -81,7 +81,11 @@ def aggregate_candle(
         exchanges = data_frame["exchange"].unique()
         if len(exchanges) > 1:
             return _aggregate_multi_exchange(
-                data_frame, exchanges, timestamp, min_volume_exponent, min_notional_exponent
+                data_frame,
+                exchanges,
+                timestamp,
+                min_volume_exponent,
+                min_notional_exponent,
             )
     # Single exchange
     return agg_candle(data_frame, timestamp, min_volume_exponent, min_notional_exponent)

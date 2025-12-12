@@ -259,8 +259,12 @@ def generate_labels(
             base_row["upper_bound_pct"] = upper_pct
             base_row["range_width"] = upper_pct - lower_pct
             base_row["range_asymmetry"] = upper_pct + lower_pct
-            base_row["dist_to_lower_pct"] = (close[bar_idx] - lower_bounds[bar_idx]) / close[bar_idx]
-            base_row["dist_to_upper_pct"] = (upper_bounds[bar_idx] - close[bar_idx]) / close[bar_idx]
+            base_row["dist_to_lower_pct"] = (
+                close[bar_idx] - lower_bounds[bar_idx]
+            ) / close[bar_idx]
+            base_row["dist_to_upper_pct"] = (
+                upper_bounds[bar_idx] - close[bar_idx]
+            ) / close[bar_idx]
 
             t_lower = first_touch_lower[bar_idx]
             t_upper = first_touch_upper[bar_idx]
@@ -279,7 +283,6 @@ def generate_labels(
 
     result = pd.DataFrame(all_rows)
 
-    expected_rows = n_bars * n_configs * max_horizon
     result_by_bar_k = {}
     for _, row in result.iterrows():
         key = (row["bar_idx"], row["k"])
@@ -417,13 +420,15 @@ def enforce_monotonicity(
 
         if horizon_probs[h_curr] < horizon_probs[h_prev]:
             decrease = horizon_probs[h_prev] - horizon_probs[h_curr]
-            violations.append({
-                "from_horizon": h_prev,
-                "to_horizon": h_curr,
-                "decrease": decrease,
-                "prev_prob": horizon_probs[h_prev],
-                "curr_prob": horizon_probs[h_curr],
-            })
+            violations.append(
+                {
+                    "from_horizon": h_prev,
+                    "to_horizon": h_curr,
+                    "decrease": decrease,
+                    "prev_prob": horizon_probs[h_prev],
+                    "curr_prob": horizon_probs[h_curr],
+                }
+            )
 
     if log_violations and violations:
         logger.warning(
@@ -471,13 +476,17 @@ def calibrate_per_horizon(
     # Check for constant predictions
     unique_preds = np.unique(y_pred_proba)
     if len(unique_preds) < 3:
-        logger.warning(f"Predictions lack variance ({len(unique_preds)} unique), skipping calibration")
+        logger.warning(
+            f"Predictions lack variance ({len(unique_preds)} unique), skipping calibration"
+        )
         return None, "none"
 
     # Check for class imbalance (need at least a few positive samples)
     n_positive = y_true.sum()
     if n_positive < 3 or n_positive > (n_samples - 3):
-        logger.warning(f"Extreme class imbalance ({n_positive}/{n_samples}), skipping calibration")
+        logger.warning(
+            f"Extreme class imbalance ({n_positive}/{n_samples}), skipping calibration"
+        )
         return None, "none"
 
     # Compute baseline Brier score
@@ -507,7 +516,9 @@ def calibrate_per_horizon(
             )
             return None, "none"
 
-        logger.debug(f"Calibration ({method}): Brier {brier_before:.4f} -> {brier_after:.4f}")
+        logger.debug(
+            f"Calibration ({method}): Brier {brier_before:.4f} -> {brier_after:.4f}"
+        )
         return calibrator, method
 
     except Exception as e:

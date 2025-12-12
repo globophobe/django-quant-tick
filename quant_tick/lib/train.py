@@ -58,11 +58,13 @@ def _cv_brier_for_params(
     cv = PurgedKFold(n_splits=n_splits, embargo_bars=embargo_bars)
     event_end_idx = timestamp_idx_train + horizon + 1
 
-    fold_list = list(cv.split(
-        X_train_full,
-        event_end_idx=event_end_idx,
-        timestamp_idx=timestamp_idx_train,
-    ))
+    fold_list = list(
+        cv.split(
+            X_train_full,
+            event_end_idx=event_end_idx,
+            timestamp_idx=timestamp_idx_train,
+        )
+    )
 
     if len(fold_list) == 0:
         raise ValueError(
@@ -114,13 +116,18 @@ def _tune_lgbm_hyperparams_optuna(
     Returns:
         Best LightGBM params (base params + tuned values)
     """
+
     def objective(trial: Any) -> float:
         trial_params = base_lgbm_params.copy()
-        trial_params.update({
-            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
-            "max_depth": trial.suggest_int("max_depth", 3, 8),
-            "n_estimators": trial.suggest_int("n_estimators", 100, 400),
-        })
+        trial_params.update(
+            {
+                "learning_rate": trial.suggest_float(
+                    "learning_rate", 0.01, 0.2, log=True
+                ),
+                "max_depth": trial.suggest_int("max_depth", 3, 8),
+                "n_estimators": trial.suggest_int("n_estimators", 100, 400),
+            }
+        )
 
         return _cv_brier_for_params(
             X_train_full=X_train_full,
@@ -236,7 +243,7 @@ def train_core(
     first_calib_bar = train_bars_purged + max_horizon + 1
     calib_idx = np.arange(
         first_calib_bar * rows_per_bar_total,
-        (first_calib_bar + calib_bars_purged) * rows_per_bar_total
+        (first_calib_bar + calib_bars_purged) * rows_per_bar_total,
     )
 
     first_test_bar = first_calib_bar + calib_bars_purged + max_horizon + 1
@@ -303,11 +310,13 @@ def train_core(
             cv_metrics["optuna_best_params"][model_key] = tuned_params
         else:
             model_params = base_lgbm_params.copy()
-            model_params.update({
-                "n_estimators": n_estimators,
-                "max_depth": max_depth,
-                "learning_rate": learning_rate,
-            })
+            model_params.update(
+                {
+                    "n_estimators": n_estimators,
+                    "max_depth": max_depth,
+                    "learning_rate": learning_rate,
+                }
+            )
 
         logger.info("Running cross-validation with PurgedKFold")
 
@@ -362,45 +371,30 @@ def train_core(
 
         models_dict[model_key] = final_model
 
-    cv_metrics["avg_brier"] = float(np.mean(list(cv_metrics["cv_brier_scores"].values())))
-    holdout_metrics["avg_brier"] = float(np.mean(list(holdout_metrics["holdout_brier_scores"].values())))
+    cv_metrics["avg_brier"] = float(
+        np.mean(list(cv_metrics["cv_brier_scores"].values()))
+    )
+    holdout_metrics["avg_brier"] = float(
+        np.mean(list(holdout_metrics["holdout_brier_scores"].values()))
+    )
 
-    logger.info("\n" + "="*60)
+    logger.info("\n" + "=" * 60)
     logger.info("Training complete")
     logger.info(f"Average CV Brier: {cv_metrics['avg_brier']:.4f}")
     logger.info(f"Average holdout Brier: {holdout_metrics['avg_brier']:.4f}")
-    logger.info("="*60 + "\n")
+    logger.info("=" * 60 + "\n")
 
     return models_dict, feature_cols, cv_metrics, holdout_metrics
 
 
-def train_models(
-    config: MLConfig,
-    n_splits: int = 5,
-    embargo_bars: int = 96,
-    n_estimators: int = 300,
-    max_depth: int = 6,
-    min_samples_leaf: int = 50,
-    learning_rate: float = 0.05,
-    subsample: float = 0.75,
-    holdout_pct: float = 0.2,
-    calibration_pct: float = 0.1,
-) -> bool:
+def train_models(config: MLConfig, **override_params) -> bool:
     """Train survival models for MLConfig.
-
-    BREAKING CHANGE: This only trains survival models. Per-horizon models removed.
 
     Args:
         config: MLConfig with associated MLFeatureData
-        n_splits: PurgedKFold splits
-        embargo_bars: Embargo buffer
-        n_estimators: LightGBM n_estimators
-        max_depth: LightGBM max_depth
-        min_samples_leaf: LightGBM min_child_samples
-        learning_rate: LightGBM learning_rate
-        subsample: LightGBM subsample
-        holdout_pct: Final test set fraction
-        calibration_pct: Calibration set fraction
+        **override_params: Override any training parameter for this run
+            (n_splits, embargo_bars, n_estimators, max_depth,
+             min_samples_leaf, learning_rate, subsample, holdout_pct, calibration_pct)
 
     Returns:
         True if training succeeded, False otherwise
@@ -410,9 +404,29 @@ def train_models(
     """
     logger.info(f"Training models for config: {config.code_name}")
 
-    feature_data = MLFeatureData.objects.filter(
-        candle=config.candle
-    ).order_by("-timestamp_to").first()
+    # Get training params from config and merge with overrides
+    training_params = config.get_training_params()
+    training_params.update(override_params)
+
+    # Extract individual params
+    n_splits = training_params["n_splits"]
+    embargo_bars = training_params["embargo_bars"]
+    n_estimators = training_params["n_estimators"]
+    max_depth = training_params["max_depth"]
+    min_samples_leaf = training_params["min_samples_leaf"]
+    learning_rate = training_params["learning_rate"]
+    subsample = training_params["subsample"]
+    holdout_pct = training_params["holdout_pct"]
+    calibration_pct = training_params["calibration_pct"]
+
+    # Get optuna trials from config
+    optuna_n_trials = config.get_optuna_n_trials()
+
+    feature_data = (
+        MLFeatureData.objects.filter(candle=config.candle)
+        .order_by("-timestamp_to")
+        .first()
+    )
 
     if not feature_data or not feature_data.has_data_frame("file_data"):
         logger.error(f"{config}: no feature data available")
@@ -442,8 +456,6 @@ def train_models(
         f"max_horizon={max_horizon}, "
         f"schema_hash={feature_data.schema_hash[:8]}"
     )
-
-    optuna_n_trials = config.json_data.get("optuna_n_trials", 20)
 
     models_dict, feature_cols, cv_metrics, holdout_metrics = train_core(
         df,

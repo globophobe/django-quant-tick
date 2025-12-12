@@ -1,5 +1,3 @@
-"""Walk-forward simulation with rolling retrains."""
-
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
@@ -16,6 +14,7 @@ from quant_tick.lib.ml import (
     LPConfig,
     check_position_change_allowed,
     compute_bound_features,
+    find_optimal_config,
     hazard_to_per_horizon_probs,
     prepare_features,
 )
@@ -51,8 +50,6 @@ class WalkForwardResult:
     windows_skipped: int
     skip_reasons: dict[str, int]
     chronic_missing_features: dict[str, int]
-
-
 
 
 def _run_backtest(
@@ -241,7 +238,9 @@ def _run_backtest_loop(
                         current_position_data["exit_timestamp"] = ts
                         current_position_data["exit_price"] = Decimal(str(close_price))
                         current_position_data["exit_reason"] = (
-                            ExitReason.TOUCHED_LOWER if touched_lower else ExitReason.TOUCHED_UPPER
+                            ExitReason.TOUCHED_LOWER
+                            if touched_lower
+                            else ExitReason.TOUCHED_UPPER
                         )
                         current_position_data["bars_held"] = bars_since_change
                         current_position_data["status"] = PositionStatus.CLOSED
@@ -312,8 +311,12 @@ def _run_backtest_loop(
                 # Open new position
                 current_config = best_config
                 position_entry_price = close_price
-                position_lower_bound = position_entry_price * (1 + best_config.lower_pct)
-                position_upper_bound = position_entry_price * (1 + best_config.upper_pct)
+                position_lower_bound = position_entry_price * (
+                    1 + best_config.lower_pct
+                )
+                position_upper_bound = position_entry_price * (
+                    1 + best_config.upper_pct
+                )
 
                 # Create new position data
                 json_data_dict = {
@@ -379,26 +382,32 @@ def _find_optimal_config(
     decision_horizons: list[int],
     max_horizon: int,
 ) -> LPConfig | None:
-    """Find optimal LP config using survival models.
-
-    BREAKING CHANGE: Only works with survival models.
-    """
-    from quant_tick.lib.ml import find_optimal_config
-
+    """Find optimal config."""
     # Extract widths and asymmetries from bar_rows
     widths = sorted(bar_rows["width"].unique()) if "width" in bar_rows.columns else None
-    asymmetries = sorted(bar_rows["asymmetry"].unique()) if "asymmetry" in bar_rows.columns else None
+    asymmetries = (
+        sorted(bar_rows["asymmetry"].unique())
+        if "asymmetry" in bar_rows.columns
+        else None
+    )
 
     # Get base features (all configs have same features, differ only in bounds)
     base_features = bar_rows.iloc[0:1][
-        [c for c in feature_cols if c not in {"k", "width", "asymmetry", "dist_to_lower_pct", "dist_to_upper_pct"}]
+        [
+            c
+            for c in feature_cols
+            if c
+            not in {"k", "width", "asymmetry", "dist_to_lower_pct", "dist_to_upper_pct"}
+        ]
     ]
 
     # Exclude k from prepare_features (not in live candle data)
     base_feature_cols = [c for c in feature_cols if c != "k"]
 
     # Define prediction functions
-    def predict_lower_fn(features: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
+    def predict_lower_fn(
+        features: pd.DataFrame, lower_pct: float, upper_pct: float
+    ) -> float:
         feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
         X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
         X_df = pd.DataFrame(X_array, columns=expanded_cols)
@@ -409,7 +418,9 @@ def _find_optimal_config(
         )
         return float(max(horizon_probs.values()))
 
-    def predict_upper_fn(features: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
+    def predict_upper_fn(
+        features: pd.DataFrame, lower_pct: float, upper_pct: float
+    ) -> float:
         feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
         X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
         X_df = pd.DataFrame(X_array, columns=expanded_cols)
@@ -446,8 +457,8 @@ def _config_significantly_different(
 
 def ml_simulate(
     config: MLConfig,
-    retrain_cadence_days: int = 7,
-    train_window_days: int = 84,
+    retrain_cadence_days: int | None = None,
+    train_window_days: int | None = None,
     holdout_days: int | None = None,
     **backtest_kwargs,
 ) -> dict:
@@ -455,18 +466,27 @@ def ml_simulate(
 
     Args:
         config: MLConfig to simulate
-        retrain_cadence_days: Days between retrains
-        train_window_days: Days of data to train on
-        holdout_days: Optional final holdout period (not used for any training)
+        retrain_cadence_days: Days between retrains (default from config)
+        train_window_days: Days of data to train on (default from config)
+        holdout_days: Optional final holdout period (default from config)
         **backtest_kwargs: Additional args passed to backtest
 
     Returns:
         Dict with aggregated metrics and per-slice results
     """
+    # Get simulation params from config with optional overrides
+    sim_params = config.get_simulation_params()
+
+    cadence = retrain_cadence_days if retrain_cadence_days is not None else sim_params["retrain_cadence_days"]
+    window = train_window_days if train_window_days is not None else sim_params["train_window_days"]
+    holdout = holdout_days if holdout_days is not None else sim_params["holdout_days"]
+
     # Load all feature data
-    feature_data = MLFeatureData.objects.filter(
-        candle=config.candle
-    ).order_by("-timestamp_to").first()
+    feature_data = (
+        MLFeatureData.objects.filter(candle=config.candle)
+        .order_by("-timestamp_to")
+        .first()
+    )
 
     if not feature_data or not feature_data.has_data_frame("file_data"):
         logger.error(f"{config}: no feature data available")
@@ -489,15 +509,15 @@ def ml_simulate(
         return {}
 
     # Reserve holdout if specified
-    if holdout_days:
-        holdout_start = max_ts - timedelta(days=holdout_days)
+    if holdout:
+        holdout_start = max_ts - timedelta(days=holdout)
         df = df[df["timestamp"] < holdout_start]
         max_ts = df["timestamp"].max()
-        logger.info(f"{config}: reserved {holdout_days} days as final holdout")
+        logger.info(f"{config}: reserved {holdout} days as final holdout")
 
     # Generate cutoff dates
-    train_window_delta = timedelta(days=train_window_days)
-    cadence_delta = timedelta(days=retrain_cadence_days)
+    train_window_delta = timedelta(days=window)
+    cadence_delta = timedelta(days=cadence)
 
     # Auto-detect start: validation begins after first training window
     cutoffs = []
@@ -536,17 +556,27 @@ def ml_simulate(
         if len(train_df) == 0:
             logger.warning(f"{config}: no training data for cutoff {cutoff}")
             windows_skipped += 1
-            skip_reasons["no_training_data"] = skip_reasons.get("no_training_data", 0) + 1
+            skip_reasons["no_training_data"] = (
+                skip_reasons.get("no_training_data", 0) + 1
+            )
             continue
 
         # Validate hazard schema structure after timestamp filtering
         max_horizon = config.json_data.get("max_horizon", config.horizon_bars)
-        if "bar_idx" in train_df.columns and "config_id" in train_df.columns and "k" in train_df.columns:
-            is_valid, error = MLSchema.validate_schema(train_df, widths, asymmetries, max_horizon)
+        if (
+            "bar_idx" in train_df.columns
+            and "config_id" in train_df.columns
+            and "k" in train_df.columns
+        ):
+            is_valid, error = MLSchema.validate_schema(
+                train_df, widths, asymmetries, max_horizon
+            )
             if not is_valid:
                 logger.error(f"{config}: Training window invalid - {error}, skipping")
                 windows_skipped += 1
-                skip_reasons["hazard_schema_invalid"] = skip_reasons.get("hazard_schema_invalid", 0) + 1
+                skip_reasons["hazard_schema_invalid"] = (
+                    skip_reasons.get("hazard_schema_invalid", 0) + 1
+                )
                 continue
 
         # Train models on window
@@ -609,12 +639,20 @@ def ml_simulate(
             continue
 
         # Validate scoring window hazard schema
-        if "bar_idx" in score_df.columns and "config_id" in score_df.columns and "k" in score_df.columns:
-            is_valid, error = MLSchema.validate_schema(score_df, widths, asymmetries, max_horizon)
+        if (
+            "bar_idx" in score_df.columns
+            and "config_id" in score_df.columns
+            and "k" in score_df.columns
+        ):
+            is_valid, error = MLSchema.validate_schema(
+                score_df, widths, asymmetries, max_horizon
+            )
             if not is_valid:
                 logger.warning(f"Window {cutoff}: scoring data invalid - {error}")
                 windows_skipped += 1
-                skip_reasons["scoring_hazard_schema_invalid"] = skip_reasons.get("scoring_hazard_schema_invalid", 0) + 1
+                skip_reasons["scoring_hazard_schema_invalid"] = (
+                    skip_reasons.get("scoring_hazard_schema_invalid", 0) + 1
+                )
                 continue
 
         # Validate features match using centralized schema
@@ -629,7 +667,9 @@ def ml_simulate(
                 f"Skipping this window to prevent schema mismatch."
             )
             windows_skipped += 1
-            skip_reasons["missing_features"] = skip_reasons.get("missing_features", 0) + 1
+            skip_reasons["missing_features"] = (
+                skip_reasons.get("missing_features", 0) + 1
+            )
 
             # Track which features are chronic offenders
             for col in missing_cols:
@@ -648,19 +688,21 @@ def ml_simulate(
         )
 
         if backtest_result:
-            slice_results.append({
-                "cutoff": cutoff,
-                "train_size": len(train_df),
-                "score_size": len(score_df),
-                "cv_brier_lower": cv_metrics.get("avg_brier_lower", 0.0),
-                "cv_brier_upper": cv_metrics.get("avg_brier_upper", 0.0),
-                "holdout_brier_lower": holdout_metrics.get("avg_brier_lower", 0.0),
-                "holdout_brier_upper": holdout_metrics.get("avg_brier_upper", 0.0),
-                "backtest_touch_rate": backtest_result.touch_rate,
-                "backtest_pct_in_range": backtest_result.pct_in_range,
-                "backtest_rebalances": backtest_result.rebalances,
-                "backtest_positions": backtest_result.positions_created,
-            })
+            slice_results.append(
+                {
+                    "cutoff": cutoff,
+                    "train_size": len(train_df),
+                    "score_size": len(score_df),
+                    "cv_brier_lower": cv_metrics.get("avg_brier_lower", 0.0),
+                    "cv_brier_upper": cv_metrics.get("avg_brier_upper", 0.0),
+                    "holdout_brier_lower": holdout_metrics.get("avg_brier_lower", 0.0),
+                    "holdout_brier_upper": holdout_metrics.get("avg_brier_upper", 0.0),
+                    "backtest_touch_rate": backtest_result.touch_rate,
+                    "backtest_pct_in_range": backtest_result.pct_in_range,
+                    "backtest_rebalances": backtest_result.rebalances,
+                    "backtest_positions": backtest_result.positions_created,
+                }
+            )
 
             logger.info(
                 f"{config}: window {i+1} - CV brier: {cv_metrics.get('avg_brier_lower', 0):.4f}/{cv_metrics.get('avg_brier_upper', 0):.4f}, "
@@ -672,12 +714,22 @@ def ml_simulate(
     if slice_results:
         agg_metrics = {
             "n_windows": len(slice_results),
-            "avg_cv_brier_lower": sum(r["cv_brier_lower"] for r in slice_results) / len(slice_results),
-            "avg_cv_brier_upper": sum(r["cv_brier_upper"] for r in slice_results) / len(slice_results),
-            "avg_holdout_brier_lower": sum(r["holdout_brier_lower"] for r in slice_results) / len(slice_results),
-            "avg_holdout_brier_upper": sum(r["holdout_brier_upper"] for r in slice_results) / len(slice_results),
-            "avg_touch_rate": sum(r["backtest_touch_rate"] for r in slice_results) / len(slice_results),
-            "avg_pct_in_range": sum(r["backtest_pct_in_range"] for r in slice_results) / len(slice_results),
+            "avg_cv_brier_lower": sum(r["cv_brier_lower"] for r in slice_results)
+            / len(slice_results),
+            "avg_cv_brier_upper": sum(r["cv_brier_upper"] for r in slice_results)
+            / len(slice_results),
+            "avg_holdout_brier_lower": sum(
+                r["holdout_brier_lower"] for r in slice_results
+            )
+            / len(slice_results),
+            "avg_holdout_brier_upper": sum(
+                r["holdout_brier_upper"] for r in slice_results
+            )
+            / len(slice_results),
+            "avg_touch_rate": sum(r["backtest_touch_rate"] for r in slice_results)
+            / len(slice_results),
+            "avg_pct_in_range": sum(r["backtest_pct_in_range"] for r in slice_results)
+            / len(slice_results),
             "total_rebalances": sum(r["backtest_rebalances"] for r in slice_results),
             "total_positions": sum(r["backtest_positions"] for r in slice_results),
         }
@@ -707,9 +759,13 @@ def ml_simulate(
 
             if chronic_features:
                 logger.warning("\nChronic missing features (>20% of windows):")
-                for feat, count in sorted(chronic_features.items(), key=lambda x: -x[1]):
+                for feat, count in sorted(
+                    chronic_features.items(), key=lambda x: -x[1]
+                ):
                     pct = count / windows_attempted
-                    logger.warning(f"  - {feat}: missing in {count}/{windows_attempted} windows ({pct:.1%})")
+                    logger.warning(
+                        f"  - {feat}: missing in {count}/{windows_attempted} windows ({pct:.1%})"
+                    )
 
     return WalkForwardResult(
         aggregate_metrics=agg_metrics,

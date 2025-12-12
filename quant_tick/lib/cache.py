@@ -36,7 +36,9 @@ def merge_cache(previous: dict, current: dict) -> dict:
             current["low"] = previous["low"]
         # Realized variance with cross-segment
         if "realizedVariance" in current and "realizedVariance" in previous:
-            cross_var = _calc_cross_segment_variance(previous.get("close"), current_open)
+            cross_var = _calc_cross_segment_variance(
+                previous.get("close"), current_open
+            )
             current["realizedVariance"] += previous["realizedVariance"] + cross_var
 
     # Sum aggregate volume fields
@@ -59,6 +61,7 @@ def merge_cache(previous: dict, current: dict) -> dict:
             _merge_exchange(previous, current, exchange)
     return current
 
+
 def _get_exchanges(data: dict) -> set[str]:
     """Extract exchange names."""
     exchanges = set()
@@ -68,7 +71,9 @@ def _get_exchanges(data: dict) -> set[str]:
     return exchanges
 
 
-def _calc_cross_segment_variance(prev_close: Decimal | None, curr_open: Decimal | None) -> Decimal:
+def _calc_cross_segment_variance(
+    prev_close: Decimal | None, curr_open: Decimal | None
+) -> Decimal:
     """Calculate cross-segment variance from log return squared."""
     if prev_close is None or curr_open is None:
         return Decimal("0")
