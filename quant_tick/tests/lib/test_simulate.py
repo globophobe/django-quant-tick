@@ -1,6 +1,5 @@
 """Tests for walk-forward simulation."""
 
-import numpy as np
 import pandas as pd
 from django.test import TestCase
 

@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 from django.test import TestCase
 
 from quant_tick.lib.train import (

@@ -48,56 +48,6 @@ class ComputeBoundFeaturesTest(TestCase):
         self.assertAlmostEqual(result["range_asymmetry"].iloc[0], 0.02)
 
 
-class FindOptimalConfigTest(TestCase):
-    """Find optimal config test."""
-
-    def test_finds_tightest_valid_config(self):
-        """Tightest config where both probs below tolerance."""
-        features = pd.DataFrame({"x": [1.0]})
-
-        # Mock predictors: narrow width has high prob, wide width has low prob
-        def predict_lower(f, lower, upper):
-            width = upper - lower
-            return 0.3 if width < 0.06 else 0.1  # Tight = risky
-
-        def predict_upper(f, lower, upper):
-            width = upper - lower
-            return 0.3 if width < 0.06 else 0.1  # Tight = risky
-
-        result = find_optimal_config(
-            predict_lower,
-            predict_upper,
-            features,
-            touch_tolerance=0.15,
-            widths=[0.03, 0.05, 0.07],
-            asymmetries=[0],
-        )
-
-        # Should pick width=0.07 (first that meets tolerance)
-        self.assertIsNotNone(result)
-        self.assertEqual(result.width, 0.07)
-
-    def test_returns_none_if_no_valid_config(self):
-        """None when no config meets tolerance."""
-        features = pd.DataFrame({"x": [1.0]})
-
-        # Mock predictors: all configs have high prob
-        def predict_lower(f, lower, upper):
-            return 0.5
-
-        def predict_upper(f, lower, upper):
-            return 0.5
-
-        result = find_optimal_config(
-            predict_lower,
-            predict_upper,
-            features,
-            touch_tolerance=0.15,
-        )
-
-        self.assertIsNone(result)
-
-
 class CheckPositionChangeAllowedTest(TestCase):
     """Check position change allowed test."""
 
@@ -450,8 +400,6 @@ class WalkForwardIntegrationTest(TestCase):
             nonlocal backtest_call_count
             backtest_call_count += 1
             # Return a simple result
-            from quant_tick.lib.simulate import BacktestResult
-
             return BacktestResult(
                 total_bars=100,
                 bars_in_position=80,
@@ -633,7 +581,6 @@ class FindOptimalConfigTest(TestCase):
 
     def test_selects_tightest_width_passing_tolerance(self):
         """Selects tightest width that passes touch tolerance."""
-        from quant_tick.lib.ml import find_optimal_config
 
         features = pd.DataFrame({"close": [100.0]})
 
@@ -661,7 +608,6 @@ class FindOptimalConfigTest(TestCase):
 
     def test_returns_none_if_all_too_risky(self):
         """Returns None if all configs exceed tolerance."""
-        from quant_tick.lib.ml import find_optimal_config
 
         features = pd.DataFrame({"close": [100.0]})
 
@@ -685,7 +631,6 @@ class FindOptimalConfigTest(TestCase):
 
     def test_selects_best_asymmetry_for_width(self):
         """Selects asymmetry with lowest combined risk for chosen width."""
-        from quant_tick.lib.ml import find_optimal_config
 
         features = pd.DataFrame({"close": [100.0]})
 
@@ -718,7 +663,6 @@ class FindOptimalConfigTest(TestCase):
 
     def test_respects_touch_tolerance_threshold(self):
         """Config is rejected if either bound exceeds tolerance."""
-        from quant_tick.lib.ml import find_optimal_config
 
         features = pd.DataFrame({"close": [100.0]})
 
@@ -743,7 +687,6 @@ class FindOptimalConfigTest(TestCase):
 
     def test_computes_correct_bounds_from_width_asymmetry(self):
         """Computes correct lower/upper bounds from width and asymmetry."""
-        from quant_tick.lib.ml import find_optimal_config
 
         features = pd.DataFrame({"close": [100.0]})
 
@@ -771,7 +714,6 @@ class FindOptimalConfigTest(TestCase):
 
     def test_stores_touch_probabilities(self):
         """Result includes touch probabilities from prediction functions."""
-        from quant_tick.lib.ml import find_optimal_config
 
         features = pd.DataFrame({"close": [100.0]})
 

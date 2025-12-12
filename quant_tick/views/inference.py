@@ -1,5 +1,4 @@
 import logging
-import pickle
 from io import BytesIO
 from typing import Any
 
