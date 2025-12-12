@@ -58,7 +58,6 @@ class Command(BaseCommand):
         """Run command."""
         candle_code = options["candle"]
         symbol_code = options["symbol"]
-        min_bars = options["min_bars"]
 
         horizons_str = options.get("decision_horizons")
         decision_horizons = (
@@ -69,16 +68,12 @@ class Command(BaseCommand):
 
         widths_str = options.get("widths")
         widths = (
-            [float(x) for x in widths_str.split(",")]
-            if widths_str
-            else DEFAULT_WIDTHS
+            [float(x) for x in widths_str.split(",")] if widths_str else DEFAULT_WIDTHS
         )
 
         asym_str = options.get("asymmetries")
         asymmetries = (
-            [float(x) for x in asym_str.split(",")]
-            if asym_str
-            else DEFAULT_ASYMMETRIES
+            [float(x) for x in asym_str.split(",")] if asym_str else DEFAULT_ASYMMETRIES
         )
 
         try:

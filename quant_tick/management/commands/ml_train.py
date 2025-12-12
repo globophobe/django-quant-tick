@@ -40,23 +40,12 @@ class Command(BaseCommand):
             default=300,
             help="Number of boosting iterations",
         )
+        parser.add_argument("--max-depth", type=int, default=6, help="Max tree depth")
         parser.add_argument(
-            "--max-depth",
-            type=int,
-            default=6,
-            help="Max tree depth",
+            "--min-samples-leaf", type=int, default=50, help="Minimum samples per leaf"
         )
         parser.add_argument(
-            "--min-samples-leaf",
-            type=int,
-            default=50,
-            help="Minimum samples per leaf",
-        )
-        parser.add_argument(
-            "--learning-rate",
-            type=float,
-            default=0.05,
-            help="Boosting learning rate",
+            "--learning-rate", type=float, default=0.05, help="Boosting learning rate"
         )
         parser.add_argument(
             "--subsample",
@@ -65,16 +54,10 @@ class Command(BaseCommand):
             help="Fraction of samples for each tree",
         )
         parser.add_argument(
-            "--holdout-pct",
-            type=float,
-            default=0.2,
-            help="Holdout percentage",
+            "--holdout-pct", type=float, default=0.2, help="Holdout percentage"
         )
         parser.add_argument(
-            "--optuna-n-trials",
-            type=int,
-            default=None,
-            help="Optuna trials per model (default: 20 from config). Set to 0 to disable.",
+            "--optuna-n-trials", type=int, default=None, help="Optuna trials per model"
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -91,17 +74,27 @@ class Command(BaseCommand):
             config.json_data["optuna_n_trials"] = options["optuna_n_trials"]
             config.save(update_fields=["json_data"])
 
-        success = train_models(
-            config=config,
-            n_splits=options["n_splits"],
-            embargo_bars=options["embargo_bars"],
-            n_estimators=options["n_estimators"],
-            max_depth=options["max_depth"],
-            min_samples_leaf=options["min_samples_leaf"],
-            learning_rate=options["learning_rate"],
-            subsample=options["subsample"],
-            holdout_pct=options["holdout_pct"],
-        )
+        training_params = config.get_training_params()
+
+        # Apply CLI overrides
+        param_defaults = {
+            "n_splits": 5,
+            "embargo_bars": 96,
+            "n_estimators": 300,
+            "max_depth": 6,
+            "min_samples_leaf": 50,
+            "learning_rate": 0.05,
+            "subsample": 0.75,
+            "holdout_pct": 0.2,
+        }
+        cli_overrides = {}
+        for param in param_defaults:
+            if options[param] != param_defaults[param]:
+                cli_overrides[param] = options[param]
+
+        training_params.update(cli_overrides)
+
+        success = train_models(config=config, **training_params)
 
         if success:
             self.stdout.write(self.style.SUCCESS(f"✓ Training complete for {config}"))

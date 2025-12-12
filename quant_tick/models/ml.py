@@ -100,6 +100,78 @@ class MLConfig(AbstractCodeName):
     )
     is_active = models.BooleanField(_("active"), default=False)
 
+    def get_decision_horizons(self) -> list[int]:
+        """Get decision horizons with fallback to sensible default."""
+        return self.json_data.get("decision_horizons", [60, 120, 180])
+
+    def get_widths(self) -> list[float]:
+        """Get widths with fallback to DEFAULT_WIDTHS."""
+        return self.json_data.get("widths", DEFAULT_WIDTHS)
+
+    def get_asymmetries(self) -> list[float]:
+        """Get asymmetries with fallback to DEFAULT_ASYMMETRIES."""
+        return self.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
+
+    def get_min_bars(self) -> int:
+        """Get minimum bars required for label generation."""
+        return self.json_data.get("min_bars", 1000)
+
+    def get_training_params(self) -> dict:
+        """Get training parameters with defaults.
+
+        Returns dict with keys: n_splits, embargo_bars, n_estimators, max_depth,
+        min_samples_leaf, learning_rate, subsample, holdout_pct, calibration_pct.
+        """
+        defaults = {
+            "n_splits": 5,
+            "embargo_bars": 96,
+            "n_estimators": 300,
+            "max_depth": 6,
+            "min_samples_leaf": 50,
+            "learning_rate": 0.05,
+            "subsample": 0.75,
+            "holdout_pct": 0.2,
+            "calibration_pct": 0.1,
+        }
+        stored = self.json_data.get("training_params", {})
+        return {**defaults, **stored}
+
+    def get_optuna_n_trials(self) -> int:
+        """Get Optuna n_trials with default."""
+        return self.json_data.get("optuna_n_trials", 20)
+
+    def set_training_params(self, **params) -> None:
+        """Update training parameters in json_data.
+
+        Valid keys: n_splits, embargo_bars, n_estimators, max_depth,
+        min_samples_leaf, learning_rate, subsample, holdout_pct, calibration_pct.
+        """
+        if "training_params" not in self.json_data:
+            self.json_data["training_params"] = {}
+        self.json_data["training_params"].update(params)
+
+    def get_simulation_params(self) -> dict:
+        """Get simulation parameters with defaults.
+
+        Returns dict with keys: retrain_cadence_days, train_window_days, holdout_days.
+        """
+        defaults = {
+            "retrain_cadence_days": 7,
+            "train_window_days": 84,
+            "holdout_days": None,
+        }
+        stored = self.json_data.get("simulation_params", {})
+        return {**defaults, **stored}
+
+    def set_simulation_params(self, **params) -> None:
+        """Update simulation parameters in json_data.
+
+        Valid keys: retrain_cadence_days, train_window_days, holdout_days.
+        """
+        if "simulation_params" not in self.json_data:
+            self.json_data["simulation_params"] = {}
+        self.json_data["simulation_params"].update(params)
+
     class Meta:
         db_table = "quant_tick_ml_config"
         verbose_name = verbose_name_plural = _("ml config")

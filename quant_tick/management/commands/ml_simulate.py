@@ -1,9 +1,12 @@
+import logging
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
 from quant_tick.lib.simulate import ml_simulate
 from quant_tick.models import MLConfig
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -13,43 +16,49 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
+        parser.add_argument("--code-name", type=str, required=True, help="MLConfig")
         parser.add_argument(
-            "--code-name",
-            type=str,
-            required=True,
-            help="MLConfig code name to simulate",
+            "--cadence", type=int, default=None, help="Days between retrains"
         )
         parser.add_argument(
-            "--cadence",
-            type=int,
-            default=7,
-            help="Days between retrains (default: 7)",
+            "--window", type=int, default=None, help="Training window in days"
         )
         parser.add_argument(
-            "--window",
-            type=int,
-            default=84,
-            help="Training window in days (default: 84)",
-        )
-        parser.add_argument(
-            "--holdout",
-            type=int,
-            default=None,
-            help="Final holdout days (default: None)",
+            "--holdout", type=int, default=None, help="Final holdout days"
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
         """Execute the command."""
         code_name = options["code_name"]
-        cadence = options["cadence"]
-        window = options["window"]
-        holdout = options["holdout"]
 
         try:
             config = MLConfig.objects.get(code_name=code_name)
         except MLConfig.DoesNotExist:
             self.stderr.write(self.style.ERROR(f"MLConfig '{code_name}' not found"))
             return
+
+        sim_params = config.get_simulation_params()
+
+        # Apply CLI overrides
+        cadence = (
+            options["cadence"]
+            if options["cadence"] is not None
+            else sim_params["retrain_cadence_days"]
+        )
+        window = (
+            options["window"]
+            if options["window"] is not None
+            else sim_params["train_window_days"]
+        )
+        holdout = (
+            options["holdout"]
+            if options["holdout"] is not None
+            else sim_params["holdout_days"]
+        )
+
+        logger.info(
+            f"Simulation config: cadence={cadence} days, window={window} days, holdout={holdout} days"
+        )
 
         self.stdout.write(f"Running walk-forward simulation for {config}")
         self.stdout.write(f"Retrain cadence: {cadence} days")
@@ -82,8 +91,12 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"  ({skip_pct:.1%} skipped)"))
         self.stdout.write(f"Avg CV Brier - Lower: {agg['avg_cv_brier_lower']:.4f}")
         self.stdout.write(f"Avg CV Brier - Upper: {agg['avg_cv_brier_upper']:.4f}")
-        self.stdout.write(f"Avg Holdout Brier - Lower: {agg['avg_holdout_brier_lower']:.4f}")
-        self.stdout.write(f"Avg Holdout Brier - Upper: {agg['avg_holdout_brier_upper']:.4f}")
+        self.stdout.write(
+            f"Avg Holdout Brier - Lower: {agg['avg_holdout_brier_lower']:.4f}"
+        )
+        self.stdout.write(
+            f"Avg Holdout Brier - Upper: {agg['avg_holdout_brier_upper']:.4f}"
+        )
         self.stdout.write(f"Avg Touch Rate: {agg['avg_touch_rate']:.2%}")
         self.stdout.write(f"Avg % In Range: {agg['avg_pct_in_range']:.2%}")
         self.stdout.write(f"Total Rebalances: {agg['total_rebalances']}")
