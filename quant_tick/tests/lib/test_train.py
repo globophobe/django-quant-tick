@@ -82,19 +82,20 @@ class TrainModelsTests(TestCase):
 
     def test_train_core_validates_input(self):
         """Test that train_models validates input structure."""
-        # Create invalid data (missing k column)
+        # Create data with wrong number of rows per bar
         df = pd.DataFrame({
-            "bar_idx": [0, 0],
-            "config_id": [0, 1],
-            "hazard_lower": [0, 1],
-            "hazard_upper": [0, 0],
-            "event_lower": [1, 1],
-            "event_upper": [0, 0],
-            "feature_1": [1.0, 2.0],
+            "bar_idx": [0, 0, 0],  # Only 3 rows for bar 0
+            "config_id": [0, 0, 0],
+            "k": [1, 2, 3],
+            "hazard_lower": [0, 1, 0],
+            "hazard_upper": [0, 0, 1],
+            "event_lower": [1, 1, 1],
+            "event_upper": [0, 0, 1],
+            "feature_1": [1.0, 2.0, 3.0],
         })
 
-        # Should raise an error due to missing k
-        with self.assertRaises(Exception):
+        # Should raise ValueError because 3 rows != n_configs * max_horizon for any valid n_configs
+        with self.assertRaises(ValueError):
             train_core(df, max_horizon=10, n_splits=2, optuna_n_trials=0)
 
     def test_train_core_feature_extraction(self):

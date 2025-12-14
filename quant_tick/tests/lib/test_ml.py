@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from django.test import TestCase
 
+from quant_tick.lib.labels import _compute_features
 from quant_tick.lib.ml import (
     MISSING_SENTINEL,
     PurgedKFold,
@@ -17,6 +18,7 @@ from quant_tick.lib.ml import (
     hazard_to_per_horizon_probs,
     prepare_features,
 )
+from quant_tick.lib.simulate import BacktestResult, ml_simulate
 
 
 class ComputeBoundFeaturesTest(TestCase):
@@ -53,17 +55,21 @@ class CheckPositionChangeAllowedTest(TestCase):
 
     def test_allowed_after_min_hold(self):
         """Allowed after min hold bars."""
-        self.assertTrue(check_position_change_allowed(
-            bars_since_last_change=20,
-            min_hold_bars=15,
-        ))
+        self.assertTrue(
+            check_position_change_allowed(
+                bars_since_last_change=20,
+                min_hold_bars=15,
+            )
+        )
 
     def test_not_allowed_before_min_hold(self):
         """Not allowed before min hold bars."""
-        self.assertFalse(check_position_change_allowed(
-            bars_since_last_change=10,
-            min_hold_bars=15,
-        ))
+        self.assertFalse(
+            check_position_change_allowed(
+                bars_since_last_change=10,
+                min_hold_bars=15,
+            )
+        )
 
 
 class PurgedKFoldTest(TestCase):
@@ -163,7 +169,9 @@ class PurgedKFoldTest(TestCase):
         event_end_idx = timestamp_idx + horizon
 
         cv = PurgedKFold(n_splits=5, embargo_bars=5)
-        splits = list(cv.split(X, event_end_idx=event_end_idx, timestamp_idx=timestamp_idx))
+        splits = list(
+            cv.split(X, event_end_idx=event_end_idx, timestamp_idx=timestamp_idx)
+        )
 
         # Some folds may be skipped if purging removes all training data
         self.assertGreater(len(splits), 0)
@@ -176,10 +184,12 @@ class PurgedKFoldTest(TestCase):
             if len(train_idx) > 0:
                 train_event_ends = event_end_idx[train_idx]
                 # Purging should ensure no training events overlap with test period
-                self.assertTrue(np.all(train_event_ends < test_start_ts),
-                               msg=f"Some training events overlap test period. "
-                                   f"Max train event end: {train_event_ends.max()}, "
-                                   f"Test start: {test_start_ts}")
+                self.assertTrue(
+                    np.all(train_event_ends < test_start_ts),
+                    msg=f"Some training events overlap test period. "
+                    f"Max train event end: {train_event_ends.max()}, "
+                    f"Test start: {test_start_ts}",
+                )
 
 
 class PrepareFeaturesTest(TestCase):
@@ -314,8 +324,6 @@ class WalkForwardSlicingTest(TestCase):
 
     def test_walkforward_cutoffs(self):
         """Walk-forward generates correct cutoff dates."""
-        from datetime import datetime, timedelta
-
         # 90 days of data
         start = datetime(2024, 1, 1)
         end = datetime(2024, 4, 1)
@@ -412,10 +420,16 @@ class WalkForwardIntegrationTest(TestCase):
                 positions_created=8,
             )
 
-        with patch("quant_tick.lib.simulate.MLFeatureData.objects.filter") as mock_filter:
-            mock_filter.return_value.order_by.return_value.first.return_value = mock_feature_data
+        with patch(
+            "quant_tick.lib.simulate.MLFeatureData.objects.filter"
+        ) as mock_filter:
+            mock_filter.return_value.order_by.return_value.first.return_value = (
+                mock_feature_data
+            )
 
-            with patch("quant_tick.lib.simulate._run_backtest", side_effect=mock_run_backtest):
+            with patch(
+                "quant_tick.lib.simulate._run_backtest", side_effect=mock_run_backtest
+            ):
                 with patch("quant_tick.lib.simulate.train_core") as mock_train:
                     # Mock training to return models dict (2 models)
                     mock_lower_model = MagicMock()
@@ -444,17 +458,16 @@ class WalkForwardIntegrationTest(TestCase):
                         },  # holdout_metrics
                     )
 
-                    with patch("quant_tick.models.Position.objects.filter") as mock_pos_filter:
+                    with patch(
+                        "quant_tick.models.Position.objects.filter"
+                    ) as mock_pos_filter:
                         mock_pos_filter.return_value.delete.return_value = (0, {})
 
-                        from quant_tick.lib.simulate import (
-                            ml_simulate,
-                        )
-
-                        ml_simulate(
+                        result = ml_simulate(
                             config=mock_config,
                             retrain_cadence_days=5,
                             train_window_days=10,
+                            holdout_days=5,
                         )
 
         # Calculate max possible windows with the parameters used above
@@ -480,6 +493,14 @@ class WalkForwardIntegrationTest(TestCase):
         # For now, just verify that the function completed without error
         self.assertGreater(backtest_call_count, 0)
         self.assertLessEqual(backtest_call_count, max_windows)
+
+        # Verify metrics are correctly extracted (not defaulting to 0.0)
+        if result.slice_results:
+            first_slice = result.slice_results[0]
+            self.assertEqual(first_slice["cv_brier_lower"], 0.05)
+            self.assertEqual(first_slice["cv_brier_upper"], 0.06)
+            self.assertEqual(first_slice["holdout_brier_lower"], 0.05)
+            self.assertEqual(first_slice["holdout_brier_upper"], 0.06)
 
 
 class EnforceMonotonicityTest(TestCase):
@@ -534,11 +555,13 @@ class BarConfigInvariantsTest(TestCase):
         from quant_tick.lib.schema import MLSchema
 
         # Create valid structure: 3 bars × 2 configs
-        df = pd.DataFrame({
-            "bar_idx": [0, 0, 1, 1, 2, 2],
-            "config_id": [0, 1, 0, 1, 0, 1],
-            "close": [100, 100, 101, 101, 102, 102],
-        })
+        df = pd.DataFrame(
+            {
+                "bar_idx": [0, 0, 1, 1, 2, 2],
+                "config_id": [0, 1, 0, 1, 0, 1],
+                "close": [100, 100, 101, 101, 102, 102],
+            }
+        )
 
         is_valid, error_msg = MLSchema.validate_bar_config_invariants(df)
         self.assertTrue(is_valid)
@@ -549,11 +572,13 @@ class BarConfigInvariantsTest(TestCase):
         from quant_tick.lib.schema import MLSchema
 
         # bar_idx goes backwards
-        df = pd.DataFrame({
-            "bar_idx": [0, 0, 2, 2, 1, 1],  # Non-monotonic
-            "config_id": [0, 1, 0, 1, 0, 1],
-            "close": [100, 100, 101, 101, 102, 102],
-        })
+        df = pd.DataFrame(
+            {
+                "bar_idx": [0, 0, 2, 2, 1, 1],  # Non-monotonic
+                "config_id": [0, 1, 0, 1, 0, 1],
+                "close": [100, 100, 101, 101, 102, 102],
+            }
+        )
 
         is_valid, error_msg = MLSchema.validate_bar_config_invariants(df)
         self.assertFalse(is_valid)
@@ -564,11 +589,13 @@ class BarConfigInvariantsTest(TestCase):
         from quant_tick.lib.schema import MLSchema
 
         # bar 1 has config_ids [0, 2] instead of [0, 1]
-        df = pd.DataFrame({
-            "bar_idx": [0, 0, 1, 1, 2, 2],
-            "config_id": [0, 1, 0, 2, 0, 1],  # Invalid: should be [0, 1] for bar 1
-            "close": [100, 100, 101, 101, 102, 102],
-        })
+        df = pd.DataFrame(
+            {
+                "bar_idx": [0, 0, 1, 1, 2, 2],
+                "config_id": [0, 1, 0, 2, 0, 1],  # Invalid: should be [0, 1] for bar 1
+                "close": [100, 100, 101, 101, 102, 102],
+            }
+        )
 
         is_valid, error_msg = MLSchema.validate_bar_config_invariants(df)
         self.assertFalse(is_valid)
@@ -742,13 +769,15 @@ class LabelGenerationTests(TestCase):
 
     def setUp(self):
         """Create synthetic price path with known touches."""
-        self.df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=5, freq="1min"),
-            "close": [100.0, 102.0, 98.0, 104.0, 96.0],
-            "low": [100.0, 102.0, 98.0, 104.0, 96.0],
-            "high": [100.0, 102.0, 98.0, 104.0, 96.0],
-            "volume": [1000, 1100, 900, 1200, 800],
-        })
+        self.df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=5, freq="1min"),
+                "close": [100.0, 102.0, 98.0, 104.0, 96.0],
+                "low": [100.0, 102.0, 98.0, 104.0, 96.0],
+                "high": [100.0, 102.0, 98.0, 104.0, 96.0],
+                "volume": [1000, 1100, 900, 1200, 800],
+            }
+        )
 
     def test_compute_first_touch_bars_simple(self):
         """Test first touch detection on synthetic data."""
@@ -807,9 +836,17 @@ class LabelGenerationTests(TestCase):
         self.assertEqual(len(labeled), expected_rows)
 
         required_cols = [
-            "bar_idx", "config_id", "k", "timestamp", "entry_price",
-            "width", "asymmetry", "hazard_lower", "hazard_upper",
-            "event_lower", "event_upper",
+            "bar_idx",
+            "config_id",
+            "k",
+            "timestamp",
+            "entry_price",
+            "width",
+            "asymmetry",
+            "hazard_lower",
+            "hazard_upper",
+            "event_lower",
+            "event_upper",
         ]
         for col in required_cols:
             self.assertIn(col, labeled.columns)
@@ -937,18 +974,20 @@ class SurvivalInferenceTests(TestCase):
 
     def test_inference_path_with_k_missing_from_input(self):
         """Integration test: mimics full inference path where k is not in raw features."""
-        from quant_tick.lib.ml import prepare_features
-
         # Simulate training feature order (includes k and *_missing indicators)
         feature_cols = ["feature_a", "feature_b", "feature_a_missing", "k"]
 
         # Simulate live candle data (no k, no *_missing)
-        feat_with_bounds = pd.DataFrame([{
-            "feature_a": 100.0,
-            "feature_b": 200.0,
-            "width": 0.03,
-            "asymmetry": 0.0,
-        }])
+        feat_with_bounds = pd.DataFrame(
+            [
+                {
+                    "feature_a": 100.0,
+                    "feature_b": 200.0,
+                    "width": 0.03,
+                    "asymmetry": 0.0,
+                }
+            ]
+        )
 
         # This is what inference does: exclude k from prepare_features
         base_feature_cols = [c for c in feature_cols if c != "k"]
@@ -980,22 +1019,22 @@ class MultiExchangeCanonicalTest(TestCase):
 
     def test_canonical_uses_specified_exchange(self):
         """Canonical exchange matches specified exchange parameter."""
-        from quant_tick.lib.labels import _compute_features
-
         # Create multi-exchange DataFrame with coinbase and binance
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
-            "coinbaseClose": [100 + i for i in range(10)],
-            "binanceClose": [101 + i for i in range(10)],
-            "coinbaseOpen": [99 + i for i in range(10)],
-            "binanceOpen": [100 + i for i in range(10)],
-            "coinbaseHigh": [102 + i for i in range(10)],
-            "binanceHigh": [103 + i for i in range(10)],
-            "coinbaseLow": [98 + i for i in range(10)],
-            "binanceLow": [99 + i for i in range(10)],
-            "coinbaseVolume": [1000] * 10,
-            "binanceVolume": [1100] * 10,
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
+                "coinbaseClose": [100 + i for i in range(10)],
+                "binanceClose": [101 + i for i in range(10)],
+                "coinbaseOpen": [99 + i for i in range(10)],
+                "binanceOpen": [100 + i for i in range(10)],
+                "coinbaseHigh": [102 + i for i in range(10)],
+                "binanceHigh": [103 + i for i in range(10)],
+                "coinbaseLow": [98 + i for i in range(10)],
+                "binanceLow": [99 + i for i in range(10)],
+                "coinbaseVolume": [1000] * 10,
+                "binanceVolume": [1100] * 10,
+            }
+        )
 
         # Compute features with coinbase as canonical
         result = _compute_features(df, canonical_exchange="coinbase")
@@ -1003,9 +1042,7 @@ class MultiExchangeCanonicalTest(TestCase):
         # Verify close column equals coinbaseClose
         self.assertTrue("close" in result.columns)
         pd.testing.assert_series_equal(
-            result["close"],
-            df["coinbaseClose"],
-            check_names=False
+            result["close"], df["coinbaseClose"], check_names=False
         )
 
         # Verify binance features exist (basis, divergence, etc.)
@@ -1014,30 +1051,28 @@ class MultiExchangeCanonicalTest(TestCase):
 
     def test_canonical_uses_binance_when_specified(self):
         """Canonical can be different exchange (binance)."""
-        from quant_tick.lib.labels import _compute_features
-
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
-            "coinbaseClose": [100 + i for i in range(10)],
-            "binanceClose": [101 + i for i in range(10)],
-            "coinbaseOpen": [99 + i for i in range(10)],
-            "binanceOpen": [100 + i for i in range(10)],
-            "coinbaseHigh": [102 + i for i in range(10)],
-            "binanceHigh": [103 + i for i in range(10)],
-            "coinbaseLow": [98 + i for i in range(10)],
-            "binanceLow": [99 + i for i in range(10)],
-            "coinbaseVolume": [1000] * 10,
-            "binanceVolume": [1100] * 10,
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
+                "coinbaseClose": [100 + i for i in range(10)],
+                "binanceClose": [101 + i for i in range(10)],
+                "coinbaseOpen": [99 + i for i in range(10)],
+                "binanceOpen": [100 + i for i in range(10)],
+                "coinbaseHigh": [102 + i for i in range(10)],
+                "binanceHigh": [103 + i for i in range(10)],
+                "coinbaseLow": [98 + i for i in range(10)],
+                "binanceLow": [99 + i for i in range(10)],
+                "coinbaseVolume": [1000] * 10,
+                "binanceVolume": [1100] * 10,
+            }
+        )
 
         # Compute features with binance as canonical
         result = _compute_features(df, canonical_exchange="binance")
 
         # Verify close column equals binanceClose
         pd.testing.assert_series_equal(
-            result["close"],
-            df["binanceClose"],
-            check_names=False
+            result["close"], df["binanceClose"], check_names=False
         )
 
         # Verify coinbase features exist (now coinbase is "other")
@@ -1046,21 +1081,21 @@ class MultiExchangeCanonicalTest(TestCase):
 
     def test_missing_canonical_raises_error(self):
         """Raises error if canonical exchange not in data."""
-        from quant_tick.lib.labels import _compute_features
-
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
-            "coinbaseClose": [100 + i for i in range(10)],
-            "binanceClose": [101 + i for i in range(10)],
-            "coinbaseOpen": [99 + i for i in range(10)],
-            "binanceOpen": [100 + i for i in range(10)],
-            "coinbaseHigh": [102 + i for i in range(10)],
-            "binanceHigh": [103 + i for i in range(10)],
-            "coinbaseLow": [98 + i for i in range(10)],
-            "binanceLow": [99 + i for i in range(10)],
-            "coinbaseVolume": [1000] * 10,
-            "binanceVolume": [1100] * 10,
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
+                "coinbaseClose": [100 + i for i in range(10)],
+                "binanceClose": [101 + i for i in range(10)],
+                "coinbaseOpen": [99 + i for i in range(10)],
+                "binanceOpen": [100 + i for i in range(10)],
+                "coinbaseHigh": [102 + i for i in range(10)],
+                "binanceHigh": [103 + i for i in range(10)],
+                "coinbaseLow": [98 + i for i in range(10)],
+                "binanceLow": [99 + i for i in range(10)],
+                "coinbaseVolume": [1000] * 10,
+                "binanceVolume": [1100] * 10,
+            }
+        )
 
         # Should raise ValueError for missing exchange
         with self.assertRaises(ValueError) as ctx:
@@ -1071,21 +1106,21 @@ class MultiExchangeCanonicalTest(TestCase):
 
     def test_none_canonical_raises_error(self):
         """Raises error if canonical_exchange is None for multi-exchange."""
-        from quant_tick.lib.labels import _compute_features
-
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
-            "coinbaseClose": [100 + i for i in range(10)],
-            "binanceClose": [101 + i for i in range(10)],
-            "coinbaseOpen": [99 + i for i in range(10)],
-            "binanceOpen": [100 + i for i in range(10)],
-            "coinbaseHigh": [102 + i for i in range(10)],
-            "binanceHigh": [103 + i for i in range(10)],
-            "coinbaseLow": [98 + i for i in range(10)],
-            "binanceLow": [99 + i for i in range(10)],
-            "coinbaseVolume": [1000] * 10,
-            "binanceVolume": [1100] * 10,
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=10, freq="1min"),
+                "coinbaseClose": [100 + i for i in range(10)],
+                "binanceClose": [101 + i for i in range(10)],
+                "coinbaseOpen": [99 + i for i in range(10)],
+                "binanceOpen": [100 + i for i in range(10)],
+                "coinbaseHigh": [102 + i for i in range(10)],
+                "binanceHigh": [103 + i for i in range(10)],
+                "coinbaseLow": [98 + i for i in range(10)],
+                "binanceLow": [99 + i for i in range(10)],
+                "coinbaseVolume": [1000] * 10,
+                "binanceVolume": [1100] * 10,
+            }
+        )
 
         # Should raise ValueError when canonical_exchange is None
         with self.assertRaises(ValueError) as ctx:
