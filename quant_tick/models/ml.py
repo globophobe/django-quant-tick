@@ -120,7 +120,8 @@ class MLConfig(AbstractCodeName):
         """Get training parameters with defaults.
 
         Returns dict with keys: n_splits, embargo_bars, n_estimators, max_depth,
-        min_samples_leaf, learning_rate, subsample, holdout_pct, calibration_pct.
+        min_samples_leaf, learning_rate, subsample, holdout_pct, calibration_pct,
+        min_train_bars_purged.
         """
         defaults = {
             "n_splits": 5,
@@ -132,6 +133,7 @@ class MLConfig(AbstractCodeName):
             "subsample": 0.75,
             "holdout_pct": 0.2,
             "calibration_pct": 0.1,
+            "min_train_bars_purged": 100,
         }
         stored = self.json_data.get("training_params", {})
         return {**defaults, **stored}
@@ -144,7 +146,8 @@ class MLConfig(AbstractCodeName):
         """Update training parameters in json_data.
 
         Valid keys: n_splits, embargo_bars, n_estimators, max_depth,
-        min_samples_leaf, learning_rate, subsample, holdout_pct, calibration_pct.
+        min_samples_leaf, learning_rate, subsample, holdout_pct, calibration_pct,
+        min_train_bars_purged.
         """
         if "training_params" not in self.json_data:
             self.json_data["training_params"] = {}
@@ -218,7 +221,10 @@ class MLArtifact(models.Model):
         _("calibrator"),
         null=True,
         blank=True,
-        help_text=_("Pickled isotonic calibrator."),
+        help_text=_(
+            "Deprecated: calibrator is stored in joblib artifact. "
+            "This field is redundant and not used by inference."
+        ),
     )
     horizon = models.IntegerField(
         _("horizon"),

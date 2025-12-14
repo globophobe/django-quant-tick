@@ -182,7 +182,7 @@ def generate_labels(
     asymmetries: list[float],
     max_horizon: int,
 ) -> DataFrame:
-    """Generate survival training labels.
+    """Generate survival training labels using vectorized operations.
 
     Expands data over (bar, config, k) dimensions. For each entry bar and config,
     creates max_horizon rows (one per time step k). Sets hazard_lower(k) = 1
@@ -228,15 +228,20 @@ def generate_labels(
         )
 
     configs = [(w, a) for w in widths for a in asymmetries]
-    config_id_map = {cfg: i for i, cfg in enumerate(configs)}
     n_configs = len(configs)
     n_bars = len(df) - 1
+    total_rows = n_bars * n_configs * max_horizon
 
-    all_rows = []
+    # Pre-compute first touch times for all configs
+    # Shape: (n_configs, n_bars) for each of lower/upper
+    first_touch_lower_all = np.zeros((n_configs, n_bars), dtype=np.int32)
+    first_touch_upper_all = np.zeros((n_configs, n_bars), dtype=np.int32)
+    config_params = np.zeros((n_configs, 2), dtype=np.float64)  # (width, asym)
 
-    for width, asym in configs:
+    for cfg_idx, (width, asym) in enumerate(configs):
         lower_pct = -width * (0.5 - asym)
         upper_pct = width * (0.5 + asym)
+        config_params[cfg_idx] = [lower_pct, upper_pct]
 
         lower_bounds = close * (1 + lower_pct)
         upper_bounds = close * (1 + upper_pct)
@@ -244,60 +249,73 @@ def generate_labels(
         first_touch_lower, first_touch_upper = compute_first_touch_bars(
             low, high, lower_bounds, upper_bounds, max_horizon
         )
+        first_touch_lower_all[cfg_idx] = first_touch_lower
+        first_touch_upper_all[cfg_idx] = first_touch_upper
 
-        cfg_id = config_id_map[(width, asym)]
+    # Create coordinate grids - interleaved by (bar_idx, k, config_id)
+    # Pattern: [bar0_k1_cfg0, bar0_k1_cfg1, ..., bar0_k2_cfg0, ...]
+    bar_idx_grid = np.repeat(np.arange(n_bars), n_configs * max_horizon)
+    k_grid = np.tile(np.repeat(np.arange(1, max_horizon + 1), n_configs), n_bars)
+    config_id_grid = np.tile(np.arange(n_configs), n_bars * max_horizon)
 
-        for bar_idx in range(n_bars):
-            base_row = df.iloc[bar_idx].to_dict()
+    # Build result dictionary
+    result_dict = {}
 
-            base_row["bar_idx"] = bar_idx
-            base_row["config_id"] = cfg_id
-            base_row["entry_price"] = close[bar_idx]
-            base_row["width"] = width
-            base_row["asymmetry"] = asym
-            base_row["lower_bound_pct"] = lower_pct
-            base_row["upper_bound_pct"] = upper_pct
-            base_row["range_width"] = upper_pct - lower_pct
-            base_row["range_asymmetry"] = upper_pct + lower_pct
-            base_row["dist_to_lower_pct"] = (
-                close[bar_idx] - lower_bounds[bar_idx]
-            ) / close[bar_idx]
-            base_row["dist_to_upper_pct"] = (
-                upper_bounds[bar_idx] - close[bar_idx]
-            ) / close[bar_idx]
+    # Add coordinate columns
+    result_dict["bar_idx"] = bar_idx_grid
+    result_dict["config_id"] = config_id_grid
+    result_dict["k"] = k_grid
 
-            t_lower = first_touch_lower[bar_idx]
-            t_upper = first_touch_upper[bar_idx]
+    # Broadcast base features from df (excluding last bar)
+    df_truncated = df.iloc[:n_bars]
+    for col in df_truncated.columns:
+        if col in ["close", "timestamp"]:
+            # These get special handling
+            continue
+        result_dict[col] = df_truncated[col].values[bar_idx_grid]
 
-            event_lower = 0 if t_lower > max_horizon else 1
-            event_upper = 0 if t_upper > max_horizon else 1
+    # Add entry_price (close at entry bar)
+    result_dict["entry_price"] = close[bar_idx_grid]
+    result_dict["timestamp"] = df_truncated["timestamp"].values[bar_idx_grid]
 
-            for k in range(1, max_horizon + 1):
-                row = base_row.copy()
-                row["k"] = k
-                row["hazard_lower"] = 1 if t_lower == k else 0
-                row["hazard_upper"] = 1 if t_upper == k else 0
-                row["event_lower"] = event_lower
-                row["event_upper"] = event_upper
-                all_rows.append(row)
+    # Broadcast config-specific features
+    # Extract width and asymmetry for each row based on config_id
+    widths_array = np.array([w for w, a in configs])
+    asyms_array = np.array([a for w, a in configs])
 
-    result = pd.DataFrame(all_rows)
+    result_dict["width"] = widths_array[config_id_grid]
+    result_dict["asymmetry"] = asyms_array[config_id_grid]
 
-    result_by_bar_k = {}
-    for _, row in result.iterrows():
-        key = (row["bar_idx"], row["k"])
-        if key not in result_by_bar_k:
-            result_by_bar_k[key] = []
-        result_by_bar_k[key].append(row)
+    # Compute bound percentages
+    lower_pct_grid = config_params[config_id_grid, 0]
+    upper_pct_grid = config_params[config_id_grid, 1]
 
-    interleaved_rows = []
-    for bar_idx in range(n_bars):
-        for k in range(1, max_horizon + 1):
-            key = (bar_idx, k)
-            if key in result_by_bar_k:
-                interleaved_rows.extend(result_by_bar_k[key])
+    result_dict["lower_bound_pct"] = lower_pct_grid
+    result_dict["upper_bound_pct"] = upper_pct_grid
+    result_dict["range_width"] = upper_pct_grid - lower_pct_grid
+    result_dict["range_asymmetry"] = upper_pct_grid + lower_pct_grid
 
-    result = pd.DataFrame(interleaved_rows).reset_index(drop=True)
+    # Compute distance features
+    close_grid = close[bar_idx_grid]
+    lower_bounds_grid = close_grid * (1 + lower_pct_grid)
+    upper_bounds_grid = close_grid * (1 + upper_pct_grid)
+
+    result_dict["dist_to_lower_pct"] = (close_grid - lower_bounds_grid) / close_grid
+    result_dict["dist_to_upper_pct"] = (upper_bounds_grid - close_grid) / close_grid
+
+    # Extract first touch times using advanced indexing
+    # first_touch_lower_all[config_id, bar_idx]
+    t_lower_grid = first_touch_lower_all[config_id_grid, bar_idx_grid]
+    t_upper_grid = first_touch_upper_all[config_id_grid, bar_idx_grid]
+
+    # Compute hazard and event labels
+    result_dict["hazard_lower"] = (t_lower_grid == k_grid).astype(np.int8)
+    result_dict["hazard_upper"] = (t_upper_grid == k_grid).astype(np.int8)
+    result_dict["event_lower"] = (t_lower_grid <= max_horizon).astype(np.int8)
+    result_dict["event_upper"] = (t_upper_grid <= max_horizon).astype(np.int8)
+
+    # Create DataFrame
+    result = pd.DataFrame(result_dict)
 
     logger.info(
         f"Generated survival labels: {len(result)} rows = "
@@ -389,6 +407,9 @@ def hazard_to_per_horizon_probs(
         else:
             # Horizon beyond max_horizon: use final value
             result[h] = float(P_hit_by_k[-1])
+
+    # Enforce monotonicity to guarantee contract
+    result = enforce_monotonicity(result, log_violations=False)
 
     return result
 

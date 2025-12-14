@@ -38,6 +38,7 @@ class BacktestResult:
     avg_hold_bars: float
     pct_in_range: float
     positions_created: int
+    bars_with_no_valid_config: int = 0
 
 
 @dataclass
@@ -50,6 +51,7 @@ class WalkForwardResult:
     windows_skipped: int
     skip_reasons: dict[str, int]
     chronic_missing_features: dict[str, int]
+    bars_with_no_valid_config: int = 0
 
 
 def _run_backtest(
@@ -149,6 +151,7 @@ def _run_backtest(
     logger.info(f"Avg hold bars: {result.avg_hold_bars:.1f}")
     logger.info(f"% in range: {result.pct_in_range:.2%}")
     logger.info(f"Positions saved: {result.positions_created}")
+    logger.info(f"Bars with no valid config: {result.bars_with_no_valid_config}")
     logger.info(f"{'='*50}\n")
 
     return result
@@ -186,6 +189,7 @@ def _run_backtest_loop(
     bars_in_range = 0
     rebalance_count = 0
     hold_lengths = []
+    no_config_count = 0
 
     # Collect positions for bulk_create
     positions_to_create: list[Position] = []
@@ -286,6 +290,11 @@ def _run_backtest_loop(
             )
 
             if best_config is None:
+                no_config_count += 1
+                logger.warning(
+                    f"{config}: No valid config for bar {bar_idx} "
+                    f"(all ranges exceeded touch_tolerance={touch_tolerance})"
+                )
                 continue
 
             # Check if we should change position
@@ -370,6 +379,7 @@ def _run_backtest_loop(
         avg_hold_bars=avg_hold,
         pct_in_range=pct_in_range,
         positions_created=positions_created,
+        bars_with_no_valid_config=no_config_count,
     )
 
 
@@ -542,6 +552,7 @@ def ml_simulate(
     missing_feature_counts = {}
     windows_attempted = len(cutoffs)
     windows_skipped = 0
+    total_no_config_bars = 0
 
     # Track base rates across windows for drift detection
     window_base_rates = {}
@@ -688,25 +699,27 @@ def ml_simulate(
         )
 
         if backtest_result:
+            total_no_config_bars += backtest_result.bars_with_no_valid_config
             slice_results.append(
                 {
                     "cutoff": cutoff,
                     "train_size": len(train_df),
                     "score_size": len(score_df),
-                    "cv_brier_lower": cv_metrics.get("avg_brier_lower", 0.0),
-                    "cv_brier_upper": cv_metrics.get("avg_brier_upper", 0.0),
-                    "holdout_brier_lower": holdout_metrics.get("avg_brier_lower", 0.0),
-                    "holdout_brier_upper": holdout_metrics.get("avg_brier_upper", 0.0),
+                    "cv_brier_lower": cv_metrics.get("cv_brier_scores", {}).get("lower", 0.0),
+                    "cv_brier_upper": cv_metrics.get("cv_brier_scores", {}).get("upper", 0.0),
+                    "holdout_brier_lower": holdout_metrics.get("holdout_brier_scores", {}).get("lower", 0.0),
+                    "holdout_brier_upper": holdout_metrics.get("holdout_brier_scores", {}).get("upper", 0.0),
                     "backtest_touch_rate": backtest_result.touch_rate,
                     "backtest_pct_in_range": backtest_result.pct_in_range,
                     "backtest_rebalances": backtest_result.rebalances,
                     "backtest_positions": backtest_result.positions_created,
+                    "bars_with_no_valid_config": backtest_result.bars_with_no_valid_config,
                 }
             )
 
             logger.info(
-                f"{config}: window {i+1} - CV brier: {cv_metrics.get('avg_brier_lower', 0):.4f}/{cv_metrics.get('avg_brier_upper', 0):.4f}, "
-                f"holdout brier: {holdout_metrics.get('avg_brier_lower', 0):.4f}/{holdout_metrics.get('avg_brier_upper', 0):.4f}, "
+                f"{config}: window {i+1} - CV brier: {cv_metrics.get('cv_brier_scores', {}).get('lower', 0):.4f}/{cv_metrics.get('cv_brier_scores', {}).get('upper', 0):.4f}, "
+                f"holdout brier: {holdout_metrics.get('holdout_brier_scores', {}).get('lower', 0):.4f}/{holdout_metrics.get('holdout_brier_scores', {}).get('upper', 0):.4f}, "
                 f"touch_rate: {backtest_result.touch_rate:.2%}"
             )
 
@@ -774,4 +787,5 @@ def ml_simulate(
         windows_skipped=windows_skipped,
         skip_reasons=skip_reasons,
         chronic_missing_features=missing_feature_counts,
+        bars_with_no_valid_config=total_no_config_bars,
     )
