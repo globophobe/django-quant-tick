@@ -20,6 +20,7 @@ lightgbm = "*"
 optuna = "*"
 pandas = "*"
 pyarrow = "*"
+quant-core = {path = "quant_core", develop = true}
 randomname = "*"
 scikit-learn = "*"
 seaborn = "*"
