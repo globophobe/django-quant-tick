@@ -7,17 +7,16 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quant_tick.constants import ExitReason, PositionStatus, PositionType
-from quant_tick.lib.ml import (
-    DEFAULT_ASYMMETRIES,
-    DEFAULT_WIDTHS,
+from quant_core.constants import DEFAULT_ASYMMETRIES, DEFAULT_WIDTHS
+from quant_core.prediction import (
     LPConfig,
-    check_position_change_allowed,
     compute_bound_features,
     find_optimal_config,
     hazard_to_per_horizon_probs,
     prepare_features,
 )
+from quant_tick.constants import ExitReason, PositionStatus, PositionType
+from quant_tick.lib.ml import check_position_change_allowed
 from quant_tick.lib.schema import MLSchema
 from quant_tick.lib.train import train_core
 from quant_tick.models import MLConfig, MLFeatureData, Position

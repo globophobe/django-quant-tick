@@ -5,18 +5,20 @@ import numpy as np
 import pandas as pd
 from django.test import TestCase
 
-from quant_tick.lib.labels import _compute_features
-from quant_tick.lib.ml import (
-    MISSING_SENTINEL,
-    PurgedKFold,
-    check_position_change_allowed,
+from quant_core.constants import MISSING_SENTINEL
+from quant_core.features import _compute_features
+from quant_core.prediction import (
     compute_bound_features,
-    compute_first_touch_bars,
     enforce_monotonicity,
     find_optimal_config,
-    generate_labels,
     hazard_to_per_horizon_probs,
     prepare_features,
+)
+from quant_tick.lib.ml import (
+    PurgedKFold,
+    check_position_change_allowed,
+    compute_first_touch_bars,
+    generate_labels,
 )
 from quant_tick.lib.simulate import BacktestResult, ml_simulate
 
@@ -540,7 +542,7 @@ class EnforceMonotonicityTest(TestCase):
         """Enforce monotonicity can logs violations."""
         horizon_probs = {60: 0.15, 120: 0.18, 180: 0.14}
 
-        with self.assertLogs("quant_tick.lib.ml", level="WARNING") as cm:
+        with self.assertLogs("quant_core.prediction", level="WARNING") as cm:
             enforce_monotonicity(horizon_probs, log_violations=True)
 
         # Should log that 180 was raised

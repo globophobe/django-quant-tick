@@ -4,7 +4,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 
 from quant_tick.lib.train import train_models
-from quant_tick.models import MLConfig
+from quant_tick.models import MLArtifact, MLConfig
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,17 @@ class Command(BaseCommand):
         parser.add_argument(
             "--optuna-n-trials", type=int, default=None, help="Optuna trials per model"
         )
+        parser.add_argument(
+            "--output-path",
+            type=str,
+            default=None,
+            help="GCS path to save model bundle (gs://bucket/path/model.joblib)",
+        )
+        parser.add_argument(
+            "--set-production",
+            action="store_true",
+            help="Set is_production=True on created artifact",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         """Run command."""
@@ -94,9 +105,36 @@ class Command(BaseCommand):
 
         training_params.update(cli_overrides)
 
-        success = train_models(config=config, **training_params)
+        output_path = options.get("output_path")
+        set_production = options.get("set_production", False)
+
+        success = train_models(config=config, output_path=output_path, **training_params)
 
         if success:
             self.stdout.write(self.style.SUCCESS(f"✓ Training complete for {config}"))
+
+            if set_production and output_path:
+                MLArtifact.objects.filter(
+                    ml_config=config, is_production=True
+                ).update(is_production=False)
+
+                artifact = MLArtifact.objects.filter(
+                    ml_config=config, gcs_path=output_path
+                ).first()
+
+                if artifact:
+                    artifact.is_production = True
+                    artifact.save()
+                    self.stdout.write(
+                        self.style.SUCCESS(
+                            f"✓ Set artifact {artifact.id} as production model"
+                        )
+                    )
+                else:
+                    self.stderr.write(
+                        self.style.WARNING(
+                            f"Could not find artifact with gcs_path={output_path}"
+                        )
+                    )
         else:
             self.stderr.write(self.style.ERROR(f"✗ Training failed for {config}"))

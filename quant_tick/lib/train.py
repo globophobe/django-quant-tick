@@ -10,17 +10,48 @@ import numpy as np
 import optuna
 import pandas as pd
 from django.core.files.base import ContentFile
+from django.utils import timezone
+from google.cloud import storage
 from sklearn.metrics import brier_score_loss
 
-from quant_tick.lib.ml import (
-    PurgedKFold,
-    apply_calibration,
-    calibrate_per_horizon,
-    prepare_features,
-)
+from quant_core.prediction import apply_calibration, prepare_features
+from quant_tick.lib.ml import PurgedKFold, calibrate_per_horizon
 from quant_tick.models import MLArtifact, MLConfig, MLFeatureData
 
 logger = logging.getLogger(__name__)
+
+
+def save_model_bundle_to_gcs(bundle: dict, gcs_path: str) -> None:
+    """Save model bundle to GCS.
+
+    Args:
+        bundle: {"models": {"lower": model, "upper": model}, "metadata": {...}}
+        gcs_path: gs://bucket/path/model.joblib
+
+    Raises:
+        ValueError: If gcs_path format is invalid
+    """
+    if not gcs_path.startswith("gs://"):
+        raise ValueError(f"Invalid GCS path: {gcs_path}. Must start with gs://")
+
+    parts = gcs_path[5:].split("/", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid GCS path format: {gcs_path}")
+
+    bucket_name, blob_name = parts
+
+    logger.info(f"Uploading model bundle to {gcs_path}")
+
+    buffer = BytesIO()
+    joblib.dump(bundle, buffer)
+    buffer.seek(0)
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+    blob.upload_from_file(buffer, content_type="application/octet-stream")
+
+    logger.info(f"Upload complete: {gcs_path} ({len(buffer.getvalue()) / 1024 / 1024:.2f} MB)")
 
 
 def compute_feature_hash(feature_cols: list[str]) -> str:
@@ -518,11 +549,12 @@ def train_core(
     return models_dict, feature_cols, cv_metrics, holdout_metrics
 
 
-def train_models(config: MLConfig, **override_params) -> bool:
+def train_models(config: MLConfig, output_path: str | None = None, **override_params) -> bool:
     """Train survival models for MLConfig.
 
     Args:
         config: MLConfig with associated MLFeatureData
+        output_path: Optional GCS path (gs://bucket/path/model.joblib) to save bundle
         **override_params: Override any training parameter for this run
             (n_splits, embargo_bars, n_estimators, max_depth,
              min_samples_leaf, learning_rate, subsample, holdout_pct, calibration_pct,
@@ -606,15 +638,50 @@ def train_models(config: MLConfig, **override_params) -> bool:
         min_train_bars_purged=min_train_bars_purged,
     )
 
-    for side, model in models_dict.items():
-        _save_artifact(
-            config=config,
-            model=model,
-            side=side,
-            feature_cols=feature_cols,
-            brier_score=holdout_metrics["holdout_brier_scores"][side],
-            base_rate=holdout_metrics["base_rates"][side],
+    if output_path:
+        model_bundle = {
+            "models": models_dict,
+            "metadata": {
+                "feature_cols": feature_cols,
+                "max_horizon": max_horizon,
+                "decision_horizons": config.get_decision_horizons(),
+                "widths": config.get_widths(),
+                "asymmetries": config.get_asymmetries(),
+                "trained_at": timezone.now().isoformat(),
+                "model_version": "3.0",
+            },
+        }
+
+        save_model_bundle_to_gcs(model_bundle, output_path)
+
+        MLArtifact.objects.filter(
+            ml_config=config,
+            model_type="hazard_bundle",
+        ).delete()
+
+        MLArtifact.objects.create(
+            ml_config=config,
+            model_type="hazard_bundle",
+            gcs_path=output_path,
+            brier_score=holdout_metrics["avg_brier"],
+            feature_columns=feature_cols,
+            json_data={
+                "cv_metrics": cv_metrics,
+                "holdout_metrics": holdout_metrics,
+            },
         )
+
+        logger.info(f"Created bundled artifact with gcs_path={output_path}")
+    else:
+        for side, model in models_dict.items():
+            _save_artifact(
+                config=config,
+                model=model,
+                side=side,
+                feature_cols=feature_cols,
+                brier_score=holdout_metrics["holdout_brier_scores"][side],
+                base_rate=holdout_metrics["base_rates"][side],
+            )
 
     config.json_data["model_kind"] = "hazard"
     config.json_data["model_version"] = "3.0"
