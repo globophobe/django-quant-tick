@@ -8,7 +8,7 @@ def calc_volume_exponent(
 
     Returns power of divisor if volume is a round integer (i.e. 100, 1000, 10000)
     """
-    if volume <= 0:
+    if not volume:
         return 0
 
     if volume % 1 != 0:
@@ -32,7 +32,7 @@ def calc_notional_exponent(
 
     Returns power of divisor if notional is a round decimal (i.e. 1.0, 10.5, 100.0)
     """
-    if notional <= 0:
+    if not notional:
         return 0
 
     check_divisor = divisor * (Decimal("10") ** (decimal_places - 1))

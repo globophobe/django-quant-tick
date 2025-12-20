@@ -79,19 +79,42 @@ def aggregate_candle(
     # Multi exchange
     if "exchange" in data_frame.columns:
         exchanges = data_frame["exchange"].unique()
-        if len(exchanges) > 1:
-            return _aggregate_multi_exchange(
-                data_frame,
-                exchanges,
-                timestamp,
-                min_volume_exponent,
-                min_notional_exponent,
-            )
+        return _aggregate_multi_exchange(
+            data_frame,
+            exchanges,
+            timestamp,
+            min_volume_exponent,
+            min_notional_exponent,
+        )
     # Single exchange
-    return agg_candle(data_frame, timestamp, min_volume_exponent, min_notional_exponent)
+    return _agg_candle(
+        data_frame, timestamp, min_volume_exponent, min_notional_exponent
+    )
 
 
-def agg_candle(
+def _aggregate_multi_exchange(
+    data_frame: DataFrame,
+    exchanges: list,
+    timestamp: datetime | None,
+    min_volume_exponent: int,
+    min_notional_exponent: int,
+) -> dict:
+    """Aggregate multi-exchange candle data."""
+    ts = timestamp if timestamp else data_frame.iloc[0].timestamp
+    data = {"timestamp": ts, "exchanges": {}}
+    for exchange in exchanges:
+        df = data_frame[data_frame["exchange"] == exchange]
+        if len(df) > 0:
+            data["exchanges"][exchange] = _agg_candle(
+                df,
+                timestamp=None,
+                min_volume_exponent=min_volume_exponent,
+                min_notional_exponent=min_notional_exponent,
+            )
+    return data
+
+
+def _agg_candle(
     df: DataFrame,
     timestamp: datetime | None = None,
     min_volume_exponent: int = 2,
@@ -169,41 +192,6 @@ def _aggregate_realized_variance(df: DataFrame) -> dict:
         return {"realizedVariance": Decimal(str((log_returns**2).sum()))}
 
     return {"realizedVariance": ZERO}
-
-
-def _aggregate_multi_exchange(
-    df: DataFrame,
-    exchanges: list,
-    timestamp: datetime | None,
-    min_volume_exponent: int,
-    min_notional_exponent: int,
-) -> dict:
-    """Aggregate multi-exchange candle data."""
-    ts = timestamp if timestamp else df.iloc[0].timestamp
-    data = {"timestamp": ts}
-
-    # Per-exchange OHLCV and realized variance
-    for exchange in exchanges:
-        ex_df = df[df["exchange"] == exchange]
-        if len(ex_df) == 0:
-            continue
-        # OHLC with exchange prefix (binanceOpen, binanceHigh, etc.)
-        ohlc = _aggregate_ohlc(ex_df)
-        for k, v in ohlc.items():
-            data[f"{exchange}{k.title()}"] = v
-        # Per-exchange volume
-        has_totals = "totalVolume" in ex_df.columns
-        if has_totals:
-            data[f"{exchange}Volume"] = ex_df.totalVolume.sum()
-        else:
-            data[f"{exchange}Volume"] = ex_df.volume.sum()
-        # Per-exchange realized variance
-        rv = _aggregate_realized_variance(ex_df)
-        data[f"{exchange}RealizedVariance"] = rv["realizedVariance"]
-
-    # Aggregate across all exchanges
-    data.update(_aggregate_totals(df, min_volume_exponent, min_notional_exponent))
-    return data
 
 
 def validate_aggregated_candles(

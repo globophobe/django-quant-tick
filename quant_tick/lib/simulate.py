@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-
 from quant_core.constants import DEFAULT_ASYMMETRIES, DEFAULT_WIDTHS
 from quant_core.prediction import (
     LPConfig,
@@ -15,18 +14,20 @@ from quant_core.prediction import (
     hazard_to_per_horizon_probs,
     prepare_features,
 )
+
 from quant_tick.constants import ExitReason, PositionStatus, PositionType
+from quant_tick.lib.feature_data import load_training_df
 from quant_tick.lib.ml import check_position_change_allowed
 from quant_tick.lib.schema import MLSchema
 from quant_tick.lib.train import train_core
-from quant_tick.models import MLConfig, MLFeatureData, Position
+from quant_tick.models import MLConfig, Position
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class BacktestResult:
-    """Backtest result summary."""
+    """Backtest result."""
 
     total_bars: int
     bars_in_position: int
@@ -42,7 +43,7 @@ class BacktestResult:
 
 @dataclass
 class WalkForwardResult:
-    """Walk-forward simulation result with observability."""
+    """Walk-forward result."""
 
     aggregate_metrics: dict
     slice_results: list[dict]
@@ -62,7 +63,7 @@ def _run_backtest(
     model_cutoff: Any | None = None,
     clear_positions: bool = True,
 ) -> BacktestResult | None:
-    """Run backtest simulation on a single slice.
+    """Run backtest on a single slice.
 
     Args:
         config: MLConfig to backtest
@@ -70,8 +71,8 @@ def _run_backtest(
         upper_model: Hazard model for upper bound
         feature_cols: Feature column names
         df: Feature DataFrame
-        model_cutoff: Optional timestamp to tag positions with (for walk-forward)
-        clear_positions: Whether to delete existing backtest positions (default: True)
+        model_cutoff: Optional timestamp, for walk-forward, to tag positions with
+        clear_positions: Whether to delete existing backtest positions
 
     Returns:
         BacktestResult if successful, None otherwise
@@ -81,7 +82,7 @@ def _run_backtest(
     min_hold_bars = config.min_hold_bars
     symbol = config.symbol
 
-    # Clear existing backtest positions if requested
+    # Clear existing backtest positions
     if clear_positions:
         deleted, _ = Position.objects.filter(
             ml_config=config,
@@ -96,16 +97,15 @@ def _run_backtest(
     decision_horizons = config.json_data.get("decision_horizons", [60, 120, 180])
 
     # Build bar-level price data for efficient lookup
-    # Use GroupBy instead of arithmetic to handle reordered data
     n_configs = len(widths) * len(asymmetries)
     n_bars = len(df) // n_configs
 
-    # Extract bar_idx -> close price mapping using GroupBy
+    # Extract bar_idx -> close price mapping
     bar_prices = {}
     bar_timestamps = {}
     bar_groups = df.groupby("bar_idx")
     for bar_idx, bar_df in bar_groups:
-        # Take first config (all have same close/timestamp at bar level)
+        # Take first config
         first_row = bar_df.iloc[0]
         if "close" in df.columns:
             bar_prices[bar_idx] = first_row["close"]
@@ -174,7 +174,7 @@ def _run_backtest_loop(
     bar_timestamps: dict[int, Any],
     model_cutoff: Any | None = None,
 ) -> BacktestResult:
-    """Run backtest simulation loop using forward price checking."""
+    """Run backtest loop."""
     # Track state
     current_config: LPConfig | None = None
     bars_since_change = 0
@@ -349,8 +349,10 @@ def _run_backtest_loop(
                     "json_data": json_data_dict,
                 }
 
-    # Close any remaining open position
+    # Close remaining open position
     if current_position_data is not None:
+        current_position_data["exit_timestamp"] = ts
+        current_position_data["exit_price"] = Decimal(str(close_price))
         current_position_data["exit_reason"] = ExitReason.MAX_DURATION
         current_position_data["bars_held"] = bars_since_change
         current_position_data["status"] = PositionStatus.CLOSED
@@ -486,22 +488,24 @@ def ml_simulate(
     # Get simulation params from config with optional overrides
     sim_params = config.get_simulation_params()
 
-    cadence = retrain_cadence_days if retrain_cadence_days is not None else sim_params["retrain_cadence_days"]
-    window = train_window_days if train_window_days is not None else sim_params["train_window_days"]
+    cadence = (
+        retrain_cadence_days
+        if retrain_cadence_days is not None
+        else sim_params["retrain_cadence_days"]
+    )
+    window = (
+        train_window_days
+        if train_window_days is not None
+        else sim_params["train_window_days"]
+    )
     holdout = holdout_days if holdout_days is not None else sim_params["holdout_days"]
 
-    # Load all feature data
-    feature_data = (
-        MLFeatureData.objects.filter(candle=config.candle)
-        .order_by("-timestamp_to")
-        .first()
-    )
-
-    if not feature_data or not feature_data.has_data_frame("file_data"):
-        logger.error(f"{config}: no feature data available")
+    # Load from FeatureData + generate labels on-the-fly
+    try:
+        df = load_training_df(config)
+    except ValueError as e:
+        logger.error(f"{config}: {e}")
         return {}
-
-    df = feature_data.get_data_frame("file_data")
     logger.info(f"{config}: loaded {len(df)} rows for walk-forward simulation")
 
     # Extract config parameters
@@ -704,10 +708,18 @@ def ml_simulate(
                     "cutoff": cutoff,
                     "train_size": len(train_df),
                     "score_size": len(score_df),
-                    "cv_brier_lower": cv_metrics.get("cv_brier_scores", {}).get("lower", 0.0),
-                    "cv_brier_upper": cv_metrics.get("cv_brier_scores", {}).get("upper", 0.0),
-                    "holdout_brier_lower": holdout_metrics.get("holdout_brier_scores", {}).get("lower", 0.0),
-                    "holdout_brier_upper": holdout_metrics.get("holdout_brier_scores", {}).get("upper", 0.0),
+                    "cv_brier_lower": cv_metrics.get("cv_brier_scores", {}).get(
+                        "lower", 0.0
+                    ),
+                    "cv_brier_upper": cv_metrics.get("cv_brier_scores", {}).get(
+                        "upper", 0.0
+                    ),
+                    "holdout_brier_lower": holdout_metrics.get(
+                        "holdout_brier_scores", {}
+                    ).get("lower", 0.0),
+                    "holdout_brier_upper": holdout_metrics.get(
+                        "holdout_brier_scores", {}
+                    ).get("upper", 0.0),
                     "backtest_touch_rate": backtest_result.touch_rate,
                     "backtest_pct_in_range": backtest_result.pct_in_range,
                     "backtest_rebalances": backtest_result.rebalances,
