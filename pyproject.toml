@@ -24,6 +24,7 @@ quant-core = {path = "quant_core", develop = true}
 randomname = "*"
 scikit-learn = "*"
 seaborn = "*"
+tqdm = "*"
 
 [tool.poetry.dev-dependencies]
 coverage = "*"
