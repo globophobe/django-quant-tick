@@ -14,20 +14,6 @@ def fake(*args):
 
 class Migration(migrations.Migration):
 
-    replaces = [
-        ("quant_tick", "0001_initial"),
-        ("quant_tick", "0002_alter_symbol_exchange_strategy_position_and_more"),
-        (
-            "quant_tick",
-            "0003_signal_delete_position_remove_symbol_save_clustered_and_more",
-        ),
-        (
-            "quant_tick",
-            "0004_featuredata_mlartifact_mlconfig_mlsignal_position_and_more",
-        ),
-        ("quant_tick", "0005_remove_signal_close_candle_data_and_more"),
-    ]
-
     dependencies = [
         ("contenttypes", "0002_remove_content_type_name"),
     ]
