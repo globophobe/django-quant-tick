@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Protocol
 
 import pandas as pd
 from pandas import DataFrame
-from quant_core.features import _compute_features
+
+from quant_tick.lib.ml import _compute_features
 
 if TYPE_CHECKING:  # pragma: no cover
     from quant_tick.models import MetaModel
