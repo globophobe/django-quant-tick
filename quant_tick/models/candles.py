@@ -134,7 +134,9 @@ class Candle(AbstractCodeName, PolymorphicModel):
             timestamp_from, timestamp_to, only=["symbol"] + list(FileData)
         )
         data_frames = []
-        for symbol in self.symbols.all():
+        symbols = list(self.symbols.all())
+        is_multi_symbol = len(symbols) > 1
+        for symbol in symbols:
             target = sorted(
                 [obj for obj in trade_data if obj.symbol == symbol],
                 key=lambda obj: obj.timestamp,
@@ -153,8 +155,10 @@ class Candle(AbstractCodeName, PolymorphicModel):
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=FutureWarning)
                     df = pd.concat(dfs)
-                df.insert(2, "exchange", symbol.exchange)
-                df.insert(3, "symbol", symbol.symbol)
+                # Add exchange and symbol columns if multi-symbol.
+                if is_multi_symbol:
+                    df.insert(2, "exchange", symbol.exchange)
+                    df.insert(3, "symbol", symbol.symbol)
                 data_frames.append(df)
         if data_frames:
             df = pd.concat(data_frames)

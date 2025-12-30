@@ -6,7 +6,7 @@ import httpx
 import pandas as pd
 from django.utils import timezone
 from quant_core.constants import DEFAULT_ASYMMETRIES, DEFAULT_WIDTHS
-from quant_core.features import _compute_features
+from quant_core.features import _compute_features, compute_max_warmup_bars
 from rest_framework.generics import ListAPIView
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -35,7 +35,7 @@ class InferenceView(ListAPIView):
 
     def _run_inference(self, cfg: MLConfig) -> dict:
         """Run inference for a single MLConfig via quant_horizon service."""
-        # Get recent candle data
+        # Get recent candle data and compute features
         features_df = self._get_latest_features(cfg)
         if features_df is None or len(features_df) == 0:
             logger.warning(f"{cfg}: no feature data available")
@@ -76,9 +76,21 @@ class InferenceView(ListAPIView):
         # Skip if already processed
         if cfg.last_processed_timestamp and timestamp <= cfg.last_processed_timestamp:
             logger.info(f"{cfg}: skipping already processed bar at {timestamp}")
-            return {"config": cfg.code_name, "skipped": True, "timestamp": str(timestamp)}
+            return {
+                "config": cfg.code_name,
+                "skipped": True,
+                "timestamp": str(timestamp),
+            }
 
-        # Create MLSignal
+        # Extract features for audit trail
+        metadata_cols = {"timestamp", "close", "open", "high", "low", "volume"}
+        feature_dict = {
+            k: float(v) if isinstance(v, (int, float)) else v
+            for k, v in latest.to_dict().items()
+            if k not in metadata_cols and pd.notna(v)
+        }
+
+        # Create MLSignal with features for audit trail
         signal = MLSignal.objects.create(
             ml_config=cfg,
             timestamp=timestamp,
@@ -90,6 +102,7 @@ class InferenceView(ListAPIView):
             json_data={
                 "width": result["width"],
                 "asymmetry": result["asymmetry"],
+                "features": feature_dict,
             },
         )
 
@@ -111,24 +124,29 @@ class InferenceView(ListAPIView):
             "p_touch_upper": result["p_touch_upper"],
         }
 
-    def _get_latest_features(self, config: MLConfig) -> pd.DataFrame | None:
+    def _get_latest_features(self, cfg: MLConfig) -> pd.DataFrame | None:
         """Get latest features."""
-        candle_data = (
-            CandleData.objects.filter(candle=config.candle)
-            .order_by("-timestamp")[:config.inference_lookback]
+        # Validate sufficient lookback
+        max_warmup = compute_max_warmup_bars()
+        if cfg.inference_lookback < max_warmup:
+            logger.error(
+                f"{cfg}: inference_lookback ({cfg.inference_lookback}) < max_warmup_bars ({max_warmup})"
+            )
+            return None
+
+        candle_data = CandleData.objects.filter(candle=cfg.candle).order_by(
+            "-timestamp"
+        )[: cfg.inference_lookback]
+
+        if not candle_data.exists():
+            return None
+
+        df = pd.DataFrame(
+            [
+                {"timestamp": cd.timestamp, **cd.json_data}
+                for cd in reversed(candle_data)
+            ]
         )
 
-        if not candle_data:
-            return None
-
-        df = pd.DataFrame([
-            {"timestamp": cd.timestamp, **cd.json_data}
-            for cd in reversed(candle_data)
-        ])
-
-        if df.empty:
-            return None
-
-        # Use config.symbol.exchange as canonical for multi-exchange candles
-        df = _compute_features(df, canonical_exchange=config.symbol.exchange)
+        df = _compute_features(df, canonical_exchange=cfg.symbol.exchange)
         return df.dropna(subset=["close"]) if "close" in df.columns else df

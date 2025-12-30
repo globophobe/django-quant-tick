@@ -36,7 +36,7 @@ from .dataframe import (
     set_dtypes,
     set_type_decimal,
 )
-from .download import gzip_downloader
+from .download import gzip_downloader, zip_downloader
 from .experimental import calc_notional_exponent, calc_volume_exponent
 
 __all__ = [
@@ -72,6 +72,7 @@ __all__ = [
     "set_dtypes",
     "set_type_decimal",
     "gzip_downloader",
+    "zip_downloader",
     "calc_notional_exponent",
     "calc_volume_exponent",
 ]

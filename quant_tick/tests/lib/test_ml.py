@@ -1,26 +1,21 @@
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
 from django.test import TestCase
-
 from quant_core.constants import MISSING_SENTINEL
 from quant_core.features import _compute_features
 from quant_core.prediction import (
     compute_bound_features,
     enforce_monotonicity,
-    find_optimal_config,
-    hazard_to_per_horizon_probs,
     prepare_features,
 )
+
 from quant_tick.lib.ml import (
     PurgedKFold,
     check_position_change_allowed,
     compute_first_touch_bars,
-    generate_labels,
 )
-from quant_tick.lib.simulate import BacktestResult, ml_simulate
 
 
 class ComputeBoundFeaturesTest(TestCase):
@@ -78,7 +73,7 @@ class PurgedKFoldTest(TestCase):
     """Tests for PurgedKFold cross-validation."""
 
     def test_basic_split_without_event_end(self):
-        """Without event_end_idx, behaves like TimeSeriesSplit (forward-chaining)."""
+        """Without event_end_exclusive_idx, behaves like TimeSeriesSplit (forward-chaining)."""
         X = np.arange(100).reshape(-1, 1)
         cv = PurgedKFold(n_splits=5, embargo_bars=10)
 
@@ -95,39 +90,60 @@ class PurgedKFoldTest(TestCase):
         """Training samples with events overlapping test period are removed."""
         X = np.arange(100).reshape(-1, 1)
         horizon = 10
-        event_end_idx = np.arange(100) + horizon
+        # Compute exclusive upper bounds (matches production: bar_idx + horizon + 1)
+        event_end_exclusive_idx = np.arange(100) + horizon + 1  # [11, 12, 13, ..., 110]
 
         cv = PurgedKFold(n_splits=5, embargo_bars=0)
-        splits = list(cv.split(X, event_end_idx=event_end_idx))
+        splits = list(cv.split(X, event_end_exclusive_idx=event_end_exclusive_idx))
 
-        # First fold: test [0-19], train [20-99] - no purging needed
-        # Later folds have train samples BEFORE test that could overlap
-        train_idx, test_idx = splits[1]  # test [20-39], train includes [0-19, 40-99]
+        # Use fold 1: TimeSeriesSplit gives test around [33:50] for 100 samples
+        train_idx, test_idx = splits[1]
         test_start = test_idx.min()
 
-        # Samples just before test (indices 10-19) have event_end [20-29]
-        # These overlap with test_start=20, so should be purged
-        for idx in range(10, 20):
-            if event_end_idx[idx] >= test_start:
-                self.assertNotIn(idx, train_idx)
+        # Explicitly verify samples in [test_start - horizon - 1, test_start) are purged
+        # Sample at bar i has exclusive end i+H+1; overlaps test_start if i+H+1 > test_start
+        overlap_start = max(0, test_start - horizon - 1)
+        for idx in range(overlap_start, test_start):
+            # Sample idx has exclusive end = idx + horizon + 1
+            # If idx + horizon + 1 > test_start (or >= test_start + 1), it overlaps → should be purged
+            if event_end_exclusive_idx[idx] > test_start:
+                self.assertNotIn(idx, train_idx,
+                               f"Sample {idx} (event_end_exclusive={event_end_exclusive_idx[idx]}) "
+                               f"overlaps test_start={test_start}, should be purged")
 
-    def test_embargo_removes_samples_after_test(self):
-        """Embargo removes training samples within N bars after test end."""
+        # Verify boundary case deterministically: sample ending exactly at test_start should be KEPT
+        boundary_idx = test_start - horizon - 1
+        if boundary_idx >= 0:
+            # This sample has event_end_exclusive = boundary_idx + horizon + 1 = test_start
+            self.assertEqual(event_end_exclusive_idx[boundary_idx], test_start,
+                            "Setup: boundary sample should end exactly at test_start")
+            self.assertIn(boundary_idx, train_idx,
+                         f"Sample {boundary_idx} (event_end_exclusive={event_end_exclusive_idx[boundary_idx]}) "
+                         f"does NOT overlap test_start={test_start}, should be kept")
+
+    def test_embargo_removes_samples_before_test(self):
+        """Embargo removes training samples within N bars before test start."""
         X = np.arange(100).reshape(-1, 1)
-        event_end_idx = np.arange(100)  # Events end immediately
+        event_end_exclusive_idx = np.arange(100) + 1  # Events end immediately after entry bar
         embargo_bars = 10
 
         cv = PurgedKFold(n_splits=5, embargo_bars=embargo_bars)
-        splits = list(cv.split(X, event_end_idx=event_end_idx))
+        splits = list(cv.split(X, event_end_exclusive_idx=event_end_exclusive_idx))
 
-        # Check a fold where train includes samples after test (fold 0)
-        train_idx, test_idx = splits[0]  # test [0-19], train [20-99]
-        test_end = test_idx.max()  # 19
+        # TimeSeriesSplit: train is ALWAYS before test (train_idx < test_idx.min())
+        # Example fold: test [20-39], train [0-9] (indices 10-19 are embargoed)
+        train_idx, test_idx = splits[1]  # Use fold 1 to have train data before test
+        test_start = test_idx.min()
 
-        # Samples 20-29 are in embargo zone, should be removed
-        embargo_zone = set(range(test_end + 1, test_end + embargo_bars + 1))
+        # Embargo zone: [test_start - embargo_bars, test_start)
+        embargo_zone = set(range(max(0, test_start - embargo_bars), test_start))
         train_set = set(train_idx)
-        self.assertEqual(len(train_set & embargo_zone), 0)
+
+        # Verify: (1) train is before test, (2) no samples in embargo zone
+        self.assertTrue(all(idx < test_start for idx in train_idx),
+                       "All training samples should be before test start")
+        self.assertEqual(len(train_set & embargo_zone), 0,
+                        f"Training should not include samples in embargo zone {embargo_zone}")
 
     def test_preserves_time_order(self):
         """Splits preserve time ordering."""
@@ -144,10 +160,10 @@ class PurgedKFoldTest(TestCase):
         """Skips folds where all training samples would be purged."""
         X = np.arange(20).reshape(-1, 1)
         # Very long horizon means all samples overlap
-        event_end_idx = np.arange(20) + 100
+        event_end_exclusive_idx = np.arange(20) + 100 + 1
 
         cv = PurgedKFold(n_splits=2, embargo_bars=0)
-        splits = list(cv.split(X, event_end_idx=event_end_idx))
+        splits = list(cv.split(X, event_end_exclusive_idx=event_end_exclusive_idx))
 
         # Should skip folds where purging removes all training data
         # With TimeSeriesSplit and long horizon, early folds may have no valid training
@@ -155,42 +171,42 @@ class PurgedKFoldTest(TestCase):
         for train_idx, test_idx in splits:
             self.assertGreater(len(train_idx), 0)
 
-    def test_with_timestamp_idx_for_interleaved_data(self):
-        """Uses timestamp_idx for purging when provided."""
+    def test_with_bar_idx_for_interleaved_data(self):
+        """Uses bar_idx for purging when provided."""
         # Simulate interleaved data: 50 bars x 3 configs = 150 rows
         n_bars = 50
         n_configs = 3
         n_rows = n_bars * n_configs
         X = np.arange(n_rows).reshape(-1, 1)
 
-        # timestamp_idx repeats: [0,0,0,1,1,1,2,2,2,...]
-        timestamp_idx = np.repeat(np.arange(n_bars), n_configs)
+        # bar_idx repeats: [0,0,0,1,1,1,2,2,2,...]
+        bar_idx = np.repeat(np.arange(n_bars), n_configs)
 
-        # event_end is timestamp_idx + horizon
+        # event_end_exclusive is bar_idx + horizon + 1
         horizon = 10
-        event_end_idx = timestamp_idx + horizon
+        event_end_exclusive_idx = bar_idx + horizon + 1
 
         cv = PurgedKFold(n_splits=5, embargo_bars=5)
         splits = list(
-            cv.split(X, event_end_idx=event_end_idx, timestamp_idx=timestamp_idx)
+            cv.split(X, event_end_exclusive_idx=event_end_exclusive_idx, bar_idx=bar_idx)
         )
 
         # Some folds may be skipped if purging removes all training data
         self.assertGreater(len(splits), 0)
 
         for train_idx, test_idx in splits:
-            test_timestamps = timestamp_idx[test_idx]
-            test_start_ts = test_timestamps.min()
+            test_bars = bar_idx[test_idx]
+            test_start_bar = test_bars.min()
 
-            # Check purging: all training events should end before test starts (no overlap)
+            # Check purging: all training events should end at or before test starts (no overlap)
             if len(train_idx) > 0:
-                train_event_ends = event_end_idx[train_idx]
-                # Purging should ensure no training events overlap with test period
+                train_event_ends = event_end_exclusive_idx[train_idx]
+                # For exclusive bounds, event_end_exclusive <= test_start means no overlap
                 self.assertTrue(
-                    np.all(train_event_ends < test_start_ts),
+                    np.all(train_event_ends <= test_start_bar),
                     msg=f"Some training events overlap test period. "
                     f"Max train event end: {train_event_ends.max()}, "
-                    f"Test start: {test_start_ts}",
+                    f"Test start: {test_start_bar}",
                 )
 
 
@@ -353,158 +369,6 @@ class WalkForwardSlicingTest(TestCase):
             self.assertEqual(delta, cadence_days)
 
 
-class WalkForwardIntegrationTest(TestCase):
-    """Walk forward integration test."""
-
-    def test_schema_validation_blocks_mismatched_slices(self):
-        """Schema mismatch causes slice to be skipped."""
-        # Create feature data where second half is missing a feature
-        # Use 40 days worth to ensure we get windows that cross the midpoint
-        n_bars = 40 * 24  # 40 days * 24 hours
-        base_ts = datetime(2024, 1, 1)
-
-        data = []
-        for i in range(n_bars):
-            ts = base_ts + timedelta(hours=i)
-            row = {
-                "timestamp": ts,
-                "timestamp_idx": i,
-                "close": 50000 + np.random.randn() * 100,
-                "touched_lower": 0,
-                "touched_upper": 0,
-                "width": 0.1,
-                "asymmetry": 0.0,
-                "feature_0": np.random.randn(),
-            }
-
-            # Only include feature_1 in first 20 days
-            if i < (20 * 24):
-                row["feature_1"] = np.random.randn()
-
-            data.append(row)
-
-        df = pd.DataFrame(data)
-
-        # Mock config
-        mock_config = MagicMock()
-        mock_config.candle = MagicMock()
-        mock_config.symbol = MagicMock()
-        mock_config.horizon_bars = 24
-        mock_config.touch_tolerance = 0.3
-        mock_config.min_hold_bars = 4
-        mock_config.json_data = {
-            "widths": [0.1],
-            "asymmetries": [0.0],
-            "decision_horizons": [60, 120, 180],
-        }
-
-        # Mock feature data
-        mock_feature_data = MagicMock()
-        mock_feature_data.has_data_frame.return_value = True
-        mock_feature_data.get_data_frame.return_value = df
-
-        # Track how many times run_backtest is called (should skip some due to schema mismatch)
-        backtest_call_count = 0
-
-        def mock_run_backtest(*args, **kwargs):
-            nonlocal backtest_call_count
-            backtest_call_count += 1
-            # Return a simple result
-            return BacktestResult(
-                total_bars=100,
-                bars_in_position=80,
-                bars_in_range=70,
-                total_touches=5,
-                touch_rate=0.05,
-                rebalances=3,
-                avg_hold_bars=20.0,
-                pct_in_range=0.875,
-                positions_created=8,
-            )
-
-        with patch(
-            "quant_tick.lib.simulate.MLFeatureData.objects.filter"
-        ) as mock_filter:
-            mock_filter.return_value.order_by.return_value.first.return_value = (
-                mock_feature_data
-            )
-
-            with patch(
-                "quant_tick.lib.simulate._run_backtest", side_effect=mock_run_backtest
-            ):
-                with patch("quant_tick.lib.simulate.train_core") as mock_train:
-                    # Mock training to return models dict (2 models)
-                    mock_lower_model = MagicMock()
-                    mock_upper_model = MagicMock()
-                    mock_lower_model.calibrator_ = None
-                    mock_lower_model.calibration_method_ = "none"
-                    mock_upper_model.calibrator_ = None
-                    mock_upper_model.calibration_method_ = "none"
-
-                    mock_models_dict = {
-                        "lower": mock_lower_model,
-                        "upper": mock_upper_model,
-                    }
-
-                    mock_train.return_value = (
-                        mock_models_dict,  # models_dict (2 models: lower, upper)
-                        ["feature_0", "feature_1", "k"],  # feature_cols (includes k!)
-                        {
-                            "cv_brier_scores": {"lower": 0.05, "upper": 0.06},
-                            "avg_brier": 0.055,
-                        },  # cv_metrics
-                        {
-                            "holdout_brier_scores": {"lower": 0.05, "upper": 0.06},
-                            "avg_brier": 0.055,
-                            "base_rates": {"lower": 0.02, "upper": 0.02},
-                        },  # holdout_metrics
-                    )
-
-                    with patch(
-                        "quant_tick.models.Position.objects.filter"
-                    ) as mock_pos_filter:
-                        mock_pos_filter.return_value.delete.return_value = (0, {})
-
-                        result = ml_simulate(
-                            config=mock_config,
-                            retrain_cadence_days=5,
-                            train_window_days=10,
-                            holdout_days=5,
-                        )
-
-        # Calculate max possible windows with the parameters used above
-        train_window_delta = timedelta(days=10)
-        cadence_delta = timedelta(days=5)
-
-        min_ts = df["timestamp"].min()
-        max_ts = df["timestamp"].max()
-
-        cutoffs = []
-        cutoff = min_ts + train_window_delta
-        while cutoff + cadence_delta <= max_ts:
-            cutoffs.append(cutoff)
-            cutoff += cadence_delta
-
-        max_windows = len(cutoffs)
-
-        # With 40 days of data, feature_1 exists only in first 20 days
-        # Training windows that include first 20 days will have feature_1
-        # But their scoring windows might not (if they extend past day 20)
-        # This should cause some windows to be blocked
-        # However, the exact number blocked depends on window overlap
-        # For now, just verify that the function completed without error
-        self.assertGreater(backtest_call_count, 0)
-        self.assertLessEqual(backtest_call_count, max_windows)
-
-        # Verify metrics are correctly extracted (not defaulting to 0.0)
-        if result.slice_results:
-            first_slice = result.slice_results[0]
-            self.assertEqual(first_slice["cv_brier_lower"], 0.05)
-            self.assertEqual(first_slice["cv_brier_upper"], 0.06)
-            self.assertEqual(first_slice["holdout_brier_lower"], 0.05)
-            self.assertEqual(first_slice["holdout_brier_upper"], 0.06)
-
-
 class EnforceMonotonicityTest(TestCase):
     """Enforce monotonicity test."""
 
@@ -605,167 +469,6 @@ class BarConfigInvariantsTest(TestCase):
         self.assertIn("bar_idx=1", error_msg)
 
 
-class FindOptimalConfigTest(TestCase):
-    """Test find_optimal_config function."""
-
-    def test_selects_tightest_width_passing_tolerance(self):
-        """Selects tightest width that passes touch tolerance."""
-
-        features = pd.DataFrame({"close": [100.0]})
-
-        # Mock prediction functions: tight width has high risk, wide width has low risk
-        def predict_lower(feat, lower_pct, upper_pct):
-            width = abs(upper_pct - lower_pct)
-            return 0.2 if width < 0.04 else 0.05  # Tight = risky, wide = safe
-
-        def predict_upper(feat, lower_pct, upper_pct):
-            width = abs(upper_pct - lower_pct)
-            return 0.2 if width < 0.04 else 0.05
-
-        result = find_optimal_config(
-            predict_lower,
-            predict_upper,
-            features,
-            touch_tolerance=0.15,
-            widths=[0.02, 0.04, 0.06],
-            asymmetries=[0.0],
-        )
-
-        # Should select width=0.04 (first width that passes tolerance)
-        self.assertIsNotNone(result)
-        self.assertAlmostEqual(result.width, 0.04, places=5)
-
-    def test_returns_none_if_all_too_risky(self):
-        """Returns None if all configs exceed tolerance."""
-
-        features = pd.DataFrame({"close": [100.0]})
-
-        # All predictions exceed tolerance
-        def predict_lower(feat, lower_pct, upper_pct):
-            return 0.5  # Very high risk
-
-        def predict_upper(feat, lower_pct, upper_pct):
-            return 0.5
-
-        result = find_optimal_config(
-            predict_lower,
-            predict_upper,
-            features,
-            touch_tolerance=0.15,
-            widths=[0.02, 0.04, 0.06],
-            asymmetries=[0.0],
-        )
-
-        self.assertIsNone(result)
-
-    def test_selects_best_asymmetry_for_width(self):
-        """Selects asymmetry with lowest combined risk for chosen width."""
-
-        features = pd.DataFrame({"close": [100.0]})
-
-        # Asymmetry 0.0 has lower combined risk than others
-        def predict_lower(feat, lower_pct, upper_pct):
-            width = abs(upper_pct - lower_pct)
-            asym = (upper_pct + lower_pct) / width
-            if abs(asym) < 0.01:  # Symmetric
-                return 0.05
-            return 0.08
-
-        def predict_upper(feat, lower_pct, upper_pct):
-            width = abs(upper_pct - lower_pct)
-            asym = (upper_pct + lower_pct) / width
-            if abs(asym) < 0.01:  # Symmetric
-                return 0.05
-            return 0.08
-
-        result = find_optimal_config(
-            predict_lower,
-            predict_upper,
-            features,
-            touch_tolerance=0.15,
-            widths=[0.04],
-            asymmetries=[-0.2, 0.0, 0.2],
-        )
-
-        self.assertIsNotNone(result)
-        self.assertAlmostEqual(result.asymmetry, 0.0, places=5)
-
-    def test_respects_touch_tolerance_threshold(self):
-        """Config is rejected if either bound exceeds tolerance."""
-
-        features = pd.DataFrame({"close": [100.0]})
-
-        # Lower is safe, upper exceeds tolerance
-        def predict_lower(feat, lower_pct, upper_pct):
-            return 0.05
-
-        def predict_upper(feat, lower_pct, upper_pct):
-            return 0.25  # Exceeds 0.15 tolerance
-
-        result = find_optimal_config(
-            predict_lower,
-            predict_upper,
-            features,
-            touch_tolerance=0.15,
-            widths=[0.04],
-            asymmetries=[0.0],
-        )
-
-        # Should reject because upper exceeds tolerance
-        self.assertIsNone(result)
-
-    def test_computes_correct_bounds_from_width_asymmetry(self):
-        """Computes correct lower/upper bounds from width and asymmetry."""
-
-        features = pd.DataFrame({"close": [100.0]})
-
-        def predict_lower(feat, lower_pct, upper_pct):
-            return 0.05
-
-        def predict_upper(feat, lower_pct, upper_pct):
-            return 0.05
-
-        result = find_optimal_config(
-            predict_lower,
-            predict_upper,
-            features,
-            touch_tolerance=0.15,
-            widths=[0.04],
-            asymmetries=[0.2],  # Asymmetric
-        )
-
-        # width=0.04, asym=0.2
-        # lower_pct = -0.04 * (0.5 - 0.2) = -0.012
-        # upper_pct = 0.04 * (0.5 + 0.2) = 0.028
-        self.assertIsNotNone(result)
-        self.assertAlmostEqual(result.lower_pct, -0.012, places=5)
-        self.assertAlmostEqual(result.upper_pct, 0.028, places=5)
-
-    def test_stores_touch_probabilities(self):
-        """Result includes touch probabilities from prediction functions."""
-
-        features = pd.DataFrame({"close": [100.0]})
-
-        def predict_lower(feat, lower_pct, upper_pct):
-            return 0.07
-
-        def predict_upper(feat, lower_pct, upper_pct):
-            return 0.09
-
-        result = find_optimal_config(
-            predict_lower,
-            predict_upper,
-            features,
-            touch_tolerance=0.15,
-            widths=[0.04],
-            asymmetries=[0.0],
-        )
-
-        self.assertIsNotNone(result)
-        self.assertAlmostEqual(result.p_touch_lower, 0.07, places=5)
-        self.assertAlmostEqual(result.p_touch_upper, 0.09, places=5)
-
-
 class LabelGenerationTests(TestCase):
     """Tests for label generation."""
 
@@ -800,220 +503,66 @@ class LabelGenerationTests(TestCase):
         self.assertEqual(ft_lower[1], 1)
         self.assertEqual(ft_upper[1], 5)
 
-    def test_hazard_labels_sum_equals_one(self):
-        """Verify sum of labels equals 1 for touched bars."""
-        labeled = generate_labels(
-            self.df,
-            widths=[0.03],
-            asymmetries=[0.0],
-            max_horizon=4,
-        )
+    def test_generate_labels_preserves_timestamp(self):
+        """Test that generate_labels preserves timestamp, repeating per config."""
+        from quant_tick.lib.ml import generate_labels
 
-        for bar_idx in range(len(self.df) - 1):
-            bar_data = labeled[labeled["bar_idx"] == bar_idx]
+        df = pd.DataFrame({
+            'timestamp': pd.date_range('2024-01-01', periods=100, freq='1h'),
+            'close': 100 + np.random.randn(100).cumsum(),
+            'low': 99 + np.random.randn(100).cumsum(),
+            'high': 101 + np.random.randn(100).cumsum(),
+        })
 
-            hazard_sum_lower = bar_data["hazard_lower"].sum()
-            hazard_sum_upper = bar_data["hazard_upper"].sum()
+        result = generate_labels(df, widths=[0.05], asymmetries=[0.0], horizons=[48])
 
-            self.assertIn(hazard_sum_lower, [0, 1])
-            self.assertIn(hazard_sum_upper, [0, 1])
+        # Verify timestamp column exists
+        self.assertIn('timestamp', result.columns, "timestamp should be preserved")
 
-            if bar_data.iloc[0]["event_lower"] == 0:
-                self.assertEqual(hazard_sum_lower, 0)
-            if bar_data.iloc[0]["event_upper"] == 0:
-                self.assertEqual(hazard_sum_upper, 0)
+        # Verify timestamps are datetime objects (not null)
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(result['timestamp']),
+                       "timestamp should be datetime type")
 
-    def test_hazard_schema_structure(self):
-        """Verify hazard schema has correct columns and row count."""
-        labeled = generate_labels(
-            self.df,
-            widths=[0.02, 0.03],
-            asymmetries=[-0.2, 0.0, 0.2],
-            max_horizon=10,
-        )
+        # NEW: Verify no null timestamps (critical for Position inserts)
+        self.assertEqual(result['timestamp'].isna().sum(), 0,
+                        "No timestamps should be null - would cause Position insert failures")
 
-        n_bars = len(self.df) - 1
-        n_configs = 2 * 3
-        expected_rows = n_bars * n_configs * 10
-        self.assertEqual(len(labeled), expected_rows)
+        # NEW: Verify timestamp values match input bars (accounting for dropped last bar)
+        expected_timestamps = df['timestamp'].iloc[:len(df)-1].values
+        n_configs = 1  # 1 width × 1 asymmetry
+        # Each bar repeats n_configs times in the output
+        expected_repeated = np.repeat(expected_timestamps, n_configs)
+        np.testing.assert_array_equal(result['timestamp'].values, expected_repeated,
+                                     err_msg="Timestamps should match input bars")
 
-        required_cols = [
-            "bar_idx",
-            "config_id",
-            "k",
-            "timestamp",
-            "entry_price",
-            "width",
-            "asymmetry",
-            "hazard_lower",
-            "hazard_upper",
-            "event_lower",
-            "event_upper",
-        ]
-        for col in required_cols:
-            self.assertIn(col, labeled.columns)
+        # OLD assertions (keep for row count verification)
+        expected_rows = (len(df) - 1) * n_configs
+        self.assertEqual(len(result), expected_rows,
+                        f"Expected {expected_rows} rows (n_bars={len(df)-1} × n_configs={n_configs})")
 
-        self.assertEqual(labeled["k"].min(), 1)
-        self.assertEqual(labeled["k"].max(), 10)
+    def test_generate_labels_handles_ties_deterministically(self):
+        """Test that ties (both bounds hit same bar) go to UP_FIRST."""
+        from quant_tick.lib.ml import generate_labels
 
-        self.assertEqual(labeled["config_id"].min(), 0)
-        self.assertEqual(labeled["config_id"].max(), 5)
+        # Deterministic 3-bar series: entry bar 0, both bounds hit at bar 1 (tie)
+        # close=[100, 100, 100], width=0.06 (±3%), asymmetry=0.0
+        # Bounds: lower=97, upper=103
+        # Bar 1: low=97 (touches lower), high=103 (touches upper) → TIE
+        df = pd.DataFrame({
+            'timestamp': pd.date_range('2024-01-01', periods=3, freq='1h'),
+            'close': [100.0, 100.0, 100.0],
+            'low': [100.0, 97.0, 100.0],    # Bar 1 touches lower bound (97)
+            'high': [100.0, 103.0, 100.0],  # Bar 1 touches upper bound (103)
+        })
 
+        result = generate_labels(df, widths=[0.06], asymmetries=[0.0], horizons=[2])
 
-class SurvivalInferenceTests(TestCase):
-    """Tests for survival model inference and survival reconstruction."""
-
-    class MockHazardModel:
-        """Mock model with constant hazard rate."""
-
-        def __init__(self, hazard_rate: float):
-            self.hazard_rate = hazard_rate
-            self.calibrator_ = None
-            self.calibration_method_ = "none"
-
-        def predict_proba(self, X):
-            n = len(X)
-            probs = np.zeros((n, 2))
-            probs[:, 1] = self.hazard_rate
-            probs[:, 0] = 1 - self.hazard_rate
-            return probs
-
-    def test_survival_matches_constant_hazard(self):
-        """Test reconstructing P(hit_by_H) from constant hazard rate."""
-        # h(k) = 0.01 for all k (constant hazard)
-        # Expected S(k) = (1 - 0.01)^k = 0.99^k
-        model = self.MockHazardModel(hazard_rate=0.01)
-        X_base = pd.DataFrame([{"feature1": 1.0}])
-        feature_cols = ["feature1", "k"]
-
-        probs = hazard_to_per_horizon_probs(
-            model,
-            X_base,
-            feature_cols,
-            decision_horizons=[60, 120, 180],
-            max_horizon=180,
-        )
-
-        # Verify against analytical solution
-        # P(hit_by_60) = 1 - 0.99^60
-        expected_60 = 1 - 0.99**60
-        expected_120 = 1 - 0.99**120
-        expected_180 = 1 - 0.99**180
-
-        self.assertAlmostEqual(probs[60], expected_60, places=4)
-        self.assertAlmostEqual(probs[120], expected_120, places=4)
-        self.assertAlmostEqual(probs[180], expected_180, places=4)
-
-        # Verify monotonicity (automatic with survival curve)
-        self.assertLessEqual(probs[60], probs[120])
-        self.assertLessEqual(probs[120], probs[180])
-
-    def test_monotonicity_guaranteed_with_noisy_model(self):
-        """Verify monotonicity holds even with random predictions."""
-
-        class NoisyModel:
-            calibrator_ = None
-            calibration_method_ = "none"
-
-            def predict_proba(self, X):
-                np.random.seed(42)
-                n = len(X)
-                probs = np.zeros((n, 2))
-                probs[:, 1] = np.random.uniform(0, 0.1, size=n)
-                probs[:, 0] = 1 - probs[:, 1]
-                return probs
-
-        X_base = pd.DataFrame([{"feature": 1.0}])
-        feature_cols = ["feature", "k"]
-
-        horizon_probs = hazard_to_per_horizon_probs(
-            NoisyModel(),
-            X_base,
-            feature_cols,
-            decision_horizons=[60, 120, 180],
-            max_horizon=180,
-        )
-
-        # Monotonicity MUST hold (guaranteed by survival curve math)
-        self.assertLessEqual(horizon_probs[60], horizon_probs[120])
-        self.assertLessEqual(horizon_probs[120], horizon_probs[180])
-
-    def test_column_ordering_preserved(self):
-        """Test that feature column ordering matches training order."""
-
-        class OrderSensitiveModel:
-            """Model that returns different values based on column order."""
-
-            calibrator_ = None
-            calibration_method_ = "none"
-
-            def predict_proba(self, X):
-                # If columns are in correct order, k should be in last position
-                # Check that X has correct column order
-                n = len(X)
-                probs = np.zeros((n, 2))
-                # Check if k is in the right position (last) and has expected value for first row
-                if X.iloc[0, -1] == 1:  # k should be 1 for first row
-                    probs[:, 1] = 0.001  # Low hazard -> low cumulative probability
-                else:
-                    probs[:, 1] = 0.05  # Higher hazard -> high cumulative probability
-                probs[:, 0] = 1 - probs[:, 1]
-                return probs
-
-        X_base = pd.DataFrame([{"feature_a": 100.0, "feature_b": 200.0}])
-        feature_cols = ["feature_a", "feature_b", "k"]
-
-        probs = hazard_to_per_horizon_probs(
-            OrderSensitiveModel(),
-            X_base,
-            feature_cols,
-            decision_horizons=[60],
-            max_horizon=60,
-        )
-
-        # Should get low probability (0.05) if column order is correct
-        self.assertLess(probs[60], 0.5)
-
-    def test_inference_path_with_k_missing_from_input(self):
-        """Integration test: mimics full inference path where k is not in raw features."""
-        # Simulate training feature order (includes k and *_missing indicators)
-        feature_cols = ["feature_a", "feature_b", "feature_a_missing", "k"]
-
-        # Simulate live candle data (no k, no *_missing)
-        feat_with_bounds = pd.DataFrame(
-            [
-                {
-                    "feature_a": 100.0,
-                    "feature_b": 200.0,
-                    "width": 0.03,
-                    "asymmetry": 0.0,
-                }
-            ]
-        )
-
-        # This is what inference does: exclude k from prepare_features
-        base_feature_cols = [c for c in feature_cols if c != "k"]
-        X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
-        X_df = pd.DataFrame(X_array, columns=expanded_cols)
-        X_base = X_df.iloc[[0]]
-
-        # Should not have k yet
-        self.assertNotIn("k", X_base.columns)
-
-        # Now call hazard_to_per_horizon_probs with full feature_cols (includes k)
-        model = self.MockHazardModel(hazard_rate=0.01)
-        horizon_probs = hazard_to_per_horizon_probs(
-            model,
-            X_base,
-            feature_cols,  # Full training order WITH k
-            decision_horizons=[60],
-            max_horizon=60,
-        )
-
-        # Should complete without error and return valid probability
-        self.assertIn(60, horizon_probs)
-        self.assertGreater(horizon_probs[60], 0)
-        self.assertLess(horizon_probs[60], 1)
+        # For entry bar 0: both bounds hit at offset 1 (same bar)
+        # With tie-break rule (UP_FIRST preferred), should be class 0
+        # Result has (len(df)-1) × n_configs rows, so bar 0 is row 0
+        label = result['first_hit_h2'].iloc[0]
+        self.assertEqual(label, 0,
+                        f"Tie (both bounds hit bar 1) should be UP_FIRST (0), got {label}")
 
 
 class MultiExchangeCanonicalTest(TestCase):
@@ -1129,3 +678,413 @@ class MultiExchangeCanonicalTest(TestCase):
             _compute_features(df, canonical_exchange=None)
 
         self.assertIn("required", str(ctx.exception).lower())
+
+
+class MulticlassCalibrationTest(TestCase):
+    """Tests for multiclass calibration (One-vs-Rest)."""
+
+    def test_calibrate_multiclass_ovr_happy_path(self):
+        """Test multiclass calibration with synthetic data."""
+        import numpy as np
+
+        from quant_tick.lib.ml import calibrate_multiclass_ovr
+
+        # Create synthetic 3-class data (100 samples)
+        np.random.seed(42)
+        n_samples = 100
+        y_true = np.random.randint(0, 3, n_samples)
+
+        # Create mock predictions (slightly miscalibrated)
+        y_pred_proba = np.random.dirichlet([1, 1, 1], n_samples)
+
+        # Calibrate
+        calibrators, methods = calibrate_multiclass_ovr(y_true, y_pred_proba)
+
+        # Should return calibrators dict and methods dict
+        self.assertIsNotNone(calibrators)
+        self.assertIsNotNone(methods)
+        self.assertEqual(len(calibrators), 3)
+        self.assertEqual(len(methods), 3)
+
+        # Each class should have a method
+        for cls in range(3):
+            self.assertIn(cls, calibrators)
+            self.assertIn(cls, methods)
+
+    def test_calibrate_multiclass_ovr_too_few_samples(self):
+        """Test calibration skips when too few samples."""
+        import numpy as np
+
+        from quant_tick.lib.ml import calibrate_multiclass_ovr
+
+        # Only 20 samples (< 30 threshold)
+        y_true = np.array([0, 1, 2] * 6 + [0, 1])
+        y_pred_proba = np.random.dirichlet([1, 1, 1], 20)
+
+        calibrators, methods = calibrate_multiclass_ovr(y_true, y_pred_proba)
+
+        # Should return None, None
+        self.assertIsNone(calibrators)
+        self.assertIsNone(methods)
+
+    def test_calibrate_multiclass_ovr_imbalanced_class(self):
+        """Test calibration skips when class has too few samples."""
+        import numpy as np
+
+        from quant_tick.lib.ml import calibrate_multiclass_ovr
+
+        # Class 2 has only 2 samples (< 5 threshold)
+        y_true = np.array([0] * 20 + [1] * 20 + [2] * 2)
+        y_pred_proba = np.random.dirichlet([1, 1, 1], 42)
+
+        calibrators, methods = calibrate_multiclass_ovr(y_true, y_pred_proba)
+
+        # Should return None, None
+        self.assertIsNone(calibrators)
+        self.assertIsNone(methods)
+
+    def test_apply_multiclass_calibration(self):
+        """Test applying multiclass calibration."""
+        import numpy as np
+        from quant_core.prediction import apply_multiclass_calibration
+        from sklearn.isotonic import IsotonicRegression
+
+        # Create mock calibrators (identity for simplicity)
+        np.random.seed(42)
+        calibrators = {}
+        methods = {}
+
+        for cls in range(3):
+            calibrator = IsotonicRegression(out_of_bounds="clip")
+            # Fit with identity mapping
+            x = np.linspace(0, 1, 100)
+            calibrator.fit(x, x)
+            calibrators[cls] = calibrator
+            methods[cls] = "isotonic"
+
+        # Create mock predictions
+        y_pred_proba = np.array([[0.5, 0.3, 0.2], [0.2, 0.6, 0.2]])
+
+        # Apply calibration
+        calibrated = apply_multiclass_calibration(y_pred_proba, calibrators, methods)
+
+        # Should return probabilities that sum to 1.0
+        self.assertEqual(calibrated.shape, (2, 3))
+        np.testing.assert_allclose(calibrated.sum(axis=1), [1.0, 1.0], rtol=1e-5)
+
+    def test_apply_multiclass_calibration_none(self):
+        """Test calibration application with None calibrators."""
+        import numpy as np
+        from quant_core.prediction import apply_multiclass_calibration
+
+        y_pred_proba = np.array([[0.5, 0.3, 0.2], [0.2, 0.6, 0.2]])
+
+        # Apply with None calibrators
+        calibrated = apply_multiclass_calibration(y_pred_proba, None, None)
+
+        # Should return unchanged
+        np.testing.assert_array_equal(calibrated, y_pred_proba)
+
+    def test_apply_multiclass_calibration_partial_none(self):
+        """Test calibration with some classes having None calibrators."""
+        import numpy as np
+        from quant_core.prediction import apply_multiclass_calibration
+        from sklearn.isotonic import IsotonicRegression
+
+        # Only calibrate class 0, skip class 1 and 2
+        np.random.seed(42)
+        calibrator = IsotonicRegression(out_of_bounds="clip")
+        x = np.linspace(0, 1, 100)
+        calibrator.fit(x, x)
+
+        calibrators = {0: calibrator, 1: None, 2: None}
+        methods = {0: "isotonic", 1: "none", 2: "none"}
+
+        y_pred_proba = np.array([[0.5, 0.3, 0.2], [0.2, 0.6, 0.2]])
+
+        # Apply calibration
+        calibrated = apply_multiclass_calibration(y_pred_proba, calibrators, methods)
+
+        # Should return probabilities that sum to 1.0
+        self.assertEqual(calibrated.shape, (2, 3))
+        np.testing.assert_allclose(calibrated.sum(axis=1), [1.0, 1.0], rtol=1e-5)
+
+
+class ClassRemappingTest(TestCase):
+    """Test _remap_proba_via_classes handles non-standard class orderings."""
+
+    def test_remap_proba_via_classes_with_non_standard_ordering(self):
+        """Test class remapping with classes_ = [0, 2, 1] (non-standard order)."""
+        import numpy as np
+
+        from quant_tick.lib.train import _remap_proba_via_classes
+
+        # Simulate model with non-standard class ordering
+        class MockModel:
+            classes_ = np.array([0, 2, 1])  # NOT [0, 1, 2]!
+
+        model = MockModel()
+
+        # Predictions from model.predict_proba() in model.classes_ order [0, 2, 1]
+        # Row 0: [P(class 0)=0.5, P(class 2)=0.3, P(class 1)=0.2]
+        y_pred_proba_raw = np.array([
+            [0.5, 0.3, 0.2],  # In model.classes_ order: [0, 2, 1]
+            [0.1, 0.4, 0.5],
+        ])
+
+        # Remap using the REAL function from train.py
+        y_pred_proba_canonical = _remap_proba_via_classes(y_pred_proba_raw, model)
+
+        # Expected: [P(class 0), P(class 1), P(class 2)]
+        # Row 0: [0.5, 0.2, 0.3]  (class 1 was at index 2, class 2 was at index 1)
+        # Row 1: [0.1, 0.5, 0.4]
+        expected = np.array([
+            [0.5, 0.2, 0.3],
+            [0.1, 0.5, 0.4],
+        ])
+
+        np.testing.assert_array_almost_equal(y_pred_proba_canonical, expected,
+                                            err_msg="Class remapping failed")
+
+        # Verify probabilities still sum to 1
+        np.testing.assert_allclose(y_pred_proba_canonical.sum(axis=1), [1.0, 1.0],
+                                  err_msg="Probabilities should sum to 1 after remapping")
+
+    def test_remap_proba_via_classes_no_op_when_no_classes_attr(self):
+        """Test remapping is no-op when model has no classes_ attribute."""
+        import numpy as np
+
+        from quant_tick.lib.train import _remap_proba_via_classes
+
+        class MockModelNoClasses:
+            pass  # No classes_ attribute
+
+        model = MockModelNoClasses()
+        y_pred_proba = np.array([[0.5, 0.3, 0.2]])
+
+        # Test the REAL function
+        result = _remap_proba_via_classes(y_pred_proba, model)
+
+        # Should return unchanged
+        np.testing.assert_array_equal(result, y_pred_proba,
+                                     err_msg="Should be no-op when no classes_ attribute")
+
+
+class MLConfigValidationTest(TestCase):
+    """Test MLConfig validation logic."""
+
+    def test_inference_lookback_validation_rejects_insufficient(self):
+        """Test that clean() rejects inference_lookback < max_warmup_bars."""
+        from django.core.exceptions import ValidationError
+        from quant_core.features import compute_max_warmup_bars
+
+        from quant_tick.models import MLConfig
+
+        max_warmup = compute_max_warmup_bars()
+
+        # Create config with insufficient lookback
+        cfg = MLConfig(inference_lookback=max_warmup - 1)
+
+        # Should raise ValidationError
+        with self.assertRaises(ValidationError) as ctx:
+            cfg.clean()
+
+        # Check error message mentions the field and requirement
+        self.assertIn('inference_lookback', ctx.exception.message_dict)
+        error_msg = ctx.exception.message_dict['inference_lookback'][0]
+        self.assertIn(str(max_warmup), error_msg)
+        self.assertIn('volZScore', error_msg)
+
+    def test_inference_lookback_validation_accepts_sufficient(self):
+        """Test that clean() accepts inference_lookback >= max_warmup_bars."""
+        from quant_core.features import compute_max_warmup_bars
+
+        from quant_tick.models import MLConfig
+
+        max_warmup = compute_max_warmup_bars()
+
+        # Create config with sufficient lookback
+        cfg = MLConfig(inference_lookback=max_warmup)
+
+        # Should not raise
+        cfg.clean()
+
+        # Also test with buffer (default value)
+        cfg_default = MLConfig(inference_lookback=150)
+        cfg_default.clean()
+
+    def test_inference_lookback_default_is_sufficient(self):
+        """Test that default inference_lookback is >= max_warmup_bars."""
+        from quant_core.features import compute_max_warmup_bars
+
+        from quant_tick.models import MLConfig
+
+        cfg = MLConfig()
+        max_warmup = compute_max_warmup_bars()
+
+        # Default should be sufficient
+        self.assertGreaterEqual(
+            cfg.inference_lookback, max_warmup,
+            f"Default inference_lookback ({cfg.inference_lookback}) should be >= "
+            f"max_warmup_bars ({max_warmup})"
+        )
+
+
+class MLConfigHorizonsTest(TestCase):
+    """Test MLConfig.get_horizons() with custom horizons configuration."""
+
+    def test_custom_horizons_override(self):
+        """Test that json_data['horizons'] overrides candle-derived horizons."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={"horizons": [16, 32, 96]}
+        )
+
+        horizons = ml_config.get_horizons()
+        self.assertEqual(horizons, [16, 32, 96])
+
+    def test_custom_horizons_dedupes_and_sorts(self):
+        """Test that custom horizons are deduplicated and sorted."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={"horizons": [96, 16, 32, 16, 96]}
+        )
+
+        horizons = ml_config.get_horizons()
+        self.assertEqual(horizons, [16, 32, 96])
+
+    def test_custom_horizons_rejects_negative_values(self):
+        """Test that negative values are rejected."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={"horizons": [16, -5, 32]}
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            ml_config.get_horizons()
+
+        self.assertIn("positive integers", str(ctx.exception))
+
+    def test_custom_horizons_rejects_zero(self):
+        """Test that zero is rejected."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={"horizons": [16, 0, 32]}
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            ml_config.get_horizons()
+
+        self.assertIn("positive integers", str(ctx.exception))
+
+    def test_custom_horizons_rejects_non_list(self):
+        """Test that non-list values are rejected."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={"horizons": "not a list"}
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            ml_config.get_horizons()
+
+        self.assertIn("must be a list", str(ctx.exception))
+
+    def test_custom_horizons_rejects_non_integers(self):
+        """Test that non-integer values are rejected."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={"horizons": [16, 32.5, 96]}
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            ml_config.get_horizons()
+
+        self.assertIn("positive integers", str(ctx.exception))
+
+    def test_custom_horizons_rejects_booleans(self):
+        """Test that booleans are rejected (isinstance(True, int) is True)."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={"horizons": [16, True, 96]}
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            ml_config.get_horizons()
+
+        self.assertIn("positive integers", str(ctx.exception))
+
+    def test_custom_horizons_rejects_empty_list(self):
+        """Test that empty lists are rejected (min/max would fail downstream)."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={"horizons": []}
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            ml_config.get_horizons()
+
+        self.assertIn("at least one", str(ctx.exception))
+
+    def test_custom_horizons_accepts_tuple(self):
+        """Test that tuples are accepted (for programmatic setting)."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={"horizons": (16, 32, 96)}
+        )
+
+        horizons = ml_config.get_horizons()
+        self.assertEqual(horizons, [16, 32, 96])
+
+    def test_custom_horizons_none_falls_back(self):
+        """Test that horizons=None falls back to candle-derived."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={"horizons": None}
+        )
+
+        horizons = ml_config.get_horizons(max_days=2)
+        self.assertEqual(horizons, [24, 48])
+
+    def test_fallback_to_candle_derived_horizons(self):
+        """Test that without custom horizons, falls back to candle-derived."""
+        from quant_tick.models import Candle, MLConfig
+
+        candle = Candle(json_data={"target_candles_per_day": 24})
+        ml_config = MLConfig(
+            candle=candle,
+            json_data={}
+        )
+
+        horizons = ml_config.get_horizons(max_days=2)
+        self.assertEqual(horizons, [24, 48])

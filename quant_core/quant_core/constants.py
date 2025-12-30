@@ -1,5 +1,3 @@
-"""Constants for ML prediction."""
-
 # Sentinel value for missing features
 MISSING_SENTINEL = -999.0
 

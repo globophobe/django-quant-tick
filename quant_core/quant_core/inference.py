@@ -1,15 +1,7 @@
-"""High-level inference API for ML predictions."""
-
 import pandas as pd
 
 from .constants import DEFAULT_ASYMMETRIES, DEFAULT_WIDTHS
-from .prediction import (
-    LPConfig,
-    compute_bound_features,
-    find_optimal_config,
-    hazard_to_per_horizon_probs,
-    prepare_features,
-)
+from .prediction import predict_competing_risks_multi_horizon
 
 
 def run_inference(
@@ -20,19 +12,17 @@ def run_inference(
     widths: list[float] | None = None,
     asymmetries: list[float] | None = None,
 ) -> dict:
-    """Run inference on features using trained models.
+    """Run inference using competing-risks models.
 
     This is the main entry point for prediction services (quant_horizon).
-    It encapsulates the full inference workflow: feature prep, hazard prediction,
-    survival curve reconstruction, and optimal config selection.
 
     Args:
-        features: Single-row DataFrame with latest features (no k column)
-        models: {"lower": lower_model, "upper": upper_model}
+        features: Single-row DataFrame with latest features
+        models: {"first_hit_h48": model, "first_hit_h96": model, ...}
         metadata: {
             "feature_cols": [...],
-            "max_horizon": 180,
-            "decision_horizons": [60, 120, 180],
+            "horizons": [48, 96, 144],
+            "model_kind": "competing_risks",
             ...
         }
         touch_tolerance: Max acceptable P(touch) for valid config
@@ -57,92 +47,79 @@ def run_inference(
             "message": "All configs exceed touch_tolerance=0.15"
         }
     """
-    # Extract metadata
-    feature_cols = metadata["feature_cols"]
-    max_horizon = metadata["max_horizon"]
-    decision_horizons = metadata.get("decision_horizons", [60, 120, 180])
+    # Validate model_kind
+    model_kind = metadata.get("model_kind")
+    if model_kind != "competing_risks":
+        raise ValueError(
+            f"Unsupported model_kind='{model_kind}'. "
+            "Only 'competing_risks' models are supported."
+        )
 
-    # Use defaults if not provided
+    feature_cols = metadata["feature_cols"]
+    horizons = metadata["horizons"]
+
     if widths is None:
         widths = metadata.get("widths", DEFAULT_WIDTHS)
     if asymmetries is None:
         asymmetries = metadata.get("asymmetries", DEFAULT_ASYMMETRIES)
 
-    # Get models
-    lower_model = models["lower"]
-    upper_model = models["upper"]
+    # Use shortest horizon for risk assessment and scoring
+    decision_horizon = min(horizons)
 
-    # Extract latest bar (should be single row)
     latest = features.iloc[[-1]].copy()
+    configs = [(w, a) for w in widths for a in asymmetries]
+    valid_configs = []
 
-    # Create prediction functions for lower/upper bounds
-    def predict_lower(feat: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
-        """Predict max P(hit_lower) across decision horizons using survival model."""
-        # Add bound features
-        feat_with_bounds = compute_bound_features(feat, lower_pct, upper_pct)
+    for width, asymmetry in configs:
+        lower_pct = -width * (0.5 - asymmetry)
+        upper_pct = width * (0.5 + asymmetry)
 
-        # Exclude k from prepare_features (not in live candle data)
-        base_feature_cols = [c for c in feature_cols if c != "k"]
-        X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
-
-        # Rebuild DataFrame (no k yet)
-        X_df = pd.DataFrame(X_array, columns=expanded_cols)
-        X_base = X_df.iloc[[0]]
-
-        # Reconstruct per-horizon probabilities from hazard model
-        # Pass full feature_cols (includes k) - hazard_to_per_horizon_probs will add it
-        horizon_probs = hazard_to_per_horizon_probs(
-            lower_model,
-            X_base,
-            feature_cols,  # Full training order WITH k
-            decision_horizons,
-            max_horizon,
+        # Get predictions for all horizons
+        preds = predict_competing_risks_multi_horizon(
+            models,
+            latest,
+            horizons,
+            lower_pct,
+            upper_pct,
+            width,
+            asymmetry,
+            feature_cols,
         )
 
-        # Return max risk (conservative)
-        return float(max(horizon_probs.values()))
+        p_touch_lower = preds[decision_horizon]["DOWN_FIRST"]
+        p_touch_upper = preds[decision_horizon]["UP_FIRST"]
+        p_timeout = preds[decision_horizon]["TIMEOUT"]
 
-    def predict_upper(feat: pd.DataFrame, lower_pct: float, upper_pct: float) -> float:
-        """Predict max P(hit_upper) across decision horizons using survival model."""
-        feat_with_bounds = compute_bound_features(feat, lower_pct, upper_pct)
-        base_feature_cols = [c for c in feature_cols if c != "k"]
-        X_array, expanded_cols = prepare_features(feat_with_bounds, base_feature_cols)
-        X_df = pd.DataFrame(X_array, columns=expanded_cols)
-        X_base = X_df.iloc[[0]]
+        # In competing-risks: P(exit) = P(DOWN_FIRST) + P(UP_FIRST) = 1 - P(TIMEOUT)
+        p_exit = p_touch_lower + p_touch_upper
+        if p_exit <= touch_tolerance:
+            valid_configs.append(
+                {
+                    "lower_pct": lower_pct,
+                    "upper_pct": upper_pct,
+                    "p_touch_lower": p_touch_lower,
+                    "p_touch_upper": p_touch_upper,
+                    "width": width,
+                    "asymmetry": asymmetry,
+                    "p_timeout": p_timeout,
+                }
+            )
 
-        horizon_probs = hazard_to_per_horizon_probs(
-            upper_model,
-            X_base,
-            feature_cols,  # Full training order WITH k
-            decision_horizons,
-            max_horizon,
-        )
-
-        return float(max(horizon_probs.values()))
-
-    # Find optimal config
-    optimal: LPConfig | None = find_optimal_config(
-        predict_lower,
-        predict_upper,
-        latest,
-        touch_tolerance=touch_tolerance,
-        widths=widths,
-        asymmetries=asymmetries,
-    )
-
-    if optimal is None:
+    if not valid_configs:
         return {
             "error": "no_valid_config",
             "message": f"All configs exceed touch_tolerance={touch_tolerance}",
         }
 
-    # Return optimal config as dict
+    # Select config with highest P(TIMEOUT) at decision_horizon
+    best = max(valid_configs, key=lambda x: x["p_timeout"])
+
     return {
-        "lower_bound": optimal.lower_pct,
-        "upper_bound": optimal.upper_pct,
-        "borrow_ratio": optimal.borrow_ratio,
-        "p_touch_lower": optimal.p_touch_lower,
-        "p_touch_upper": optimal.p_touch_upper,
-        "width": optimal.width,
-        "asymmetry": optimal.asymmetry,
+        "lower_bound": best["lower_pct"],
+        "upper_bound": best["upper_pct"],
+        "borrow_ratio": 0.5 + best["asymmetry"],
+        "p_touch_lower": best["p_touch_lower"],
+        "p_touch_upper": best["p_touch_upper"],
+        "width": best["width"],
+        "asymmetry": best["asymmetry"],
     }

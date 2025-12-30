@@ -16,16 +16,17 @@ class PurgedKFold(TimeSeriesSplit):
     """Time-series cross-validation with purging and embargo.
 
     Uses TimeSeriesSplit for forward-only splits (train always before test), then applies:
-    1. Purging: Remove training samples whose event ends after test starts
-    2. Embargo: Remove training samples within N bars of test boundaries
+    1. Purging: Remove training samples whose event ends after test starts (prevents label leakage)
+    2. Embargo: Remove training samples within N bars BEFORE test starts (creates buffer zone)
 
     TimeSeriesSplit ensures training data is always before test data chronologically,
     preventing the temporal leakage present in standard KFold symmetric splits.
 
-    The purging removes overlapping events from training, and the embargo creates a
-    buffer zone to prevent correlation between recent training samples and test samples.
+    The purging removes overlapping events from training. The embargo creates a
+    temporal gap [test_start - embargo_bars, test_start) to prevent overfitting
+    from samples in temporal proximity to the test period.
 
-    For interleaved multi-config data, pass timestamp_idx array to use actual timestamps
+    For interleaved multi-config data, pass bar_idx array to use bar indices
     for purging/embargo instead of row indices.
     """
 
@@ -39,8 +40,8 @@ class PurgedKFold(TimeSeriesSplit):
         X: Any,
         y: Any = None,
         groups: Any = None,
-        event_end_idx: np.ndarray | None = None,
-        timestamp_idx: np.ndarray | None = None,
+        event_end_exclusive_idx: np.ndarray | None = None,
+        bar_idx: np.ndarray | None = None,
     ) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
         """Generate purged train/test splits.
 
@@ -48,31 +49,32 @@ class PurgedKFold(TimeSeriesSplit):
             X: Feature matrix
             y: Labels (unused)
             groups: Groups (unused)
-            event_end_idx: Array of event end timestamps (timestamp_idx + horizon)
-            timestamp_idx: Array of timestamp indices for each row. If provided,
-                purging/embargo use timestamp space instead of row index space.
+            event_end_exclusive_idx: Array of exclusive upper bounds (bar_idx + horizon + 1)
+            bar_idx: Array of integer bar indices (0, 1, 2, ...) for each row. If provided,
+                purging/embargo use bar index space instead of row index space.
         """
-        if event_end_idx is None:
+        if event_end_exclusive_idx is None:
             yield from super().split(X, y, groups)
             return
 
         for train_idx, test_idx in super().split(X, y, groups):
-            # Get timestamp boundaries for test set
-            if timestamp_idx is not None:
-                test_timestamps = timestamp_idx[test_idx]
-                test_start_ts = test_timestamps.min()
+            # Get bar index boundaries for test set
+            if bar_idx is not None:
+                test_bars = bar_idx[test_idx]
+                test_start_bar = test_bars.min()
 
-                train_timestamps = timestamp_idx[train_idx]
-                train_event_ends = event_end_idx[train_idx]
+                train_bars = bar_idx[train_idx]
+                train_event_ends = event_end_exclusive_idx[train_idx]
 
                 # TimeSeriesSplit ensures train < test, so all training is before test
                 # Apply purging: remove training samples whose events overlap with test
-                purge_mask = train_event_ends < test_start_ts
+                # For exclusive end, keep samples where event_end_exclusive <= test_start (no overlap)
+                purge_mask = train_event_ends <= test_start_bar
 
                 # Apply embargo: remove training samples too close to test start
                 if self.embargo_bars > 0:
-                    embargo_start = test_start_ts - self.embargo_bars
-                    embargo_mask = train_timestamps < embargo_start
+                    embargo_start = test_start_bar - self.embargo_bars
+                    embargo_mask = train_bars < embargo_start
                     final_mask = purge_mask & embargo_mask
                 else:
                     final_mask = purge_mask
@@ -81,11 +83,12 @@ class PurgedKFold(TimeSeriesSplit):
             else:
                 # Row-index based purging for non-interleaved data
                 test_start_idx = test_idx.min()
-                train_event_ends = event_end_idx[train_idx]
+                train_event_ends = event_end_exclusive_idx[train_idx]
 
                 # TimeSeriesSplit ensures train < test (all train_idx < test_start_idx)
                 # Apply purging: remove training samples whose events overlap with test
-                purge_mask = train_event_ends < test_start_idx
+                # For exclusive end, keep samples where event_end_exclusive <= test_start (no overlap)
+                purge_mask = train_event_ends <= test_start_idx
 
                 # Apply embargo: remove training samples too close to test start
                 if self.embargo_bars > 0:
@@ -162,42 +165,36 @@ def generate_labels(
     df: DataFrame,
     widths: list[float],
     asymmetries: list[float],
-    max_horizon: int,
+    horizons: list[int],
 ) -> DataFrame:
-    """Generate survival training labels using vectorized operations.
+    """Generate multi-horizon competing-risks labels.
 
-    Expands data over (bar, config, k) dimensions. For each entry bar and config,
-    creates max_horizon rows (one per time step k). Sets hazard_lower(k) = 1
-    if first touch occurs at step k.
+    Creates dataset with bars × configs rows (NOT expanded by horizon dimension).
+    Adds multiclass label columns for each horizon indicating which barrier
+    gets hit first: UP_FIRST (0), DOWN_FIRST (1), or TIMEOUT (2).
 
     Args:
         df: DataFrame with OHLC and base features
         widths: Range widths to test
         asymmetries: Range asymmetries
-        max_horizon: Maximum time steps to generate
+        horizons: Prediction horizons in bars (e.g., [48, 96, 144, ...])
 
     Returns:
-        DataFrame with shape (n_bars * n_configs * max_horizon, n_features)
+        DataFrame with shape (n_bars * n_configs, n_features)
 
         Schema:
-        - Metadata: bar_idx, config_id, k, timestamp, entry_price
+        - Metadata: bar_idx, config_id
         - Config: width, asymmetry, lower_bound_pct, upper_bound_pct,
                   range_width, range_asymmetry, dist_to_lower_pct, dist_to_upper_pct
         - Base features: close, volume, realizedVol, rollingSharpe20, etc.
-        - Labels: hazard_lower, hazard_upper, event_lower, event_upper
+        - Labels: first_hit_h{H} for each H in horizons
+            Values: 0=UP_FIRST, 1=DOWN_FIRST, 2=TIMEOUT
 
-        Row ordering: Interleaved by (bar_idx, k, config_id)
-            [bar0_k1_cfg0, bar0_k1_cfg1, ..., bar0_k2_cfg0, ..., bar1_k1_cfg0, ...]
-
-    Invariants:
-        - sum(hazard_lower over k) <= 1 for each (bar, config)
-        - hazard_lower(k) = 1 implies event_lower = 1
-        - event_lower = 0 implies all hazard_lower(k) = 0 (censored)
+    Memory: ~180x reduction vs hazard models
+        (bars × configs vs bars × configs × max_horizon)
     """
     if "close" not in df.columns:
         raise ValueError("Missing close column")
-    if "timestamp" not in df.columns:
-        raise ValueError("Missing timestamp column")
 
     close = df["close"].values
     low = df["low"].values if "low" in df.columns else close.copy()
@@ -211,19 +208,16 @@ def generate_labels(
 
     configs = [(w, a) for w in widths for a in asymmetries]
     n_configs = len(configs)
-    n_bars = len(df) - 1
+    n_bars = len(df) - 1  # Drop last bar (no future for labels)
 
-    # Pre-compute first touch times for all configs
-    # Shape: (n_configs, n_bars) for each of lower/upper
+    # Compute first touch for each config using existing logic
+    max_horizon = max(horizons)
     first_touch_lower_all = np.zeros((n_configs, n_bars), dtype=np.int32)
     first_touch_upper_all = np.zeros((n_configs, n_bars), dtype=np.int32)
-    config_params = np.zeros((n_configs, 2), dtype=np.float64)  # (width, asym)
 
     for cfg_idx, (width, asym) in enumerate(configs):
         lower_pct = -width * (0.5 - asym)
         upper_pct = width * (0.5 + asym)
-        config_params[cfg_idx] = [lower_pct, upper_pct]
-
         lower_bounds = close * (1 + lower_pct)
         upper_bounds = close * (1 + upper_pct)
 
@@ -233,74 +227,73 @@ def generate_labels(
         first_touch_lower_all[cfg_idx] = first_touch_lower
         first_touch_upper_all[cfg_idx] = first_touch_upper
 
-    # Create coordinate grids - interleaved by (bar_idx, k, config_id)
-    # Pattern: [bar0_k1_cfg0, bar0_k1_cfg1, ..., bar0_k2_cfg0, ...]
-    bar_idx_grid = np.repeat(np.arange(n_bars), n_configs * max_horizon)
-    k_grid = np.tile(np.repeat(np.arange(1, max_horizon + 1), n_configs), n_bars)
-    config_id_grid = np.tile(np.arange(n_configs), n_bars * max_horizon)
+    # Expand to bars × configs (WITHOUT object columns like timestamp)
+    bar_idx_grid = np.repeat(np.arange(n_bars), n_configs)
+    config_id_grid = np.tile(np.arange(n_configs), n_bars)
 
-    # Build result dictionary
-    result_dict = {}
+    result_dict = {"bar_idx": bar_idx_grid, "config_id": config_id_grid}
 
-    # Add coordinate columns
-    result_dict["bar_idx"] = bar_idx_grid
-    result_dict["config_id"] = config_id_grid
-    result_dict["k"] = k_grid
+    # Only include numeric and bool columns, explicitly exclude metadata and labels
+    base_feature_cols = [
+        c for c in df.select_dtypes(include=["number", "bool"]).columns
+        if c not in ["bar_idx", "config_id", "k", "hazard_lower", "hazard_upper"]
+        and not c.startswith("touched_")
+    ]
 
-    # Broadcast base features from df (excluding last bar)
-    df_truncated = df.iloc[:n_bars]
-    for col in df_truncated.columns:
-        if col in ["close", "timestamp"]:
-            # These get special handling
-            continue
-        result_dict[col] = df_truncated[col].values[bar_idx_grid]
+    for col in base_feature_cols:
+        if col in df.columns:
+            result_dict[col] = df[col].values[:n_bars][bar_idx_grid]
 
-    # Add entry_price (close at entry bar)
-    result_dict["entry_price"] = close[bar_idx_grid]
-    result_dict["timestamp"] = df_truncated["timestamp"].values[bar_idx_grid]
+    # Preserve timestamp for backtest position tracking
+    if "timestamp" in df.columns:
+        result_dict["timestamp"] = df["timestamp"].values[:n_bars][bar_idx_grid]
 
-    # Broadcast config-specific features
-    # Extract width and asymmetry for each row based on config_id
+    # Add config features
     widths_array = np.array([w for w, a in configs])
     asyms_array = np.array([a for w, a in configs])
-
     result_dict["width"] = widths_array[config_id_grid]
     result_dict["asymmetry"] = asyms_array[config_id_grid]
 
     # Compute bound percentages
-    lower_pct_grid = config_params[config_id_grid, 0]
-    upper_pct_grid = config_params[config_id_grid, 1]
+    lower_pcts = np.array([-w * (0.5 - a) for w, a in configs])
+    upper_pcts = np.array([w * (0.5 + a) for w, a in configs])
 
-    result_dict["lower_bound_pct"] = lower_pct_grid
-    result_dict["upper_bound_pct"] = upper_pct_grid
-    result_dict["range_width"] = upper_pct_grid - lower_pct_grid
-    result_dict["range_asymmetry"] = upper_pct_grid + lower_pct_grid
+    result_dict["lower_bound_pct"] = lower_pcts[config_id_grid]
+    result_dict["upper_bound_pct"] = upper_pcts[config_id_grid]
+    result_dict["range_width"] = (upper_pcts - lower_pcts)[config_id_grid]
+    result_dict["range_asymmetry"] = (upper_pcts + lower_pcts)[config_id_grid]
 
     # Compute distance features
-    close_grid = close[bar_idx_grid]
-    lower_bounds_grid = close_grid * (1 + lower_pct_grid)
-    upper_bounds_grid = close_grid * (1 + upper_pct_grid)
+    close_grid = close[:n_bars][bar_idx_grid]
+    lower_bounds_grid = close_grid * (1 + lower_pcts[config_id_grid])
+    upper_bounds_grid = close_grid * (1 + upper_pcts[config_id_grid])
 
     result_dict["dist_to_lower_pct"] = (close_grid - lower_bounds_grid) / close_grid
     result_dict["dist_to_upper_pct"] = (upper_bounds_grid - close_grid) / close_grid
 
-    # Extract first touch times using advanced indexing
-    # first_touch_lower_all[config_id, bar_idx]
-    t_lower_grid = first_touch_lower_all[config_id_grid, bar_idx_grid]
-    t_upper_grid = first_touch_upper_all[config_id_grid, bar_idx_grid]
+    # Compute per-row touch times (vectorized, no loop)
+    touch_lower_grid = first_touch_lower_all[config_id_grid, bar_idx_grid]
+    touch_upper_grid = first_touch_upper_all[config_id_grid, bar_idx_grid]
 
-    # Compute hazard and event labels
-    result_dict["hazard_lower"] = (t_lower_grid == k_grid).astype(np.int8)
-    result_dict["hazard_upper"] = (t_upper_grid == k_grid).astype(np.int8)
-    result_dict["event_lower"] = (t_lower_grid <= max_horizon).astype(np.int8)
-    result_dict["event_upper"] = (t_upper_grid <= max_horizon).astype(np.int8)
+    # Generate competing-risks labels (multiclass per horizon)
+    for H in horizons:
+        # Vectorized comparison (no Python loop)
+        labels = np.full(n_bars * n_configs, 2, dtype=np.int8)  # Default: TIMEOUT
 
-    # Create DataFrame
+        # Ties (touch_upper == touch_lower) go to UP_FIRST (deterministic)
+        up_first_mask = (touch_upper_grid <= touch_lower_grid) & (touch_upper_grid <= H)
+        down_first_mask = (touch_lower_grid < touch_upper_grid) & (touch_lower_grid <= H)
+
+        labels[up_first_mask] = 0  # UP_FIRST
+        labels[down_first_mask] = 1  # DOWN_FIRST
+
+        result_dict[f"first_hit_h{H}"] = labels
+
     result = pd.DataFrame(result_dict)
 
     logger.info(
-        f"Generated survival labels: {len(result)} rows = "
-        f"{n_bars} bars × {n_configs} configs × {max_horizon} time steps"
+        f"Generated multi-horizon labels: {len(result)} rows = "
+        f"{n_bars} bars × {n_configs} configs (not expanded by {len(horizons)} horizons)"
     )
 
     return result
@@ -389,6 +382,96 @@ def calibrate_per_horizon(
         return None, "none"
 
 
+def calibrate_multiclass_ovr(
+    y_true: np.ndarray,
+    y_pred_proba: np.ndarray,
+    method: str = "auto",
+) -> tuple[dict | None, dict | None]:
+    """Calibrate multiclass probabilities using One-vs-Rest.
+
+    Args:
+        y_true: True class labels (0, 1, 2)
+        y_pred_proba: Predicted probabilities (n_samples, n_classes)
+        method: 'auto', 'isotonic', or 'platt'
+
+    Returns:
+        (calibrators_dict, methods_dict) where:
+        - calibrators_dict: {0: calibrator, 1: calibrator, 2: None if skipped, ...}
+        - methods_dict: {0: "isotonic", 1: "platt", 2: "none", ...}
+        Returns (None, None) if entire calibration fails
+
+    Note: Individual classes can skip calibration (stored as None with method="none")
+    while others calibrate successfully.
+    """
+    from sklearn.metrics import log_loss
+
+    n_samples, n_classes = y_pred_proba.shape
+
+    # Validate minimum samples
+    if n_samples < 30:
+        logger.warning(f"Too few samples for multiclass calibration ({n_samples}), skipping")
+        return None, None
+
+    # Validate class distribution
+    for cls in range(n_classes):
+        if (y_true == cls).sum() < 5:
+            logger.warning(f"Too few samples for class {cls}, skipping all calibration")
+            return None, None
+
+    # Baseline log-loss
+    logloss_before = log_loss(y_true, y_pred_proba)
+
+    # Train one binary calibrator per class (some may fail)
+    calibrators = {}
+    methods = {}
+    for cls in range(n_classes):
+        y_binary = (y_true == cls).astype(int)
+        y_pred_cls = y_pred_proba[:, cls]
+
+        calibrator, calib_method = calibrate_per_horizon(y_binary, y_pred_cls, method=method)
+
+        calibrators[cls] = calibrator  # Can be None
+        methods[cls] = calib_method    # Can be "none"
+
+    # Check if at least one class was calibrated
+    if all(m == "none" for m in methods.values()):
+        logger.warning("All classes failed calibration, skipping multiclass calibration")
+        return None, None
+
+    # CRITICAL: Validate multiclass calibration actually improves log-loss
+    # Apply calibration and check if it helps
+    from quant_core.prediction import apply_calibration
+
+    calibrated_proba = np.zeros_like(y_pred_proba)
+    for cls in range(n_classes):
+        if calibrators[cls] is not None and methods[cls] != "none":
+            calibrated_proba[:, cls] = apply_calibration(
+                y_pred_proba[:, cls], calibrators[cls], methods[cls]
+            )
+        else:
+            calibrated_proba[:, cls] = y_pred_proba[:, cls]
+
+    # Re-normalize
+    row_sums = calibrated_proba.sum(axis=1, keepdims=True)
+    row_sums = np.where(row_sums > 0, row_sums, 1.0)
+    calibrated_proba = calibrated_proba / row_sums
+
+    # Check if calibration improved multiclass log-loss
+    logloss_after = log_loss(y_true, calibrated_proba)
+
+    if logloss_after > logloss_before * 1.05:  # Allow 5% tolerance
+        logger.warning(
+            f"Multiclass calibration worsened log-loss "
+            f"({logloss_before:.4f} -> {logloss_after:.4f}), skipping"
+        )
+        return None, None
+
+    logger.debug(
+        f"Multiclass calibration: methods={methods}, "
+        f"log-loss {logloss_before:.4f} -> {logloss_after:.4f}"
+    )
+
+    return calibrators, methods
 
 
 

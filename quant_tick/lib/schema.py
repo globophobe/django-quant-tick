@@ -37,7 +37,7 @@ class MLSchema:
     }
 
     @staticmethod
-    def get_data_features(all_cols: list[str], horizons: list[int]) -> list[str]:
+    def get_data_features(all_cols: list[str]) -> list[str]:
         """Get data features.
 
         Config cols like width, asymmetry, range_width are added dynamically when
@@ -50,7 +50,6 @@ class MLSchema:
 
         Args:
             all_cols: All column names expected during training
-            horizons: List of decision horizons (unused, kept for backward compatibility)
 
         Returns:
             List of feature names that must exist in input data
@@ -151,20 +150,44 @@ class MLSchema:
         }
 
     @staticmethod
-    def get_training_features(all_cols: list[str]) -> list[str]:
-        """Get training features for survival models.
+    def get_competing_risks_label_cols(horizons: list[int]) -> set[str]:
+        """Get competing-risks label column names.
 
-        Excludes metadata and labels, but INCLUDES k as a feature.
-        This is critical: k (time since entry) is a predictor.
+        Args:
+            horizons: List of horizons (e.g., [48, 96, 144])
+
+        Returns:
+            Set of competing-risks label column names
+        """
+        return {f"first_hit_h{H}" for H in horizons}
+
+    @staticmethod
+    def get_training_features(all_cols: list[str]) -> list[str]:
+        """Get training features for multi-horizon competing-risks models.
+
+        Excludes:
+        - Metadata columns (timestamp, bar_idx, config_id, entry_price)
+        - Label columns (hazard_*, event_*, first_hit_h*)
+
+        NOTE: Does NOT include k anymore (competing-risks models don't use k)
 
         Args:
             all_cols: All column names from training DataFrame
 
         Returns:
-            List of feature column names (includes k, excludes labels)
+            List of feature column names
         """
-        exclude = (MLSchema.HAZARD_METADATA_COLS - {"k"}) | MLSchema.get_hazard_label_cols()
-        return [c for c in all_cols if c not in exclude]
+        # Metadata to exclude (no k in multi-horizon)
+        exclude = MLSchema.METADATA_COLS
+
+        # Add hazard labels (for backwards compat if any exist)
+        exclude = exclude | MLSchema.get_hazard_label_cols()
+
+        # Filter: exclude metadata, labels, and any column starting with "first_hit_h"
+        return [
+            c for c in all_cols
+            if c not in exclude and not c.startswith("first_hit_h")
+        ]
 
     @staticmethod
     def validate_schema(

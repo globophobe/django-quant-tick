@@ -2,13 +2,11 @@ import hashlib
 
 from django.conf import settings
 from django.db import models
+from quant_core.constants import DEFAULT_ASYMMETRIES, DEFAULT_WIDTHS
 
-# Import for schema validation
-from quant_tick.lib.ml import DEFAULT_ASYMMETRIES, DEFAULT_WIDTHS
-from quant_tick.lib.schema import MLSchema
 from quant_tick.utils import gettext_lazy as _
 
-from .base import AbstractCodeName, AbstractDataStorage, JSONField
+from .base import AbstractCodeName, JSONField
 
 
 def upload_artifact_to(instance: "MLArtifact", filename: str) -> str:
@@ -18,13 +16,6 @@ def upload_artifact_to(instance: "MLArtifact", filename: str) -> str:
     return f"{prefix}/artifacts/{code_name}/{filename}"
 
 
-def upload_feature_data_to(instance: "MLFeatureData", filename: str) -> str:
-    """Upload feature data to."""
-    prefix = "test-ml" if settings.TEST else "ml"
-    code_name = instance.candle.code_name
-    return f"{prefix}/features/{code_name}/{filename}"
-
-
 class MLConfig(AbstractCodeName):
     """ML Config for range breach risk prediction.
 
@@ -32,14 +23,13 @@ class MLConfig(AbstractCodeName):
     upper or lower bounds of a liquidity range within a given time horizon.
 
     How it works:
-    1. Train survival models using discrete-time hazard functions for each side
-       (lower bound, upper bound)
-    2. Each model predicts h(k) = P(first touch at step k | survived to k-1)
-    3. Reconstruct survival curves S(k) and compute P(touch by horizon H) via
-       hazard_to_per_horizon_probs for decision horizons (e.g., 60/120/180 bars)
+    1. Train competing-risks models that predict which barrier gets hit first
+       (upper bound, lower bound, or neither within horizon)
+    2. Each model outputs P(UP_FIRST), P(DOWN_FIRST), P(TIMEOUT) for a horizon
+    3. Multiple models trained for different horizons (e.g., 48/96/144 bars)
     4. Calibrate predictions using isotonic regression to fix miscalibration
-    5. Enforce monotonicity: longer horizons must have equal or higher touch probability
-    6. Filter ranges: reject any range where total touch risk exceeds touch_tolerance
+    5. Enforce monotonicity: longer horizons must have equal or higher exit probability
+    6. Filter ranges: reject any range where total exit risk exceeds touch_tolerance
 
     What it is:
     - A risk filter that screens out ranges likely to get breached
@@ -57,7 +47,7 @@ class MLConfig(AbstractCodeName):
         "quant_tick.Candle",
         on_delete=models.CASCADE,
         verbose_name=_("candle"),
-        related_name="ml_config"
+        related_name="ml_config",
     )
     symbol = models.ForeignKey(
         "quant_tick.Symbol",
@@ -67,8 +57,12 @@ class MLConfig(AbstractCodeName):
     )
     inference_lookback = models.IntegerField(
         _("inference lookback"),
-        default=100,
-        help_text=_("Number of bars to fetch for inference feature computation"),
+        default=150,
+        help_text=_(
+            "Number of bars to fetch for inference feature computation. "
+            "Must be >= 120 (max warmup for volZScore). "
+            "Recommended: 150 (120 warmup + 30 buffer)."
+        ),
     )
     horizon_bars = models.IntegerField(
         _("horizon bars"),
@@ -88,10 +82,7 @@ class MLConfig(AbstractCodeName):
         default=15,
         help_text=_("Minimum bars before position change"),
     )
-    json_data = JSONField(
-        _("json data"),
-        default=dict
-    )
+    json_data = JSONField(_("json data"), default=dict)
     last_processed_timestamp = models.DateTimeField(
         _("last processed timestamp"),
         null=True,
@@ -99,6 +90,23 @@ class MLConfig(AbstractCodeName):
         help_text=_("Timestamp of last processed bar for idempotency"),
     )
     is_active = models.BooleanField(_("active"), default=False)
+
+    def clean(self) -> None:
+        """Validate model fields."""
+        from django.core.exceptions import ValidationError
+        from quant_core.features import compute_max_warmup_bars
+
+        super().clean()
+
+        max_warmup = compute_max_warmup_bars()
+        if self.inference_lookback < max_warmup:
+            raise ValidationError({
+                'inference_lookback': (
+                    f"Must be >= {max_warmup} bars. Features like volZScore "
+                    f"require {max_warmup} bars to compute without NaN/sentinel values. "
+                    f"Recommended: 150 (120 warmup + 30 buffer)."
+                )
+            })
 
     def get_decision_horizons(self) -> list[int]:
         """Get decision horizons with fallback to sensible default."""
@@ -111,6 +119,72 @@ class MLConfig(AbstractCodeName):
     def get_asymmetries(self) -> list[float]:
         """Get asymmetries with fallback to DEFAULT_ASYMMETRIES."""
         return self.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
+
+    def get_exposures(self) -> list[float]:
+        """Get exposures with fallback to default symmetric grid.
+
+        Exposure represents signed BTC notional per $1 equity:
+        - Positive: long BTC (bullish)
+        - Negative: short BTC (bearish, BTC liability)
+        - Zero: neutral
+
+        Returns:
+            List of exposure values (e.g., [-1.0, -0.5, 0.0, 0.5, 1.0])
+        """
+        return self.json_data.get("exposures", [-1.0, -0.5, 0.0, 0.5, 1.0])
+
+    def get_perps_params(self) -> dict:
+        """Get perps parameters with defaults.
+
+        Returns dict with:
+            widths: Symmetric TP/SL distances (default [0.01, 0.02, 0.03])
+            conf_threshold: Min directional confidence (default 0.60)
+            move_threshold: Min move probability (default 0.40)
+            trail_pct: Trailing stop percentage (default 0.015 = 1.5%)
+        """
+        defaults = {
+            "widths": [0.01, 0.02, 0.03],
+            "conf_threshold": 0.60,
+            "move_threshold": 0.40,
+            "trail_pct": 0.015,
+        }
+        stored = self.json_data.get("perps_params", {})
+        return {**defaults, **stored}
+
+    def set_perps_params(self, **params) -> None:
+        """Update perps parameters in json_data."""
+        if "perps_params" not in self.json_data:
+            self.json_data["perps_params"] = {}
+        self.json_data["perps_params"].update(params)
+
+    def get_directional2_params(self) -> dict:
+        """Get directional2 parameters with defaults.
+
+        Returns dict with:
+            horizons: Forward horizons to train (default [48, 96])
+            k: Volatility multiplier for thresholds (default 0.25)
+            vol_window: Rolling vol window for labels (default 48)
+            p_threshold: Min P(class) for non-neutral inference (default 0.55)
+            conf_threshold: Min directional confidence (default 0.40)
+        """
+        defaults = {
+            "horizons": [48, 96],
+            "k": 0.25,
+            "vol_window": 48,
+            "p_threshold": 0.55,
+            "conf_threshold": 0.40,
+        }
+        stored = self.json_data.get("directional2_params", {})
+        return {**defaults, **stored}
+
+    def set_directional2_params(self, **params) -> None:
+        """Update directional2 parameters in json_data.
+
+        Valid keys: horizons, k, vol_window, p_threshold, conf_threshold.
+        """
+        if "directional2_params" not in self.json_data:
+            self.json_data["directional2_params"] = {}
+        self.json_data["directional2_params"].update(params)
 
     def get_min_bars(self) -> int:
         """Get minimum bars required for label generation."""
@@ -156,12 +230,13 @@ class MLConfig(AbstractCodeName):
     def get_simulation_params(self) -> dict:
         """Get simulation parameters with defaults.
 
-        Returns dict with keys: retrain_cadence_days, train_window_days, holdout_days.
+        Returns dict with keys: retrain_cadence_days, train_window_days, holdout_days, policy_mode.
         """
         defaults = {
             "retrain_cadence_days": 7,
             "train_window_days": 84,
             "holdout_days": None,
+            "policy_mode": "lp",
         }
         stored = self.json_data.get("simulation_params", {})
         return {**defaults, **stored}
@@ -174,6 +249,72 @@ class MLConfig(AbstractCodeName):
         if "simulation_params" not in self.json_data:
             self.json_data["simulation_params"] = {}
         self.json_data["simulation_params"].update(params)
+
+    def get_horizons(self, max_days: int = 3) -> list[int]:
+        """Get prediction horizons in bars based on candle frequency.
+
+        If json_data["horizons"] is set, uses those explicit horizons.
+        Otherwise, for candles with stable frequency (TimeBasedCandle or
+        AdaptiveCandle with target_candles_per_day), returns horizons
+        corresponding to 1-max_days.
+
+        For adaptive candles without explicit target, returns activity-based horizons
+        (not wall-clock days).
+
+        Args:
+            max_days: Maximum number of days for horizons
+
+        Returns:
+            List of horizons in bars (e.g., [24, 48, 72, ...] for 1h candles)
+
+        Raises:
+            ValueError: If cannot derive horizons from candle configuration or
+                if custom horizons are invalid
+        """
+        import logging
+
+        import pandas as pd
+
+        if "horizons" in self.json_data:
+            horizons_raw = self.json_data["horizons"]
+
+            if horizons_raw is None:
+                pass
+            else:
+                if not isinstance(horizons_raw, (list, tuple)):
+                    raise ValueError("horizons must be a list of positive integers")
+
+                if not horizons_raw:
+                    raise ValueError("horizons must contain at least one positive integer")
+
+                if not all(
+                    not isinstance(h, bool) and isinstance(h, int) and h > 0
+                    for h in horizons_raw
+                ):
+                    raise ValueError("horizons must contain only positive integers")
+
+                horizons = sorted(set(horizons_raw))
+
+                return horizons
+
+        candle = self.candle
+        logger = logging.getLogger(__name__)
+
+        if "target_candles_per_day" in candle.json_data:
+            bars_per_day = candle.json_data["target_candles_per_day"]
+            return [bars_per_day * d for d in range(1, max_days + 1)]
+
+        if "window" in candle.json_data:
+            delta = pd.Timedelta(candle.json_data["window"])
+            bars_per_day = int(24 / (delta.total_seconds() / 3600))
+            return [bars_per_day * d for d in range(1, max_days + 1)]
+
+        logger.warning(
+            f"{candle}: Cannot derive bars_per_day (adaptive), "
+            f"using activity-based horizons (~50 bars/day, {max_days} days)"
+        )
+        bars_per_activity_day = 50
+        return [bars_per_activity_day * d for d in range(1, max_days + 1)]
 
     class Meta:
         db_table = "quant_tick_ml_config"
@@ -206,32 +347,6 @@ class MLArtifact(models.Model):
         default=list,
         help_text=_("Ordered list of feature column names"),
     )
-    sha256 = models.CharField(_("sha256"), max_length=64, blank=True)
-
-    def save(self, *args, **kwargs) -> "MLArtifact":
-        """Save with SHA256 hash."""
-        if self.artifact and not self.sha256:
-            hasher = hashlib.sha256()
-            for chunk in self.artifact.chunks():
-                hasher.update(chunk)
-            self.sha256 = hasher.hexdigest()
-        return super().save(*args, **kwargs)
-
-    calibrator = models.BinaryField(
-        _("calibrator"),
-        null=True,
-        blank=True,
-        help_text=_(
-            "Deprecated: calibrator is stored in joblib artifact. "
-            "This field is redundant and not used by inference."
-        ),
-    )
-    horizon = models.IntegerField(
-        _("horizon"),
-        null=True,
-        blank=True,
-        help_text=_("Horizon in bars, for per-horizon models."),
-    )
     calibration_method = models.CharField(
         _("calibration method"),
         max_length=20,
@@ -244,49 +359,39 @@ class MLArtifact(models.Model):
         default=dict,
         help_text=_("Data including base rates, calibration drift, etc."),
     )
+    is_production = models.BooleanField(
+        _("is production"),
+        default=False,
+        help_text=_("Whether this model is deployed to quant_horizon"),
+    )
+    gcs_path = models.CharField(
+        _("gcs path"),
+        max_length=512,
+        blank=True,
+        help_text=_("GCS path: gs://bucket/path/model.joblib"),
+    )
+    sha256 = models.CharField(_("sha256"), max_length=64, blank=True)
+
+    def save(self, *args, **kwargs) -> "MLArtifact":
+        """Save with SHA256 hash."""
+        if self.artifact and not self.sha256:
+            hasher = hashlib.sha256()
+            for chunk in self.artifact.chunks():
+                hasher.update(chunk)
+            self.sha256 = hasher.hexdigest()
+        return super().save(*args, **kwargs)
 
     class Meta:
         db_table = "quant_tick_ml_artifact"
         verbose_name = _("ml artifact")
         verbose_name_plural = _("ml artifacts")
-
-
-class MLFeatureData(AbstractDataStorage):
-    """ML Feature Data."""
-
-    candle = models.ForeignKey(
-        "quant_tick.Candle",
-        on_delete=models.CASCADE,
-        verbose_name=_("candle"),
-        related_name="ml_feature_data",
-    )
-    timestamp_from = models.DateTimeField(_("timestamp from"))
-    timestamp_to = models.DateTimeField(_("timestamp to"))
-    file_data = models.FileField(
-        _("file data"), upload_to=upload_feature_data_to, blank=True
-    )
-    schema_hash = models.CharField(_("schema hash"), max_length=64, blank=True)
-
-    def validate_schema(self, config: "MLConfig") -> tuple[bool, str]:
-        """Validate stored schema matches config requirements.
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
-        df = self.get_data_frame("file_data")
-        if df is None or df.empty:
-            return False, _("No feature data.")
-
-        widths = config.json_data.get("widths", DEFAULT_WIDTHS)
-        asymmetries = config.json_data.get("asymmetries", DEFAULT_ASYMMETRIES)
-        max_horizon = self.json_data.get("max_horizon", config.horizon_bars)
-
-        return MLSchema.validate_schema(df, widths, asymmetries, max_horizon)
-
-    class Meta:
-        db_table = "quant_tick_ml_feature_data"
-        verbose_name = verbose_name_plural = _("ml feature data")
-        ordering = ["-timestamp_to"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["ml_config"],
+                condition=models.Q(is_production=True),
+                name="unique_production_model_per_config",
+            )
+        ]
 
 
 class MLSignal(models.Model):
@@ -313,11 +418,7 @@ class MLSignal(models.Model):
     )
     p_touch_lower = models.FloatField(_("P(touch lower)"))
     p_touch_upper = models.FloatField(_("P(touch upper)"))
-    json_data = JSONField(
-        _("json data"),
-        null=True,
-        blank=True
-    )
+    json_data = JSONField(_("json data"), null=True, blank=True)
 
     class Meta:
         db_table = "quant_tick_ml_signal"

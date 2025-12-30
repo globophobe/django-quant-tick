@@ -1,5 +1,3 @@
-"""Core prediction logic for hazard-based survival analysis."""
-
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -10,7 +8,7 @@ from pandas import DataFrame
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 
-from .constants import DEFAULT_ASYMMETRIES, DEFAULT_WIDTHS, MISSING_SENTINEL
+from .constants import MISSING_SENTINEL
 
 logger = logging.getLogger(__name__)
 
@@ -26,94 +24,131 @@ class LPConfig:
     p_touch_upper: float
     width: float
     asymmetry: float
+    direction: str | None = None
+    exposure: float = 0.0
 
 
-def hazard_to_per_horizon_probs(
-    hazard_model: Any,
-    X_base: DataFrame,
-    feature_cols: list[str],
-    decision_horizons: list[int],
-    max_horizon: int,
-) -> dict[int, float]:
-    """Reconstruct per-horizon probabilities from hazard model.
+def apply_multiclass_calibration(
+    y_pred_proba: np.ndarray,
+    calibrators: dict | None,
+    methods: dict | None,
+) -> np.ndarray:
+    """Apply One-vs-Rest calibration to multiclass predictions.
 
-    Predicts h(k) for k=1..max_horizon, composes into survival curve S(k),
-    then extracts P(hit_by_H) for decision horizons.
-
-    This bridges the gap between survival models and the existing inference
-    interface which expects P(hit_by_60), P(hit_by_120), P(hit_by_180).
+    CRITICAL: This lives in quant_core (not quant_tick) to respect package boundaries.
+    quant_core is Django/FastAPI-free, so cannot import quant_tick.
 
     Args:
-        hazard_model: Trained LightGBM with calibrator_ attribute
-        X_base: Single-row DataFrame with base features (no k column)
-        feature_cols: Training feature order from artifact (includes k)
-        decision_horizons: Horizons to extract (e.g., [60, 120, 180])
-        max_horizon: Maximum k to predict (e.g., 180)
+        y_pred_proba: Raw probabilities (n_samples, n_classes)
+        calibrators: Dict mapping class_idx -> calibrator (can be None per-class)
+        methods: Dict mapping class_idx -> method string ("isotonic", "platt", "none")
 
     Returns:
-        Dict mapping H -> P(hit_by_H)
-
-        Guarantees:
-        - P(hit_by_H1) <= P(hit_by_H2) <= P(hit_by_H3) (monotonic)
-        - P(hit_by_H) ∈ [0, 1] (valid probability)
-
-    Example:
-        X_base = pd.DataFrame([{"close": 100, "volume": 1000, ...}])
-        probs = hazard_to_per_horizon_probs(
-            model, X_base, feature_cols, [60, 120, 180], max_horizon=180
-        )
-        # probs = {60: 0.23, 120: 0.35, 180: 0.42}
+        Calibrated probabilities (n_samples, n_classes), rows sum to 1.0
     """
-    base_row = X_base.iloc[0].to_dict()
+    if calibrators is None or methods is None:
+        return y_pred_proba
 
-    # Expand over k=1..max_horizon
-    rows = []
-    for k in range(1, max_horizon + 1):
-        row = base_row.copy()
-        row["k"] = k
-        rows.append(row)
+    n_samples, n_classes = y_pred_proba.shape
+    calibrated = np.zeros_like(y_pred_proba)
 
-    X_expanded = pd.DataFrame(rows)
+    # Apply per-class calibration (handles missing keys gracefully)
+    for cls in range(n_classes):
+        calibrator = calibrators.get(cls)  # None if missing
+        method = methods.get(cls, "none")  # "none" if missing
 
-    # Ensure all training features exist; fill missing with sentinel
-    for col in feature_cols:
-        if col not in X_expanded.columns:
-            X_expanded[col] = MISSING_SENTINEL
-
-    # Reindex columns to training order (critical for LightGBM position-based matching)
-    X_expanded = X_expanded[feature_cols]
-
-    # Predict hazard h(k) for k=1..max_horizon
-    h_k_raw = hazard_model.predict_proba(X_expanded)[:, 1]
-
-    # Apply calibration (vectorized)
-    calibrator = getattr(hazard_model, "calibrator_", None)
-    calibration_method = getattr(hazard_model, "calibration_method_", "none")
-
-    h_k = apply_calibration(h_k_raw, calibrator, calibration_method)
-
-    # Clip to [0, 1] for numerical stability
-    h_k = np.clip(h_k, 0.0, 1.0)
-
-    # Compute survival curve: S(k) = ∏(j=1 to k) [1 - h(j)]
-    S_k = np.cumprod(1.0 - h_k)
-
-    # Convert to cumulative touch: P(hit_by_k) = 1 - S(k)
-    P_hit_by_k = 1.0 - S_k
-
-    # Extract decision horizons
-    result = {}
-    for h in decision_horizons:
-        if h <= max_horizon:
-            result[h] = float(P_hit_by_k[h - 1])  # k is 1-indexed, array is 0-indexed
+        if calibrator is not None and method != "none":
+            # Apply calibration using binary apply_calibration
+            calibrated[:, cls] = apply_calibration(
+                y_pred_proba[:, cls], calibrator, method
+            )
         else:
-            # Horizon beyond max_horizon: use final value
-            result[h] = float(P_hit_by_k[-1])
+            # Skip calibration for this class (graceful degradation)
+            calibrated[:, cls] = y_pred_proba[:, cls]
 
-    # Enforce monotonicity to guarantee contract
-    result = enforce_monotonicity(result, log_violations=False)
+    # Re-normalize to sum to 1.0 (required for valid probabilities)
+    row_sums = calibrated.sum(axis=1, keepdims=True)
+    row_sums = np.where(row_sums > 0, row_sums, 1.0)
+    return calibrated / row_sums
 
-    return result
+
+def predict_competing_risks_multi_horizon(
+    models_dict: dict[str, Any],
+    features: pd.DataFrame,
+    horizons: list[int],
+    lower_pct: float,
+    upper_pct: float,
+    width: float,
+    asymmetry: float,
+    feature_cols: list[str],
+) -> dict[int, dict[str, float]]:
+    """Predict first-hit probabilities for competing-risks models.
+
+    Args:
+        models_dict: {"first_hit_h48": model, "first_hit_h96": model, ...}
+        features: Single-row DataFrame with base features
+        horizons: List of horizons (e.g., [48, 96, 144])
+        lower_pct: Lower barrier offset (e.g., -0.03)
+        upper_pct: Upper barrier offset (e.g., +0.03)
+        width: Config width (must match training)
+        asymmetry: Config asymmetry (must match training)
+        feature_cols: Feature column names
+
+    Returns:
+        {
+            48: {"UP_FIRST": 0.25, "DOWN_FIRST": 0.20, "TIMEOUT": 0.55},
+            96: {"UP_FIRST": 0.30, "DOWN_FIRST": 0.25, "TIMEOUT": 0.45},
+            ...
+        }
+    """
+    # Add config features (must match training exactly)
+    feat_with_bounds = compute_bound_features(features, lower_pct, upper_pct)
+    feat_with_bounds["width"] = width
+    feat_with_bounds["asymmetry"] = asymmetry
+
+    X_array, expanded_cols = prepare_features(feat_with_bounds, feature_cols)
+    X_df = pd.DataFrame(X_array, columns=expanded_cols)
+
+    results = {}
+    for H in horizons:
+        model_key = f"first_hit_h{H}"
+        if model_key not in models_dict:
+            raise ValueError(f"Model {model_key} not found in models_dict")
+
+        model = models_dict[model_key]
+
+        # predict_proba returns [P(UP_FIRST), P(DOWN_FIRST), P(TIMEOUT)]
+        probs = model.predict_proba(X_df)[0]
+
+        # CRITICAL: Always remap predict_proba to fixed 3-class layout using model.classes_
+        # LightGBM's predict_proba returns columns in model.classes_ order, NOT [0,1,2] order
+        # Even with 3 classes, classes_ could be [0,2,1] if training data happened to see class 0 first
+        # Must always map to canonical [0:UP_FIRST, 1:DOWN_FIRST, 2:TIMEOUT] layout
+        if hasattr(model, "classes_"):
+            probs_full = np.zeros(3)
+            for i, cls in enumerate(model.classes_):
+                probs_full[cls] = probs[i]
+            probs = probs_full
+
+        # Apply calibration if available (optional, graceful degradation)
+        if hasattr(model, "calibrator_") and model.calibrator_ is not None:
+            calibration_methods = getattr(model, "calibration_methods_", None)
+
+            # Only apply if both calibrator and methods exist
+            if calibration_methods is not None:
+                probs_2d = probs.reshape(1, -1)
+                calibrated_2d = apply_multiclass_calibration(
+                    probs_2d, model.calibrator_, calibration_methods
+                )
+                probs = calibrated_2d[0]
+
+        results[H] = {
+            "UP_FIRST": float(probs[0]),
+            "DOWN_FIRST": float(probs[1]),
+            "TIMEOUT": float(probs[2]),
+        }
+
+    return results
 
 
 def enforce_monotonicity(
@@ -249,110 +284,6 @@ def compute_bound_features(
     return result
 
 
-def find_optimal_config(
-    predict_lower_fn: callable,
-    predict_upper_fn: callable,
-    features: DataFrame,
-    touch_tolerance: float = 0.15,
-    widths: list[float] | None = None,
-    asymmetries: list[float] | None = None,
-) -> LPConfig | None:
-    """Find tightest range that passes touch probability filter.
-
-    Risk Filtering Logic:
-    For each candidate range (defined by width + asymmetry):
-    1. Predict P(lower touch) and P(upper touch) using trained models
-    2. Apply calibration, isotonic or Platt
-    3. Enforce monotonicity across horizons
-    4. Check if either probability exceeds touch_tolerance
-    5. Reject range if too risky; accept if both probabilities are low enough
-
-    Selection Strategy:
-    - Iterate from tightest to widest ranges
-    - Return first width that has any valid asymmetry config
-    - Among valid asymmetries at that width, pick the one with best combined touch prob
-    - Ensures selected range isn't too tight for current volatility
-
-    Args:
-        predict_lower_fn: Function(features, horizon) -> P(lower touch)
-        predict_upper_fn: Function(features, horizon) -> P(upper touch)
-        features: Feature DataFrame for current bar
-        touch_tolerance: Max acceptable touch probability (e.g., 0.15 = 15% max risk)
-        widths: Range widths to test (sorted tightest to widest)
-        asymmetries: Asymmetry values to test (0 = symmetric, +/- = skewed)
-
-    Returns:
-        Config with selected width/asymmetry, or None if all ranges too risky
-    """
-    if widths is None:
-        widths = sorted(DEFAULT_WIDTHS)  # Tightest first
-    if asymmetries is None:
-        asymmetries = DEFAULT_ASYMMETRIES
-
-    for width in widths:
-        valid_configs = []
-
-        for asym in asymmetries:
-            lower_pct = -width * (0.5 - asym)
-            upper_pct = width * (0.5 + asym)
-
-            p_lower = predict_lower_fn(features, lower_pct, upper_pct)
-            p_upper = predict_upper_fn(features, lower_pct, upper_pct)
-
-            if p_lower < touch_tolerance and p_upper < touch_tolerance:
-                # Compute skew: positive = price more likely to go up
-                skew = p_upper - p_lower
-
-                valid_configs.append(
-                    {
-                        "lower_pct": lower_pct,
-                        "upper_pct": upper_pct,
-                        "p_lower": p_lower,
-                        "p_upper": p_upper,
-                        "skew": skew,
-                        "asym": asym,
-                        "width": width,
-                    }
-                )
-
-        if valid_configs:
-            # Pick best config based on skew magnitude
-            # When |skew| is small, prefer neutral (asym=0) and lowest max prob
-            # When |skew| is large, align asymmetry with skew direction
-            skew_threshold = 0.05
-
-            def config_score(c: dict, threshold: float = skew_threshold) -> tuple:
-                """Score config: (skew_alignment, -max_prob, neutral_preference)."""
-                abs_skew = abs(c["skew"])
-                max_prob = max(c["p_lower"], c["p_upper"])
-
-                if abs_skew < threshold:
-                    # Low skew: prefer neutral (asym=0) and lowest max prob
-                    return (0, -abs(c["asym"]), -max_prob)
-                else:
-                    # High skew: prefer aligned asymmetry
-                    alignment = c["skew"] * c["asym"]
-                    return (1, alignment, -max_prob)
-
-            best = max(valid_configs, key=config_score)
-
-            # Borrow ratio: 0.5 + asymmetry
-            # Higher asymmetry (bullish) -> borrow more USDC -> higher borrow_ratio
-            borrow_ratio = 0.5 + best["asym"]
-
-            return LPConfig(
-                lower_pct=best["lower_pct"],
-                upper_pct=best["upper_pct"],
-                borrow_ratio=borrow_ratio,
-                p_touch_lower=best["p_lower"],
-                p_touch_upper=best["p_upper"],
-                width=best["width"],
-                asymmetry=best["asym"],
-            )
-
-    return None
-
-
 def prepare_features(
     df: DataFrame,
     feature_cols: list[str],
@@ -396,26 +327,28 @@ def prepare_features(
                 f"Expected features: {base_features}"
             )
 
-        # Reindex to get base features (now safe - all columns exist)
+        # Reindex to ensure all base features exist (fills missing ones with NaN)
         result = df.reindex(columns=base_features).copy()
 
-        # Create missing indicators: 1 if base feature is NaN, 0 otherwise
-        for missing_col in missing_indicators:
-            base_col = missing_col.replace("_missing", "")
-            if base_col in result.columns:
-                result[missing_col] = result[base_col].isna().astype(int)
-            else:
-                # Base feature doesn't exist in incoming data - mark as missing
-                result[missing_col] = 1
-                # Also add the base column as all NaN so it can be filled with sentinel
-                result[base_col] = np.nan
+        # Compute missing mask for all base features at once
+        missing_mask = result.isna()
 
-        # Fill NaN in base features with sentinel (but NOT the missing indicators)
-        result[base_features] = result[base_features].fillna(sentinel)
+        # Build all missing indicator columns as a DataFrame
+        import pandas as pd
 
-        # Ensure missing indicators are int (0 or 1, never NaN or sentinel)
-        for missing_col in missing_indicators:
-            result[missing_col] = result[missing_col].fillna(1).astype(int)
+        missing_df = missing_mask.astype(np.int8)
+        missing_df.columns = [f"{col}_missing" for col in missing_df.columns]
+
+        # Reindex to include all expected missing indicators
+        missing_df = missing_df.reindex(
+            columns=missing_indicators, fill_value=1
+        ).astype(np.int8)
+
+        # Fill NaN with sentinel in base features
+        result = result.fillna(sentinel)
+
+        # Concatenate missing indicators in one operation
+        result = pd.concat([result, missing_df], axis=1)
 
         # Return in correct column order matching training schema
         return result[feature_cols].values, feature_cols
@@ -423,17 +356,25 @@ def prepare_features(
         # Training mode: create missing indicators dynamically
         result = df.reindex(columns=feature_cols).copy()
 
-        # Add missing indicators for columns with NaN
-        missing_cols = []
-        for col in feature_cols:
-            if result[col].isna().any():
-                missing_col = f"{col}_missing"
-                result[missing_col] = result[col].isna().astype(int)
-                missing_cols.append(missing_col)
+        # Identify columns with NaN values
+        cols_with_nan = [col for col in feature_cols if result[col].isna().any()]
 
-        # Fill NaN with sentinel
-        result = result.fillna(sentinel)
+        if cols_with_nan:
+            # Build missing indicators for columns with NaN
+            missing_mask = result[cols_with_nan].isna()
+            missing_df = missing_mask.astype(np.int8)
+            missing_df.columns = [f"{col}_missing" for col in missing_df.columns]
 
-        # Return expanded column list
-        expanded_cols = feature_cols + missing_cols
-        return result[expanded_cols].values, expanded_cols
+            # Fill NaN with sentinel
+            result = result.fillna(sentinel)
+
+            # Concatenate missing indicators in one operation
+            result = pd.concat([result, missing_df], axis=1)
+
+            missing_cols = list(missing_df.columns)
+            expanded_cols = feature_cols + missing_cols
+            return result[expanded_cols].values, expanded_cols
+        else:
+            # No missing values - just fill with sentinel
+            result = result.fillna(sentinel)
+            return result[feature_cols].values, feature_cols

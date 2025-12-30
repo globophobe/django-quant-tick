@@ -64,6 +64,7 @@ class ExitReason(models.TextChoices):
     TOUCHED_UPPER = "touched_upper", _("touched upper")
     REBALANCED = "rebalanced", _("rebalanced")
     MAX_DURATION = "max_duration", _("max duration")
+    TRAILING_STOP = "trailing_stop", _("trailing stop")
 
 
 class PositionStatus(models.TextChoices):

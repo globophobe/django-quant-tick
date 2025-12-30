@@ -29,7 +29,11 @@ def _is_multi_exchange(df: DataFrame) -> bool:
 def _compute_single_exchange_features(data_frame: DataFrame) -> DataFrame:
     """Compute single exchange features."""
     df = data_frame.copy()
-    returns = df["close"].pct_change()
+    returns = df["close"].pct_change(fill_method=None)
+
+    # To prevent train/serve skew
+    max_warmup = compute_max_warmup_bars()
+    df["has_full_warmup"] = (np.arange(len(df)) >= max_warmup).astype(int)
 
     # Volatility features
     df["realizedVol"] = returns.rolling(20).std()
@@ -86,11 +90,22 @@ def _compute_multi_exchange_features(
     canonical_name = canonical_col.replace("Close", "")
     canonical_close = data_frame[canonical_col]
 
+    # Set canonical OHLC columns
     if "close" not in df.columns:
         df["close"] = canonical_close
+    if "low" not in df.columns and f"{canonical_name}Low" in df.columns:
+        df["low"] = df[f"{canonical_name}Low"]
+    if "high" not in df.columns and f"{canonical_name}High" in df.columns:
+        df["high"] = df[f"{canonical_name}High"]
+    if "open" not in df.columns and f"{canonical_name}Open" in df.columns:
+        df["open"] = df[f"{canonical_name}Open"]
 
-    canonical_returns = canonical_close.pct_change()
+    canonical_returns = canonical_close.pct_change(fill_method=None)
     df[f"{canonical_name}Ret"] = canonical_returns
+
+    # To prevent train/serve skew
+    max_warmup = compute_max_warmup_bars()
+    df["has_full_warmup"] = (np.arange(len(df)) >= max_warmup).astype(int)
 
     # Loop over all non-canonical exchanges
     for close_col in [c for c in close_cols if c != canonical_col]:
@@ -103,7 +118,7 @@ def _compute_multi_exchange_features(
             other_close - canonical_close
         ) / canonical_close
 
-        other_returns = other_close.pct_change()
+        other_returns = other_close.pct_change(fill_method=None)
         df[f"{other_name}Ret"] = other_returns
         df[f"retDivergence{other_name.title()}"] = other_returns - canonical_returns
 
@@ -133,4 +148,64 @@ def _compute_multi_exchange_features(
     rolling_mean = canonical_returns.rolling(20).mean()
     rolling_std = canonical_returns.rolling(20).std()
     df["rollingSharpe20"] = rolling_mean / (rolling_std + 1e-8)
+
+    # OFI features (Order Flow Imbalance) per exchange
+    exchanges = [c.replace("Close", "") for c in close_cols]
+    ofi_series = {}
+    notional_series = {}
+
+    for exchange in exchanges:
+        buy_vol_col = f"{exchange}BuyVolume"
+        vol_col = f"{exchange}Volume"
+        notional_col = f"{exchange}Notional"
+
+        if buy_vol_col in df.columns and vol_col in df.columns:
+            # OFI = buyVolume / totalVolume - 0.5 (ranges from -0.5 to 0.5)
+            ofi = df[buy_vol_col] / df[vol_col].replace(0, np.nan) - 0.5
+            df[f"{exchange}Ofi"] = ofi
+            df[f"{exchange}OfiMa5"] = ofi.rolling(5).mean()
+            df[f"{exchange}OfiMa20"] = ofi.rolling(20).mean()
+            ofi_series[exchange] = ofi
+
+        if notional_col in df.columns:
+            notional_series[exchange] = df[notional_col]
+
+    # Aggregate OFI weighted by notional
+    if ofi_series and notional_series:
+        common_exchanges = set(ofi_series.keys()) & set(notional_series.keys())
+        if common_exchanges:
+            total_notional = sum(notional_series[ex] for ex in common_exchanges)
+            weighted_ofi = sum(
+                ofi_series[ex] * notional_series[ex] / total_notional.replace(0, np.nan)
+                for ex in common_exchanges
+            )
+            df["aggregateOfi"] = weighted_ofi
+            df["aggregateOfiMa5"] = weighted_ofi.rolling(5).mean()
+            df["aggregateOfiMa20"] = weighted_ofi.rolling(20).mean()
+
     return df
+
+
+def compute_max_warmup_bars() -> int:
+    """Compute maximum warmup bars required for feature computation.
+
+    Returns minimum number of bars needed for all features to be fully warmed up.
+    Based on rolling window sizes in _compute_single_exchange_features and
+    _compute_multi_exchange_features.
+
+    Returns:
+        Maximum warmup bars across all features
+    """
+    warmup_requirements = {
+        "realizedVol": 20,  # rolling(20).std()
+        "realizedVol5": 5,  # rolling(5).std()
+        "volRatio": 20,  # max(realizedVol5, realizedVol)
+        "volZScore": 120,  # vol_slow.rolling(60).std() needs 60 + vol_slow needs 60
+        "volPercentile": 100,  # rolling(100).rank()
+        "isHighVol": 100,  # depends on volPercentile
+        "isLowVol": 100,  # depends on volPercentile
+        "rollingSharpe20": 20,  # rolling(20) for mean and std
+        "ofi_ma5": 5,  # rolling(5).mean()
+        "ofi_ma20": 20,  # rolling(20).mean()
+    }
+    return max(warmup_requirements.values())  # Returns 120

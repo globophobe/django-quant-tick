@@ -87,7 +87,7 @@ def aggregate_candle(
             min_notional_exponent,
         )
     # Single exchange
-    return _agg_candle(
+    return agg_candle(
         data_frame, timestamp, min_volume_exponent, min_notional_exponent
     )
 
@@ -105,7 +105,7 @@ def _aggregate_multi_exchange(
     for exchange in exchanges:
         df = data_frame[data_frame["exchange"] == exchange]
         if len(df) > 0:
-            data["exchanges"][exchange] = _agg_candle(
+            data["exchanges"][exchange] = agg_candle(
                 df,
                 timestamp=None,
                 min_volume_exponent=min_volume_exponent,
@@ -114,7 +114,7 @@ def _aggregate_multi_exchange(
     return data
 
 
-def _agg_candle(
+def agg_candle(
     df: DataFrame,
     timestamp: datetime | None = None,
     min_volume_exponent: int = 2,

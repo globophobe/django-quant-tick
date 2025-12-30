@@ -1,151 +1,125 @@
-"""Tests for survival model training."""
+"""Tests for competing-risks model training."""
 
-import numpy as np
-import pandas as pd
 from django.test import TestCase
 
-from quant_tick.lib.train import train_core
+
+class ModelBundleFormatTest(TestCase):
+    """Test model bundle format compatibility."""
+
+    def test_model_bundle_format_roundtrip(self):
+        """Test model bundle format compatibility: save → load → validate."""
+        import tempfile
+        from pathlib import Path
+
+        import joblib
+        import lightgbm as lgb
+        import numpy as np
+
+        # 1. Create minimal mock models (don't need real training)
+        models_dict = {
+            "first_hit_h48": lgb.LGBMClassifier(n_estimators=10, objective="multiclass", num_class=3),
+            "first_hit_h96": lgb.LGBMClassifier(n_estimators=10, objective="multiclass", num_class=3),
+        }
+
+        # Fit with dummy data so models are valid
+        X_dummy = np.random.randn(50, 5)
+        y_dummy = np.random.randint(0, 3, 50)
+        for model in models_dict.values():
+            model.fit(X_dummy, y_dummy)
+
+        # 2. Create bundle (matching training output format)
+        bundle = {
+            "models": models_dict,
+            "metadata": {
+                "model_kind": "competing_risks",
+                "feature_cols": ["close", "realizedVol", "volRatio", "width", "asymmetry"],
+                "horizons": [48, 96],
+                "widths": [0.04, 0.06],
+                "asymmetries": [-0.2, 0.0, 0.2],
+                "trained_at": "2025-01-01T00:00:00",
+                "model_version": "5.0",
+            }
+        }
+
+        # 3. Save to temp file (mock GCS)
+        with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as f:
+            joblib.dump(bundle, f)
+            temp_path = f.name
+
+        try:
+            # 4. Load bundle
+            loaded_bundle = joblib.load(temp_path)
+
+            # 5. Validate structure (same as storage.py validation logic)
+            assert "models" in loaded_bundle
+            assert "metadata" in loaded_bundle
+
+            model_kind = loaded_bundle["metadata"].get("model_kind")
+            assert model_kind == "competing_risks"
+
+            # This is the key validation that would fail with old storage.py
+            horizons = loaded_bundle["metadata"]["horizons"]
+            for H in horizons:
+                model_key = f"first_hit_h{H}"
+                assert model_key in loaded_bundle["models"], f"Missing {model_key}"
+
+            # 6. Validate models can predict
+            X_test = np.random.randn(1, 5)
+            for H in horizons:
+                model = loaded_bundle["models"][f"first_hit_h{H}"]
+                probs = model.predict_proba(X_test)
+                assert probs.shape == (1, 3)  # 1 sample, 3 classes
+                assert np.allclose(probs.sum(), 1.0)  # Probabilities sum to 1
+
+        finally:
+            Path(temp_path).unlink()
 
 
-class TrainModelsTests(TestCase):
-    """Tests for train_core function."""
+class WarmupParityTest(TestCase):
+    """Test that training and inference have matching warmup behavior."""
 
-    def test_train_core_on_synthetic(self):
-        """Test training survival models on synthetic geometric survival data."""
-        np.random.seed(42)
-        n_bars = 500
-        n_configs = 2
-        max_horizon = 30
+    def test_train_serve_parity_warmup(self):
+        """Test that features properly warm up after max_warmup_bars."""
+        import numpy as np
+        import pandas as pd
+        from quant_core.features import _compute_features, compute_max_warmup_bars
 
-        # Generate synthetic hazard data with geometric first-touch times
-        rows = []
-        for bar_idx in range(n_bars):
-            for cfg_id in range(n_configs):
-                # Simulate first-touch time from geometric with p=0.02
-                t_lower = int(np.random.geometric(0.02))
-                t_upper = int(np.random.geometric(0.02))
-                t_lower = min(t_lower, max_horizon + 1)
-                t_upper = min(t_upper, max_horizon + 1)
-
-                event_lower = 0 if t_lower > max_horizon else 1
-                event_upper = 0 if t_upper > max_horizon else 1
-
-                # Generate random base features
-                base_features = {f"feature_{i}": np.random.randn() for i in range(5)}
-
-                # Expand over k=1..max_horizon
-                for k in range(1, max_horizon + 1):
-                    rows.append({
-                        "timestamp": pd.Timestamp("2024-01-01") + pd.Timedelta(minutes=bar_idx),
-                        "bar_idx": bar_idx,
-                        "config_id": cfg_id,
-                        "k": k,
-                        "hazard_lower": 1 if t_lower == k else 0,
-                        "hazard_upper": 1 if t_upper == k else 0,
-                        "event_lower": event_lower,
-                        "event_upper": event_upper,
-                        **base_features,
-                    })
-
-        df = pd.DataFrame(rows)
-
-        # Train survival models
-        models, feature_cols, cv_metrics, holdout_metrics = train_core(
-            df=df,
-            max_horizon=max_horizon,
-            n_splits=3,
-            embargo_bars=5,
-            holdout_pct=0.2,
-            calibration_pct=0.1,
-            optuna_n_trials=0,  # Disable for speed
-        )
-
-        # Verify outputs
-        self.assertIn("lower", models, "Should return lower model")
-        self.assertIn("upper", models, "Should return upper model")
-        self.assertIn("k", feature_cols, "k should be in feature columns")
-
-        # Verify models have calibrators
-        self.assertTrue(hasattr(models["lower"], "calibrator_"))
-        self.assertTrue(hasattr(models["lower"], "calibration_method_"))
-        self.assertTrue(hasattr(models["upper"], "calibrator_"))
-        self.assertTrue(hasattr(models["upper"], "calibration_method_"))
-
-        # Verify metrics are reasonable
-        self.assertLess(holdout_metrics["avg_brier"], 0.2, "Holdout Brier should be < 0.2")
-        self.assertIn("lower", holdout_metrics["base_rates"])
-        self.assertIn("upper", holdout_metrics["base_rates"])
-
-        # Base rates should be roughly 0.02 (geometric p)
-        self.assertGreater(holdout_metrics["base_rates"]["lower"], 0.005)
-        self.assertLess(holdout_metrics["base_rates"]["lower"], 0.05)
-
-    def test_train_core_validates_input(self):
-        """Test that train_models validates input structure."""
-        # Create data with wrong number of rows per bar
+        n_bars = 300
         df = pd.DataFrame({
-            "bar_idx": [0, 0, 0],  # Only 3 rows for bar 0
-            "config_id": [0, 0, 0],
-            "k": [1, 2, 3],
-            "hazard_lower": [0, 1, 0],
-            "hazard_upper": [0, 0, 1],
-            "event_lower": [1, 1, 1],
-            "event_upper": [0, 0, 1],
-            "feature_1": [1.0, 2.0, 3.0],
+            'timestamp': pd.date_range('2024-01-01', periods=n_bars, freq='1h'),
+            'close': 100 + np.random.randn(n_bars).cumsum(),
+            'open': 100 + np.random.randn(n_bars).cumsum(),
+            'high': 101 + np.random.randn(n_bars).cumsum(),
+            'low': 99 + np.random.randn(n_bars).cumsum(),
+            'volume': 1000 + np.random.randn(n_bars) * 100,
         })
 
-        # Should raise ValueError because 3 rows != n_configs * max_horizon for any valid n_configs
-        with self.assertRaises(ValueError):
-            train_core(df, max_horizon=10, n_splits=2, optuna_n_trials=0)
+        df_features = _compute_features(df)
+        max_warmup = compute_max_warmup_bars()
 
-    def test_train_core_feature_extraction(self):
-        """Test that k is properly included as a feature."""
-        np.random.seed(42)
-        n_bars = 200
-        n_configs = 2
-        max_horizon = 10
-
-        rows = []
-        for bar_idx in range(n_bars):
-            for cfg_id in range(n_configs):
-                t_lower = np.random.randint(1, max_horizon + 2)
-                t_upper = np.random.randint(1, max_horizon + 2)
-
-                for k in range(1, max_horizon + 1):
-                    rows.append({
-                        "timestamp": pd.Timestamp("2024-01-01") + pd.Timedelta(minutes=bar_idx),
-                        "bar_idx": bar_idx,
-                        "config_id": cfg_id,
-                        "k": k,
-                        "hazard_lower": 1 if t_lower == k else 0,
-                        "hazard_upper": 1 if t_upper == k else 0,
-                        "event_lower": 1 if t_lower <= max_horizon else 0,
-                        "event_upper": 1 if t_upper <= max_horizon else 0,
-                        "feature_a": np.random.randn(),
-                        "feature_b": np.random.randn(),
-                    })
-
-        df = pd.DataFrame(rows)
-
-        models, feature_cols, cv_metrics, holdout_metrics = train_core(
-            df, max_horizon=max_horizon, n_splits=2, embargo_bars=5, optuna_n_trials=0
+        # Check: volZScore should have NaNs in early rows
+        self.assertTrue(
+            df_features['volZScore'].iloc[:max_warmup-1].isna().any(),
+            "Early rows should have NaN in volZScore before warmup completes"
         )
 
-        # k must be in feature columns
-        self.assertIn("k", feature_cols)
+        # Check: After max_warmup, volZScore should be fully warmed (no NaNs)
+        warmed_rows = df_features['volZScore'].iloc[max_warmup:]
+        self.assertFalse(
+            warmed_rows.isna().any(),
+            "Rows after max_warmup should not have NaN in volZScore"
+        )
 
-        # Other features should also be present
-        self.assertIn("feature_a", feature_cols)
-        self.assertIn("feature_b", feature_cols)
-
-        # Metadata should NOT be in features
-        self.assertNotIn("bar_idx", feature_cols)
-        self.assertNotIn("config_id", feature_cols)
-        self.assertNotIn("timestamp", feature_cols)
-        self.assertNotIn("entry_price", feature_cols)
-
-        # Labels should NOT be in features
-        self.assertNotIn("hazard_lower", feature_cols)
-        self.assertNotIn("hazard_upper", feature_cols)
-        self.assertNotIn("event_lower", feature_cols)
-        self.assertNotIn("event_upper", feature_cols)
+        # Check: has_full_warmup indicator matches warmup status
+        self.assertEqual(
+            df_features['has_full_warmup'].iloc[max_warmup-1], 0,
+            "has_full_warmup should be 0 before max_warmup"
+        )
+        self.assertEqual(
+            df_features['has_full_warmup'].iloc[max_warmup], 1,
+            "has_full_warmup should be 1 at max_warmup"
+        )
+        self.assertTrue(
+            df_features['has_full_warmup'].iloc[max_warmup:].eq(1).all(),
+            "has_full_warmup should be 1 for all rows after max_warmup"
+        )
