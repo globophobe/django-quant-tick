@@ -39,9 +39,7 @@ class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
         self.assertEqual(trade_data.count(), 1)
         t = trade_data[0]
         data_frame = t.get_data_frame(FileData.RAW)
-        df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to).drop(
-            columns=["exchange", "symbol"]
-        )
+        df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to)
         self.assertTrue(all(data_frame.columns == df.columns))
         self.assertTrue(all(data_frame == df))
 
