@@ -127,7 +127,7 @@ class BaseTimeFrameIterator:
                     max_timestamp_to = self.get_max_timestamp_to()
                     end = max_timestamp_to if end_time > max_timestamp_to else end_time
                     if start_time != end:
-                        yield start_time, end_time
+                        yield start_time, end
 
     def get_existing(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
