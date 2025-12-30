@@ -8,7 +8,7 @@ from quant_tick.controllers import iter_api
 from quant_tick.lib import candles_to_data_frame, parse_datetime, timestamp_to_inclusive
 
 from .api import format_binance_api_timestamp, get_binance_api_response
-from .constants import API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
+from .constants import MAX_RESULTS, MIN_ELAPSED_PER_REQUEST, SPOT_API_URL
 
 
 def get_binance_candle_url(
@@ -50,7 +50,7 @@ def binance_candles(
         timestamp_to_inclusive(timestamp_from, timestamp_to, value="1min")
     )
     url = (
-        f"{API_URL}/klines?symbol={api_symbol}&interval={interval}&startTime={ts_from}"
+        f"{SPOT_API_URL}/klines?symbol={api_symbol}&interval={interval}&startTime={ts_from}"
     )
     candles, _ = iter_api(
         url,

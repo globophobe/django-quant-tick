@@ -5,7 +5,7 @@ from quant_tick.controllers import iter_api
 from quant_tick.lib import parse_datetime
 
 from .api import get_binance_api_response
-from .constants import API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
+from .constants import MAX_RESULTS, MIN_ELAPSED_PER_REQUEST, SPOT_API_URL
 
 
 def get_binance_trades_url(
@@ -53,7 +53,7 @@ def get_trades(
     log_format: str | None = None,
 ) -> list[dict]:
     """Get trades."""
-    url = f"{API_URL}/historicalTrades?symbol={symbol}&limit={MAX_RESULTS}"
+    url = f"{SPOT_API_URL}/historicalTrades?symbol={symbol}&limit={MAX_RESULTS}"
     return iter_api(
         url,
         get_binance_trades_pagination_id,
