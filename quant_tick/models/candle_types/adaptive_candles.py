@@ -72,7 +72,6 @@ class AdaptiveCandle(ConstantCandle):
             .values("json_data")
             .order_by("-timestamp")
         )
-        total_symbols = self.symbols.all().count()
         sample_type = self.json_data["sample_type"]
         total = sum(
             [
@@ -81,7 +80,7 @@ class AdaptiveCandle(ConstantCandle):
                 if t["json_data"] is not None
             ]
         )
-        return total / total_symbols / days / self.json_data["target_candles_per_day"]
+        return total / days / self.json_data["target_candles_per_day"]
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate."""
@@ -89,8 +88,9 @@ class AdaptiveCandle(ConstantCandle):
         trade_data_ma = self.get_trade_data_for_moving_average(timestamp_from)
         existing = get_existing(trade_data_ma.values("timestamp", "frequency"))
         days = self.json_data["moving_average_number_of_days"]
-        can_calculate_moving_average = len(existing) == Frequency.DAY * days
-        return can_agg and can_calculate_moving_average
+        total_symbols = self.symbols.all().count()
+        can_calculate_ma = len(existing) == Frequency.DAY * days * total_symbols
+        return can_agg and can_calculate_ma
 
     def should_aggregate_candle(self, data: dict) -> bool:
         """Should aggregate candle."""
