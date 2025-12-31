@@ -49,22 +49,19 @@ class Frequency(models.IntegerChoices):
     WEEK = 10080, _("week").capitalize()
 
 
+class Direction(models.TextChoices):
+    """Direction."""
+
+    LONG = "long", _("long")
+    SHORT = "short", _("short")
+
+
 class PositionType(models.TextChoices):
     """Position type."""
 
     BACKTEST = "backtest", _("backtest")
     PAPER = "paper", _("paper")
     LIVE = "live", _("live")
-
-
-class ExitReason(models.TextChoices):
-    """Exit reason."""
-
-    TOUCHED_LOWER = "touched_lower", _("touched lower")
-    TOUCHED_UPPER = "touched_upper", _("touched upper")
-    REBALANCED = "rebalanced", _("rebalanced")
-    MAX_DURATION = "max_duration", _("max duration")
-    TRAILING_STOP = "trailing_stop", _("trailing stop")
 
 
 class PositionStatus(models.TextChoices):
