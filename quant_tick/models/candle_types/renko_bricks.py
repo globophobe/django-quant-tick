@@ -10,6 +10,7 @@ from pandas import DataFrame
 from quant_tick.lib import aggregate_candle, merge_cache
 from quant_tick.utils import gettext_lazy as _
 
+from ..candles import CandleData
 from .constant_candles import ConstantCandle
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,9 @@ class RenkoBrick(ConstantCandle):
                 else:
                     # Empty brick: standardized schema with all expected fields
                     origin_price = Decimal(str(self.json_data.get("origin_price", "1")))
-                    boundary = origin_price * (Decimal(1) + target_change) ** brick["level"]
+                    boundary = (
+                        origin_price * (Decimal(1) + target_change) ** brick["level"]
+                    )
                     candle = {
                         "timestamp": brick["timestamp"],
                         "open": boundary,
@@ -200,8 +203,6 @@ class RenkoBrick(ConstantCandle):
         Returns:
             DataFrame with canonicalized body stream and wick rows
         """
-        from quant_tick.models.candles import CandleData
-
         qs = (
             CandleData.objects.filter(
                 candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
@@ -219,6 +220,7 @@ class RenkoBrick(ConstantCandle):
         for cd in qs:
             row = cd.json_data.copy()
             row["timestamp"] = cd.timestamp
+            row["obj"] = cd
 
             try:
                 renko = cd.renko_data
@@ -226,6 +228,7 @@ class RenkoBrick(ConstantCandle):
                 row["renko_kind"] = renko.kind
                 row["renko_direction"] = renko.direction
                 row["renko_sequence"] = renko.sequence
+                row["bar_idx"] = renko.sequence
             except RenkoData.DoesNotExist:
                 # Skip rows without renko_data
                 continue
@@ -305,7 +308,9 @@ class RenkoBrick(ConstantCandle):
                             "renko_sequence",
                         ]:
                             last_body_row[k] = v
-                    last_body_row["timestamp"] = brick_open_timestamp  # Restore brick open
+                    last_body_row["timestamp"] = (
+                        brick_open_timestamp  # Restore brick open
+                    )
 
                     # Add finalization metadata
                     last_body_row["timestamp_end"] = row["timestamp"]
@@ -330,7 +335,9 @@ class RenkoBrick(ConstantCandle):
             # Get cache for this time window (not latest overall)
             cache_obj = (
                 CandleCache.objects.filter(
-                    candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+                    candle=self,
+                    timestamp__gte=timestamp_from,
+                    timestamp__lt=timestamp_to,
                 )
                 .order_by("-timestamp")
                 .first()
@@ -370,7 +377,8 @@ class RenkoBrick(ConstantCandle):
                             if upper_wick_state and upper_wick_state.get("aggregates"):
                                 # Deepcopy to avoid mutating cache JSON (_merge_multi_exchange mutates nested dicts)
                                 aggregates = merge_cache(
-                                    aggregates, copy.deepcopy(upper_wick_state["aggregates"])
+                                    aggregates,
+                                    copy.deepcopy(upper_wick_state["aggregates"]),
                                 )
 
                         if pending_lower is not None:
@@ -378,7 +386,8 @@ class RenkoBrick(ConstantCandle):
                             if lower_wick_state and lower_wick_state.get("aggregates"):
                                 # Deepcopy to avoid mutating cache JSON (_merge_multi_exchange mutates nested dicts)
                                 aggregates = merge_cache(
-                                    aggregates, copy.deepcopy(lower_wick_state["aggregates"])
+                                    aggregates,
+                                    copy.deepcopy(lower_wick_state["aggregates"]),
                                 )
 
                         # Remove timestamp from aggregates to preserve brick open time invariant
@@ -393,7 +402,10 @@ class RenkoBrick(ConstantCandle):
                             "renko_level": active_level,
                             "renko_kind": "body",
                             "renko_direction": direction,
-                            "renko_sequence": cache.get("brick_sequence"),  # Next sequence (sorts last)
+                            "renko_sequence": cache.get(
+                                "brick_sequence"
+                            ),  # Next sequence (sorts last)
+                            "bar_idx": cache.get("brick_sequence"),
                             **aggregates,  # Include merged OHLCV fields
                         }
                         output_rows.append(incomplete_row)
@@ -438,7 +450,9 @@ class RenkoBrick(ConstantCandle):
         # Use while loop to handle extreme float drift (>1 level)
         while True:
             boundary_low = origin_price * (Decimal(1) + target_change) ** trade_level
-            boundary_high = origin_price * (Decimal(1) + target_change) ** (trade_level + 1)
+            boundary_high = origin_price * (Decimal(1) + target_change) ** (
+                trade_level + 1
+            )
             if composite_price < boundary_low:
                 trade_level -= 1
             elif composite_price >= boundary_high:
@@ -717,5 +731,4 @@ class RenkoData(models.Model):
             models.Index(fields=["level", "sequence"]),
         ]
         ordering = ["sequence"]
-        verbose_name = _("renko data")
-        verbose_name_plural = _("renko data")
+        verbose_name = verbose_name_plural = _("renko data")
