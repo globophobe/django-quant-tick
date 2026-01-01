@@ -49,11 +49,11 @@ class Frequency(models.IntegerChoices):
     WEEK = 10080, _("week").capitalize()
 
 
-class Direction(models.TextChoices):
+class Direction(models.IntegerChoices):
     """Direction."""
 
-    LONG = "long", _("long")
-    SHORT = "short", _("short")
+    LONG = 1, _("long")
+    SHORT = -1, _("short")
 
 
 class Decision(models.TextChoices):
@@ -85,13 +85,6 @@ class RenkoKind(models.TextChoices):
 
     BODY = "body", _("body")
     WICK = "wick", _("wick")
-
-
-class RenkoDirection(models.IntegerChoices):
-    """Renko direction."""
-
-    DOWN = -1, _("down")
-    UP = 1, _("up")
 
 
 class FileData(models.TextChoices):

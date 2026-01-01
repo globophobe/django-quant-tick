@@ -27,17 +27,7 @@ from .meta_labelling import MLArtifact
 logger = logging.getLogger(__name__)
 
 
-class BaseStrategy(models.Model):
-    """Base strategy."""
-
-    json_data = JSONField(_("json data"), null=True)
-    is_active = models.BooleanField(_("is active"), default=True)
-
-    class Meta:
-        abstract = True
-
-
-class Strategy(BaseStrategy, AbstractCodeName, PolymorphicModel):
+class Strategy(AbstractCodeName, PolymorphicModel):
     """Strategy."""
 
     candle = models.ForeignKey(
@@ -61,6 +51,8 @@ class Strategy(BaseStrategy, AbstractCodeName, PolymorphicModel):
         blank=True,
         verbose_name=_("last candle data"),
     )
+    json_data = JSONField(_("json data"), null=True)
+    is_active = models.BooleanField(_("is active"), default=True)
 
     def get_data_frame(self, queryset: QuerySet) -> DataFrame:
         """Get data frame."""

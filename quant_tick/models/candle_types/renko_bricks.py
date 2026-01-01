@@ -7,7 +7,7 @@ from decimal import Decimal
 from django.db import models
 from pandas import DataFrame
 
-from quant_tick.constants import RenkoDirection, RenkoKind
+from quant_tick.constants import Direction, RenkoKind
 from quant_tick.lib import aggregate_candle, merge_cache
 from quant_tick.utils import gettext_lazy as _
 
@@ -720,7 +720,7 @@ class RenkoData(models.Model):
     level = models.IntegerField(_("level"), db_index=True)
     sequence = models.BigIntegerField(_("sequence"), db_index=True)
     kind = models.CharField(_("kind"), max_length=4, choices=RenkoKind.choices)
-    direction = models.SmallIntegerField(_("direction"), choices=RenkoDirection.choices)
+    direction = models.SmallIntegerField(_("direction"), choices=Direction.choices)
 
     class Meta:
         db_table = "quant_tick_renko_data"
