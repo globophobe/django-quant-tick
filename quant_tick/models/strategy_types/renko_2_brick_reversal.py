@@ -8,7 +8,7 @@ from decimal import Decimal
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.constants import Direction
+from quant_tick.constants import Direction, RenkoKind
 from quant_tick.utils import gettext_lazy as _
 
 from ..candles import CandleData
@@ -29,7 +29,7 @@ def _iter_bodies(df: DataFrame) -> list[BodyRow]:
     """Return ordered body rows from a Renko DataFrame."""
     bodies: list[BodyRow] = []
     for index, row in df.iterrows():
-        if row.get("renko_kind") != "body":
+        if row.get("renko_kind") != RenkoKind.BODY:
             continue
         sequence = row.get("renko_sequence")
         if sequence is None:
@@ -69,7 +69,7 @@ def _iter_event_bodies(df: DataFrame) -> list[EventBodyRow]:
     last_dir: int | None = None
 
     for index, row in df.iterrows():
-        if row.get("renko_kind") != "body":
+        if row.get("renko_kind") != RenkoKind.BODY:
             continue
 
         direction = int(row["renko_direction"])

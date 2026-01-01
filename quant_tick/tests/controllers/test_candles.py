@@ -7,7 +7,7 @@ import time_machine
 from django.test import TestCase
 from pandas import DataFrame
 
-from quant_tick.constants import Exchange, FileData, Frequency, SampleType
+from quant_tick.constants import Exchange, FileData, Frequency, RenkoKind, SampleType
 from quant_tick.controllers import CandleCacheIterator, aggregate_candles
 from quant_tick.lib import (
     aggregate_candle,
@@ -1570,7 +1570,7 @@ class RenkoBrickTest(
         brick_renko = candle_data[0].renko_data
         self.assertEqual(brick_renko.level, 0)
         self.assertEqual(brick_renko.direction, 1)
-        self.assertEqual(brick_renko.kind, "body")
+        self.assertEqual(brick_renko.kind, RenkoKind.BODY)
         self.assertEqual(brick["close"], data_frame.iloc[0].price)
 
     def test_three_trades_one_brick_up(self, mock_get_max_timestamp_to):
@@ -1605,7 +1605,7 @@ class RenkoBrickTest(
         # Brick 0: level 0 exited upward (body)
         self.assertEqual(brick0_renko.level, 0)
         self.assertEqual(brick0_renko.direction, 1)
-        self.assertEqual(brick0_renko.kind, "body")
+        self.assertEqual(brick0_renko.kind, RenkoKind.BODY)
 
     def test_three_trades_one_brick_up_reversal_down(self, mock_get_max_timestamp_to):
         """Three trades: multi-level jump from level 1 to -1 (emits 3 bricks)."""
@@ -1626,11 +1626,11 @@ class RenkoBrickTest(
         # Brick 1: level 1 wick (upper wick relative to parent level 0)
         self.assertEqual(brick1_renko.level, 1)
         self.assertEqual(brick1_renko.direction, +1)  # Upper wick, side-based
-        self.assertEqual(brick1_renko.kind, "wick")
+        self.assertEqual(brick1_renko.kind, RenkoKind.WICK)
         # Brick 2: level 0 jumped over (empty body brick)
         self.assertEqual(brick2_renko.level, 0)
         self.assertEqual(brick2_renko.direction, -1)
-        self.assertEqual(brick2_renko.kind, "body")
+        self.assertEqual(brick2_renko.kind, RenkoKind.BODY)
 
     def test_logarithmic_reversibility(self, mock_get_max_timestamp_to):
         """Verify logarithmic levels with multi-level jump (level 1 to -1 emits 3 bricks)."""
@@ -1648,15 +1648,15 @@ class RenkoBrickTest(
         # Brick 0: seed level 0 exited upward (body)
         self.assertEqual(brick0_renko.level, 0)
         self.assertEqual(brick0_renko.direction, 1)
-        self.assertEqual(brick0_renko.kind, "body")
+        self.assertEqual(brick0_renko.kind, RenkoKind.BODY)
         # Brick 1: level 1 wick (upper wick relative to parent level 0)
         self.assertEqual(brick1_renko.level, 1)
         self.assertEqual(brick1_renko.direction, +1)  # Upper wick, side-based
-        self.assertEqual(brick1_renko.kind, "wick")
+        self.assertEqual(brick1_renko.kind, RenkoKind.WICK)
         # Brick 2: level 0 jumped over (empty body)
         self.assertEqual(brick2_renko.level, 0)
         self.assertEqual(brick2_renko.direction, -1)
-        self.assertEqual(brick2_renko.kind, "body")
+        self.assertEqual(brick2_renko.kind, RenkoKind.BODY)
 
     def test_small_move_no_phantom_brick(self, mock_get_max_timestamp_to):
         """Verify small price moves don't create phantom bricks (both trades in level 0)."""
@@ -1679,9 +1679,9 @@ class RenkoBrickTest(
         brick1_renko = candle_data[1].renko_data
         # Both bricks are bodies (complete traversal)
         self.assertEqual(brick0_renko.level, 0)
-        self.assertEqual(brick0_renko.kind, "body")
+        self.assertEqual(brick0_renko.kind, RenkoKind.BODY)
         self.assertEqual(brick1_renko.level, 1)
-        self.assertEqual(brick1_renko.kind, "body")
+        self.assertEqual(brick1_renko.kind, RenkoKind.BODY)
 
     def test_wick_brick_failed_excursion(self, mock_get_max_timestamp_to):
         """Wick brick: pending wick not emitted until parent body emitted."""
@@ -1695,7 +1695,7 @@ class RenkoBrickTest(
         brick0 = candle_data[0].json_data
         brick0_renko = candle_data[0].renko_data
         # Brick 0 is body (seed level 0)
-        self.assertEqual(brick0_renko.kind, "body")
+        self.assertEqual(brick0_renko.kind, RenkoKind.BODY)
         self.assertEqual(brick0_renko.level, 0)
 
     def test_multi_level_jump_creates_empty_bricks(self, mock_get_max_timestamp_to):
@@ -1768,19 +1768,19 @@ class RenkoBrickTest(
 
         self.assertEqual(len(candles), 5)
         self.assertEqual(candles[0].renko_data.level, 0)
-        self.assertEqual(candles[0].renko_data.kind, "body")
+        self.assertEqual(candles[0].renko_data.kind, RenkoKind.BODY)
         self.assertEqual(candles[0].renko_data.direction, 1)
         self.assertEqual(candles[1].renko_data.level, 1)
-        self.assertEqual(candles[1].renko_data.kind, "body")
+        self.assertEqual(candles[1].renko_data.kind, RenkoKind.BODY)
         self.assertEqual(candles[1].renko_data.direction, 1)
         self.assertEqual(candles[2].renko_data.level, 2)
-        self.assertEqual(candles[2].renko_data.kind, "wick")
+        self.assertEqual(candles[2].renko_data.kind, RenkoKind.WICK)
         self.assertEqual(candles[2].renko_data.direction, +1)  # Upper wick, side-based
         self.assertEqual(candles[3].renko_data.level, 1)
-        self.assertEqual(candles[3].renko_data.kind, "body")
+        self.assertEqual(candles[3].renko_data.kind, RenkoKind.BODY)
         self.assertEqual(candles[3].renko_data.direction, -1)
         self.assertEqual(candles[4].renko_data.level, 0)
-        self.assertEqual(candles[4].renko_data.kind, "body")
+        self.assertEqual(candles[4].renko_data.kind, RenkoKind.BODY)
         self.assertEqual(candles[4].renko_data.direction, -1)
 
     def test_pending_wick_emitted_on_continuation(self, mock_get_max_timestamp_to):
@@ -1804,16 +1804,16 @@ class RenkoBrickTest(
 
         self.assertEqual(len(candles), 4)
         self.assertEqual(candles[0].renko_data.level, 0)
-        self.assertEqual(candles[0].renko_data.kind, "body")
+        self.assertEqual(candles[0].renko_data.kind, RenkoKind.BODY)
         self.assertEqual(candles[0].renko_data.direction, 1)
         self.assertEqual(candles[1].renko_data.level, 1)
-        self.assertEqual(candles[1].renko_data.kind, "body")
+        self.assertEqual(candles[1].renko_data.kind, RenkoKind.BODY)
         self.assertEqual(candles[1].renko_data.direction, 1)
         self.assertEqual(candles[2].renko_data.level, 1)
-        self.assertEqual(candles[2].renko_data.kind, "wick")
+        self.assertEqual(candles[2].renko_data.kind, RenkoKind.WICK)
         self.assertEqual(candles[2].renko_data.direction, -1)  # Lower wick, side-based
         self.assertEqual(candles[3].renko_data.level, 2)
-        self.assertEqual(candles[3].renko_data.kind, "body")
+        self.assertEqual(candles[3].renko_data.kind, RenkoKind.BODY)
         self.assertEqual(candles[3].renko_data.direction, 1)
 
     def test_wick_level_invariant_one_away_from_parent(self, mock_get_max_timestamp_to):
@@ -1870,7 +1870,7 @@ class RenkoBrickTest(
 
                 # Check all wicks satisfy the 1-level invariant
                 for i, candle in enumerate(candles):
-                    if candle.renko_data.kind == "wick":
+                    if candle.renko_data.kind == RenkoKind.WICK:
                         # Find adjacent body bricks (previous and next in sequence)
                         # A wick should be 1 level away from at least one adjacent body
                         prev_body = None
@@ -1878,13 +1878,13 @@ class RenkoBrickTest(
 
                         # Look backward for previous body
                         for j in range(i - 1, -1, -1):
-                            if candles[j].renko_data.kind == "body":
+                            if candles[j].renko_data.kind == RenkoKind.BODY:
                                 prev_body = candles[j]
                                 break
 
                         # Look forward for next body
                         for j in range(i + 1, len(candles)):
-                            if candles[j].renko_data.kind == "body":
+                            if candles[j].renko_data.kind == RenkoKind.BODY:
                                 next_body = candles[j]
                                 break
 
@@ -1952,7 +1952,7 @@ class RenkoBrickTest(
         # Total: 6 rows
         self.assertEqual(raw_candles.count(), 6, f"Expected 6 raw DB rows, got {raw_candles.count()}")
         self.assertEqual(raw_levels, [0, 1, 2, 3, 2, 1])
-        self.assertEqual(raw_kinds, ["body", "body", "body", "wick", "body", "body"])
+        self.assertEqual(raw_kinds, [RenkoKind.BODY, RenkoKind.BODY, RenkoKind.BODY, RenkoKind.WICK, RenkoKind.BODY, RenkoKind.BODY])
         self.assertEqual(raw_directions, [1, 1, 1, 1, -1, -1])
 
         # Query via get_candle_data(is_complete=False)
@@ -1968,12 +1968,14 @@ class RenkoBrickTest(
         self.assertEqual(len(df), 6, "Expected 6 rows (5 complete + 1 incomplete from cache)")
 
         # Verify wick row is present at level 3
-        wick_rows = df[df["renko_kind"] == "wick"]
+        wick_rows = df[df["renko_kind"] == RenkoKind.WICK]
         self.assertEqual(len(wick_rows), 1, "Expected 1 wick row")
         self.assertEqual(wick_rows.iloc[0]["renko_level"], 3)
 
         # Find the level-2 body row (should be merged)
-        level_2_bodies = df[(df["renko_kind"] == "body") & (df["renko_level"] == 2)]
+        level_2_bodies = df[
+            (df["renko_kind"] == RenkoKind.BODY) & (df["renko_level"] == 2)
+        ]
         self.assertEqual(len(level_2_bodies), 1, "Expected 1 level-2 body row (merged)")
 
         level_2_body = level_2_bodies.iloc[0]
@@ -1989,7 +1991,7 @@ class RenkoBrickTest(
 
         # Verify NO direction flip at "return to 2"
         # The body stream should show: 0(↑), 1(↑), 2(↑ merged), 1(↓), 0(↓ incomplete)
-        body_df = df[df["renko_kind"] == "body"]
+        body_df = df[df["renko_kind"] == RenkoKind.BODY]
         body_levels = body_df["renko_level"].tolist()
         body_directions = body_df["renko_direction"].tolist()
         self.assertEqual(body_levels, [0, 1, 2, 1, 0], "Body levels after canonicalization with incomplete")
@@ -2005,9 +2007,15 @@ class RenkoBrickTest(
         # Expected: body(0↑), body(1↑), body(2↑ merged), wick(3)
         self.assertEqual(len(df_complete), 4, "is_complete=True should exclude last body")
         # Verify last row is wick, not body
-        self.assertEqual(df_complete.iloc[-1]["renko_kind"], "wick", "Last row should be wick after excluding last body")
+        self.assertEqual(
+            df_complete.iloc[-1]["renko_kind"],
+            RenkoKind.WICK,
+            "Last row should be wick after excluding last body",
+        )
         # Verify last body is at level 2 (not level 1)
-        last_body_complete = df_complete[df_complete["renko_kind"] == "body"].iloc[-1]
+        last_body_complete = df_complete[df_complete["renko_kind"] == RenkoKind.BODY].iloc[
+            -1
+        ]
         self.assertEqual(last_body_complete["renko_level"], 2, "Last body should be level 2 (merged)")
 
     def test_get_candle_data_incomplete_brick_from_cache(self, mock_get_max_timestamp_to):
@@ -2036,7 +2044,7 @@ class RenkoBrickTest(
         db_candles = CandleData.objects.filter(candle=self.candle).order_by("renko_data__sequence")
         self.assertEqual(db_candles.count(), 1)
         self.assertEqual(db_candles[0].renko_data.level, 0)
-        self.assertEqual(db_candles[0].renko_data.kind, "body")
+        self.assertEqual(db_candles[0].renko_data.kind, RenkoKind.BODY)
 
         # Verify cache contains level 1 state
         cache_obj = CandleCache.objects.filter(candle=self.candle).order_by("-timestamp").first()
@@ -2057,13 +2065,13 @@ class RenkoBrickTest(
         # Verify first row is body(0↑) from DB
         row0 = df_incomplete.iloc[0]
         self.assertEqual(row0["renko_level"], 0)
-        self.assertEqual(row0["renko_kind"], "body")
+        self.assertEqual(row0["renko_kind"], RenkoKind.BODY)
         self.assertEqual(row0["renko_direction"], 1)
 
         # Verify second row is incomplete body(1↑) from cache
         row1 = df_incomplete.iloc[1]
         self.assertEqual(row1["renko_level"], 1)
-        self.assertEqual(row1["renko_kind"], "body")
+        self.assertEqual(row1["renko_kind"], RenkoKind.BODY)
         self.assertEqual(row1["renko_direction"], 1, "Direction should be 1 (from_below)")
         self.assertEqual(row1["renko_sequence"], cache["brick_sequence"], "Sequence should match cache")
 

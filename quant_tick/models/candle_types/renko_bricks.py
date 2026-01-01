@@ -7,6 +7,7 @@ from decimal import Decimal
 from django.db import models
 from pandas import DataFrame
 
+from quant_tick.constants import RenkoDirection, RenkoKind
 from quant_tick.lib import aggregate_candle, merge_cache
 from quant_tick.utils import gettext_lazy as _
 
@@ -233,7 +234,7 @@ class RenkoBrick(ConstantCandle):
                 # Skip rows without renko_data
                 continue
 
-            if row["renko_kind"] == "wick":
+            if row["renko_kind"] == RenkoKind.WICK:
                 # Wick row: normalize timestamp to parent body, enforce invariant
                 if last_body_row is None:
                     raise ValueError("Wick row without parent body")
@@ -252,7 +253,7 @@ class RenkoBrick(ConstantCandle):
                 output_rows.append(row)
                 pending_wicks.append(row)
 
-            elif row["renko_kind"] == "body":
+            elif row["renko_kind"] == RenkoKind.BODY:
                 # Body row: check if "return-to-previous-level" pattern
                 is_return_to_prev = (
                     last_body_row is not None
@@ -400,7 +401,7 @@ class RenkoBrick(ConstantCandle):
                         incomplete_row = {
                             "timestamp": level_state.get("timestamp"),
                             "renko_level": active_level,
-                            "renko_kind": "body",
+                            "renko_kind": RenkoKind.BODY,
                             "renko_direction": direction,
                             "renko_sequence": cache.get(
                                 "brick_sequence"
@@ -415,7 +416,7 @@ class RenkoBrick(ConstantCandle):
             # Find and remove the last body brick
             last_body_idx = None
             for i in range(len(output_rows) - 1, -1, -1):
-                if output_rows[i]["renko_kind"] == "body":
+                if output_rows[i]["renko_kind"] == RenkoKind.BODY:
                     last_body_idx = i
                     break
 
@@ -531,7 +532,7 @@ class RenkoBrick(ConstantCandle):
                             upper_wick_brick = {
                                 "level": upper_wick_level,
                                 "direction": +1,  # Upper wick, side-based
-                                "kind": "wick",
+                                "kind": RenkoKind.WICK,
                                 "entry_side": upper_wick_state["entry_side"],
                                 "exit_side": upper_wick_state.get("exit_side"),
                                 "aggregates": upper_wick_state["aggregates"],
@@ -551,7 +552,7 @@ class RenkoBrick(ConstantCandle):
                             lower_wick_brick = {
                                 "level": lower_wick_level,
                                 "direction": -1,  # Lower wick, side-based
-                                "kind": "wick",
+                                "kind": RenkoKind.WICK,
                                 "entry_side": lower_wick_state["entry_side"],
                                 "exit_side": lower_wick_state.get("exit_side"),
                                 "aggregates": lower_wick_state["aggregates"],
@@ -568,7 +569,7 @@ class RenkoBrick(ConstantCandle):
                         brick = {
                             "level": level,
                             "direction": direction,
-                            "kind": "body",
+                            "kind": RenkoKind.BODY,
                             "entry_side": level_state["entry_side"],
                             "exit_side": exit_side,
                             "aggregates": level_state.get("aggregates"),
@@ -629,7 +630,7 @@ class RenkoBrick(ConstantCandle):
                             upper_wick_brick = {
                                 "level": upper_wick_level,
                                 "direction": +1,  # Upper wick, side-based
-                                "kind": "wick",
+                                "kind": RenkoKind.WICK,
                                 "entry_side": upper_wick_state["entry_side"],
                                 "exit_side": upper_wick_state.get("exit_side"),
                                 "aggregates": upper_wick_state["aggregates"],
@@ -649,7 +650,7 @@ class RenkoBrick(ConstantCandle):
                             lower_wick_brick = {
                                 "level": lower_wick_level,
                                 "direction": -1,  # Lower wick, side-based
-                                "kind": "wick",
+                                "kind": RenkoKind.WICK,
                                 "entry_side": lower_wick_state["entry_side"],
                                 "exit_side": lower_wick_state.get("exit_side"),
                                 "aggregates": lower_wick_state["aggregates"],
@@ -666,7 +667,7 @@ class RenkoBrick(ConstantCandle):
                     brick = {
                         "level": level,
                         "direction": direction,
-                        "kind": "body",  # Jumped levels are always bodies
+                        "kind": RenkoKind.BODY,  # Jumped levels are always bodies
                         "entry_side": (
                             new_entry_side if direction == +1 else "from_above"
                         ),
@@ -718,12 +719,8 @@ class RenkoData(models.Model):
     )
     level = models.IntegerField(_("level"), db_index=True)
     sequence = models.BigIntegerField(_("sequence"), db_index=True)
-    kind = models.CharField(
-        _("kind"), max_length=4, choices=[("body", "Body"), ("wick", "Wick")]
-    )
-    direction = models.SmallIntegerField(
-        _("direction"), choices=[(-1, "Down"), (1, "Up")]
-    )
+    kind = models.CharField(_("kind"), max_length=4, choices=RenkoKind.choices)
+    direction = models.SmallIntegerField(_("direction"), choices=RenkoDirection.choices)
 
     class Meta:
         db_table = "quant_tick_renko_data"

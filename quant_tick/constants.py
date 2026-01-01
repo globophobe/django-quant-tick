@@ -80,6 +80,20 @@ class PositionStatus(models.TextChoices):
     FAILED = "failed", _("failed")
 
 
+class RenkoKind(models.TextChoices):
+    """Renko kind."""
+
+    BODY = "body", _("body")
+    WICK = "wick", _("wick")
+
+
+class RenkoDirection(models.IntegerChoices):
+    """Renko direction."""
+
+    DOWN = -1, _("down")
+    UP = 1, _("up")
+
+
 class FileData(models.TextChoices):
     """File data."""
 
