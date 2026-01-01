@@ -1,3 +1,6 @@
+from datetime import datetime
+from decimal import Decimal
+
 from django.db.models import QuerySet
 from pandas import DataFrame
 
@@ -31,47 +34,91 @@ class MACrossoverStrategy(Strategy):
             )
         return data_frame
 
-    def backtest(self) -> None:
-        """Backtest."""
-        queryset = CandleData.objects.filter(candle=self.candle)
-        position = (
-            Position.objects.filter(strategy=self, close_candle_data__isnull=True)
-            .select_related("open_candle_data")
-            .first()
-        )
-        if position:
-            queryset = CandleData.objects.filter(
-                timestamp__gte=position.open_candle_data.timestamp
-            )
-        data_frame = self.get_data_frame(queryset)
-        for index, row in enumerate(data_frame.itertuples()):
-            if index >= self.json_data["slow_window"]:
-                direction = (
-                    Direction.LONG if row.fast_ma > row.slow_ma else Direction.SHORT
-                )
-                position = self.on_signal(row.obj, direction, position)
-
-    def live_trade(self, candle_data: CandleData) -> None:
-        """Live trade."""
+    def get_events(
+        self,
+        *,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        include_incomplete: bool = False,
+    ) -> DataFrame:
+        """Build MA crossover events with labels."""
         queryset = CandleData.objects.filter(
-            candle=self.candle, timestamp__lte=candle_data.timestamp
+            candle=self.candle, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
         )
-        slow_window = self.json_data["slow_window"]
-        total = queryset.count()
-        if total >= slow_window:
-            queryset = queryset[total - slow_window :]
         data_frame = self.get_data_frame(queryset)
-        if len(data_frame) >= self.json_data["slow_window"]:
-            last_row = data_frame.iloc[-1]
-            direction = (
-                Direction.LONG
-                if last_row["fast_ma"] > last_row["slow_ma"]
-                else Direction.SHORT
+        if data_frame.empty:
+            return DataFrame()
+
+        data_frame = data_frame.dropna(subset=["fast_ma", "slow_ma"])
+        if data_frame.empty:
+            return DataFrame()
+
+        directions = data_frame["fast_ma"] > data_frame["slow_ma"]
+        data_frame = data_frame.assign(direction=directions.astype(int) * 2 - 1)
+
+        crossover_mask = data_frame["direction"] != data_frame["direction"].shift(1)
+        event_rows = data_frame[crossover_mask]
+        if event_rows.empty:
+            return DataFrame()
+
+        events: list[dict] = []
+        event_indices = list(event_rows.index)
+        cost_decimal = self.cost
+
+        for i, idx in enumerate(event_indices):
+            row = data_frame.loc[idx]
+            entry_ts = row["timestamp"]
+            entry_price = Decimal(str(row["close"]))
+            direction = int(row["direction"])
+
+            next_idx = event_indices[i + 1] if i + 1 < len(event_indices) else None
+            if next_idx is not None:
+                exit_row = data_frame.loc[next_idx]
+                exit_price = Decimal(str(exit_row["close"]))
+                gross_ret = direction * (exit_price / entry_price - 1)
+                net_ret = gross_ret - cost_decimal
+                exit_ts = exit_row["timestamp"]
+            else:
+                exit_price = None
+                gross_ret = None
+                net_ret = None
+                exit_ts = None
+                if not include_incomplete:
+                    continue
+
+            prev_idx = event_indices[i - 1] if i > 0 else None
+            run_length_prev = None
+            run_duration_prev = None
+            if prev_idx is not None:
+                run_length_prev = idx - prev_idx
+                run_duration_prev = (
+                    row["timestamp"] - data_frame.loc[prev_idx, "timestamp"]
+                ).total_seconds()
+
+            candle_data = row.get("obj")
+            events.append(
+                {
+                    "timestamp_event": entry_ts,
+                    "timestamp_entry": entry_ts,
+                    "timestamp_exit": exit_ts,
+                    "direction": direction,
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "gross_return": gross_ret,
+                    "net_return": net_ret,
+                    "label": int(net_ret > 0) if net_ret is not None else None,
+                    "run_length_prev": run_length_prev,
+                    "run_duration_prev_seconds": run_duration_prev,
+                    "feat_fast_ma": row["fast_ma"],
+                    "feat_slow_ma": row["slow_ma"],
+                    "feat_ma_diff": row["fast_ma"] - row["slow_ma"],
+                    "feat_close": row["close"],
+                    "obj": candle_data,
+                    "bar_idx": row["bar_idx"],
+                }
             )
-            position = Position.objects.filter(
-                strategy=self, close_candle_data__isnull=True
-            ).first()
-            self.on_signal(candle_data, direction, position)
+
+        return DataFrame(events)
 
     def on_signal(
         self,

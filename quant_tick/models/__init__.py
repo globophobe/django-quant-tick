@@ -7,7 +7,9 @@ from .candle_types import (
 )
 from .candles import Candle, CandleCache, CandleData
 from .funding import FundingRate
-from .meta import MetaArtifact, MetaModel, MetaSignal
+from .meta_labelling import MLArtifact
+from .strategies import Position, Signal, Strategy
+from .strategy_types import MACrossoverStrategy, Renko2BrickReversalStrategy
 from .symbols import GlobalSymbol, Symbol
 from .trades import TradeData
 
@@ -19,12 +21,15 @@ __all__ = [
     "Candle",
     "CandleCache",
     "CandleData",
-    "MetaModel",
-    "MetaSignal",
-    "MetaArtifact",
+    "Strategy",
+    "Signal",
+    "Position",
+    "MLArtifact",
     "RenkoData",
     "FundingRate",
     "GlobalSymbol",
     "Symbol",
     "TradeData",
+    "MACrossoverStrategy",
+    "Renko2BrickReversalStrategy",
 ]
