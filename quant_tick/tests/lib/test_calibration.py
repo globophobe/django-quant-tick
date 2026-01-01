@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import numpy as np
 from django.test import SimpleTestCase
 
@@ -12,30 +14,36 @@ class CalibrationTest(SimpleTestCase):
         y_true = np.array([0, 1, 0, 1, 0])
         y_pred = np.array([0.1, 0.9, 0.2, 0.8, 0.3])
 
-        calibrator, method = calibrate_probabilities(y_true, y_pred)
+        with patch("quant_tick.lib.calibration.logger") as mock_logger:
+            calibrator, method = calibrate_probabilities(y_true, y_pred)
 
         self.assertIsNone(calibrator)
         self.assertEqual(method, "none")
+        mock_logger.warning.assert_called_once()
 
     def test_calibrate_probabilities_low_variance(self):
         """Skips calibration when predictions lack variance."""
         y_true = np.array([0, 1] * 10)
         y_pred = np.array([0.5] * 20)
 
-        calibrator, method = calibrate_probabilities(y_true, y_pred)
+        with patch("quant_tick.lib.calibration.logger") as mock_logger:
+            calibrator, method = calibrate_probabilities(y_true, y_pred)
 
         self.assertIsNone(calibrator)
         self.assertEqual(method, "none")
+        mock_logger.warning.assert_called_once()
 
     def test_calibrate_probabilities_class_imbalance(self):
         """Skips calibration when class imbalance is extreme."""
         y_true = np.array([1] * 2 + [0] * 18)
         y_pred = np.linspace(0.1, 0.9, 20)
 
-        calibrator, method = calibrate_probabilities(y_true, y_pred)
+        with patch("quant_tick.lib.calibration.logger") as mock_logger:
+            calibrator, method = calibrate_probabilities(y_true, y_pred)
 
         self.assertIsNone(calibrator)
         self.assertEqual(method, "none")
+        mock_logger.warning.assert_called_once()
 
     def test_auto_uses_isotonic_for_large_sample(self):
         """Auto selects isotonic for larger sample sizes."""
