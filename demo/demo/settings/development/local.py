@@ -15,7 +15,6 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR.parent.parent / "db.sqlite3",
-        "TEST": {"NAME": "test_db.sqlite3"},
     }
 }
 
