@@ -56,6 +56,13 @@ class Direction(models.TextChoices):
     SHORT = "short", _("short")
 
 
+class Decision(models.TextChoices):
+    """Decision."""
+
+    TAKE = "take", _("take")
+    PASS = "pass", _("pass")
+
+
 class PositionType(models.TextChoices):
     """Position type."""
 
