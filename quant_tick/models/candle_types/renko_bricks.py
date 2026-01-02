@@ -1,11 +1,13 @@
 import copy
 import logging
 import math
+import sys
 from datetime import datetime
 from decimal import Decimal
 
 from django.db import models
 from pandas import DataFrame
+from tqdm import tqdm
 
 from quant_tick.constants import Direction, RenkoKind
 from quant_tick.lib import aggregate_candle, merge_cache
@@ -15,6 +17,20 @@ from ..candles import CandleData
 from .constant_candles import ConstantCandle
 
 logger = logging.getLogger(__name__)
+
+
+class EntrySide(models.TextChoices):
+    """Entry side."""
+
+    FROM_BELOW = "from_below", _("from below")
+    FROM_ABOVE = "from_above", _("from above")
+
+
+class ExitSide(models.TextChoices):
+    """Exit side."""
+
+    TO_ABOVE = "to_above", _("to above")
+    TO_BELOW = "to_below", _("to below")
 
 
 class RenkoBrick(ConstantCandle):
@@ -27,18 +43,16 @@ class RenkoBrick(ConstantCandle):
         """Get initial cache with level_states for body/wick tracking."""
         cache = {
             "active_level": None,
-            "last_body_direction": None,  # NEW: track last body direction (+1, -1, or None)
-            "level_states": {},  # Per-level state: {level: {entry_side, aggregates, timestamp, pending_wicks}}
-            "brick_sequence": 0,  # Global sequence counter for deterministic ordering
+            "last_body_direction": None,
+            "level_states": {},
+            "brick_sequence": 0,
             "last_price_by_exchange": {},
         }
-        # Include "date" field if cache_reset is configured
-        # Required for ConstantCandle.get_incomplete_candle() to work correctly
         if "cache_reset" in self.json_data:
             cache["date"] = timestamp.date()
         return cache
 
-    def _get_composite_price(self, row, cache_data: dict) -> Decimal:
+    def _get_composite_price(self, row: dict, cache_data: dict) -> Decimal:
         """Calculate composite price from multi-exchange data.
 
         For multi-exchange: median of last prices across exchanges
@@ -65,6 +79,199 @@ class RenkoBrick(ConstantCandle):
         else:
             # Single exchange: just use price
             return row["price"]
+
+    def _emit_wick(
+        self,
+        cache: dict,
+        level_state: dict,
+        wick_key: str,
+        direction: int,
+    ) -> dict | None:
+        """Emit pending wick and reset cache."""
+        wick_level = level_state.get(wick_key)
+        if wick_level is None:
+            return None
+
+        wick_state = cache["level_states"][wick_level]
+        wick_brick = {
+            "level": wick_level,
+            "direction": direction,
+            "kind": RenkoKind.WICK,
+            "entry_side": wick_state["entry_side"],
+            "exit_side": wick_state.get("exit_side"),
+            "aggregates": wick_state["aggregates"],
+            "has_trades": True,
+            "timestamp": wick_state["timestamp"],
+            "sequence": cache["brick_sequence"],
+        }
+        cache["brick_sequence"] += 1
+        del cache["level_states"][wick_level]
+        level_state[wick_key] = None
+        return wick_brick
+
+    def _emit_pending_wicks(
+        self,
+        cache: dict,
+        level_state: dict,
+        bricks: list,
+    ) -> None:
+        """Emit pending upper and lower wicks."""
+        upper = self._emit_wick(cache, level_state, "pending_upper_wick_level", +1)
+        if upper:
+            bricks.append(upper)
+
+        lower = self._emit_wick(cache, level_state, "pending_lower_wick_level", -1)
+        if lower:
+            bricks.append(lower)
+
+    def _calculate_trade_level(
+        self,
+        composite_price: Decimal,
+        target_change: Decimal,
+        origin_price: Decimal,
+    ) -> int:
+        """Calculate which Renko level a trade belongs to.
+
+        Uses multiplicative percent scaling with boundary correction
+        to handle float rounding errors.
+        """
+        log_step = math.log1p(float(target_change))
+        log_ratio = math.log(float(composite_price / origin_price))
+        trade_level = math.floor(log_ratio / log_step)
+
+        # Boundary correction loop
+        while True:
+            boundary_low = origin_price * (Decimal(1) + target_change) ** trade_level
+            boundary_high = origin_price * (Decimal(1) + target_change) ** (
+                trade_level + 1
+            )
+            if composite_price < boundary_low:
+                trade_level -= 1
+            elif composite_price >= boundary_high:
+                trade_level += 1
+            else:
+                break
+        return trade_level
+
+    def _is_body_brick(self, entry_side: str | None, exit_side: str) -> bool:
+        """Determine if a brick is a body (opposite boundaries) or wick (same side)."""
+        if entry_side is None:
+            return True  # Seed level is always body
+        return (
+            entry_side == EntrySide.FROM_BELOW and exit_side == ExitSide.TO_ABOVE
+        ) or (entry_side == EntrySide.FROM_ABOVE and exit_side == ExitSide.TO_BELOW)
+
+    # Fields to exclude when extracting OHLCV data from renko rows
+    _RENKO_METADATA_FIELDS = frozenset(
+        [
+            "renko_level",
+            "renko_kind",
+            "renko_direction",
+            "renko_sequence",
+            "timestamp_end",
+            "renko_sequence_end",
+        ]
+    )
+
+    def _merge_return_body(self, last_body_row: dict, current_row: dict) -> None:
+        """Merge a return-to-previous-level body into the last body row."""
+        # Extract OHLCV fields (exclude renko metadata)
+        ohlcv_fields = {
+            k: v
+            for k, v in last_body_row.items()
+            if k not in self._RENKO_METADATA_FIELDS
+        }
+
+        # Extract only json_data fields from current row
+        curr_json_data = {
+            k: v for k, v in current_row.items() if k not in self._RENKO_METADATA_FIELDS
+        }
+
+        # Merge candle payloads
+        merged_candle = merge_cache(ohlcv_fields, curr_json_data)
+
+        # Update last_body_row's OHLCV fields only (preserve renko fields)
+        brick_open_timestamp = last_body_row["timestamp"]
+        for k, v in merged_candle.items():
+            if k not in self._RENKO_METADATA_FIELDS:
+                last_body_row[k] = v
+        last_body_row["timestamp"] = brick_open_timestamp
+
+        # Add finalization metadata
+        last_body_row["timestamp_end"] = current_row["timestamp"]
+        last_body_row["renko_sequence_end"] = current_row["renko_sequence"]
+
+    def _synthesize_incomplete_brick(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+    ) -> dict | None:
+        """Synthesize incomplete brick from cache."""
+        from quant_tick.models.candles import CandleCache
+
+        cache_obj = (
+            CandleCache.objects.filter(
+                candle=self,
+                timestamp__gte=timestamp_from,
+                timestamp__lt=timestamp_to,
+            )
+            .order_by("-timestamp")
+            .first()
+        )
+        if not cache_obj or not cache_obj.json_data:
+            return None
+
+        cache = cache_obj.json_data
+        active_level = cache.get("active_level")
+        if active_level is None:
+            return None
+
+        # Keys in level_states are STRINGS (JSON serialization)
+        level_states = cache.get("level_states", {})
+        level_state = level_states.get(str(active_level))
+        if not level_state or not level_state.get("initialized"):
+            return None
+
+        # Determine direction from entry_side
+        entry_side = level_state.get("entry_side")
+        if entry_side == EntrySide.FROM_BELOW:
+            direction = 1
+        elif entry_side == EntrySide.FROM_ABOVE:
+            direction = -1
+        else:
+            direction = cache.get("last_body_direction", 1)
+
+        # Build synthetic incomplete brick row
+        aggregates = copy.deepcopy(level_state.get("aggregates", {}))
+        active_close = aggregates.get("close")
+
+        # Merge pending wick aggregates (for plotting)
+        for wick_key in ("pending_upper_wick_level", "pending_lower_wick_level"):
+            pending_level = level_state.get(wick_key)
+            if pending_level is not None:
+                wick_state = level_states.get(str(pending_level))
+                if wick_state and wick_state.get("aggregates"):
+                    aggregates = merge_cache(
+                        aggregates,
+                        copy.deepcopy(wick_state["aggregates"]),
+                    )
+
+        # Remove timestamp from aggregates to preserve brick open time invariant
+        aggregates.pop("timestamp", None)
+
+        # Restore active level's close (latest trade price)
+        if active_close is not None:
+            aggregates["close"] = active_close
+
+        return {
+            "timestamp": level_state.get("timestamp"),
+            "renko_level": active_level,
+            "renko_kind": RenkoKind.BODY,
+            "renko_direction": direction,
+            "renko_sequence": cache.get("brick_sequence"),
+            "bar_idx": cache.get("brick_sequence"),
+            **aggregates,
+        }
 
     def aggregate(
         self,
@@ -171,7 +378,7 @@ class RenkoBrick(ConstantCandle):
 
         # Bulk create RenkoData
         renko_data_list = []
-        for candle_data, brick in zip(created_candle_data, brick_metadata):
+        for candle_data, brick in zip(created_candle_data, brick_metadata, strict=True):
             if brick:
                 renko_data_list.append(
                     RenkoData(
@@ -190,276 +397,111 @@ class RenkoBrick(ConstantCandle):
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
-        limit: int | None = None,
         is_complete: bool = True,
+        progress: bool = False,
     ) -> DataFrame:
-        """Get candle data with canonicalization (2-brick reversal semantics).
-
-        Args:
-            timestamp_from: Start timestamp
-            timestamp_to: End timestamp
-            limit: Max rows to return (applied after canonicalization)
-            is_complete: If True, exclude last body brick (for ML). If False, include (for plotting).
-
-        Returns:
-            DataFrame with canonicalized body stream and wick rows
-        """
-        qs = (
+        """Get candle data."""
+        queryset = (
             CandleData.objects.filter(
-                candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+                candle=self,
+                timestamp__gte=timestamp_from,
+                timestamp__lt=timestamp_to,
+                renko_data__isnull=False,
             )
             .select_related("renko_data")
             .order_by("renko_data__sequence")
         )
 
-        # Canonicalization state
-        last_body_row = None  # Most recent kept body row
-        pending_wicks = []  # Wicks since last body
-        output_rows = []  # Final canonicalized dataset
+        last_body_row = None
+        pending_wicks = []
+        output_rows = []
 
-        # Iterate rows in sequence order
-        for cd in qs:
-            row = cd.json_data.copy()
-            row["timestamp"] = cd.timestamp
-            row["obj"] = cd
+        progress_bar = None
+        if progress and sys.stderr.isatty() and "test" not in sys.argv:
+            total = queryset.count()
+            progress_bar = tqdm(total=total, desc="Renko bricks", unit="row")
+            iterator = queryset.iterator(chunk_size=10000)
+        else:
+            iterator = queryset.iterator(chunk_size=10000)
 
-            try:
-                renko = cd.renko_data
+        try:
+            for obj in iterator:
+                renko = obj.renko_data
+                row = obj.json_data.copy()
+                row["timestamp"] = obj.timestamp
+                row["obj"] = obj
                 row["renko_level"] = renko.level
                 row["renko_kind"] = renko.kind
                 row["renko_direction"] = renko.direction
                 row["renko_sequence"] = renko.sequence
                 row["bar_idx"] = renko.sequence
-            except RenkoData.DoesNotExist:
-                # Skip rows without renko_data
-                continue
 
-            if row["renko_kind"] == RenkoKind.WICK:
-                # Wick row: normalize timestamp to parent body, enforce invariant
-                if last_body_row is None:
-                    raise ValueError("Wick row without parent body")
+                if row["renko_kind"] == RenkoKind.WICK:
+                    if last_body_row is None:
+                        raise ValueError("Wick row without parent body")
 
-                # Enforce invariant: wick must be exactly 1 level from parent
-                if abs(row["renko_level"] - last_body_row["renko_level"]) != 1:
-                    raise ValueError(
-                        f"Wick invariant violation: wick at level {row['renko_level']} "
-                        f"is not exactly 1 level from parent {last_body_row['renko_level']}"
-                    )
+                    # Wick must be exactly 1 level from parent
+                    if abs(row["renko_level"] - last_body_row["renko_level"]) != 1:
+                        raise ValueError(
+                            f"Wick invariant violation: wick at level {row['renko_level']} "
+                            f"is not exactly 1 level from parent {last_body_row['renko_level']}"
+                        )
 
-                # Set wick timestamp to parent body open timestamp
-                row["timestamp"] = last_body_row["timestamp"]
-
-                # Append wick row to output
-                output_rows.append(row)
-                pending_wicks.append(row)
-
-            elif row["renko_kind"] == RenkoKind.BODY:
-                # Body row: check if "return-to-previous-level" pattern
-                is_return_to_prev = (
-                    last_body_row is not None
-                    and row["renko_level"] == last_body_row["renko_level"]
-                    and row["renko_direction"] == -last_body_row["renko_direction"]
-                    and len(pending_wicks) > 0
-                )
-
-                if is_return_to_prev:
-                    # Merge OHLCV into last_body_row
-                    # Extract OHLCV fields (exclude renko metadata)
-                    ohlcv_fields = {
-                        k: v
-                        for k, v in last_body_row.items()
-                        if k
-                        not in [
-                            "renko_level",
-                            "renko_kind",
-                            "renko_direction",
-                            "renko_sequence",
-                            "timestamp_end",
-                            "renko_sequence_end",
-                        ]
-                    }
-
-                    # Prepare dicts for merge_cache (both need timestamp)
-                    prev_candle = ohlcv_fields  # Has timestamp from brick open
-                    # Extract only json_data fields from current row (no renko fields)
-                    curr_json_data = {
-                        k: v
-                        for k, v in row.items()
-                        if k
-                        not in [
-                            "renko_level",
-                            "renko_kind",
-                            "renko_direction",
-                            "renko_sequence",
-                        ]
-                    }
-                    curr_candle = curr_json_data  # Already has timestamp
-
-                    # Merge candle payloads
-                    merged_candle = merge_cache(prev_candle, curr_candle)
-
-                    # Update last_body_row's OHLCV fields only (preserve renko fields)
-                    brick_open_timestamp = last_body_row["timestamp"]
-                    # Only update OHLCV fields, not renko metadata
-                    for k, v in merged_candle.items():
-                        if k not in [
-                            "renko_level",
-                            "renko_kind",
-                            "renko_direction",
-                            "renko_sequence",
-                        ]:
-                            last_body_row[k] = v
-                    last_body_row["timestamp"] = (
-                        brick_open_timestamp  # Restore brick open
-                    )
-
-                    # Add finalization metadata
-                    last_body_row["timestamp_end"] = row["timestamp"]
-                    last_body_row["renko_sequence_end"] = row["renko_sequence"]
-
-                    # renko_direction, renko_level, renko_kind, renko_sequence unchanged
-                    # Clear pending wicks
-                    pending_wicks.clear()
-
-                    # Do NOT append this row (merged into last_body_row)
-
-                else:
-                    # Normal progression: new body row
+                    row["timestamp"] = last_body_row["timestamp"]
                     output_rows.append(row)
-                    last_body_row = row
-                    pending_wicks.clear()
+                    pending_wicks.append(row)
 
-        # Synthesize incomplete brick from cache (if requested)
-        if not is_complete:
-            from quant_tick.models.candles import CandleCache
+                elif row["renko_kind"] == RenkoKind.BODY:
+                    is_return_to_prev = (
+                        last_body_row is not None
+                        and row["renko_level"] == last_body_row["renko_level"]
+                        and row["renko_direction"] == -last_body_row["renko_direction"]
+                        and len(pending_wicks) > 0
+                    )
+                    if is_return_to_prev:
+                        self._merge_return_body(last_body_row, row)
+                        pending_wicks.clear()
+                    else:
+                        output_rows.append(row)
+                        last_body_row = row
+                        pending_wicks.clear()
 
-            # Get cache for this time window (not latest overall)
-            cache_obj = (
-                CandleCache.objects.filter(
-                    candle=self,
-                    timestamp__gte=timestamp_from,
-                    timestamp__lt=timestamp_to,
+                if progress_bar:
+                    progress_bar.update(1)
+
+            # Synthesize incomplete brick from cache
+            if not is_complete:
+                incomplete_row = self._synthesize_incomplete_brick(
+                    timestamp_from, timestamp_to
                 )
-                .order_by("-timestamp")
-                .first()
-            )
-            if cache_obj and cache_obj.json_data:
-                cache = cache_obj.json_data
-                active_level = cache.get("active_level")
+                if incomplete_row:
+                    output_rows.append(incomplete_row)
 
-                if active_level is not None:
-                    # Keys in level_states are STRINGS (JSON serialization)
-                    level_states = cache.get("level_states", {})
-                    level_state = level_states.get(str(active_level))
+            # Filter incomplete
+            if is_complete and output_rows:
+                # Find and remove the last body brick
+                last_body_idx = None
+                for i in range(len(output_rows) - 1, -1, -1):
+                    if output_rows[i]["renko_kind"] == RenkoKind.BODY:
+                        last_body_idx = i
+                        break
 
-                    if level_state and level_state.get("initialized"):
-                        # Determine direction from entry_side
-                        entry_side = level_state.get("entry_side")
-                        if entry_side == "from_below":
-                            direction = 1
-                        elif entry_side == "from_above":
-                            direction = -1
-                        else:
-                            # Seed level (entry_side=None): use last_body_direction from cache
-                            direction = cache.get("last_body_direction", 1)
-
-                        # Build synthetic incomplete brick row
-                        aggregates = copy.deepcopy(level_state.get("aggregates", {}))
-
-                        # Save active level's close price (latest trade in this level)
-                        active_close = aggregates.get("close")
-
-                        # Merge pending wick aggregates (for plotting)
-                        pending_upper = level_state.get("pending_upper_wick_level")
-                        pending_lower = level_state.get("pending_lower_wick_level")
-
-                        if pending_upper is not None:
-                            upper_wick_state = level_states.get(str(pending_upper))
-                            if upper_wick_state and upper_wick_state.get("aggregates"):
-                                # Deepcopy to avoid mutating cache JSON (_merge_multi_exchange mutates nested dicts)
-                                aggregates = merge_cache(
-                                    aggregates,
-                                    copy.deepcopy(upper_wick_state["aggregates"]),
-                                )
-
-                        if pending_lower is not None:
-                            lower_wick_state = level_states.get(str(pending_lower))
-                            if lower_wick_state and lower_wick_state.get("aggregates"):
-                                # Deepcopy to avoid mutating cache JSON (_merge_multi_exchange mutates nested dicts)
-                                aggregates = merge_cache(
-                                    aggregates,
-                                    copy.deepcopy(lower_wick_state["aggregates"]),
-                                )
-
-                        # Remove timestamp from aggregates to preserve brick open time invariant
-                        aggregates.pop("timestamp", None)
-
-                        # Restore active level's close (latest trade price)
-                        if active_close is not None:
-                            aggregates["close"] = active_close
-
-                        incomplete_row = {
-                            "timestamp": level_state.get("timestamp"),
-                            "renko_level": active_level,
-                            "renko_kind": RenkoKind.BODY,
-                            "renko_direction": direction,
-                            "renko_sequence": cache.get(
-                                "brick_sequence"
-                            ),  # Next sequence (sorts last)
-                            "bar_idx": cache.get("brick_sequence"),
-                            **aggregates,  # Include merged OHLCV fields
-                        }
-                        output_rows.append(incomplete_row)
-
-        # Filter incomplete (if requested)
-        if is_complete and output_rows:
-            # Find and remove the last body brick
-            last_body_idx = None
-            for i in range(len(output_rows) - 1, -1, -1):
-                if output_rows[i]["renko_kind"] == RenkoKind.BODY:
-                    last_body_idx = i
-                    break
-
-            if last_body_idx is not None:
-                output_rows.pop(last_body_idx)
-
-        # Apply limit to final output (after all processing)
-        if limit and len(output_rows) > limit:
-            output_rows = output_rows[:limit]
+                if last_body_idx is not None:
+                    output_rows.pop(last_body_idx)
+        finally:
+            if progress_bar:
+                progress_bar.close()
 
         return DataFrame(output_rows)
 
-    def should_aggregate_candle(self, row, cache: dict) -> list[dict]:
-        """Emit bricks when exiting levels, with body/wick distinction.
-
-        Returns list of brick dicts to emit (0, 1, or many for multi-level jumps).
-        Each brick dict contains trades, metadata, kind (body/wick), etc.
-        """
+    def should_aggregate_candle(self, row: dict, cache: dict) -> list[dict]:
+        """Should aggregate candle."""
         target_change = Decimal(str(self.json_data["target_percentage_change"]))
-        composite_price = self._get_composite_price(row, cache)
-
-        # Get origin price from config (universal grid anchor)
         origin_price = Decimal(str(self.json_data.get("origin_price", "1")))
-
-        # Calculate which level this trade belongs to
-        log_step = math.log1p(float(target_change))
-        log_ratio = math.log(float(composite_price / origin_price))
-        trade_level = math.floor(log_ratio / log_step)  # Use floor for symmetric grid
-
-        # Boundary correction (prevent float rounding errors)
-        # Verify: origin*(1+p)**level <= price < origin*(1+p)**(level+1)
-        # Use while loop to handle extreme float drift (>1 level)
-        while True:
-            boundary_low = origin_price * (Decimal(1) + target_change) ** trade_level
-            boundary_high = origin_price * (Decimal(1) + target_change) ** (
-                trade_level + 1
-            )
-            if composite_price < boundary_low:
-                trade_level -= 1
-            elif composite_price >= boundary_high:
-                trade_level += 1
-            else:
-                break  # Correct level found
+        composite_price = self._get_composite_price(row, cache)
+        trade_level = self._calculate_trade_level(
+            composite_price, target_change, origin_price
+        )
 
         # Initialize on first trade
         if cache["active_level"] is None:
@@ -472,28 +514,23 @@ class RenkoBrick(ConstantCandle):
                     "timestamp": row["timestamp"],
                 }
             }
-            # Don't emit yet - will emit when exiting level
             return []
 
-        old_level = cache["active_level"]
-
-        # Check if we need to emit any bricks
         bricks = []
-
+        old_level = cache["active_level"]
         if trade_level != old_level:
-            # Level changed: emit brick(s) for levels we're exiting
+            # Emit bricks for levels we're exiting
 
-            # Determine direction and entry side for NEW level
             if trade_level > old_level:
                 direction = +1
                 levels_to_close = range(old_level, trade_level)
-                new_entry_side = "from_below"
-                exit_side = "to_above"
+                new_entry_side = EntrySide.FROM_BELOW
+                exit_side = ExitSide.TO_ABOVE
             else:
                 direction = -1
                 levels_to_close = range(old_level, trade_level, -1)
-                new_entry_side = "from_above"
-                exit_side = "to_below"
+                new_entry_side = EntrySide.FROM_ABOVE
+                exit_side = ExitSide.TO_BELOW
 
             # Close each level in sequence
             for level_idx, level in enumerate(levels_to_close):
@@ -507,65 +544,13 @@ class RenkoBrick(ConstantCandle):
                 )
 
                 # Determine body vs wick
-                if level_state["entry_side"] is None:
-                    # Seed level (level 0 at start)
-                    is_body = True  # Treat seed as body
-                else:
-                    # Check if opposite boundaries
-                    is_body = (
-                        level_state["entry_side"] == "from_below"
-                        and exit_side == "to_above"
-                    ) or (
-                        level_state["entry_side"] == "from_above"
-                        and exit_side == "to_below"
-                    )
+                is_body = self._is_body_brick(level_state["entry_side"], exit_side)
 
                 if level_idx == 0:
-                    # First level: has accumulated aggregates from this level's state
                     if is_body:
-                        # Body brick: emit pending wicks first, then body
+                        # Emit pending wicks first, then body
+                        self._emit_pending_wicks(cache, level_state, bricks)
 
-                        # Emit upper wick (if exists for this level)
-                        upper_wick_level = level_state.get("pending_upper_wick_level")
-                        if upper_wick_level is not None:
-                            upper_wick_state = cache["level_states"][upper_wick_level]
-                            upper_wick_brick = {
-                                "level": upper_wick_level,
-                                "direction": +1,  # Upper wick, side-based
-                                "kind": RenkoKind.WICK,
-                                "entry_side": upper_wick_state["entry_side"],
-                                "exit_side": upper_wick_state.get("exit_side"),
-                                "aggregates": upper_wick_state["aggregates"],
-                                "has_trades": True,
-                                "timestamp": upper_wick_state["timestamp"],
-                                "sequence": cache["brick_sequence"],
-                            }
-                            cache["brick_sequence"] += 1
-                            bricks.append(upper_wick_brick)
-                            del cache["level_states"][upper_wick_level]
-                            level_state["pending_upper_wick_level"] = None
-
-                        # Emit lower wick (if exists for this level)
-                        lower_wick_level = level_state.get("pending_lower_wick_level")
-                        if lower_wick_level is not None:
-                            lower_wick_state = cache["level_states"][lower_wick_level]
-                            lower_wick_brick = {
-                                "level": lower_wick_level,
-                                "direction": -1,  # Lower wick, side-based
-                                "kind": RenkoKind.WICK,
-                                "entry_side": lower_wick_state["entry_side"],
-                                "exit_side": lower_wick_state.get("exit_side"),
-                                "aggregates": lower_wick_state["aggregates"],
-                                "has_trades": True,
-                                "timestamp": lower_wick_state["timestamp"],
-                                "sequence": cache["brick_sequence"],
-                            }
-                            cache["brick_sequence"] += 1
-                            bricks.append(lower_wick_brick)
-                            del cache["level_states"][lower_wick_level]
-                            level_state["pending_lower_wick_level"] = None
-
-                        # Now emit the body brick
                         brick = {
                             "level": level,
                             "direction": direction,
@@ -577,23 +562,19 @@ class RenkoBrick(ConstantCandle):
                             "timestamp": level_state["timestamp"],
                             "sequence": cache["brick_sequence"],
                         }
+
                         cache["brick_sequence"] += 1
                         bricks.append(brick)
                         cache["last_body_direction"] = direction
-
-                        # Remove this level's state (body bricks are emitted)
                         if level in cache["level_states"]:
                             del cache["level_states"][level]
                     else:
                         # Wick: same-side exit at this level
-                        # Assign this wick to the ADJACENT parent level (not final destination!)
-                        # CRITICAL: For multi-level jumps (1→-1), assign to level 0, not level -1
                         parent_level = (
                             level + direction
                         )  # Adjacent level in direction of travel
                         parent_state = cache["level_states"].get(parent_level)
 
-                        # Initialize parent state if it doesn't exist yet
                         if parent_state is None:
                             cache["level_states"][parent_level] = {
                                 "entry_side": new_entry_side,
@@ -601,7 +582,7 @@ class RenkoBrick(ConstantCandle):
                             }
                             parent_state = cache["level_states"][parent_level]
 
-                        # Validate invariant: wicks must be exactly 1 level from parent
+                        # Wicks must be exactly 1 level from parent
                         if abs(level - parent_level) != 1:
                             raise ValueError(
                                 f"Wick invariant violation: wick at level {level} is "
@@ -609,59 +590,16 @@ class RenkoBrick(ConstantCandle):
                                 f"Wicks must be exactly 1 level away (2-brick reversal semantics)."
                             )
 
-                        # Determine if this wick level is above or below parent
-                        if level > parent_level:  # Upper wick
+                        # Determine if wick is above or below
+                        if level > parent_level:
                             parent_state["pending_upper_wick_level"] = level
-                        else:  # Lower wick
+                        else:
                             parent_state["pending_lower_wick_level"] = level
-                        # DON'T delete level state - keep it for potential re-entry
                 else:
-                    # Intermediate level: empty (jumped over)
-                    # Jumped-over levels are always body bricks (full traversal implied)
-
-                    # CRITICAL: Flush pending wicks for THIS level before emitting the body
-                    # (same logic as level_idx==0 case)
+                    # Flush pending wicks for this level before emitting the body
                     level_state = cache["level_states"].get(level)
                     if level_state:
-                        # Emit upper wick (if exists for this level)
-                        upper_wick_level = level_state.get("pending_upper_wick_level")
-                        if upper_wick_level is not None:
-                            upper_wick_state = cache["level_states"][upper_wick_level]
-                            upper_wick_brick = {
-                                "level": upper_wick_level,
-                                "direction": +1,  # Upper wick, side-based
-                                "kind": RenkoKind.WICK,
-                                "entry_side": upper_wick_state["entry_side"],
-                                "exit_side": upper_wick_state.get("exit_side"),
-                                "aggregates": upper_wick_state["aggregates"],
-                                "has_trades": True,
-                                "timestamp": upper_wick_state["timestamp"],
-                                "sequence": cache["brick_sequence"],
-                            }
-                            cache["brick_sequence"] += 1
-                            bricks.append(upper_wick_brick)
-                            del cache["level_states"][upper_wick_level]
-                            level_state["pending_upper_wick_level"] = None
-
-                        # Emit lower wick (if exists for this level)
-                        lower_wick_level = level_state.get("pending_lower_wick_level")
-                        if lower_wick_level is not None:
-                            lower_wick_state = cache["level_states"][lower_wick_level]
-                            lower_wick_brick = {
-                                "level": lower_wick_level,
-                                "direction": -1,  # Lower wick, side-based
-                                "kind": RenkoKind.WICK,
-                                "entry_side": lower_wick_state["entry_side"],
-                                "exit_side": lower_wick_state.get("exit_side"),
-                                "aggregates": lower_wick_state["aggregates"],
-                                "has_trades": True,
-                                "timestamp": lower_wick_state["timestamp"],
-                                "sequence": cache["brick_sequence"],
-                            }
-                            cache["brick_sequence"] += 1
-                            bricks.append(lower_wick_brick)
-                            del cache["level_states"][lower_wick_level]
-                            level_state["pending_lower_wick_level"] = None
+                        self._emit_pending_wicks(cache, level_state, bricks)
 
                     # Now emit the intermediate body brick
                     brick = {
@@ -669,7 +607,7 @@ class RenkoBrick(ConstantCandle):
                         "direction": direction,
                         "kind": RenkoKind.BODY,  # Jumped levels are always bodies
                         "entry_side": (
-                            new_entry_side if direction == +1 else "from_above"
+                            new_entry_side if direction == +1 else EntrySide.FROM_ABOVE
                         ),
                         "exit_side": exit_side,
                         "aggregates": None,
@@ -690,7 +628,7 @@ class RenkoBrick(ConstantCandle):
                     "timestamp": row["timestamp"],
                 }
 
-        # CRITICAL: Accumulate trade in CURRENT active level's state (after level updates)
+        # Accumulate trade in current active level's state
         level_state = cache["level_states"][cache["active_level"]]
         new_agg = aggregate_candle(DataFrame([row.to_dict()]))
         if level_state.get("initialized"):
