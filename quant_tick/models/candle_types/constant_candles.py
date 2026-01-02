@@ -73,7 +73,7 @@ class ConstantCandle(Candle):
         if last_cache:
             ts_from = last_cache.timestamp + pd.Timedelta(f"{last_cache.frequency}min")
             # Don't aggregate without last cache.
-            return can_agg and timestamp_from == ts_from
+            return can_agg and timestamp_from >= ts_from
         else:
             # There will only be no cache, if first iteration.
             return True
