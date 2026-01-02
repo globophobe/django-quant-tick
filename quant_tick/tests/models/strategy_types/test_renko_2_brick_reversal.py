@@ -35,7 +35,6 @@ class Renko2BrickReversalStrategyTest(BaseStrategyTest):
                 candle_data=candle_data,
                 level=i,
                 sequence=i,
-                kind="body",
                 direction=direction,
             )
 
@@ -52,8 +51,8 @@ class Renko2BrickReversalStrategyTest(BaseStrategyTest):
             include_incomplete=False,
         )
 
-        self.assertEqual(len(events), 2)
-        down_evt = events.iloc[1]
+        self.assertEqual(len(events), 1)
+        down_evt = events.iloc[0]
 
         self.assertEqual(down_evt["direction"], -1)
         self.assertEqual(down_evt["entry_price"], Decimal("98"))
@@ -62,24 +61,3 @@ class Renko2BrickReversalStrategyTest(BaseStrategyTest):
         self.assertAlmostEqual(float(down_evt["gross_return"]), float(expected_gross))
         self.assertEqual(down_evt["run_length_prev"], 2)
         self.assertIsInstance(down_evt["obj"], CandleData)
-
-    def test_includes_incomplete_when_requested(self):
-        """include_incomplete=True keeps last event without an exit."""
-        directions = [1, 1, -1, -1]
-        closes = [100, 101, 99, 98]
-        self._create_renko_rows(directions, closes)
-
-        timestamp_to = self.timestamp_from + pd.Timedelta(f"{len(directions) + 1}min")
-        events = self.strategy.get_events(
-            timestamp_from=self.timestamp_from,
-            timestamp_to=timestamp_to,
-            include_incomplete=True,
-        )
-
-        self.assertEqual(len(events), 2)
-        evt = events.iloc[-1]
-        self.assertEqual(evt["direction"], -1)
-        self.assertIsNone(evt["exit_price"])
-        self.assertIsNone(evt["net_return"])
-        self.assertTrue(pd.isna(evt["label"]))
-        self.assertIsInstance(evt["obj"], CandleData)

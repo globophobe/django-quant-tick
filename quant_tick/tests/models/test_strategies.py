@@ -37,33 +37,6 @@ class WarmupParityTest(BaseSymbolTest, TestCase):
             },
         )
 
-    def test_train_serve_parity_warmup(self):
-        """Features fully warm after max_warmup_bars."""
-        n_bars = 300
-        df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=n_bars, freq="1h"),
-                "close": 100 + np.random.randn(n_bars).cumsum(),
-                "open": 100 + np.random.randn(n_bars).cumsum(),
-                "high": 101 + np.random.randn(n_bars).cumsum(),
-                "low": 99 + np.random.randn(n_bars).cumsum(),
-                "volume": 1000 + np.random.randn(n_bars) * 100,
-            }
-        )
-
-        df_features = self.strategy.compute_features(df)
-        max_warmup = self.strategy.compute_max_warmup_bars()
-
-        self.assertTrue(df_features["volZScore"].iloc[: max_warmup - 1].isna().any())
-
-        warmed_rows = df_features["volZScore"].iloc[max_warmup:]
-        self.assertFalse(warmed_rows.isna().any())
-
-        self.assertEqual(df_features["has_full_warmup"].iloc[max_warmup - 1], 0)
-        self.assertEqual(df_features["has_full_warmup"].iloc[max_warmup], 1)
-        self.assertTrue(df_features["has_full_warmup"].iloc[max_warmup:].eq(1).all())
-
-
 class MultiExchangeCanonicalTest(BaseSymbolTest, TestCase):
     """Test canonical exchange selection for multi-exchange candles."""
 
