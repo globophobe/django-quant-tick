@@ -1,3 +1,4 @@
+import sys
 import warnings
 from datetime import datetime
 
@@ -6,6 +7,7 @@ from django.db import models
 from django.db.models import QuerySet
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
+from tqdm import tqdm
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
@@ -243,16 +245,45 @@ class Candle(AbstractCodeName, PolymorphicModel):
             data.append(c)
         CandleData.objects.bulk_create(data)
 
-    def get_candle_data(self) -> DataFrame:
+    def get_candle_data(
+        self,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+        progress: bool = False,
+    ) -> DataFrame:
         """Get candle data."""
-        return DataFrame(
-            [
-                {"timestamp": data["timestamp"], **data["json_data"]}
-                for data in self.candledata_set.order_by("timestamp").values(
-                    "timestamp", "json_data"
-                )
-            ]
-        )
+        queryset = CandleData.objects.filter(candle=self)
+        if timestamp_from is not None:
+            queryset = queryset.filter(timestamp__gte=timestamp_from)
+        if timestamp_to is not None:
+            queryset = queryset.filter(timestamp__lt=timestamp_to)
+        queryset = queryset.order_by("timestamp")
+
+        progress_bar = None
+        if progress and sys.stderr.isatty() and "test" not in sys.argv:
+            total = queryset.count()
+            progress_bar = tqdm(total=total, desc="Candle data", unit="row")
+            iterator = queryset.iterator(chunk_size=10000)
+        else:
+            iterator = queryset.iterator(chunk_size=10000)
+
+        data = []
+        try:
+            for idx, obj in enumerate(iterator):
+                row = {
+                    "timestamp": obj.timestamp,
+                    "obj": obj,
+                    "bar_idx": idx,
+                    **obj.json_data,
+                }
+                data.append(row)
+                if progress_bar:
+                    progress_bar.update(1)
+        finally:
+            if progress_bar:
+                progress_bar.close()
+
+        return DataFrame(data)
 
     class Meta:
         db_table = "quant_tick_candle"
