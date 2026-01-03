@@ -98,11 +98,16 @@ def convert_candle_cache_to_daily(candle: Candle) -> None:
                     )
 
 
-def convert_trade_data_to_hourly(
+def convert_trade_data_to_daily(
     symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ) -> None:
-    """Convert trade data by minute, to hourly."""
-    queryset = TradeData.objects.filter(symbol=symbol, frequency=Frequency.MINUTE)
+    """Convert trade data by minute, or hourly, to daily.
+
+    * Convert any order.
+    """
+    queryset = TradeData.objects.filter(
+        symbol=symbol, frequency__in=(Frequency.MINUTE, Frequency.HOUR)
+    )
     trade_data = queryset.filter(
         timestamp__gte=timestamp_from, timestamp__lte=timestamp_to
     )
@@ -118,16 +123,30 @@ def convert_trade_data_to_hourly(
         for daily_ts_from, daily_ts_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d", reverse=True
         ):
-            for hourly_ts_from, hourly_ts_to in iter_timeframe(
-                daily_ts_from, daily_ts_to, value="1h", reverse=True
-            ):
-                minute_trade_data = queryset.filter(
-                    timestamp__gte=hourly_ts_from,
-                    timestamp__lt=hourly_ts_to,
-                    frequency=Frequency.MINUTE,
+            hour_or_minute_trade_data = queryset.filter(
+                timestamp__gte=daily_ts_from, timestamp__lt=daily_ts_to
+            )
+            existing = get_existing(
+                hour_or_minute_trade_data.values("timestamp", "frequency")
+            )
+            # iter_timeframe may return timestamps not equal to a day.
+            if len(existing) == Frequency.DAY:
+                convert_trade_data(
+                    hour_or_minute_trade_data, daily_ts_from, daily_ts_to
                 )
-                if minute_trade_data.count() == Frequency.HOUR:
-                    convert_trade_data(minute_trade_data, hourly_ts_from, hourly_ts_to)
+            else:
+                for hourly_ts_from, hourly_ts_to in iter_timeframe(
+                    timestamp_from, timestamp_to, value="1h", reverse=True
+                ):
+                    minute_trade_data = queryset.filter(
+                        timestamp__gte=hourly_ts_from,
+                        timestamp__lt=hourly_ts_to,
+                        frequency=Frequency.MINUTE,
+                    )
+                    if minute_trade_data.count() == Frequency.HOUR:
+                        convert_trade_data(
+                            minute_trade_data, hourly_ts_from, hourly_ts_to
+                        )
     logger.info("{symbol}: done".format(symbol=str(symbol)))
 
 
@@ -139,7 +158,7 @@ def convert_trade_data(
     """Convert trade data."""
     delta = timestamp_to - timestamp_from
     frequency = delta.total_seconds() / 60
-    assert frequency == Frequency.HOUR
+    assert frequency in (Frequency.HOUR, Frequency.DAY)
     first = trade_data.first()
 
     new_trade_data = TradeData.objects.create(
@@ -216,7 +235,7 @@ def convert_trade_data(
             **{
                 "timestamp_from": timestamp_from,
                 "timestamp_to": timestamp_to,
-                "frequency": "hourly",
+                "frequency": "daily" if frequency == Frequency.DAY else "hourly",
             }
         )
     )
