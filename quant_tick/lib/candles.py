@@ -76,56 +76,13 @@ def aggregate_candle(
     min_notional_exponent: int = 1,
 ) -> dict:
     """Aggregate candle."""
-    # Multi exchange
-    if "exchange" in data_frame.columns:
-        exchanges = data_frame["exchange"].unique()
-        return _aggregate_multi_exchange(
-            data_frame,
-            exchanges,
-            timestamp,
-            min_volume_exponent,
-            min_notional_exponent,
-        )
-    # Single exchange
-    return agg_candle(
-        data_frame, timestamp, min_volume_exponent, min_notional_exponent
-    )
-
-
-def _aggregate_multi_exchange(
-    data_frame: DataFrame,
-    exchanges: list,
-    timestamp: datetime | None,
-    min_volume_exponent: int,
-    min_notional_exponent: int,
-) -> dict:
-    """Aggregate multi-exchange candle data."""
     ts = timestamp if timestamp else data_frame.iloc[0].timestamp
-    data = {"timestamp": ts, "exchanges": {}}
-    for exchange in exchanges:
-        df = data_frame[data_frame["exchange"] == exchange]
-        if len(df) > 0:
-            data["exchanges"][exchange] = agg_candle(
-                df,
-                timestamp=None,
-                min_volume_exponent=min_volume_exponent,
-                min_notional_exponent=min_notional_exponent,
-            )
-    return data
-
-
-def agg_candle(
-    df: DataFrame,
-    timestamp: datetime | None = None,
-    min_volume_exponent: int = 2,
-    min_notional_exponent: int = 1,
-) -> dict:
-    """Aggregate single-exchange candle data."""
-    ts = timestamp if timestamp else df.iloc[0].timestamp
     data = {"timestamp": ts}
-    data.update(_aggregate_ohlc(df))
-    data.update(_aggregate_totals(df, min_volume_exponent, min_notional_exponent))
-    data.update(_aggregate_realized_variance(df))
+    data.update(_aggregate_ohlc(data_frame))
+    data.update(
+        _aggregate_totals(data_frame, min_volume_exponent, min_notional_exponent)
+    )
+    data.update(_aggregate_realized_variance(data_frame))
     return data
 
 

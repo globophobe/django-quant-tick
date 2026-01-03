@@ -15,6 +15,7 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
         yesterday = one_day_ago.date()
         symbol = self.get_symbol()
         candle = AdaptiveCandle.objects.create(
+            symbol=symbol,
             json_data={
                 "source_data": FileData.RAW,
                 "sample_type": SampleType.VOLUME,
@@ -23,7 +24,6 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
                 "cache_reset": Frequency.DAY,
             },
         )
-        candle.symbols.add(symbol)
         filtered = self.get_filtered(one_day_ago, price=1, notional=123)
         trade_data = TradeData.objects.create(
             symbol=symbol, timestamp=one_day_ago, frequency=Frequency.DAY

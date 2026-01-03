@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class AggregateCandleView(ListAPIView):
     """Aggregate candle view."""
 
-    queryset = Candle.objects.filter(is_active=True).prefetch_related("symbols")
+    queryset = Candle.objects.filter(is_active=True).select_related("symbol")
     filter_backends = (DjangoFilterBackend,)
     filterset_class = CandleFilter
 

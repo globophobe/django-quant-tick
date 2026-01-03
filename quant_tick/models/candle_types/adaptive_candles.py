@@ -60,7 +60,7 @@ class AdaptiveCandle(ConstantCandle):
         delta = pd.Timedelta(f"{days}d")
         ts = get_min_time(timestamp, value="1d") - delta
         return TradeData.objects.filter(
-            symbol__in=self.symbols.all(), timestamp__gte=ts, timestamp__lt=ts + delta
+            symbol=self.symbol, timestamp__gte=ts, timestamp__lt=ts + delta
         )
 
     def get_moving_average_value(self, timestamp: datetime) -> Decimal:
@@ -88,8 +88,7 @@ class AdaptiveCandle(ConstantCandle):
         trade_data_ma = self.get_trade_data_for_moving_average(timestamp_from)
         existing = get_existing(trade_data_ma.values("timestamp", "frequency"))
         days = self.json_data["moving_average_number_of_days"]
-        total_symbols = self.symbols.all().count()
-        can_calculate_ma = len(existing) == Frequency.DAY * days * total_symbols
+        can_calculate_ma = len(existing) == Frequency.DAY * days
         return can_agg and can_calculate_ma
 
     def should_aggregate_candle(self, data: dict) -> bool:
