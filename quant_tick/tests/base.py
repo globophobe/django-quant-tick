@@ -108,6 +108,7 @@ class BaseRandomTradeTest:
 
 class BaseSymbolTest:
     def setUp(self):
+        super().setUp()
         self.global_symbol = GlobalSymbol.objects.create(name="global-symbol")
         self.timestamp_from = get_min_time(get_current_time(), "1d")
 

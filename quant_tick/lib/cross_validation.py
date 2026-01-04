@@ -24,20 +24,20 @@ class PurgedKFold(TimeSeriesSplit):
         y: Any = None,
         groups: Any = None,
         event_end_exclusive_idx: np.ndarray | None = None,
-        bar_idx: np.ndarray | None = None,
+        bar_index: np.ndarray | None = None,
     ) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
         """Generate purged train/test splits."""
-        if bar_idx is None:
-            raise ValueError("bar_idx is required for PurgedKFold.split")
+        if bar_index is None:
+            raise ValueError("bar_index is required for PurgedKFold.split")
         if event_end_exclusive_idx is None:
             yield from super().split(X, y, groups)
             return
 
         for train_idx, test_idx in super().split(X, y, groups):
-            test_bars = bar_idx[test_idx]
+            test_bars = bar_index[test_idx]
             test_start_bar = test_bars.min()
 
-            train_bars = bar_idx[train_idx]
+            train_bars = bar_index[train_idx]
             train_event_ends = event_end_exclusive_idx[train_idx]
 
             purge_mask = train_event_ends <= test_start_bar

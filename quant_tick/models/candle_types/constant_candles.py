@@ -4,14 +4,13 @@ from decimal import Decimal
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.constants import Frequency
 from quant_tick.lib import aggregate_candle, get_next_cache, merge_cache
 from quant_tick.utils import gettext_lazy as _
 
-from ..candles import Candle, CandleCache
+from ..candles import CacheResetMixin, Candle
 
 
-class ConstantCandle(Candle):
+class ConstantCandle(CacheResetMixin, Candle):
     """Fixed-threshold bars that close after accumulating a constant amount of activity.
 
     These bars close when a specific measure of market activity hits a fixed threshold.
@@ -41,42 +40,6 @@ class ConstantCandle(Candle):
             cache["date"] = timestamp.date()
         cache["sample_value"] = 0
         return cache
-
-    def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
-        """Get cache data."""
-        if self.should_reset_cache(timestamp, data):
-            data = self.get_initial_cache(timestamp)
-        return data
-
-    def should_reset_cache(self, timestamp: datetime, data: dict) -> bool:
-        """Should reset cache."""
-        date = timestamp.date()
-        cache_date = data.get("date")
-        cache_reset = self.json_data.get("cache_reset")
-        is_daily_reset = cache_reset == Frequency.DAY
-        is_weekly_reset = cache_reset == Frequency.WEEK and date.weekday() == 0
-        if cache_date:
-            is_same_day = cache_date == date
-            if not is_same_day:
-                if is_daily_reset or is_weekly_reset:
-                    return True
-        return False
-
-    def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can aggregate."""
-        can_agg = super().can_aggregate(timestamp_from, timestamp_to)
-        last_cache = (
-            CandleCache.objects.filter(candle=self, timestamp__lt=timestamp_from)
-            .only("timestamp", "frequency")
-            .last()
-        )
-        if last_cache:
-            ts_from = last_cache.timestamp + pd.Timedelta(f"{last_cache.frequency}min")
-            # Don't aggregate without last cache.
-            return can_agg and timestamp_from >= ts_from
-        else:
-            # There will only be no cache, if first iteration.
-            return True
 
     def aggregate(
         self,

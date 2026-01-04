@@ -5,11 +5,11 @@ import pandas as pd
 from django.test import SimpleTestCase
 
 from quant_tick.lib import merge_cache
-from quant_tick.lib.candles import agg_candle
+from quant_tick.lib.candles import aggregate_candle
 
 
-class SingleExchangeCandleTest(SimpleTestCase):
-    """Single exchange candle."""
+class CandleTest(SimpleTestCase):
+    """Candle test."""
 
     def get_data_frame(
         self,
@@ -28,7 +28,9 @@ class SingleExchangeCandleTest(SimpleTestCase):
             "timestamp": [base_time + pd.Timedelta(seconds=i) for i in range(n)],
             "price": [Decimal(str(p)) for p in prices],
             "volume": [Decimal(str(v)) for v in volumes],
-            "notional": [Decimal(str(p * v)) for p, v in zip(prices, volumes, strict=True)],
+            "notional": [
+                Decimal(str(p * v)) for p, v in zip(prices, volumes, strict=True)
+            ],
             "tickRule": tick_rules,
         }
         if exchange:
@@ -38,7 +40,7 @@ class SingleExchangeCandleTest(SimpleTestCase):
     def test_ohlc(self):
         """OHLC."""
         df = self.get_data_frame(prices=[100, 105, 95, 102])
-        result = agg_candle(df)
+        result = aggregate_candle(df)
 
         self.assertEqual(result["open"], Decimal("100"))
         self.assertEqual(result["high"], Decimal("105"))
@@ -48,7 +50,7 @@ class SingleExchangeCandleTest(SimpleTestCase):
     def test_volume_aggregation(self):
         """Volume aggregation."""
         df = self.get_data_frame(prices=[100, 100], volumes=[5, 10])
-        result = agg_candle(df)
+        result = aggregate_candle(df)
 
         self.assertEqual(result["volume"], Decimal("15"))
         self.assertEqual(result["notional"], Decimal("1500"))
@@ -60,7 +62,7 @@ class SingleExchangeCandleTest(SimpleTestCase):
             volumes=[5, 10, 3],
             tick_rules=[1, -1, 1],
         )
-        result = agg_candle(df)
+        result = aggregate_candle(df)
 
         self.assertEqual(result["volume"], Decimal("18"))
         self.assertEqual(result["buyVolume"], Decimal("8"))  # 5 + 3
@@ -68,7 +70,7 @@ class SingleExchangeCandleTest(SimpleTestCase):
     def test_ticks_count(self):
         """Tick count."""
         df = self.get_data_frame(prices=[100, 100, 100], tick_rules=[1, -1, 1])
-        result = agg_candle(df)
+        result = aggregate_candle(df)
 
         self.assertEqual(result["ticks"], 3)
         self.assertEqual(result["buyTicks"], 2)
@@ -76,7 +78,7 @@ class SingleExchangeCandleTest(SimpleTestCase):
     def test_timestamp_from_first_row(self):
         """Timestamp from first row."""
         df = self.get_data_frame(prices=[100, 101])
-        result = agg_candle(df)
+        result = aggregate_candle(df)
 
         expected = datetime(2024, 1, 1, tzinfo=timezone.utc)
         self.assertEqual(result["timestamp"], expected)
@@ -85,21 +87,21 @@ class SingleExchangeCandleTest(SimpleTestCase):
         """Timestamp override."""
         df = self.get_data_frame(prices=[100, 101])
         custom_ts = datetime(2024, 6, 15, 12, 0, tzinfo=timezone.utc)
-        result = agg_candle(df, timestamp=custom_ts)
+        result = aggregate_candle(df, timestamp=custom_ts)
 
         self.assertEqual(result["timestamp"], custom_ts)
 
     def test_realized_variance_single_trade(self):
         """Realized variance single trade."""
         df = self.get_data_frame(prices=[100])
-        result = agg_candle(df)
+        result = aggregate_candle(df)
 
         self.assertEqual(result["realizedVariance"], Decimal("0"))
 
     def test_realized_variance_multiple_trades(self):
         """Realized variance multiple trades."""
         df = self.get_data_frame(prices=[100, 110, 105])
-        result = agg_candle(df)
+        result = aggregate_candle(df)
 
         self.assertGreater(result["realizedVariance"], Decimal("0"))
 
@@ -110,12 +112,10 @@ class SingleExchangeCandleTest(SimpleTestCase):
             volumes=[100, 5],  # 100 is round, 5 is not
             tick_rules=[1, 1],
         )
-        result = agg_candle(df, min_volume_exponent=2)
+        result = aggregate_candle(df, min_volume_exponent=2)
 
         self.assertEqual(result["volume"], Decimal("105"))
         self.assertEqual(result["roundVolume"], Decimal("100"))
-
-
 
 
 class MergeCacheTest(SimpleTestCase):
@@ -155,7 +155,10 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
         )
         current = self.get_candle_data(
-            Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
+            Decimal("102"),
+            Decimal("110"),
+            Decimal("101"),
+            Decimal("108"),
             timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
         )
 
@@ -170,7 +173,10 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
         )
         current = self.get_candle_data(
-            Decimal("102"), Decimal("110"), Decimal("95"), Decimal("108"),
+            Decimal("102"),
+            Decimal("110"),
+            Decimal("95"),
+            Decimal("108"),
             timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
         )
 
@@ -185,7 +191,10 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
         )
         current = self.get_candle_data(
-            Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
+            Decimal("102"),
+            Decimal("110"),
+            Decimal("101"),
+            Decimal("108"),
             timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
         )
 
@@ -202,7 +211,10 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
         )
         current = self.get_candle_data(
-            Decimal("103"), Decimal("110"), Decimal("101"), Decimal("108"),
+            Decimal("103"),
+            Decimal("110"),
+            Decimal("101"),
+            Decimal("108"),
             timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
         )
 

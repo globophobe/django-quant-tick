@@ -1,13 +1,11 @@
-import sys
-import warnings
 from datetime import datetime
+from decimal import Decimal
 
 import pandas as pd
 from django.db import models
 from django.db.models import QuerySet
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
-from tqdm import tqdm
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
@@ -23,13 +21,50 @@ from .base import AbstractCodeName, JSONField
 from .trades import TradeData
 
 
+class CacheResetMixin:
+    """Mixin for candles that support cache reset and sequential aggregation."""
+
+    def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
+        """Get cache data."""
+        if self.should_reset_cache(timestamp, data):
+            data = self.get_initial_cache(timestamp)
+        return data
+
+    def should_reset_cache(self, timestamp: datetime, data: dict) -> bool:
+        """Should reset cache."""
+        date = timestamp.date()
+        cache_date = data.get("date")
+        cache_reset = self.json_data.get("cache_reset")
+        is_daily_reset = cache_reset == Frequency.DAY
+        is_weekly_reset = cache_reset == Frequency.WEEK and date.weekday() == 0
+        if cache_date:
+            is_same_day = cache_date == date
+            if not is_same_day:
+                if is_daily_reset or is_weekly_reset:
+                    return True
+        return False
+
+    def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+        """Can aggregate."""
+        can_agg = super().can_aggregate(timestamp_from, timestamp_to)
+        last_cache = (
+            CandleCache.objects.filter(candle=self, timestamp__lt=timestamp_from)
+            .only("timestamp", "frequency")
+            .last()
+        )
+        if last_cache:
+            ts_from = last_cache.timestamp + pd.Timedelta(f"{last_cache.frequency}min")
+            return can_agg and timestamp_from >= ts_from
+        return True
+
+
 class Candle(AbstractCodeName, PolymorphicModel):
     """Candle."""
 
-    symbols = models.ManyToManyField(
+    symbol = models.ForeignKey(
         "quant_tick.Symbol",
-        db_table="quant_tick_candle_symbol",
-        verbose_name=_("symbols"),
+        on_delete=models.CASCADE,
+        verbose_name=_("symbol"),
     )
     date_from = models.DateField(_("date from"), null=True)
     date_to = models.DateField(_("date to"), null=True)
@@ -259,31 +294,31 @@ class Candle(AbstractCodeName, PolymorphicModel):
             queryset = queryset.filter(timestamp__lt=timestamp_to)
         queryset = queryset.order_by("timestamp")
 
-        progress_bar = None
-        if progress and sys.stderr.isatty() and "test" not in sys.argv:
-            total = queryset.count()
-            progress_bar = tqdm(total=total, desc="Candle data", unit="row")
-            iterator = queryset.iterator(chunk_size=10000)
-        else:
-            iterator = queryset.iterator(chunk_size=10000)
-
         data = []
-        try:
-            for idx, obj in enumerate(iterator):
-                row = {
-                    "timestamp": obj.timestamp,
-                    "obj": obj,
-                    "bar_idx": idx,
-                    **obj.json_data,
-                }
-                data.append(row)
-                if progress_bar:
-                    progress_bar.update(1)
-        finally:
-            if progress_bar:
-                progress_bar.close()
-
+        for idx, obj in enumerate(queryset.iterator(chunk_size=10000)):
+            row = {
+                "timestamp": obj.timestamp,
+                "candle_data_id": obj.pk,
+                "bar_index": idx,
+                **obj.json_data,
+            }
+            data.append(row)
         return DataFrame(data)
+
+    def process_data_frame(self, df: DataFrame) -> DataFrame:
+        """Process data frame - convert Decimal columns to float."""
+        if df.empty:
+            return df
+        numeric_cols = []
+        for col in ["open", "high", "low", "close", "volume", "buyVolume", "notional"]:
+            if col in df.columns:
+                numeric_cols.append(col)
+        for col in numeric_cols:
+            if df[col].dtype == object:
+                df[col] = df[col].apply(
+                    lambda x: float(x) if isinstance(x, Decimal) else x
+                )
+        return df
 
     class Meta:
         db_table = "quant_tick_candle"

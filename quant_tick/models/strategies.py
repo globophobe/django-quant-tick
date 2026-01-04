@@ -15,7 +15,7 @@ from sklearn.metrics import log_loss
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from quant_tick.constants import Decision
+from quant_tick.constants import Decision, Direction
 from quant_tick.lib.calibration import apply_calibration, calibrate_probabilities
 from quant_tick.lib.cross_validation import PurgedKFold
 from quant_tick.utils import gettext_lazy as _
@@ -23,6 +23,9 @@ from quant_tick.utils import gettext_lazy as _
 from .base import AbstractCodeName, JSONField
 from .candles import CandleData
 from .meta_labelling import MLArtifact
+
+if TYPE_CHECKING:
+    from .symbols import Symbol
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +37,6 @@ class Strategy(AbstractCodeName, PolymorphicModel):
         "quant_tick.Candle",
         on_delete=models.CASCADE,
         verbose_name=_("candle"),
-    )
-    symbol = models.ForeignKey(
-        "quant_tick.Symbol",
-        on_delete=models.CASCADE,
-        related_name="strategies",
-        null=False,
-        blank=False,
-        verbose_name=_("symbol"),
-        help_text=_("Target symbol for feature selection and trading."),
     )
     last_candle_data = models.ForeignKey(
         "quant_tick.CandleData",
@@ -124,44 +118,15 @@ class Strategy(AbstractCodeName, PolymorphicModel):
                 cleaned[key] = value
         return cleaned
 
-    def get_warmup_bars(self) -> int:
-        """Return warmup bars required for feature computation."""
-        if self.json_data and self.json_data.get("warmup_bars") is not None:
-            return int(self.json_data["warmup_bars"])
-        return self.compute_max_warmup_bars()
-
-    @staticmethod
-    def compute_max_warmup_bars() -> int:
-        """Compute maximum warmup bars required for default features."""
-        warmup_requirements = {
-            "realized_vol": 20,  # rolling(20).std()
-            "realized_vol5": 5,  # rolling(5).std()
-            "vol_ratio": 20,  # max(realizedVol5, realizedVol)
-            "vol_zscore": 120,  # vol_slow.rolling(60).std() needs 60 + vol_slow needs 60
-            "vol_percentile": 100,  # rolling(100).rank()
-            "rolling_sharpe20": 20,  # rolling(20) for mean and std
-            "ofi_ma5": 5,  # rolling(5).mean()
-            "ofi_ma20": 20,  # rolling(20).mean()
-        }
-        return max(warmup_requirements.values())
-
     def compute_features(self, df: DataFrame) -> DataFrame:
         """Compute default features for a strategy."""
-        if self._is_multi_exchange(df):
-            return self._compute_multi_exchange_features(df)
-        return self._compute_single_exchange_features(df)
+        df = self.convert_types(df)
+        return self._compute_features(df)
 
-    def _is_multi_exchange(self, df: DataFrame) -> bool:
-        """Return True when per-exchange close columns are present."""
-        return any(c.endswith("Close") and c != "close" for c in df.columns)
-
-    def _compute_single_exchange_features(self, data_frame: DataFrame) -> DataFrame:
-        """Compute single exchange features."""
+    def _compute_features(self, data_frame: DataFrame) -> DataFrame:
+        """Compute features."""
         df = data_frame.copy()
         returns = df["close"].pct_change(fill_method=None)
-
-        max_warmup = self.get_warmup_bars()
-        df["has_full_warmup"] = (np.arange(len(df)) >= max_warmup).astype(int)
 
         df["realizedVol"] = returns.rolling(20).std()
         df["realizedVol5"] = returns.rolling(5).std()
@@ -185,114 +150,83 @@ class Strategy(AbstractCodeName, PolymorphicModel):
             df["aggregateOfiMa5"] = ofi.rolling(5).mean()
             df["aggregateOfiMa20"] = ofi.rolling(20).mean()
 
-        return df
+            # Delta features (order flow)
+            delta = 2 * df[buy_vol_col] - df[vol_col]  # buyVol - sellVol
+            df["cumDelta20"] = delta.rolling(20).sum()
+            df["cumDelta50"] = delta.rolling(50).sum()
+            vol_sum = df[vol_col].rolling(20).sum()
+            df["cumDeltaNorm"] = delta.rolling(20).sum() / vol_sum.replace(0, np.nan)
+            df["deltaAccel"] = df["cumDelta20"].diff(5)
 
-    def _compute_multi_exchange_features(self, data_frame: DataFrame) -> DataFrame:
-        """Compute multi exchange features."""
-        df = data_frame.copy()
-
-        close_cols = [
-            c for c in data_frame.columns if c.endswith("Close") and c != "close"
-        ]
-
-        canonical_exchange = self.symbol.exchange
-
-        preferred_col = f"{canonical_exchange}Close"
-        if preferred_col not in close_cols:
-            raise ValueError(
-                f"Canonical exchange '{canonical_exchange}' not found in candle data. "
-                f"Available exchanges: {[c.replace('Close', '') for c in close_cols]}"
+        # Tick features
+        if "ticks" in df.columns and "volume" in df.columns:
+            ticks_safe = df["ticks"].replace(0, 1)
+            df["avgTradeSize"] = df["volume"] / ticks_safe
+            df["avgTradeSizeMa20"] = df["avgTradeSize"].rolling(20).mean()
+            avg_std = df["avgTradeSize"].rolling(20).std()
+            df["avgTradeSizeZScore"] = (df["avgTradeSize"] - df["avgTradeSizeMa20"]) / (
+                avg_std + 1e-8
             )
 
-        canonical_col = preferred_col
-        canonical_name = canonical_col.replace("Close", "")
-        canonical_close = data_frame[canonical_col]
+            df["tickRate"] = df["ticks"]
+            tick_mean = df["tickRate"].rolling(20).mean()
+            tick_std = df["tickRate"].rolling(20).std()
+            df["tickRateZScore"] = (df["tickRate"] - tick_mean) / (tick_std + 1e-8)
 
-        if "close" not in df.columns:
-            df["close"] = canonical_close
-        if "low" not in df.columns and f"{canonical_name}Low" in df.columns:
-            df["low"] = df[f"{canonical_name}Low"]
-        if "high" not in df.columns and f"{canonical_name}High" in df.columns:
-            df["high"] = df[f"{canonical_name}High"]
-        if "open" not in df.columns and f"{canonical_name}Open" in df.columns:
-            df["open"] = df[f"{canonical_name}Open"]
+        if "buyTicks" in df.columns and "ticks" in df.columns:
+            df["buyTickRatio"] = df["buyTicks"] / df["ticks"].replace(0, np.nan)
 
-        canonical_returns = canonical_close.pct_change(fill_method=None)
-        df[f"{canonical_name}Ret"] = canonical_returns
+        # Notional features
+        if "notional" in df.columns and "ticks" in df.columns:
+            ticks_safe = df["ticks"].replace(0, 1)
+            df["avgNotionalPerTick"] = df["notional"] / ticks_safe
+            df["avgNotionalPerTickMa20"] = df["avgNotionalPerTick"].rolling(20).mean()
+            notional_std = df["avgNotionalPerTick"].rolling(20).std()
+            df["avgNotionalPerTickZScore"] = (
+                df["avgNotionalPerTick"] - df["avgNotionalPerTickMa20"]
+            ) / (notional_std + 1e-8)
 
-        max_warmup = self.get_warmup_bars()
-        df["has_full_warmup"] = (np.arange(len(df)) >= max_warmup).astype(int)
+        if "buyNotional" in df.columns and "notional" in df.columns:
+            df["buyNotionalRatio"] = df["buyNotional"] / df["notional"].replace(
+                0, np.nan
+            )
 
-        for close_col in [c for c in close_cols if c != canonical_col]:
-            other_name = close_col.replace("Close", "")
-            other_close = df[close_col]
+        if "notional" in df.columns and "volume" in df.columns:
+            df["notionalVsVolume"] = df["notional"] / df["volume"].replace(0, np.nan)
 
-            df[f"{other_name}Missing"] = other_close.isna().astype(int)
-            df[f"basis{other_name.title()}"] = other_close - canonical_close
-            df[f"basisPct{other_name.title()}"] = (
-                other_close - canonical_close
-            ) / canonical_close
+        # Round lot features (institutional activity)
+        if "roundVolume" in df.columns and "volume" in df.columns:
+            df["roundVolumeRatio"] = df["roundVolume"] / df["volume"].replace(0, np.nan)
 
-            other_returns = other_close.pct_change(fill_method=None)
-            df[f"{other_name}Ret"] = other_returns
-            df[f"retDivergence{other_name.title()}"] = other_returns - canonical_returns
+        if "roundBuyVolume" in df.columns and "roundVolume" in df.columns:
+            df["roundBuyRatio"] = df["roundBuyVolume"] / df["roundVolume"].replace(
+                0, np.nan
+            )
 
-            for lag in [1, 2, 3, 5]:
-                df[f"{other_name}RetLag{lag}"] = other_returns.shift(lag)
+        # Price action features
+        if all(c in df.columns for c in ["high", "low", "open", "close"]):
+            bar_range = df["high"] - df["low"]
+            df["barRange"] = bar_range / df["close"]
+            df["bodyRatio"] = (df["close"] - df["open"]).abs() / bar_range.replace(
+                0, np.nan
+            )
+            body_top = df[["open", "close"]].max(axis=1)
+            body_bottom = df[["open", "close"]].min(axis=1)
+            df["upperWickRatio"] = (df["high"] - body_top) / bar_range.replace(
+                0, np.nan
+            )
+            df["lowerWickRatio"] = (body_bottom - df["low"]) / bar_range.replace(
+                0, np.nan
+            )
 
-            other_vol_col = f"{other_name}Volume"
-            canon_vol_col = f"{canonical_name}Volume"
-            if other_vol_col in df.columns and canon_vol_col in df.columns:
-                df[f"volRatio{other_name.title()}"] = df[other_vol_col] / df[
-                    canon_vol_col
-                ].replace(0, np.nan)
-
-        df["realizedVol"] = canonical_returns.rolling(20).std()
-        df["realizedVol5"] = canonical_returns.rolling(5).std()
-
-        vol_slow = canonical_returns.rolling(60).std()
-        df["volRatio"] = df["realizedVol5"] / df["realizedVol"]
-        df["volZScore"] = (df["realizedVol"] - vol_slow) / vol_slow.rolling(60).std()
-        df["volPercentile"] = df["realizedVol"].rolling(100).rank(pct=True)
-        df["isHighVol"] = (df["volPercentile"] > 0.75).astype(int)
-        df["isLowVol"] = (df["volPercentile"] < 0.25).astype(int)
-
-        rolling_mean = canonical_returns.rolling(20).mean()
-        rolling_std = canonical_returns.rolling(20).std()
-        df["rollingSharpe20"] = rolling_mean / (rolling_std + 1e-8)
-
-        exchanges = [c.replace("Close", "") for c in close_cols]
-        ofi_series = {}
-        notional_series = {}
-
-        for exchange in exchanges:
-            buy_vol_col = f"{exchange}BuyVolume"
-            vol_col = f"{exchange}Volume"
-            notional_col = f"{exchange}Notional"
-
-            if buy_vol_col in df.columns and vol_col in df.columns:
-                ofi = df[buy_vol_col] / df[vol_col].replace(0, np.nan) - 0.5
-                df[f"{exchange}Ofi"] = ofi
-                df[f"{exchange}OfiMa5"] = ofi.rolling(5).mean()
-                df[f"{exchange}OfiMa20"] = ofi.rolling(20).mean()
-                ofi_series[exchange] = ofi
-
-            if notional_col in df.columns:
-                notional_series[exchange] = df[notional_col]
-
-        if ofi_series and notional_series:
-            common_exchanges = set(ofi_series.keys()) & set(notional_series.keys())
-            if common_exchanges:
-                total_notional = sum(notional_series[ex] for ex in common_exchanges)
-                weighted_ofi = sum(
-                    ofi_series[ex]
-                    * notional_series[ex]
-                    / total_notional.replace(0, np.nan)
-                    for ex in common_exchanges
-                )
-                df["aggregateOfi"] = weighted_ofi
-                df["aggregateOfiMa5"] = weighted_ofi.rolling(5).mean()
-                df["aggregateOfiMa20"] = weighted_ofi.rolling(20).mean()
+        # Volatility features (realizedVariance)
+        if "realizedVariance" in df.columns:
+            var_mean = df["realizedVariance"].rolling(20).mean()
+            var_std = df["realizedVariance"].rolling(20).std()
+            df["varianceRatio"] = df["realizedVariance"] / var_mean.replace(0, np.nan)
+            df["varianceZScore"] = (df["realizedVariance"] - var_mean) / (
+                var_std + 1e-8
+            )
 
         return df
 
@@ -352,11 +286,11 @@ class Strategy(AbstractCodeName, PolymorphicModel):
             ]
         )
 
-    def _get_bar_idx(self, events: DataFrame) -> np.ndarray:
+    def _get_bar_index(self, events: DataFrame) -> np.ndarray:
         """Return bar indices for purging/embargo logic."""
-        if "bar_idx" not in events.columns:
-            raise ValueError("bar_idx is required for purged CV")
-        return events["bar_idx"].to_numpy()
+        if "bar_index" not in events.columns:
+            raise ValueError("bar_index is required for purged CV")
+        return events["bar_index"].to_numpy()
 
     def _get_event_end_exclusive_idx(self, events: DataFrame) -> np.ndarray | None:
         """Return exclusive end indices aligned to the event timeline."""
@@ -375,12 +309,12 @@ class Strategy(AbstractCodeName, PolymorphicModel):
             exit_times.fillna(event_times), side="right"
         )
 
-        bar_idx = self._get_bar_idx(events)
-        max_bar = bar_idx[-1] + 1 if len(bar_idx) else 0
+        bar_index = self._get_bar_index(events)
+        max_bar = bar_index[-1] + 1 if len(bar_index) else 0
         end_idx = np.where(
-            positions >= len(bar_idx),
+            positions >= len(bar_index),
             max_bar,
-            bar_idx[np.clip(positions, 0, len(bar_idx) - 1)],
+            bar_index[np.clip(positions, 0, len(bar_index) - 1)],
         )
         return end_idx
 
@@ -412,6 +346,12 @@ class Strategy(AbstractCodeName, PolymorphicModel):
             return None, {"feature_cols": feature_cols}, None
 
         X = train_events.reindex(columns=feature_cols, fill_value=0)
+        nan_mask = X.isna().any(axis=1)
+        if nan_mask.any():
+            train_events = train_events.loc[~nan_mask].copy()
+            if train_events.empty:
+                return None, {"feature_cols": feature_cols}, None
+            X = X.loc[~nan_mask]
         y = train_events[label_col].fillna(0).astype(int)
 
         if y.nunique() < 2:
@@ -431,7 +371,7 @@ class Strategy(AbstractCodeName, PolymorphicModel):
         best_folds = 0
 
         event_end_idx = self._get_event_end_exclusive_idx(train_events)
-        bar_idx = self._get_bar_idx(train_events)
+        bar_index = self._get_bar_index(train_events)
         if cv_splits < 2:
             model = self._build_model(penalty="l2", c_value=1.0)
             model.fit(X, y)
@@ -440,7 +380,7 @@ class Strategy(AbstractCodeName, PolymorphicModel):
         cv = PurgedKFold(n_splits=cv_splits, embargo_bars=embargo_bars)
         try:
             folds = list(
-                cv.split(X, y, event_end_exclusive_idx=event_end_idx, bar_idx=bar_idx)
+                cv.split(X, y, event_end_exclusive_idx=event_end_idx, bar_index=bar_index)
             )
         except ValueError:
             folds = []
@@ -478,9 +418,12 @@ class Strategy(AbstractCodeName, PolymorphicModel):
 
         calibrator = None
         calibrator_method = "none"
-        if calibrate and folds:
-            oof_probs: list[float] = []
-            oof_true: list[int] = []
+        oof_probs: list[float] = []
+        oof_true: list[int] = []
+        oof_idx: list[int] = []
+
+        # Always collect OOF predictions when folds exist
+        if folds:
             for train_idx, val_idx in folds:
                 X_train = X.iloc[train_idx]
                 y_train = y.iloc[train_idx]
@@ -492,10 +435,12 @@ class Strategy(AbstractCodeName, PolymorphicModel):
                 )
                 model.fit(X_train, y_train)
                 X_val = X.iloc[val_idx]
+                oof_idx.extend(val_idx.tolist())
                 oof_probs.extend(model.predict_proba(X_val)[:, 1].tolist())
                 oof_true.extend(y.iloc[val_idx].tolist())
 
-            if oof_probs and oof_true:
+            # Only calibrate if requested
+            if calibrate and oof_probs and oof_true:
                 calibrator, calibrator_method = calibrate_probabilities(
                     np.array(oof_true),
                     np.array(oof_probs),
@@ -515,11 +460,14 @@ class Strategy(AbstractCodeName, PolymorphicModel):
                 "cv_folds": best_folds,
                 "best_params": best_params,
                 "calibration_method": calibrator_method,
+                "oof_idx": oof_idx if oof_idx else None,
+                "oof_probs": oof_probs if oof_probs else None,
+                "oof_true": oof_true if oof_true else None,
             },
             calibrator,
         )
 
-    def inference(self, candle_data: CandleData) -> "Signal | None":
+    def inference(self, candle_data: CandleData) -> Signal | None:
         """Inference."""
         bounds = self._get_time_bounds(timestamp_to=candle_data.timestamp)
         if not bounds:
@@ -538,12 +486,8 @@ class Strategy(AbstractCodeName, PolymorphicModel):
         events = events.sort_values(event_time_col)
         latest = events.iloc[-1]
         event_time = latest[event_time_col]
-        event_candle_data = latest.get("obj")
-        if (
-            self.last_candle_data_id
-            and event_candle_data
-            and event_candle_data.id == self.last_candle_data_id
-        ):
+        event_candle_data_id = latest.get("candle_data_id")
+        if event_candle_data_id == self.last_candle_data_id:
             return None
 
         artifact = self._load_active_artifact()
@@ -595,178 +539,38 @@ class Strategy(AbstractCodeName, PolymorphicModel):
             json_data=json_data,
         )
 
-        if event_candle_data:
-            self.last_candle_data = event_candle_data
+        if event_candle_data_id:
+            self.last_candle_data_id = event_candle_data_id
             self.save(update_fields=["last_candle_data"])
         return signal
 
-    def backtest(
+    def on_signal(
         self,
-        *,
-        train_months: int = 24,
-        test_months: int = 3,
-        step_months: int = 3,
-        lookback_hours: int | None = None,
-        cv_splits: int = 5,
-        embargo_bars: int = 10,
-        penalties: list[str] | None = None,
-        c_values: list[float] | None = None,
-        calibration_method: str = "auto",
-    ) -> dict | None:
-        """Walk-forward backtest with rolling windows."""
-
-        def init_stats() -> dict:
-            return {
-                "total": 0,
-                "taken": 0,
-                "wins": 0,
-                "cum_net_return": Decimal("0"),
-            }
-
-        def update_stats(stats: dict, net_return, label, take: bool) -> None:
-            stats["total"] += 1
-            if not take:
-                return
-            stats["taken"] += 1
-            if label == 1:
-                stats["wins"] += 1
-            if net_return is None or pd.isna(net_return):
-                return
-            if isinstance(net_return, Decimal):
-                stats["cum_net_return"] += net_return
-            else:
-                stats["cum_net_return"] += Decimal(str(net_return))
-
-        def finalize_stats(stats: dict) -> dict:
-            total = stats["total"]
-            taken = stats["taken"]
-            wins = stats["wins"]
-            cum_net = stats["cum_net_return"]
-            take_rate = float(taken / total) if total else 0.0
-            win_rate = float(wins / taken) if taken else 0.0
-            avg_net = float(cum_net / taken) if taken else 0.0
-            return {
-                "total": total,
-                "taken": taken,
-                "take_rate": take_rate,
-                "win_rate": win_rate,
-                "avg_net_return": avg_net,
-                "cum_net_return": float(cum_net),
-            }
-
-        bounds = self._get_time_bounds()
-        if not bounds:
-            return
-        timestamp_from, timestamp_to = bounds
-        if lookback_hours:
-            timestamp_from = timestamp_to - pd.Timedelta(hours=lookback_hours)
-
-        events = self.get_events(
-            timestamp_from=timestamp_from,
-            timestamp_to=timestamp_to,
-            include_incomplete=False,
-        )
-        if events.empty:
-            return
-
-        baseline_stats = init_stats()
-        meta_stats = init_stats()
-        windows = {"evaluated": 0, "skipped": 0}
-
-        event_time_col = self.get_event_time_column()
-        label_col = self.get_label_column()
-        events = events.sort_values(event_time_col)
-        window_start = events[event_time_col].min()
-        window_end = events[event_time_col].max()
-
-        train_start = window_start
-        train_end = train_start + pd.DateOffset(months=train_months)
-
-        while train_end < window_end:
-            test_end = train_end + pd.DateOffset(months=test_months)
-            train_events = events[
-                (events[event_time_col] >= train_start)
-                & (events[event_time_col] < train_end)
-            ]
-            test_events = events[
-                (events[event_time_col] >= train_end)
-                & (events[event_time_col] < test_end)
-            ]
-
-            train_events = train_events.dropna(subset=[label_col])
-            if train_events.empty or test_events.empty:
-                windows["skipped"] += 1
-                train_start += pd.DateOffset(months=step_months)
-                train_end += pd.DateOffset(months=step_months)
-                continue
-
-            model, metadata, calibrator = self._train_model_with_cv(
-                train_events,
-                feature_cols=self.get_feature_columns(train_events),
-                label_col=label_col,
-                cv_splits=cv_splits,
-                embargo_bars=embargo_bars,
-                penalties=penalties,
-                c_values=c_values,
-                calibrate=calibration_method != "none",
-                calibration_method=calibration_method,
-            )
-            if model is None:
-                windows["skipped"] += 1
-                train_start += pd.DateOffset(months=step_months)
-                train_end += pd.DateOffset(months=step_months)
-                continue
-
-            windows["evaluated"] += 1
-
-            feature_cols = metadata.get("feature_cols") or self.get_feature_columns(
-                train_events
-            )
-            X_test = test_events.reindex(columns=feature_cols, fill_value=0)
-            probs = model.predict_proba(X_test)[:, 1]
-            calibration_method = metadata.get("calibration_method", "none")
-            if calibrator and calibration_method != "none":
-                probs = apply_calibration(probs, calibrator, calibration_method)
-            threshold = self.get_threshold()
-
-            signals = []
-            for idx, row in test_events.iterrows():
-                proba = float(probs[test_events.index.get_loc(idx)])
-                decision = Decision.TAKE if proba >= threshold else Decision.PASS
-                net_return = row.get("net_return")
-                label = row.get(label_col)
-                update_stats(baseline_stats, net_return, label, True)
-                update_stats(meta_stats, net_return, label, decision == Decision.TAKE)
-                signals.append(
-                    Signal(
-                        strategy=self,
-                        timestamp=row[event_time_col],
-                        probability=proba,
-                        decision=decision,
-                        json_data={"event": self._clean_event_json(row.to_dict())},
-                    )
-                )
-
-            if signals:
-                Signal.objects.bulk_create(signals)
-
-            train_start += pd.DateOffset(months=step_months)
-            train_end += pd.DateOffset(months=step_months)
-
-        summary = {
-            "baseline": finalize_stats(baseline_stats),
-            "meta": finalize_stats(meta_stats),
-            "windows": windows,
-        }
-        json_data = self.json_data or {}
-        json_data["backtest_summary"] = summary
-        self.json_data = json_data
-        self.save(update_fields=["json_data"])
-        return summary
-
-    def on_signal(self, candle_data: CandleData, **kwargs) -> None:
+        candle_data: CandleData,
+        direction: Direction,
+        position: Position | None = None,
+        data: dict | None = None,
+    ) -> Position | None:
         """On signal."""
-        raise NotImplementedError
+        data = data or {}
+        if position:
+            if position.json_data["direction"] != direction.value:
+                position.close_candle_data = candle_data
+                position.save()
+                position = Position.objects.create(
+                    strategy=self,
+                    open_candle_data=candle_data,
+                    close_candle_data=None,
+                    json_data={"direction": direction.value, **data},
+                )
+        else:
+            position = Position.objects.create(
+                strategy=self,
+                open_candle_data=candle_data,
+                close_candle_data=None,
+                json_data={"direction": direction.value, **data},
+            )
+        return position
 
     def __str__(self) -> str:
         """str."""

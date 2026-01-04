@@ -1,5 +1,3 @@
-import string
-
 import pandas as pd
 from django.test import TestCase
 
@@ -25,78 +23,26 @@ class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
     def setUp(self):
         super().setUp()
         self.timestamp_to = self.timestamp_from + pd.Timedelta("1min")
-        self.candle = Candle.objects.create(json_data={"source_data": FileData.RAW})
+        self.symbol = self.get_symbol("test")
+        self.candle = Candle.objects.create(
+            symbol=self.symbol, json_data={"source_data": FileData.RAW}
+        )
 
-    def test_get_data_frame_with_one_symbol(self):
-        """Get data frame with one symbol."""
-        symbol = self.get_symbol("test")
-        self.candle.symbols.add(symbol)
+    def test_get_data_frame(self):
+        """Get data frame."""
         filtered = self.get_filtered(self.timestamp_from)
         TradeData.write(
-            symbol, self.timestamp_from, self.timestamp_to, filtered, pd.DataFrame([])
+            self.symbol,
+            self.timestamp_from,
+            self.timestamp_to,
+            filtered,
+            pd.DataFrame([]),
         )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 1)
         t = trade_data[0]
         data_frame = t.get_data_frame(FileData.RAW)
         df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to)
-        self.assertTrue(all(data_frame.columns == df.columns))
-        self.assertTrue(all(data_frame == df))
-
-    def test_get_data_frame_with_two_symbols(self):
-        """Get data frame with two symbols."""
-        symbols = [
-            self.get_symbol(f"test-{letter}") for letter in string.ascii_uppercase[:2]
-        ]
-        self.candle.symbols.add(*symbols)
-        for index, symbol in enumerate(symbols):
-            filtered = self.get_filtered(self.timestamp_from)
-            TradeData.write(
-                symbol,
-                self.timestamp_from,
-                self.timestamp_to,
-                filtered,
-                pd.DataFrame([]),
-            )
-        trade_data = TradeData.objects.all()
-        self.assertEqual(trade_data.count(), 2)
-        data_frame = (
-            pd.concat([t.get_data_frame(FileData.RAW) for t in trade_data])
-            .reset_index()
-            .drop(columns=["index"])
-        )
-        df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to).drop(
-            columns=["exchange", "symbol"]
-        )
-        self.assertTrue(all(data_frame.columns == df.columns))
-        self.assertTrue(all(data_frame == df))
-
-    def test_get_sorted_data_frame_with_two_symbols(self):
-        """Get sorted data frame with two symbols."""
-        symbols = [
-            self.get_symbol(f"test-{letter}") for letter in string.ascii_uppercase[:2]
-        ]
-        self.candle.symbols.add(*symbols)
-        for index, symbol in enumerate(symbols):
-            nanoseconds = 1 if index == 0 else 0
-            filtered = self.get_filtered(self.timestamp_from, nanoseconds=nanoseconds)
-            TradeData.write(
-                symbol,
-                self.timestamp_from,
-                self.timestamp_to,
-                filtered,
-                pd.DataFrame([]),
-            )
-        trade_data = TradeData.objects.all()
-        self.assertEqual(trade_data.count(), 2)
-        data_frame = (
-            pd.concat([t.get_data_frame(FileData.RAW) for t in trade_data])
-            .reset_index()
-            .drop(columns=["index"])
-        )
-        df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to).drop(
-            columns=["exchange", "symbol"]
-        )
         self.assertTrue(all(data_frame.columns == df.columns))
         self.assertTrue(all(data_frame == df))
 

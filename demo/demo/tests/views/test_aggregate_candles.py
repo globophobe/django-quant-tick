@@ -21,8 +21,7 @@ class AggregateCandleViewTest(BaseViewTest, APITestCase):
 
     def test_get(self):
         """List of candles."""
-        candle = Candle.objects.create()
-        candle.symbols.add(self.symbol)
+        Candle.objects.create(symbol=self.symbol)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
@@ -31,8 +30,7 @@ class AggregateCandleViewTest(BaseViewTest, APITestCase):
     def test_one_candle(self):
         """One candle."""
         for i in range(2):
-            candle = Candle.objects.create()
-            candle.symbols.add(self.symbol)
+            candle = Candle.objects.create(symbol=self.symbol)
         response = self.client.get(self.url, {"code_name": candle.code_name})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
