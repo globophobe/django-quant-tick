@@ -4,7 +4,6 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 import quant_tick.models.base
-import quant_tick.models.ml
 import quant_tick.models.trades
 
 
@@ -884,7 +883,7 @@ class Migration(migrations.Migration):
                 (
                     "artifact",
                     models.FileField(
-                        upload_to=quant_tick.models.ml.upload_artifact_to,
+                        upload_to=fake,
                         verbose_name="artifact",
                     ),
                 ),
