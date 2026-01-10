@@ -25,30 +25,6 @@ def get_next_cache(
 def merge_cache(previous: dict, current: dict) -> dict:
     """Merge cache."""
     current["timestamp"] = previous["timestamp"]
-
-    if "exchanges" in previous and "exchanges" in current:
-        for exchange in previous["exchanges"]:
-            if exchange in current["exchanges"]:
-                _merge_multi_exchange(
-                    previous["exchanges"][exchange],
-                    current["exchanges"][exchange],
-                )
-            else:
-                current["exchanges"][exchange] = previous["exchanges"][exchange]
-        return current
-
-    _merge_candle_data(previous, current)
-    return current
-
-
-def _merge_multi_exchange(previous: dict, current: dict) -> None:
-    """Merge multi exchange."""
-    current["timestamp"] = previous["timestamp"]
-    _merge_candle_data(previous, current)
-
-
-def _merge_candle_data(previous: dict, current: dict) -> None:
-    """Merge OHLC, totals, and variance."""
     curr_open = current.get("open")
     current["open"] = previous["open"]
     if previous["high"] > current["high"]:
@@ -72,6 +48,7 @@ def _merge_candle_data(previous: dict, current: dict) -> None:
 
     cross_var = _calc_cross_segment_variance(previous.get("close"), curr_open)
     current["realizedVariance"] += previous["realizedVariance"] + cross_var
+    return current
 
 
 def _calc_cross_segment_variance(
