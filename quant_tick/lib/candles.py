@@ -127,13 +127,17 @@ def _aggregate_totals(
     # Round volume
     volume_exps = df.volume.apply(calc_volume_exponent)
     is_round_volume = volume_exps >= min_volume_exponent
-    data["roundVolume"] = df.loc[is_round_volume, "volume"].sum()
-    data["roundBuyVolume"] = df.loc[is_round_volume & is_buy, "volume"].sum()
+    round_vol = df.loc[is_round_volume]
+    round_buy_vol = df.loc[is_round_volume & is_buy]
+    data["roundVolume"] = round_vol.volume.sum() if len(round_vol) else ZERO
+    data["roundBuyVolume"] = round_buy_vol.volume.sum() if len(round_buy_vol) else ZERO
     # Round notional
     notional_exps = df.notional.apply(calc_notional_exponent)
     is_round_notional = notional_exps >= min_notional_exponent
-    data["roundNotional"] = df.loc[is_round_notional, "notional"].sum()
-    data["roundBuyNotional"] = df.loc[is_round_notional & is_buy, "notional"].sum()
+    round_not = df.loc[is_round_notional]
+    round_buy_not = df.loc[is_round_notional & is_buy]
+    data["roundNotional"] = round_not.notional.sum() if len(round_not) else ZERO
+    data["roundBuyNotional"] = round_buy_not.notional.sum() if len(round_buy_not) else ZERO
     return data
 
 
