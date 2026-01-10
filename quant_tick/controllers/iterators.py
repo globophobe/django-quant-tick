@@ -87,7 +87,7 @@ class BaseTimeFrameIterator:
             if self.can_iter_hours(ts_from, ts_to):
                 yield from self.iter_hours(ts_from, ts_to, existing)
             else:
-                yield timestamp_from, timestamp_to
+                yield ts_from, ts_to
 
     def iter_days(
         self,
