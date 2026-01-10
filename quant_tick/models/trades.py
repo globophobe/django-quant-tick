@@ -144,13 +144,39 @@ class TradeData(AbstractDataStorage):
         """Write data."""
         delta = timestamp_to - timestamp_from
         frequency = delta.total_seconds() / 60
-        assert frequency <= Frequency.HOUR
+        assert frequency <= Frequency.DAY
+        is_first_hour = timestamp_from.time() == datetime.time.min
+        is_daily = timestamp_from == timestamp_to - pd.Timedelta("1d")
         is_first_minute = timestamp_from.time().minute == 0
         is_hourly = timestamp_from == timestamp_to - pd.Timedelta("1h")
-        if is_first_minute and is_hourly:
+        if is_first_hour and is_daily:
+            cls.write_day(symbol, timestamp_from, timestamp_to, trades, candles)
+        elif is_first_minute and is_hourly:
             cls.write_hour(symbol, timestamp_from, timestamp_to, trades, candles)
         else:
             cls.write_minutes(symbol, timestamp_from, timestamp_to, trades, candles)
+
+    @classmethod
+    def write_day(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        trades: DataFrame,
+        candles: DataFrame,
+    ) -> None:
+        """Write daily data."""
+        params = {
+            "symbol": symbol,
+            "timestamp": timestamp_from,
+            "frequency": Frequency.DAY,
+        }
+        try:
+            obj = cls.objects.get(**params)
+        except cls.DoesNotExist:
+            obj = cls(**params)
+        finally:
+            cls.write_data_frame(obj, trades, candles)
 
     @classmethod
     def write_hour(
