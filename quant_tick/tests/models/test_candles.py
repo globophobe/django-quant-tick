@@ -6,7 +6,7 @@ from quant_tick.lib import get_current_time, get_min_time, get_previous_time
 from quant_tick.models import Candle, CandleCache, Symbol, TradeData
 from quant_tick.storage import convert_candle_cache_to_daily
 
-from ..base import BaseWriteTradeDataTest
+from ..base import BaseSymbolTest, BaseWriteTradeDataTest
 
 
 class BaseCandleTest(TestCase):
@@ -47,11 +47,12 @@ class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
         self.assertTrue(all(data_frame == df))
 
 
-class CandleCacheTest(BaseCandleTest):
+class CandleCacheTest(BaseSymbolTest, BaseCandleTest):
     def setUp(self):
         super().setUp()
+        self.symbol = self.get_symbol("test")
         self.candle = Candle.objects.create(
-            json_data={"sample_type": SampleType.NOTIONAL}
+            symbol=self.symbol, json_data={"sample_type": SampleType.NOTIONAL}
         )
 
     def test_convert_candle_cache_to_daily(self):

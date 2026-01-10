@@ -16,11 +16,9 @@ class Renko2BrickReversalStrategyTest(BaseStrategyTest):
     def setUp(self):
         """Set up."""
         super().setUp()
-        self.candle = RenkoBrick.objects.create()
-        self.candle.symbols.add(self.symbol)
+        self.candle = RenkoBrick.objects.create(symbol=self.symbol)
         self.strategy = Renko2BrickReversalStrategy.objects.create(
             candle=self.candle,
-            symbol=self.symbol,
             json_data={"cost": "0"},
         )
 
@@ -60,4 +58,4 @@ class Renko2BrickReversalStrategyTest(BaseStrategyTest):
         expected_gross = -1 * (Decimal("99") / Decimal("98") - 1)
         self.assertAlmostEqual(float(down_evt["gross_return"]), float(expected_gross))
         self.assertEqual(down_evt["run_length_prev"], 2)
-        self.assertIsInstance(down_evt["obj"], CandleData)
+        self.assertIsNotNone(down_evt["candle_data_id"])
