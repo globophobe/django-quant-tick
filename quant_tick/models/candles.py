@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import datetime
 from decimal import Decimal
 
@@ -54,7 +55,7 @@ class CacheResetMixin:
         )
         if last_cache:
             ts_from = last_cache.timestamp + pd.Timedelta(f"{last_cache.frequency}min")
-            return can_agg and timestamp_from >= ts_from
+            return can_agg and timestamp_from == ts_from
         return True
 
 
@@ -94,18 +95,18 @@ class Candle(AbstractCodeName, PolymorphicModel):
         else:
             ts_to = timestamp_to
         # Does it have trade data?
-        max_ts_to = min(
-            [
-                t.timestamp + pd.Timedelta(f"{t.frequency}min")
-                for symbol in self.symbols.all()
-                if (
-                    t := TradeData.objects.filter(symbol=symbol)
-                    .only("timestamp", "frequency")
-                    .last()
-                )
-            ],
-            default=ts_to,
+        last_trade = (
+            TradeData.objects.filter(symbol=self.symbol)
+            .only("timestamp", "frequency")
+            .last()
         )
+        if last_trade:
+            max_ts_to = min(
+                last_trade.timestamp + pd.Timedelta(f"{last_trade.frequency}min"),
+                ts_to,
+            )
+        else:
+            max_ts_to = ts_to
         ts_to = ts_to if max_ts_to > ts_to else max_ts_to
         # Does it have a cache?
         candle_cache = (
@@ -146,15 +147,11 @@ class Candle(AbstractCodeName, PolymorphicModel):
         if isinstance(only, str):
             only = [only]
         only = only or []
-        return (
-            TradeData.objects.filter(
-                symbol__in=self.symbols.all(),
-                timestamp__gte=get_min_time(timestamp_from, value="1h"),
-                timestamp__lt=timestamp_to,
-            )
-            .select_related("symbol")
-            .only(*["timestamp", "frequency"] + only)
-        )
+        return TradeData.objects.filter(
+            symbol=self.symbol,
+            timestamp__gte=get_min_time(timestamp_from, value="1d"),
+            timestamp__lt=timestamp_to,
+        ).only(*["timestamp", "frequency"] + only)
 
     def get_expected_daily_candles(
         self, timestamp_from: datetime, timestamp_to: datetime
@@ -168,37 +165,19 @@ class Candle(AbstractCodeName, PolymorphicModel):
     ) -> DataFrame:
         """Get data frame."""
         trade_data = self.get_trade_data(
-            timestamp_from, timestamp_to, only=["symbol"] + list(FileData)
+            timestamp_from, timestamp_to, only=list(FileData)
         )
-        data_frames = []
-        symbols = list(self.symbols.all())
-        is_multi_symbol = len(symbols) > 1
-        for symbol in symbols:
-            target = sorted(
-                [obj for obj in trade_data if obj.symbol == symbol],
-                key=lambda obj: obj.timestamp,
-            )
-            dfs = []
-            for t in target:
-                # Query may contain trade data by minute.
-                # Only target timestamps.
-                if timestamp_from <= t.timestamp + pd.Timedelta(f"{t.frequency}min"):
-                    df = t.get_data_frame(self.json_data["source_data"])
-                    if df is not None:
-                        dfs.append(df)
-            if dfs:
-                # Ignore: The behavior of DataFrame concatenation with empty or
-                # all-NA entries is deprecated.
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", category=FutureWarning)
-                    df = pd.concat(dfs)
-                # Add exchange and symbol columns if multi-symbol.
-                if is_multi_symbol:
-                    df.insert(2, "exchange", symbol.exchange)
-                    df.insert(3, "symbol", symbol.symbol)
-                data_frames.append(df)
-        if data_frames:
-            df = pd.concat(data_frames)
+        target = sorted(trade_data, key=lambda obj: obj.timestamp)
+        dfs = []
+        for t in target:
+            # Query may contain trade data by minute.
+            # Only target timestamps.
+            if timestamp_from <= t.timestamp + pd.Timedelta(f"{t.frequency}min"):
+                df = t.get_data_frame(self.json_data["source_data"])
+                if df is not None:
+                    dfs.append(df)
+        if dfs:
+            df = pd.concat(dfs)
             sort_values = ["timestamp"]
             if "nanoseconds" in df.columns:
                 sort_values.append("nanoseconds")
@@ -208,27 +187,23 @@ class Candle(AbstractCodeName, PolymorphicModel):
                 .reset_index()
                 .drop(columns=["index"])
             )
-        else:
-            return pd.DataFrame([])
+        return pd.DataFrame([])
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Can aggregate?"""
-        values = []
-        for symbol in self.symbols.all():
-            # Trade data may be daily, so timestamp from >= daily timestmap.
-            trade_data = TradeData.objects.filter(
-                symbol=symbol,
-                timestamp__gte=get_min_time(timestamp_from, value="1d"),
-                timestamp__lt=timestamp_to,
-            )
-            # Only target timestamps.
-            existing = [
-                t
-                for t in get_existing(trade_data.values("timestamp", "frequency"))
-                if t >= timestamp_from and t < timestamp_to
-            ]
-            values.append(has_timestamps(timestamp_from, timestamp_to, existing))
-        return all(values)
+        # Trade data may be daily, so timestamp from >= daily timestamp.
+        trade_data = TradeData.objects.filter(
+            symbol=self.symbol,
+            timestamp__gte=get_min_time(timestamp_from, value="1d"),
+            timestamp__lt=timestamp_to,
+        )
+        # Only target timestamps.
+        existing = [
+            t
+            for t in get_existing(trade_data.values("timestamp", "frequency"))
+            if t >= timestamp_from and t < timestamp_to
+        ]
+        return has_timestamps(timestamp_from, timestamp_to, existing)
 
     def aggregate(
         self,
@@ -284,9 +259,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
         self,
         timestamp_from: datetime | None = None,
         timestamp_to: datetime | None = None,
-        progress: bool = False,
-    ) -> DataFrame:
-        """Get candle data."""
+    ) -> Iterator[dict]:
+        """Get candle data as iterator of dicts."""
         queryset = CandleData.objects.filter(candle=self)
         if timestamp_from is not None:
             queryset = queryset.filter(timestamp__gte=timestamp_from)
@@ -294,16 +268,13 @@ class Candle(AbstractCodeName, PolymorphicModel):
             queryset = queryset.filter(timestamp__lt=timestamp_to)
         queryset = queryset.order_by("timestamp")
 
-        data = []
         for idx, obj in enumerate(queryset.iterator(chunk_size=10000)):
-            row = {
+            yield {
                 "timestamp": obj.timestamp,
                 "candle_data_id": obj.pk,
                 "bar_index": idx,
                 **obj.json_data,
             }
-            data.append(row)
-        return DataFrame(data)
 
     def process_data_frame(self, df: DataFrame) -> DataFrame:
         """Process data frame - convert Decimal columns to float."""
