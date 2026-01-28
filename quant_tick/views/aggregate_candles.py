@@ -5,7 +5,6 @@ from rest_framework.generics import ListAPIView
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from quant_tick.controllers import aggregate_candles
 from quant_tick.filters import CandleFilter
 from quant_tick.models import Candle
 from quant_tick.serializers import TimeAgoWithRetrySerializer
@@ -41,6 +40,6 @@ class AggregateCandleView(ListAPIView):
         """Get data for each symbol."""
         for candle, timestamp_from, timestamp_to, retry in self.get_params(request):
             logger.info("{candle}: starting...".format(**{"candle": str(candle)}))
-            aggregate_candles(candle, timestamp_from, timestamp_to, retry)
+            candle.candles(timestamp_from, timestamp_to, retry)
             convert_candle_cache_to_daily(candle)
         return Response({"ok": True})
