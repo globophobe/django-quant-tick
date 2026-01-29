@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from django.core.management.base import CommandParser
 from django.db.models import QuerySet
+from pandas import DataFrame
 
 from quant_tick.models import Candle
 
@@ -39,22 +40,16 @@ class Command(BaseDateCommand):
         date_to = (
             datetime.fromisoformat(options["date_to"]) if options["date_to"] else None
         )
-        timestamp_from = (
-            date_from.replace(tzinfo=datetime.timezone.utc) if date_from else None
-        )
-        timestamp_to = (
-            date_to.replace(tzinfo=datetime.timezone.utc) if date_to else None
-        )
+        timestamp_from = date_from.replace(tzinfo=timezone.utc) if date_from else None
+        timestamp_to = date_to.replace(tzinfo=timezone.utc) if date_to else None
 
         self.stdout.write(f"Exporting candles for '{code_name}'...")
 
-        data_frame = candle.get_candle_data(
+        rows = candle.get_candle_data(
             timestamp_from=timestamp_from,
             timestamp_to=timestamp_to,
-            progress=True,
         )
-
-        df = strategy.get_data_frame(df)
+        df = DataFrame(rows)
 
         today = datetime.now().strftime("%Y%m%d")
         output_path = f"{code_name}-candles-{today}.parquet"
