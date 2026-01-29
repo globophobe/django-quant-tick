@@ -11,6 +11,9 @@ from .dataframe import is_decimal_close
 from .experimental import calc_notional_exponent, calc_volume_exponent
 
 ZERO = Decimal("0")
+DISTRIBUTION_ORIGIN = 1.0
+DISTRIBUTION_STEP = 0.001
+LOG_STEP = np.log1p(DISTRIBUTION_STEP)
 
 
 def candles_to_data_frame(
@@ -74,6 +77,7 @@ def aggregate_candle(
     timestamp: datetime | None = None,
     min_volume_exponent: int = 2,
     min_notional_exponent: int = 1,
+    include_distribution: bool = False,
 ) -> dict:
     """Aggregate candle."""
     ts = timestamp if timestamp else data_frame.iloc[0].timestamp
@@ -83,16 +87,25 @@ def aggregate_candle(
         _aggregate_totals(data_frame, min_volume_exponent, min_notional_exponent)
     )
     data.update(_aggregate_realized_variance(data_frame))
+    if include_distribution:
+        data["distribution"] = _aggregate_distribution(data_frame)
     return data
 
 
 def _aggregate_ohlc(df: DataFrame) -> dict:
-    """Aggregate OHLC from trade data."""
+    """Aggregate OHLC from trade data or pre-clustered data."""
+    if "price" in df.columns:
+        return {
+            "open": df.iloc[0].price,
+            "high": df.price.max(),
+            "low": df.price.min(),
+            "close": df.iloc[-1].price,
+        }
     return {
-        "open": df.iloc[0].price,
-        "high": df.price.max(),
-        "low": df.price.min(),
-        "close": df.iloc[-1].price,
+        "open": df.iloc[0].open,
+        "high": df.high.max(),
+        "low": df.low.min(),
+        "close": df.iloc[-1].close,
     }
 
 
@@ -137,22 +150,71 @@ def _aggregate_totals(
     round_not = df.loc[is_round_notional]
     round_buy_not = df.loc[is_round_notional & is_buy]
     data["roundNotional"] = round_not.notional.sum() if len(round_not) else ZERO
-    data["roundBuyNotional"] = round_buy_not.notional.sum() if len(round_buy_not) else ZERO
+    data["roundBuyNotional"] = (
+        round_buy_not.notional.sum() if len(round_buy_not) else ZERO
+    )
     return data
 
 
 def _aggregate_realized_variance(df: DataFrame) -> dict:
     """Compute realized variance."""
-    if "price" not in df.columns or len(df) == 0:
+    if len(df) == 0:
+        return {"realizedVariance": ZERO}
+
+    price_col = "price" if "price" in df.columns else "close"
+    if price_col not in df.columns:
         return {"realizedVariance": ZERO}
 
     if len(df) > 1:
-        prices = df.price.astype(float)
+        prices = df[price_col].astype(float)
         log_prices = np.log(prices)
         log_returns = log_prices.diff().dropna()
         return {"realizedVariance": Decimal(str((log_returns**2).sum()))}
 
     return {"realizedVariance": ZERO}
+
+
+def _aggregate_distribution(df: DataFrame) -> dict:
+    """Aggregate price distribution using multiplicative percent scaling."""
+    if df.empty:
+        return {}
+
+    price_col = "price" if "price" in df.columns else "close"
+    prices = df[price_col].values.astype(float)
+    levels = np.floor(np.log(prices / DISTRIBUTION_ORIGIN) / LOG_STEP).astype(np.int64)
+
+    df = df.copy()
+    df["_level"] = levels
+
+    distribution = {}
+    has_totals = "totalVolume" in df.columns
+
+    for level, g in df.groupby("_level"):
+        is_buy = g["tickRule"] == 1
+
+        if has_totals:
+            data = {
+                "ticks": int(g["totalTicks"].sum()),
+                "buyTicks": int(g.loc[is_buy, "totalBuyTicks"].sum()) if is_buy.any() else 0,
+                "volume": g["totalVolume"].sum(),
+                "buyVolume": g.loc[is_buy, "totalBuyVolume"].sum() if is_buy.any() else ZERO,
+                "notional": g["totalNotional"].sum(),
+                "buyNotional": g.loc[is_buy, "totalBuyNotional"].sum() if is_buy.any() else ZERO,
+            }
+        else:
+            data = {
+                "ticks": len(g),
+                "buyTicks": int(is_buy.sum()),
+                "volume": g["volume"].sum(),
+                "buyVolume": g.loc[is_buy, "volume"].sum() if is_buy.any() else ZERO,
+                "notional": g["notional"].sum(),
+                "buyNotional": g.loc[is_buy, "notional"].sum() if is_buy.any() else ZERO,
+            }
+
+        if data["notional"] > 0 or data["volume"] > 0:
+            distribution[str(int(level))] = data
+
+    return distribution
 
 
 def validate_aggregated_candles(

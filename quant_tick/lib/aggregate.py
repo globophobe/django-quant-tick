@@ -1,4 +1,5 @@
 import datetime
+import math
 from typing import Any
 
 import pandas as pd
@@ -6,7 +7,7 @@ from pandas import DataFrame
 
 from quant_tick.constants import ZERO
 
-from .calendar import iter_once, iter_window
+from .calendar import iter_once, iter_window, to_pydatetime
 from .dataframe import is_decimal_close
 
 
@@ -211,3 +212,159 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
         }
     )
     return data
+
+
+def cluster_trades(data_frame: DataFrame, window: str | None = None) -> DataFrame:
+    """Cluster trades."""
+    result = []
+    data = []
+    direction = None
+    # Iterate in reverse.
+    df = data_frame[::-1]
+    for row in df.itertuples():
+        tick_rule = row.tickRule if row.tickRule in (1, -1) else None
+        if not tick_rule and not direction:
+            data.append(row)
+        else:
+            if tick_rule and not direction:
+                if data:
+                    data.reverse()
+                    result.append(cluster(data))
+                    data = []
+                data.append(row)
+                direction = tick_rule
+            elif tick_rule in (None, direction):
+                data.append(row)
+            else:
+                if data:
+                    data.reverse()
+                    result.append(cluster(data))
+                    data = []
+                data.append(row)
+                direction = tick_rule
+    if data:
+        data.reverse()
+        result.append(cluster(data))
+    return (
+        pd.DataFrame(result)[::-1]
+        .convert_dtypes()
+        .replace({float("nan"): None})
+        .reset_index(drop=True)
+    )
+
+
+def cluster(data: list[dict]) -> list[dict]:
+    """Cluster."""
+    first = data[0]
+    last = data[-1]
+    delta = last.timestamp - first.timestamp
+    total_seconds = delta.total_seconds()
+    # Although extremely rare, Coinbase has instances of consecutive trades with
+    # non-consecutive timestamps, so set max total seconds to 0.
+    total_seconds = 0 if total_seconds < 0 else total_seconds
+    tick_rule = set([i.tickRule for i in data if i.tickRule in (1, -1)])
+    if tick_rule:
+        assert len(tick_rule) == 1
+        tick_rule = int(tick_rule.pop())
+    else:
+        tick_rule = None
+    result = {
+        "timestamp": to_pydatetime(first.timestamp),
+        "totalSeconds": total_seconds,
+        "open": first.price,
+        "high": max([i.price for i in data]),
+        "low": min([i.price for i in data]),
+        "close": last.price,
+        "tickRule": tick_rule,
+    }
+    volume = ["volume", "totalBuyVolume", "totalVolume"]
+    notional = ["notional", "totalBuyNotional", "totalNotional"]
+    ticks = ["ticks", "totalBuyTicks", "totalTicks"]
+    for sample_type in volume + notional + ticks:
+        if all([hasattr(i, sample_type) for i in data]):
+            value = sum(
+                [
+                    val
+                    for i in data
+                    if (val := getattr(i, sample_type)) and not math.isnan(val)
+                ]
+            )
+            if sample_type in ticks:
+                value = int(value)
+            result[sample_type] = value
+    return result
+
+
+def combine_clustered_trades(data_frame: DataFrame) -> DataFrame:
+    """Combine clustered trades."""
+    result = []
+    data = []
+    direction = None
+    # Iterate in reverse.
+    df = data_frame[::-1]
+    for row in df.itertuples():
+        tick_rule = row.tickRule if row.tickRule is not pd.NA else None
+        # Initial rows if None, maybe appended to next data frame.
+        if not tick_rule and not direction:
+            data.append(row)
+        else:
+            if tick_rule and not direction:
+                if data:
+                    data.reverse()
+                    result.append(combine_clusters(data))
+                    data = []
+                data.append(row)
+                direction = tick_rule
+            elif tick_rule in (None, direction):
+                data.append(row)
+            else:
+                if data:
+                    data.reverse()
+                    result.append(combine_clusters(data))
+                    data = []
+                data.append(row)
+                direction = tick_rule
+    if data:
+        data.reverse()
+        result.append(combine_clusters(data))
+    return (
+        pd.DataFrame(result)[::-1]
+        .convert_dtypes()
+        .replace({float("nan"): None})
+        .reset_index(drop=True)
+    )
+
+
+def combine_clusters(data: list[dict]) -> list[dict]:
+    """Combine clusters."""
+    first = data[0]
+    last = data[-1]
+    delta = last.timestamp - first.timestamp
+    tick_rule = set([i.tickRule for i in data if not pd.isna(i.tickRule)])
+    if tick_rule:
+        assert len(tick_rule) == 1
+        tick_rule = int(tick_rule.pop())
+    else:
+        tick_rule = None
+    return {
+        "timestamp": first.timestamp,
+        "totalSeconds": delta.total_seconds() + last.totalSeconds,
+        "open": first.open,
+        "high": max([d.high for d in data]),
+        "low": min([d.low for d in data]),
+        "close": last.close,
+        "tickRule": tick_rule,
+        "volume": sum([d.volume for d in data if d.volume]),
+        "totalBuyVolume": sum([d.totalBuyVolume for d in data if d.totalBuyVolume]),
+        "totalVolume": sum(
+            [d.totalVolume for d in data if d.totalVolume if d.totalVolume]
+        ),
+        "notional": sum([d.notional for d in data if d.notional]),
+        "totalBuyNotional": sum(
+            [d.totalBuyNotional for d in data if d.totalBuyNotional]
+        ),
+        "totalNotional": sum([d.totalNotional for d in data if d.totalNotional]),
+        "ticks": sum([d.ticks for d in data if d.ticks]),
+        "totalBuyTicks": sum([d.totalBuyTicks for d in data if d.totalBuyTicks]),
+        "totalTicks": sum([d.totalTicks for d in data if d.totalTicks]),
+    }
