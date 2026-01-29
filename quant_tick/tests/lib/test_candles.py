@@ -117,6 +117,60 @@ class CandleTest(SimpleTestCase):
         self.assertEqual(result["volume"], Decimal("105"))
         self.assertEqual(result["roundVolume"], Decimal("100"))
 
+    def test_distribution_disabled_by_default(self):
+        """Distribution not included by default."""
+        df = self.get_data_frame(prices=[100, 100, 100], volumes=[1, 2, 3])
+        result = aggregate_candle(df)
+
+        self.assertNotIn("distribution", result)
+
+    def test_distribution_single_price_level(self):
+        """All trades at same price go to single level."""
+        df = self.get_data_frame(prices=[100, 100, 100], volumes=[1, 2, 3])
+        result = aggregate_candle(df, include_distribution=True)
+
+        dist = result["distribution"]
+        self.assertEqual(len(dist), 1)
+        level = list(dist.values())[0]
+        self.assertEqual(level["ticks"], 3)
+        self.assertEqual(level["volume"], Decimal("6"))
+
+    def test_distribution_multiple_price_levels(self):
+        """Trades at different prices go to different levels."""
+        df = self.get_data_frame(prices=[100, 200], volumes=[1, 2])
+        result = aggregate_candle(df, include_distribution=True)
+
+        dist = result["distribution"]
+        self.assertGreaterEqual(len(dist), 2)
+        total_ticks = sum(level["ticks"] for level in dist.values())
+        self.assertEqual(total_ticks, 2)
+
+    def test_distribution_buy_sell_split(self):
+        """Buy/sell volumes split correctly."""
+        df = self.get_data_frame(
+            prices=[100, 100, 100],
+            volumes=[5, 10, 3],
+            tick_rules=[1, -1, 1],
+        )
+        result = aggregate_candle(df, include_distribution=True)
+
+        dist = result["distribution"]
+        self.assertEqual(len(dist), 1)
+        level = list(dist.values())[0]
+        self.assertEqual(level["ticks"], 3)
+        self.assertEqual(level["buyTicks"], 2)
+        self.assertEqual(level["volume"], Decimal("18"))
+        self.assertEqual(level["buyVolume"], Decimal("8"))
+
+    def test_distribution_no_levels_when_empty(self):
+        """No levels when all notional is zero."""
+        df = self.get_data_frame(prices=[100], volumes=[0])
+        result = aggregate_candle(df, include_distribution=True)
+
+        dist = result["distribution"]
+        self.assertEqual(len(dist), 0)
+
+
 
 class MergeCacheTest(SimpleTestCase):
     """Merge cache."""
@@ -147,6 +201,7 @@ class MergeCacheTest(SimpleTestCase):
             "roundNotional": Decimal("1000"),
             "roundBuyNotional": Decimal("600"),
             "realizedVariance": Decimal("0.001"),
+            "distribution": {},
         }
 
     def test_merge_preserves_open(self):
@@ -223,3 +278,89 @@ class MergeCacheTest(SimpleTestCase):
         # Should be > sum of individual variances due to cross-segment
         expected_min = Decimal("0.001") + Decimal("0.001")
         self.assertGreater(result["realizedVariance"], expected_min)
+
+    def test_merge_distributions_same_levels(self):
+        """Merge distributions with same levels sums values."""
+        previous = self.get_candle_data(
+            Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
+        )
+        previous["distribution"] = {
+            "0": {
+                "ticks": 2, "buyTicks": 1, "volume": Decimal("10"), "buyVolume": Decimal("5"),
+                "notional": Decimal("1000"), "buyNotional": Decimal("500"),
+            },
+        }
+        current = self.get_candle_data(
+            Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+        )
+        current["distribution"] = {
+            "0": {
+                "ticks": 3, "buyTicks": 2, "volume": Decimal("15"), "buyVolume": Decimal("10"),
+                "notional": Decimal("1500"), "buyNotional": Decimal("1000"),
+            },
+        }
+
+        result = merge_cache(previous, current)
+
+        dist = result["distribution"]
+        self.assertEqual(len(dist), 1)
+        self.assertEqual(dist["0"]["ticks"], 5)
+        self.assertEqual(dist["0"]["buyTicks"], 3)
+        self.assertEqual(dist["0"]["volume"], Decimal("25"))
+        self.assertEqual(dist["0"]["buyVolume"], Decimal("15"))
+
+    def test_merge_distributions_different_levels(self):
+        """Merge distributions with disjoint levels preserves all."""
+        previous = self.get_candle_data(
+            Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
+        )
+        previous["distribution"] = {
+            "0": {
+                "ticks": 2, "buyTicks": 1, "volume": Decimal("10"), "buyVolume": Decimal("5"),
+                "notional": Decimal("1000"), "buyNotional": Decimal("500"),
+            },
+        }
+        current = self.get_candle_data(
+            Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+        )
+        current["distribution"] = {
+            "1": {
+                "ticks": 3, "buyTicks": 2, "volume": Decimal("15"), "buyVolume": Decimal("10"),
+                "notional": Decimal("1500"), "buyNotional": Decimal("1000"),
+            },
+        }
+
+        result = merge_cache(previous, current)
+
+        dist = result["distribution"]
+        self.assertEqual(len(dist), 2)
+        self.assertIn("0", dist)
+        self.assertIn("1", dist)
+        self.assertEqual(dist["0"]["ticks"], 2)
+        self.assertEqual(dist["1"]["ticks"], 3)
+
+    def test_merge_distributions_empty(self):
+        """Merge distributions with one or both empty."""
+        previous = self.get_candle_data(
+            Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
+        )
+        previous["distribution"] = {}
+        current = self.get_candle_data(
+            Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+        )
+        current["distribution"] = {
+            "0": {
+                "ticks": 3, "buyTicks": 2, "volume": Decimal("15"), "buyVolume": Decimal("10"),
+                "notional": Decimal("1500"), "buyNotional": Decimal("1000"),
+            },
+        }
+
+        result = merge_cache(previous, current)
+
+        dist = result["distribution"]
+        self.assertEqual(len(dist), 1)
+        self.assertEqual(dist["0"]["ticks"], 3)
+
