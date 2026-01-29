@@ -1,25 +1,26 @@
-from collections.abc import Iterator
+import logging
+from collections.abc import Generator, Iterator
 from datetime import datetime
 from decimal import Decimal
 
 import pandas as pd
 from django.db import models
-from django.db.models import QuerySet
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
     filter_by_timestamp,
-    get_existing,
+    get_current_time,
     get_min_time,
-    has_timestamps,
     parse_datetime,
 )
 from quant_tick.utils import gettext_lazy as _
 
 from .base import AbstractCodeName, JSONField
 from .trades import TradeData
+
+logger = logging.getLogger(__name__)
 
 
 class CacheResetMixin:
@@ -44,19 +45,6 @@ class CacheResetMixin:
                 if is_daily_reset or is_weekly_reset:
                     return True
         return False
-
-    def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can aggregate."""
-        can_agg = super().can_aggregate(timestamp_from, timestamp_to)
-        last_cache = (
-            CandleCache.objects.filter(candle=self, timestamp__lt=timestamp_from)
-            .only("timestamp", "frequency")
-            .last()
-        )
-        if last_cache:
-            ts_from = last_cache.timestamp + pd.Timedelta(f"{last_cache.frequency}min")
-            return can_agg and timestamp_from == ts_from
-        return True
 
 
 class Candle(AbstractCodeName, PolymorphicModel):
@@ -95,6 +83,11 @@ class Candle(AbstractCodeName, PolymorphicModel):
         else:
             ts_to = timestamp_to
         # Does it have trade data?
+        first_trade = (
+            TradeData.objects.filter(symbol=self.symbol).only("timestamp").first()
+        )
+        if first_trade and ts_from < first_trade.timestamp:
+            ts_from = first_trade.timestamp
         last_trade = (
             TradeData.objects.filter(symbol=self.symbol)
             .only("timestamp", "frequency")
@@ -119,11 +112,15 @@ class Candle(AbstractCodeName, PolymorphicModel):
             .first()
         )
         if candle_cache:
+            cache_end = candle_cache.timestamp + pd.Timedelta(
+                f"{candle_cache.frequency}min"
+            )
             if not retry:
-                timestamp = candle_cache.timestamp + pd.Timedelta(
-                    f"{candle_cache.frequency}min"
-                )
-                ts_from = timestamp if timestamp > ts_from else ts_from
+                # Gap: requested start is after cache end
+                if ts_from > cache_end:
+                    ts_from = ts_to  # Force no processing
+                else:
+                    ts_from = cache_end
             data = candle_cache.json_data
         else:
             data = self.get_initial_cache(ts_from)
@@ -137,73 +134,79 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Get cache data."""
         return data
 
-    def get_trade_data(
+    def candles(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
-        only: list | str | None = None,
-    ) -> QuerySet:
-        """Get trade data."""
-        if isinstance(only, str):
-            only = [only]
-        only = only or []
-        return TradeData.objects.filter(
-            symbol=self.symbol,
-            timestamp__gte=get_min_time(timestamp_from, value="1d"),
-            timestamp__lt=timestamp_to,
-        ).only(*["timestamp", "frequency"] + only)
+        retry: bool = False,
+    ) -> None:
+        """Candles."""
+        min_ts_from, max_ts_to, cache_data = self.initialize(
+            timestamp_from, timestamp_to, retry
+        )
+        if retry:
+            self.on_retry(min_ts_from, max_ts_to)
+        for ts_from, ts_to, trade_data in self.iter_all(min_ts_from, max_ts_to):
+            df = self.get_data_frame(ts_from, ts_to, trade_data)
+            cache_data = self.get_cache_data(ts_from, cache_data)
+            data, cache_data = self.aggregate(ts_from, ts_to, df, cache_data)
+            self.write_cache(ts_from, ts_to, cache_data)
+            self.write_data(ts_from, ts_to, data)
+            ts = ts_to.replace(tzinfo=None)
+            logger.info(f"Candle {self}: {ts}")
 
-    def get_expected_daily_candles(
+    def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
+        """On retry."""
+        CandleCache.objects.filter(candle=self, timestamp__gte=timestamp_from).delete()
+        CandleData.objects.filter(candle=self, timestamp__gte=timestamp_from).delete()
+
+    def iter_all(
         self, timestamp_from: datetime, timestamp_to: datetime
-    ) -> dict:
-        """Get expected daily candles."""
-        trade_data = self.get_trade_data(timestamp_from, timestamp_to, only="json_data")
-        return trade_data.values_list("json_data", flat=True)
+    ) -> Generator[tuple[datetime, datetime, TradeData], None, None]:
+        """Iterate all."""
+        max_ts_to = get_min_time(get_current_time(), value="1min")
+        ts_to = min(timestamp_to, max_ts_to)
+        if timestamp_from < ts_to:
+            queryset = (
+                TradeData.objects.filter(
+                    symbol=self.symbol,
+                    timestamp__gte=get_min_time(timestamp_from, value="1d"),
+                    timestamp__lt=ts_to,
+                )
+                .order_by("timestamp")
+                .only("timestamp", "frequency", *list(FileData))
+            )
+            prev_end = None
+            for obj in queryset.iterator(chunk_size=100):
+                obj_from = obj.timestamp
+                obj_to = obj.timestamp + pd.Timedelta(f"{obj.frequency}min")
+                # Stop on gap between TradeData
+                if prev_end is not None and obj_from != prev_end:
+                    break
+                prev_end = obj_to
+                # Clamp to requested range
+                td_from = max(obj_from, timestamp_from)
+                td_to = min(obj_to, ts_to, max_ts_to)
+                if td_from < td_to and self.can_aggregate(td_from, td_to):
+                    yield td_from, td_to, obj
 
     def get_data_frame(
-        self, timestamp_from: datetime, timestamp_to: datetime
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        trade_data: TradeData,
     ) -> DataFrame:
-        """Get data frame."""
-        trade_data = self.get_trade_data(
-            timestamp_from, timestamp_to, only=list(FileData)
-        )
-        target = sorted(trade_data, key=lambda obj: obj.timestamp)
-        dfs = []
-        for t in target:
-            # Query may contain trade data by minute.
-            # Only target timestamps.
-            if timestamp_from <= t.timestamp + pd.Timedelta(f"{t.frequency}min"):
-                df = t.get_data_frame(self.json_data["source_data"])
-                if df is not None:
-                    dfs.append(df)
-        if dfs:
-            df = pd.concat(dfs)
-            sort_values = ["timestamp"]
-            if "nanoseconds" in df.columns:
-                sort_values.append("nanoseconds")
-            df = df.sort_values(sort_values)
-            return (
-                filter_by_timestamp(df, timestamp_from, timestamp_to)
-                .reset_index()
-                .drop(columns=["index"])
+        """Get data frame from trade data."""
+        df = trade_data.get_data_frame(self.json_data["source_data"])
+        if df is not None and len(df):
+            return filter_by_timestamp(df, timestamp_from, timestamp_to).reset_index(
+                drop=True
             )
         return pd.DataFrame([])
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can aggregate?"""
-        # Trade data may be daily, so timestamp from >= daily timestamp.
-        trade_data = TradeData.objects.filter(
-            symbol=self.symbol,
-            timestamp__gte=get_min_time(timestamp_from, value="1d"),
-            timestamp__lt=timestamp_to,
-        )
-        # Only target timestamps.
-        existing = [
-            t
-            for t in get_existing(trade_data.values("timestamp", "frequency"))
-            if t >= timestamp_from and t < timestamp_to
-        ]
-        return has_timestamps(timestamp_from, timestamp_to, existing)
+        """Can aggregate."""
+        return True
 
     def aggregate(
         self,
@@ -259,6 +262,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         self,
         timestamp_from: datetime | None = None,
         timestamp_to: datetime | None = None,
+        is_complete: bool = True,
     ) -> Iterator[dict]:
         """Get candle data as iterator of dicts."""
         queryset = CandleData.objects.filter(candle=self)

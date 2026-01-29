@@ -14,7 +14,7 @@ from quant_tick.lib import (
 )
 from quant_tick.utils import gettext_lazy as _
 
-from ..candles import Candle
+from ..candles import Candle, CandleCache, CandleData
 
 
 class TimeBasedCandle(Candle):
@@ -76,6 +76,15 @@ class TimeBasedCandle(Candle):
                     cache_df, cache_data, timestamp=cache_ts_from
                 )
         return data, cache_data
+
+    def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
+        """On retry."""
+        CandleCache.objects.filter(
+            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+        ).delete()
+        CandleData.objects.filter(
+            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+        ).delete()
 
     class Meta:
         proxy = True
