@@ -27,7 +27,7 @@ class CandleDataView(RetrieveAPIView):
     queryset = Candle.objects.all()
     lookup_field = "code_name"
 
-    def get(self, request: Request, *args, **kwargs) -> Response:
+    def post(self, request: Request, *args, **kwargs) -> Response:
         """Get candles."""
         serializer = TimeFrameWithLimitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
