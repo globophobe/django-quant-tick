@@ -1,25 +1,27 @@
 from datetime import datetime
-from decimal import Decimal
 
+import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
 from quant_tick.lib import (
+    WARMUP_MIN_CLUSTERS,
     aggregate_candle,
     cluster_trades,
     combine_clustered_trades,
+    compute_bucket_stats,
     filter_by_timestamp,
+    get_cluster_bucket,
     get_min_time,
     get_next_cache,
     iter_window,
+    merge_bucket_stats,
     merge_cache,
+    update_cluster_ema,
 )
 from quant_tick.utils import gettext_lazy as _
 
 from .time_based_candles import TimeBasedCandle
-
-PERCENTILES = [0, 25, 50, 75, 90, 95, 99]
-THRESHOLDS = [25, 50, 75, 90, 95, 99]
 
 
 class TimeBasedClusterCandle(TimeBasedCandle):
@@ -28,23 +30,20 @@ class TimeBasedClusterCandle(TimeBasedCandle):
     Emits candles at fixed time intervals (like TimeBasedCandle) with
     cluster statistics broken down by volume percentile buckets.
 
+    Buckets are assigned based on rolling EMA of cluster volumes:
+    - p0: smallest clusters (bottom 25% relative to recent history)
+    - p25-p95: intermediate buckets
+    - p99: largest clusters (top 1% relative to recent history)
+
     json_data config:
     - window: Time period string (e.g., "1h", "4h", "1d")
+    - cluster_ema_halflife: Halflife for EMA in clusters (default 1000)
 
     Added fields per candle (p0, p25, p50, p75, p90, p95, p99):
     - p{N}.buyClusterCount: Buy clusters in this volume bucket
     - p{N}.totalClusterCount: Total clusters in this volume bucket
     - p{N}.buyClusterNotional: Notional from buy clusters
     - p{N}.totalClusterNotional: Total notional in bucket
-
-    Each bucket captures from its percentile to the next:
-    - p0: 0th-25th percentile (smallest clusters)
-    - p25: 25th-50th percentile
-    - p50: 50th-75th percentile
-    - p75: 75th-90th percentile
-    - p90: 90th-95th percentile
-    - p95: 95th-99th percentile
-    - p99: 99th-100th percentile (largest clusters)
     """
 
     def _is_same_window(self, ts1: datetime, ts2: datetime) -> bool:
@@ -52,71 +51,42 @@ class TimeBasedClusterCandle(TimeBasedCandle):
         window = self.json_data["window"]
         return get_min_time(ts1, window) == get_min_time(ts2, window)
 
-    def _compute_cluster_stats(self, clusters: DataFrame) -> dict:
-        """Compute cluster statistics by volume percentile bucket."""
-        if clusters.empty:
-            return {}
+    def _assign_buckets_and_update_ema(
+        self, clusters: DataFrame, cache_data: dict, halflife: int
+    ) -> DataFrame:
+        """Assign buckets and update EMA for clusters."""
+        ema_mean = float(cache_data.get("cluster_ema_mean", 0))
+        ema_var = float(cache_data.get("cluster_ema_var", 0))
+        ema_count = int(cache_data.get("cluster_ema_count", 0))
+        ema_std = np.sqrt(ema_var) if ema_var > 0 else 0.0
 
-        stats = {}
-        volume_col = "volume" if "volume" in clusters.columns else None
-        notional_col = "notional" if "notional" in clusters.columns else None
+        buckets = []
+        for _idx, cluster in clusters.iterrows():
+            vol = float(cluster["volume"])
 
-        if volume_col is None:
-            return {}
+            # Guard against invalid volume (zero, negative, NaN, inf)
+            if not np.isfinite(vol) or vol <= 0:
+                buckets.append(50)
+                continue
 
-        volumes = clusters[volume_col].astype(float)
-        thresholds = {t: volumes.quantile(t / 100) for t in THRESHOLDS}
-
-        for i, p in enumerate(PERCENTILES):
-            is_first = i == 0
-            is_last = i == len(PERCENTILES) - 1
-
-            if is_first:
-                bucket_mask = volumes <= thresholds[THRESHOLDS[0]]
-            elif is_last:
-                bucket_mask = volumes > thresholds[THRESHOLDS[-1]]
+            # Warm-up: force median bucket
+            if ema_count < WARMUP_MIN_CLUSTERS or ema_std <= 0:
+                bucket = 50
             else:
-                lower = thresholds[THRESHOLDS[i - 1]]
-                upper = thresholds[THRESHOLDS[i]]
-                bucket_mask = (volumes > lower) & (volumes <= upper)
+                bucket = get_cluster_bucket(vol, ema_mean, ema_std)
 
-            bucket = clusters[bucket_mask]
-            buy_mask = bucket["tickRule"] == 1
+            buckets.append(bucket)
+            update_cluster_ema(cache_data, vol, halflife)
 
-            buy_notional = Decimal(0)
-            total_notional = Decimal(0)
-            if notional_col and not bucket.empty:
-                buy_notional = bucket.loc[buy_mask, notional_col].sum()
-                total_notional = bucket[notional_col].sum()
+            # Update for next cluster
+            ema_mean = float(cache_data["cluster_ema_mean"])
+            ema_var = float(cache_data["cluster_ema_var"])
+            ema_count = int(cache_data["cluster_ema_count"])
+            ema_std = np.sqrt(ema_var) if ema_var > 0 else 0.0
 
-            stats[f"p{p}"] = {
-                "buyClusterCount": int(buy_mask.sum()),
-                "totalClusterCount": len(bucket),
-                "buyClusterNotional": buy_notional,
-                "totalClusterNotional": total_notional,
-            }
-
-        return stats
-
-    def _build_cluster_candle(
-        self,
-        clusters: DataFrame,
-        timestamp: datetime,
-        cache_data: dict,
-    ) -> dict:
-        """Build a time-based cluster candle."""
-        candle = aggregate_candle(clusters, timestamp=timestamp)
-
-        stats = self._compute_cluster_stats(clusters)
-        candle.update(stats)
-
-        if "next" in cache_data:
-            previous = cache_data.pop("next")
-            # Only merge if previous has OHLCV data
-            if "open" in previous:
-                candle = merge_cache(previous, candle)
-
-        return candle
+        clusters = clusters.copy()
+        clusters["bucket"] = buckets
+        return clusters
 
     def aggregate(
         self,
@@ -125,47 +95,43 @@ class TimeBasedClusterCandle(TimeBasedCandle):
         data_frame: DataFrame,
         cache_data: dict | None = None,
     ) -> tuple[list, dict | None]:
-        """Aggregate trades into time-based cluster candles.
-
-        1. Cluster all trades in the batch
-        2. Iterate over time windows
-        3. For each window, filter clusters and compute percentile stats
-        """
+        """Aggregate trades into time-based cluster candles with EMA buckets."""
         cache_data = cache_data or {}
         data = []
         window = self.json_data["window"]
+        halflife = self.json_data.get("cluster_ema_halflife", 1000)
 
+        # Cluster this batch
+        if not data_frame.empty:
+            batch_clusters = cluster_trades(data_frame)
+        else:
+            batch_clusters = pd.DataFrame()
+
+        # Handle partial cluster from previous batch
         if "partial_cluster" in cache_data:
             partial = pd.DataFrame([cache_data.pop("partial_cluster")])
             partial_ts = pd.to_datetime(partial["timestamp"].iloc[0])
 
-            if not data_frame.empty:
-                clusters = cluster_trades(data_frame)
-                batch_start = pd.to_datetime(data_frame["timestamp"].min())
-
+            if not batch_clusters.empty:
+                batch_start = pd.to_datetime(batch_clusters["timestamp"].iloc[0])
                 if self._is_same_window(partial_ts, batch_start):
-                    # Same window: merge if same direction
-                    if not clusters.empty:
-                        combined = pd.concat([partial, clusters], ignore_index=True)
-                        clusters = combine_clustered_trades(combined)
-                    else:
-                        clusters = partial
+                    # Same window: merge partial with first cluster
+                    combined = pd.concat([partial, batch_clusters], ignore_index=True)
+                    batch_clusters = combine_clustered_trades(combined)
                 else:
-                    # Different window: keep separate (partial is flushed)
-                    clusters = pd.concat([partial, clusters], ignore_index=True)
+                    # Different window: partial closes previous window
+                    batch_clusters = pd.concat(
+                        [partial, batch_clusters], ignore_index=True
+                    )
             else:
-                clusters = partial
-        elif not data_frame.empty:
-            clusters = cluster_trades(data_frame)
-        else:
-            clusters = pd.DataFrame()
+                # No new clusters, partial continues alone
+                batch_clusters = partial
 
-        if clusters.empty:
-            return [], cache_data
+        # Convert timestamps
+        if not batch_clusters.empty and "timestamp" in batch_clusters.columns:
+            batch_clusters["timestamp"] = pd.to_datetime(batch_clusters["timestamp"])
 
-        if "timestamp" in clusters.columns:
-            clusters["timestamp"] = pd.to_datetime(clusters["timestamp"])
-
+        # Setup for iteration
         if "next" in cache_data:
             ts_from = cache_data["next"]["timestamp"]
         else:
@@ -174,43 +140,83 @@ class TimeBasedClusterCandle(TimeBasedCandle):
         max_ts_to = self.get_max_timestamp_to(ts_from, timestamp_to)
         ts_to = None
 
+        # Process windows
         for win_from, win_to in iter_window(ts_from, max_ts_to, window):
             ts_to = win_to
-            win_clusters = filter_by_timestamp(clusters, win_from, win_to)
+            if not batch_clusters.empty:
+                win_clusters = filter_by_timestamp(batch_clusters, win_from, win_to)
+            else:
+                win_clusters = pd.DataFrame()
 
             if not win_clusters.empty:
-                candle = self._build_cluster_candle(
-                    win_clusters, win_from, cache_data
+                # Assign buckets and update EMA for complete window
+                win_clusters = self._assign_buckets_and_update_ema(
+                    win_clusters, cache_data, halflife
                 )
+
+                # Build candle
+                candle = aggregate_candle(win_clusters, timestamp=win_from)
+                stats = compute_bucket_stats(win_clusters)
+
+                # Merge with cached stats from previous batches
+                if "next" in cache_data:
+                    prev = cache_data.pop("next")
+                    # Only merge OHLCV if prev has it (might only have timestamp)
+                    if "open" in prev:
+                        candle = merge_cache(prev, candle)
+                    if "bucket_stats" in prev:
+                        stats = merge_bucket_stats(prev["bucket_stats"], stats)
+
+                candle.update(stats)
                 data.append(candle)
             elif "next" in cache_data:
+                # Window closes but no new clusters - emit cached candle
                 candle = cache_data.pop("next")
+                if "bucket_stats" in candle:
+                    stats = candle.pop("bucket_stats")
+                    candle.update(stats)
                 data.append(candle)
 
+        # Handle incomplete window
         could_not_iterate = ts_to is None
         could_not_complete = ts_to and ts_to != timestamp_to
 
         if could_not_iterate or could_not_complete:
             cache_ts_from = ts_from if could_not_iterate else ts_to
-            cache_clusters = filter_by_timestamp(
-                clusters, cache_ts_from, timestamp_to
-            )
-            if not cache_clusters.empty:
-                # Track last cluster as partial for potential merging
-                cache_data["partial_cluster"] = cache_clusters.iloc[-1].to_dict()
+            if not batch_clusters.empty:
+                cache_clusters = filter_by_timestamp(
+                    batch_clusters, cache_ts_from, timestamp_to
+                )
+            else:
+                cache_clusters = pd.DataFrame()
 
-                # For cache["next"], exclude the last cluster to avoid double-counting
-                # when partial_cluster is re-added in next batch
-                confirmed_clusters = cache_clusters.iloc[:-1]
-                if not confirmed_clusters.empty:
-                    cache_data = get_next_cache(
-                        confirmed_clusters, cache_data, timestamp=cache_ts_from
+            if not cache_clusters.empty:
+                # Identify partial: last cluster in incomplete window
+                confirmed = cache_clusters.iloc[:-1]
+                partial = cache_clusters.iloc[-1]
+
+                # Stash partial for next batch (don't count it yet!)
+                cache_data["partial_cluster"] = partial.to_dict()
+
+                # Only process confirmed clusters
+                if len(confirmed) > 0:
+                    confirmed = self._assign_buckets_and_update_ema(
+                        confirmed, cache_data, halflife
                     )
-                    stats = self._compute_cluster_stats(confirmed_clusters)
-                    if "next" in cache_data:
-                        cache_data["next"].update(stats)
-                else:
-                    # Still need timestamp for ts_from in next batch
+                    stats = compute_bucket_stats(confirmed)
+                    cache_data = get_next_cache(
+                        confirmed, cache_data, timestamp=cache_ts_from
+                    )
+
+                    # Merge stats into cache
+                    if "bucket_stats" in cache_data.get("next", {}):
+                        cache_data["next"]["bucket_stats"] = merge_bucket_stats(
+                            cache_data["next"]["bucket_stats"], stats
+                        )
+                    else:
+                        cache_data["next"]["bucket_stats"] = stats
+                elif "next" not in cache_data:
+                    # Only partial, just set timestamp for ts_from
                     cache_data["next"] = {"timestamp": cache_ts_from}
 
         return data, cache_data
