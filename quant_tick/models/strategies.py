@@ -1,12 +1,14 @@
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import joblib
 import numpy as np
 import pandas as pd
 from django.db import models
-from django.db.models import QuerySet
 from django.utils import timezone
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
@@ -48,30 +50,63 @@ class Strategy(AbstractCodeName, PolymorphicModel):
     json_data = JSONField(_("json data"), null=True)
     is_active = models.BooleanField(_("is active"), default=True)
 
-    def get_data_frame(self, queryset: QuerySet) -> DataFrame:
-        """Get data frame."""
-        data = []
-        for idx, obj in enumerate(queryset):
-            is_incomplete = bool(obj.json_data.get("incomplete", False))
-            data.append(
-                {
-                    "timestamp": obj.timestamp,
-                    "obj": obj,
-                    "bar_idx": idx,
-                    **obj.json_data,
-                    **{"incomplete": is_incomplete},
-                }
-            )
-        return DataFrame(data)
+    @property
+    def symbol(self) -> Symbol:
+        """Symbol from candle."""
+        return self.candle.symbol
+
+    def get_data_frame(self, df: DataFrame) -> DataFrame:
+        """Process dataframe."""
+        if df.empty:
+            return df
+        return self.convert_types(df)
+
+    def convert_types(self, df: DataFrame) -> DataFrame:
+        """Convert Decimal columns to float for pandas operations."""
+        numeric_cols = [
+            col
+            for col in [
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "buyVolume",
+                "notional",
+                "buyNotional",
+                "realizedVariance",
+                "roundVolume",
+                "roundBuyVolume",
+                "roundNotional",
+                "roundBuyNotional",
+            ]
+            if col in df.columns
+        ]
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df
 
     def get_events(
         self,
         *,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+        data_frame: DataFrame | None = None,
         include_incomplete: bool = False,
+        progress: bool = False,
     ) -> DataFrame:
-        """Get events."""
+        """Get events.
+
+        Args:
+            timestamp_from: Start timestamp
+            timestamp_to: End timestamp
+            data_frame: Candle dataFrame
+            include_incomplete: Include incomplete events
+            progress: Show progress bar
+
+        Returns:
+            DataFrame with events and features
+        """
         raise NotImplementedError
 
     def get_event_time_column(self) -> str:
@@ -93,18 +128,16 @@ class Strategy(AbstractCodeName, PolymorphicModel):
             return Decimal(str(self.json_data["cost"]))
         return Decimal("0")
 
+    @property
+    def leverage(self) -> Decimal:
+        """Position leverage multiplier."""
+        if self.json_data and self.json_data.get("leverage") is not None:
+            return Decimal(str(self.json_data["leverage"]))
+        return Decimal("1")
+
     def get_feature_columns(self, events: DataFrame) -> list[str]:
         """Select feature columns for modeling."""
-        base_cols = [
-            "direction",
-            "run_length_prev",
-            "run_duration_prev_seconds",
-            "exch_dispersion_close",
-            "exch_count",
-        ]
-        feature_cols = [c for c in base_cols if c in events.columns]
-        feature_cols += [c for c in events.columns if c.startswith("feat_")]
-        return feature_cols
+        return ["run_length_prev", "run_duration_prev_seconds"]
 
     def _clean_event_json(self, event: dict) -> dict:
         """Return event data without NaN/NaT values for JSON validity."""
@@ -380,7 +413,9 @@ class Strategy(AbstractCodeName, PolymorphicModel):
         cv = PurgedKFold(n_splits=cv_splits, embargo_bars=embargo_bars)
         try:
             folds = list(
-                cv.split(X, y, event_end_exclusive_idx=event_end_idx, bar_index=bar_index)
+                cv.split(
+                    X, y, event_end_exclusive_idx=event_end_idx, bar_index=bar_index
+                )
             )
         except ValueError:
             folds = []
