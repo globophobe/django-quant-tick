@@ -1,19 +1,22 @@
 from rest_framework import serializers
 
-from quant_tick.models import Candle
-
-from .symbols import SymbolSerializer
+from quant_tick.models import Candle, Strategy
 
 
 class CandleSerializer(serializers.ModelSerializer):
     """Candle serializer."""
 
-    code_name = serializers.CharField()
-    symbols = SymbolSerializer(many=True)
-
     class Meta:
         model = Candle
-        fields = ("code_name", "symbols")
+        fields = ("code_name",)
+
+
+class StrategySerializer(serializers.ModelSerializer):
+    """Strategy serializer."""
+
+    class Meta:
+        model = Strategy
+        fields = ("code_name",)
 
 
 class CandleDataSerializer(serializers.Serializer):
