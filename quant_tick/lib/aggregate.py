@@ -1,5 +1,4 @@
 import datetime
-import math
 from typing import Any
 
 import pandas as pd
@@ -9,6 +8,7 @@ from quant_tick.constants import ZERO
 
 from .calendar import iter_once, iter_window, to_pydatetime
 from .dataframe import is_decimal_close
+from .utils import safe_sum
 
 
 def is_sample(data_frame: DataFrame, first_index: int, last_index: int) -> bool:
@@ -198,19 +198,34 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
                 "ticks": None,
             }
         )
-    buy_side = df[df.tickRule == 1]
-    data.update(
-        {
-            "high": df.price.max(),
-            "low": df.price.min(),
-            "totalBuyVolume": buy_side.volume.sum() or ZERO,
-            "totalVolume": df.volume.sum() or ZERO,
-            "totalBuyNotional": buy_side.notional.sum() or ZERO,
-            "totalNotional": df.notional.sum() or ZERO,
-            "totalBuyTicks": buy_side.ticks.sum(),
-            "totalTicks": df.ticks.sum(),
-        }
-    )
+    has_totals = "totalVolume" in df.columns
+    if has_totals:
+        data.update(
+            {
+                "high": df.high.max(),
+                "low": df.low.min(),
+                "totalBuyVolume": df.totalBuyVolume.sum() or ZERO,
+                "totalVolume": df.totalVolume.sum() or ZERO,
+                "totalBuyNotional": df.totalBuyNotional.sum() or ZERO,
+                "totalNotional": df.totalNotional.sum() or ZERO,
+                "totalBuyTicks": int(df.totalBuyTicks.sum()),
+                "totalTicks": int(df.totalTicks.sum()),
+            }
+        )
+    else:
+        buy_side = df[df.tickRule == 1]
+        data.update(
+            {
+                "high": df.price.max(),
+                "low": df.price.min(),
+                "totalBuyVolume": buy_side.volume.sum() or ZERO,
+                "totalVolume": df.volume.sum() or ZERO,
+                "totalBuyNotional": buy_side.notional.sum() or ZERO,
+                "totalNotional": df.notional.sum() or ZERO,
+                "totalBuyTicks": buy_side.ticks.sum(),
+                "totalTicks": df.ticks.sum(),
+            }
+        )
     return data
 
 
@@ -286,7 +301,7 @@ def cluster(data: list[dict]) -> list[dict]:
                 [
                     val
                     for i in data
-                    if (val := getattr(i, sample_type)) and not math.isnan(val)
+                    if (val := getattr(i, sample_type)) and not pd.isna(val)
                 ]
             )
             if sample_type in ticks:
@@ -346,25 +361,27 @@ def combine_clusters(data: list[dict]) -> list[dict]:
         tick_rule = int(tick_rule.pop())
     else:
         tick_rule = None
-    return {
+    result = {
         "timestamp": first.timestamp,
-        "totalSeconds": delta.total_seconds() + last.totalSeconds,
+        "totalSeconds": delta.total_seconds() + getattr(last, "totalSeconds", 0),
         "open": first.open,
         "high": max([d.high for d in data]),
         "low": min([d.low for d in data]),
         "close": last.close,
         "tickRule": tick_rule,
-        "volume": sum([d.volume for d in data if d.volume]),
-        "totalBuyVolume": sum([d.totalBuyVolume for d in data if d.totalBuyVolume]),
-        "totalVolume": sum(
-            [d.totalVolume for d in data if d.totalVolume if d.totalVolume]
-        ),
-        "notional": sum([d.notional for d in data if d.notional]),
-        "totalBuyNotional": sum(
-            [d.totalBuyNotional for d in data if d.totalBuyNotional]
-        ),
-        "totalNotional": sum([d.totalNotional for d in data if d.totalNotional]),
-        "ticks": sum([d.ticks for d in data if d.ticks]),
-        "totalBuyTicks": sum([d.totalBuyTicks for d in data if d.totalBuyTicks]),
-        "totalTicks": sum([d.totalTicks for d in data if d.totalTicks]),
     }
+    for attr in [
+        "volume",
+        "totalBuyVolume",
+        "totalVolume",
+        "notional",
+        "totalBuyNotional",
+        "totalNotional",
+        "ticks",
+        "totalBuyTicks",
+        "totalTicks",
+    ]:
+        value = safe_sum(data, attr)
+        if value is not None:
+            result[attr] = value
+    return result
