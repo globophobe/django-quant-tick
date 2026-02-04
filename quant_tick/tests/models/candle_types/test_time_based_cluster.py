@@ -292,3 +292,42 @@ class TimeBasedClusterCandleTest(TestCase):
         # Day 2 cluster is now partial
         self.assertIn("partial_cluster", cache2)
         self.assertEqual(float(cache2["partial_cluster"]["volume"]), 2000.0)
+
+    def test_cross_batch_stats_accumulate(self) -> None:
+        """Stats accumulate correctly across batches in same window."""
+        now = pd.Timestamp("2024-01-01 00:00:00", tz="UTC")
+        candle = self._make_candle(window="1h")
+
+        # Batch 1: 2 clusters at 00:05, 00:10 (different directions = separate clusters)
+        df1 = pd.DataFrame([
+            make_trade(now + pd.Timedelta("5min"), "100", "1000", "100000", 1),
+            make_trade(now + pd.Timedelta("10min"), "100", "2000", "200000", -1),
+        ])
+        data1, cache1 = candle.aggregate(now, now + pd.Timedelta("15min"), df1, {})
+
+        # No candle emitted yet (window incomplete)
+        self.assertEqual(len(data1), 0)
+        self.assertIn("next", cache1)
+
+        # Batch 2: 2 more clusters at 00:45, 00:55 (different directions = separate)
+        df2 = pd.DataFrame([
+            make_trade(now + pd.Timedelta("45min"), "100", "3000", "300000", 1),
+            make_trade(now + pd.Timedelta("55min"), "100", "4000", "400000", -1),
+        ])
+        data2, cache2 = candle.aggregate(
+            now + pd.Timedelta("15min"), now + pd.Timedelta("1h5min"), df2, cache1
+        )
+
+        # Now we should have 1 candle for 00:00-01:00
+        self.assertEqual(len(data2), 1)
+        result = data2[0]
+
+        # OHLCV should span all trades (1000+2000+3000+4000)
+        self.assertEqual(float(result["volume"]), 10000.0)
+
+        # Bucket stats should include all 4 clusters from both batches
+        total_clusters = sum(
+            result[f"p{p}"]["totalClusterCount"]
+            for p in [0, 25, 50, 75, 90, 95, 99]
+        )
+        self.assertEqual(total_clusters, 4)
