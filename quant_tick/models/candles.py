@@ -10,9 +10,12 @@ from polymorphic.models import PolymorphicModel
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
+    aggregate_candle,
     filter_by_timestamp,
     get_current_time,
     get_min_time,
+    get_next_cache,
+    merge_cache,
     parse_datetime,
 )
 from quant_tick.utils import gettext_lazy as _
@@ -217,6 +220,35 @@ class Candle(AbstractCodeName, PolymorphicModel):
     ) -> tuple[list, dict | None]:
         """Aggregate."""
         raise NotImplementedError
+
+    def _preprocess_data(
+        self, data_frame: DataFrame, cache_data: dict
+    ) -> DataFrame:
+        """Preprocess data before iteration. Override in mixins."""
+        return data_frame
+
+    def _build_candle(
+        self, df: DataFrame, timestamp: datetime | None = None
+    ) -> dict:
+        """Build candle dict. Override in mixins to add extensions."""
+        return aggregate_candle(
+            df,
+            timestamp=timestamp,
+            distribution_stats=self.json_data.get("distribution_stats", False),
+        )
+
+    def _merge_cache(self, prev: dict, curr: dict) -> dict:
+        """Merge cached candle with current. Override to add bucket stats merging."""
+        return merge_cache(prev, curr)
+
+    def _get_next_cache(
+        self,
+        df: DataFrame,
+        cache_data: dict,
+        timestamp: datetime | None = None,
+    ) -> dict:
+        """Cache incomplete candle. Override to include bucket stats."""
+        return get_next_cache(df, cache_data, timestamp=timestamp)
 
     def write_cache(
         self,

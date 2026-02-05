@@ -1,10 +1,10 @@
 from .candle_types import (
     AdaptiveCandle,
     AdaptiveSignificantCluster,
+    ClusterBucketMixin,
     ConstantCandle,
     SignificantCluster,
     TimeBasedCandle,
-    TimeBasedClusterCandle,
 )
 from .candles import Candle, CandleCache, CandleData
 from .funding import FundingRate
@@ -20,10 +20,10 @@ from .trades import TradeData
 __all__ = [
     "AdaptiveCandle",
     "AdaptiveSignificantCluster",
+    "ClusterBucketMixin",
     "ConstantCandle",
     "SignificantCluster",
     "TimeBasedCandle",
-    "TimeBasedClusterCandle",
     "Candle",
     "CandleCache",
     "CandleData",

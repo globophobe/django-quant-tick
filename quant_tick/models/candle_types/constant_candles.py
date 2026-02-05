@@ -4,13 +4,13 @@ from decimal import Decimal
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.lib import aggregate_candle, get_next_cache, merge_cache
 from quant_tick.utils import gettext_lazy as _
 
 from ..candles import CacheResetMixin, Candle
+from .cluster_mixin import ClusterBucketMixin
 
 
-class ConstantCandle(CacheResetMixin, Candle):
+class ConstantCandle(ClusterBucketMixin, CacheResetMixin, Candle):
     """Fixed-threshold bars that close after accumulating a constant amount of activity.
 
     These bars close when a specific measure of market activity hits a fixed threshold.
@@ -49,33 +49,58 @@ class ConstantCandle(CacheResetMixin, Candle):
         cache_data: dict,
     ) -> tuple[list, dict | None]:
         """Aggregate."""
+        # Preprocess: cluster trades if cluster_bucket_stats enabled
+        data_frame = self._preprocess_data(data_frame, cache_data)
+        use_clusters = self.json_data.get("cluster_bucket_stats") and not data_frame.empty
+        halflife = self.json_data.get("cluster_ema_halflife", 1000)
+
         start = 0
         data = []
         for index, row in data_frame.iterrows():
             cache_data["sample_value"] += self.get_sample_value(row)
             if self.should_aggregate_candle(cache_data):
                 df = data_frame.loc[start:index]
-                candle = aggregate_candle(df)
+                # Assign buckets for complete candle
+                if use_clusters:
+                    df = self._assign_buckets_and_update_ema(df, cache_data, halflife)
+                candle = self._build_candle(df)
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
-                    candle = merge_cache(previous, candle)
-                data.append(candle)
+                    if "open" in previous:
+                        candle = self._merge_cache(previous, candle)
+                # Only emit if EMA is warmed up
+                if self._is_cluster_ema_ready(cache_data):
+                    data.append(candle)
                 # Reinitialize cache
                 cache_data["sample_value"] = 0
                 # Next index
                 start = index + 1
-        # Cache
+
+        # Cache incomplete candle
         is_last_row = start == len(data_frame)
         if not is_last_row:
             df = data_frame.loc[start:]
-            cache_data = get_next_cache(df, cache_data)
+            # Defer last cluster before bucket assignment
+            if use_clusters:
+                df = self._defer_last_cluster(df, cache_data)
+                if not df.empty:
+                    df = self._assign_buckets_and_update_ema(df, cache_data, halflife)
+            cache_data = self._get_next_cache(df, cache_data)
+
         data, cache_data = self.get_incomplete_candle(timestamp_to, data, cache_data)
         return data, cache_data
 
     def get_sample_value(self, row: tuple) -> Decimal | int:
-        """Get sample value."""
-        sample_type = "total" + self.json_data["sample_type"].title()
-        return row[sample_type]
+        """Get sample value.
+
+        Raw trades have totalVolume/totalNotional/totalTicks.
+        Clustered data has volume/notional/ticks.
+        """
+        sample_type = self.json_data["sample_type"]
+        # Try clustered column first, fall back to raw trade column
+        if sample_type in row.index:
+            return row[sample_type]
+        return row["total" + sample_type.title()]
 
     def should_aggregate_candle(self, data: dict) -> bool:
         """Should aggregate candle."""
@@ -92,8 +117,13 @@ class ConstantCandle(CacheResetMixin, Candle):
         if self.should_reset_cache(ts, cache_data):
             if "next" in cache_data:
                 candle = cache_data.pop("next")
+                # Flatten bucket_stats into candle if present
+                if "bucket_stats" in candle:
+                    candle.update(candle.pop("bucket_stats"))
                 candle["incomplete"] = True
-                data.append(candle)
+                # Only emit if EMA is warmed up
+                if self._is_cluster_ema_ready(cache_data):
+                    data.append(candle)
         return data, cache_data
 
     class Meta:
