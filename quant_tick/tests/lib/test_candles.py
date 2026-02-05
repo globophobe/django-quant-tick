@@ -127,7 +127,7 @@ class CandleTest(SimpleTestCase):
     def test_distribution_single_price_level(self):
         """All trades at same price go to single level."""
         df = self.get_data_frame(prices=[100, 100, 100], volumes=[1, 2, 3])
-        result = aggregate_candle(df, include_distribution=True)
+        result = aggregate_candle(df, distribution_stats=True)
 
         dist = result["distribution"]
         self.assertEqual(len(dist), 1)
@@ -138,7 +138,7 @@ class CandleTest(SimpleTestCase):
     def test_distribution_multiple_price_levels(self):
         """Trades at different prices go to different levels."""
         df = self.get_data_frame(prices=[100, 200], volumes=[1, 2])
-        result = aggregate_candle(df, include_distribution=True)
+        result = aggregate_candle(df, distribution_stats=True)
 
         dist = result["distribution"]
         self.assertGreaterEqual(len(dist), 2)
@@ -152,7 +152,7 @@ class CandleTest(SimpleTestCase):
             volumes=[5, 10, 3],
             tick_rules=[1, -1, 1],
         )
-        result = aggregate_candle(df, include_distribution=True)
+        result = aggregate_candle(df, distribution_stats=True)
 
         dist = result["distribution"]
         self.assertEqual(len(dist), 1)
@@ -165,7 +165,7 @@ class CandleTest(SimpleTestCase):
     def test_distribution_no_levels_when_empty(self):
         """No levels when all notional is zero."""
         df = self.get_data_frame(prices=[100], volumes=[0])
-        result = aggregate_candle(df, include_distribution=True)
+        result = aggregate_candle(df, distribution_stats=True)
 
         dist = result["distribution"]
         self.assertEqual(len(dist), 0)
