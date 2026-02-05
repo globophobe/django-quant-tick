@@ -89,7 +89,7 @@ def aggregate_candle(
     timestamp: datetime | None = None,
     min_volume_exponent: int = 2,
     min_notional_exponent: int = 1,
-    include_distribution: bool = False,
+    distribution_stats: bool = False,
 ) -> dict:
     """Aggregate candle."""
     ts = timestamp if timestamp else data_frame.iloc[0].timestamp
@@ -99,7 +99,7 @@ def aggregate_candle(
         _aggregate_totals(data_frame, min_volume_exponent, min_notional_exponent)
     )
     data.update(_aggregate_realized_variance(data_frame))
-    if include_distribution:
+    if distribution_stats:
         data["distribution"] = _aggregate_distribution(data_frame)
     return data
 
