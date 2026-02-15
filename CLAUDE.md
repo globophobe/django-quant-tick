@@ -42,6 +42,10 @@ See `demo/tasks.py` for all available tasks. Run `invoke --list` to see all comm
 - `quant_tick/` - Core application package
 - `demo/tasks.py` - Task automation using invoke
 
+## Domain Notes
+- Commodities convention: `notional` = physical quantity, `volume` = dollar value (notional × price)
+- Use `Decimal` type whenever possible for financial calculations
+
 ## Code Style
 - All imports at top of file
 - Prefer minimal code comments
