@@ -2,16 +2,6 @@
 
 from django.db import migrations, models
 
-from quant_tick.constants import RenkoKind
-
-
-def populate_kind_from_parent(apps, schema_editor):
-    """Populate kind field based on parent field before dropping parent."""
-    RenkoData = apps.get_model("quant_tick", "RenkoData")
-    # parent_id is None = BODY, parent_id is set = WICK
-    RenkoData.objects.filter(parent__isnull=True).update(kind=RenkoKind.BODY)
-    RenkoData.objects.filter(parent__isnull=False).update(kind=RenkoKind.WICK)
-
 
 class Migration(migrations.Migration):
 
@@ -32,9 +22,6 @@ class Migration(migrations.Migration):
                 verbose_name="kind",
             ),
         ),
-        # Populate kind from parent
-        migrations.RunPython(populate_kind_from_parent, migrations.RunPython.noop),
-        # Remove parent field
         migrations.RemoveField(
             model_name="renkodata",
             name="parent",
