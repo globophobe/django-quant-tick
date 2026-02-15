@@ -221,15 +221,11 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Aggregate."""
         raise NotImplementedError
 
-    def _preprocess_data(
-        self, data_frame: DataFrame, cache_data: dict
-    ) -> DataFrame:
+    def _preprocess_data(self, data_frame: DataFrame, cache_data: dict) -> DataFrame:
         """Preprocess data before iteration. Override in mixins."""
         return data_frame
 
-    def _build_candle(
-        self, df: DataFrame, timestamp: datetime | None = None
-    ) -> dict:
+    def _build_candle(self, df: DataFrame, timestamp: datetime | None = None) -> dict:
         """Build candle dict. Override in mixins to add extensions."""
         return aggregate_candle(
             df,

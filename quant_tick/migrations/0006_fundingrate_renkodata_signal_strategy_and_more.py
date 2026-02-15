@@ -4,7 +4,10 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 import quant_tick.models.base
-import quant_tick.models.meta_labelling
+
+
+def fake(*args):
+    pass
 
 
 class Migration(migrations.Migration):
@@ -370,7 +373,7 @@ class Migration(migrations.Migration):
             name="file_data",
             field=models.FileField(
                 default=None,
-                upload_to=quant_tick.models.meta_labelling.upload_meta_artifact_to,
+                upload_to=fake,
                 verbose_name="bundle file",
             ),
             preserve_default=False,

@@ -15,18 +15,6 @@ DISTRIBUTION_ORIGIN = 1.0
 DISTRIBUTION_STEP = 0.001
 LOG_STEP = np.log1p(DISTRIBUTION_STEP)
 
-# Cluster bucket constants
-CLUSTER_PERCENTILES = [0, 25, 50, 75, 90, 95, 99]
-ZSCORE_THRESHOLDS = {
-    25: -0.674,
-    50: 0.0,
-    75: 0.674,
-    90: 1.282,
-    95: 1.645,
-    99: 2.326,
-}
-WARMUP_MIN_CLUSTERS = 100
-
 
 def candles_to_data_frame(
     timestamp_from: datetime,
@@ -207,11 +195,17 @@ def _aggregate_distribution(df: DataFrame) -> dict:
         if has_totals:
             data = {
                 "ticks": int(g["totalTicks"].sum()),
-                "buyTicks": int(g.loc[is_buy, "totalBuyTicks"].sum()) if is_buy.any() else 0,
+                "buyTicks": (
+                    int(g.loc[is_buy, "totalBuyTicks"].sum()) if is_buy.any() else 0
+                ),
                 "volume": g["totalVolume"].sum(),
-                "buyVolume": g.loc[is_buy, "totalBuyVolume"].sum() if is_buy.any() else ZERO,
+                "buyVolume": (
+                    g.loc[is_buy, "totalBuyVolume"].sum() if is_buy.any() else ZERO
+                ),
                 "notional": g["totalNotional"].sum(),
-                "buyNotional": g.loc[is_buy, "totalBuyNotional"].sum() if is_buy.any() else ZERO,
+                "buyNotional": (
+                    g.loc[is_buy, "totalBuyNotional"].sum() if is_buy.any() else ZERO
+                ),
             }
         else:
             data = {
@@ -220,7 +214,9 @@ def _aggregate_distribution(df: DataFrame) -> dict:
                 "volume": g["volume"].sum(),
                 "buyVolume": g.loc[is_buy, "volume"].sum() if is_buy.any() else ZERO,
                 "notional": g["notional"].sum(),
-                "buyNotional": g.loc[is_buy, "notional"].sum() if is_buy.any() else ZERO,
+                "buyNotional": (
+                    g.loc[is_buy, "notional"].sum() if is_buy.any() else ZERO
+                ),
             }
 
         if data["notional"] > 0 or data["volume"] > 0:
@@ -294,21 +290,6 @@ def validate_aggregated_candles(
     return aggregated_candles, ok
 
 
-def get_cluster_bucket(volume: float, ema_mean: float, ema_std: float) -> int:
-    """Return bucket (0, 25, 50, 75, 90, 95, 99) for cluster volume.
-
-    Uses z-score against rolling EMA of log(volume).
-    """
-    if ema_std <= 0:
-        return 50
-    log_vol = np.log(volume)
-    z = (log_vol - ema_mean) / ema_std
-    for p in [99, 95, 90, 75, 50, 25]:
-        if z > ZSCORE_THRESHOLDS[p]:
-            return p
-    return 0
-
-
 def update_cluster_ema(cache_data: dict, volume: float, halflife: int) -> dict:
     """Update rolling EMA with new cluster volume.
 
@@ -339,56 +320,3 @@ def update_cluster_ema(cache_data: dict, volume: float, halflife: int) -> dict:
         cache_data["cluster_ema_count"] = int(cache_data["cluster_ema_count"]) + 1
 
     return cache_data
-
-
-def compute_bucket_stats(clusters: DataFrame) -> dict:
-    """Compute stats from pre-assigned buckets."""
-    stats = {}
-    notional_col = "notional" if "notional" in clusters.columns else None
-
-    for p in CLUSTER_PERCENTILES:
-        bucket = clusters[clusters["bucket"] == p]
-        buy_mask = bucket["tickRule"] == 1
-
-        buy_notional = Decimal(0)
-        total_notional = Decimal(0)
-        if notional_col and not bucket.empty:
-            buy_notional = bucket.loc[buy_mask, notional_col].sum()
-            total_notional = bucket[notional_col].sum()
-
-        stats[f"p{p}"] = {
-            "buyClusterCount": int(buy_mask.sum()),
-            "totalClusterCount": len(bucket),
-            "buyClusterNotional": buy_notional,
-            "totalClusterNotional": total_notional,
-        }
-
-    return stats
-
-
-def merge_bucket_stats(prev: dict, curr: dict) -> dict:
-    """Merge bucket stats from two batches."""
-    merged = {}
-    for p in CLUSTER_PERCENTILES:
-        key = f"p{p}"
-        prev_bucket = prev.get(key, {})
-        curr_bucket = curr.get(key, {})
-        merged[key] = {
-            "buyClusterCount": (
-                prev_bucket.get("buyClusterCount", 0)
-                + curr_bucket.get("buyClusterCount", 0)
-            ),
-            "totalClusterCount": (
-                prev_bucket.get("totalClusterCount", 0)
-                + curr_bucket.get("totalClusterCount", 0)
-            ),
-            "buyClusterNotional": (
-                prev_bucket.get("buyClusterNotional", Decimal(0))
-                + curr_bucket.get("buyClusterNotional", Decimal(0))
-            ),
-            "totalClusterNotional": (
-                prev_bucket.get("totalClusterNotional", Decimal(0))
-                + curr_bucket.get("totalClusterNotional", Decimal(0))
-            ),
-        }
-    return merged

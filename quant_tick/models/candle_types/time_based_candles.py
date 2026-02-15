@@ -8,10 +8,9 @@ from quant_tick.lib import filter_by_timestamp, get_min_time, iter_window
 from quant_tick.utils import gettext_lazy as _
 
 from ..candles import Candle, CandleCache, CandleData
-from .cluster_mixin import ClusterBucketMixin
 
 
-class TimeBasedCandle(ClusterBucketMixin, Candle):
+class TimeBasedCandle(Candle):
     """Time based candle."""
 
     def get_max_timestamp_to(
@@ -40,14 +39,11 @@ class TimeBasedCandle(ClusterBucketMixin, Candle):
         cache_data = cache_data or {}
         data = []
         window = self.json_data["window"]
-
-        # Preprocess: cluster trades if cluster_bucket_stats enabled
         data_frame = self._preprocess_data(data_frame, cache_data)
-        use_clusters = self.json_data.get("cluster_bucket_stats") and not data_frame.empty
-        halflife = self.json_data.get("cluster_ema_halflife", 1000)
-
         if "next" in cache_data:
             ts_from = cache_data["next"]["timestamp"]
+        elif "next_timestamp" in cache_data:
+            ts_from = cache_data.pop("next_timestamp")
         else:
             ts_from = timestamp_from
 
@@ -62,28 +58,16 @@ class TimeBasedCandle(ClusterBucketMixin, Candle):
                 df = pd.DataFrame()
 
             if len(df):
-                # Assign buckets for complete window
-                if use_clusters:
-                    df = self._assign_buckets_and_update_ema(df, cache_data, halflife)
-
                 candle = self._build_candle(df, timestamp=win_from)
 
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
                     if "open" in previous:
                         candle = self._merge_cache(previous, candle)
-                # Only emit if EMA is warmed up
-                if self._is_cluster_ema_ready(cache_data):
-                    data.append(candle)
+                data.append(candle)
             elif "next" in cache_data:
                 candle = cache_data.pop("next")
-                # Flatten bucket_stats into candle if present
-                if "bucket_stats" in candle:
-                    candle.update(candle.pop("bucket_stats"))
-                # Only emit if EMA is warmed up
-                if self._is_cluster_ema_ready(cache_data):
-                    data.append(candle)
-
+                data.append(candle)
         # Handle incomplete window
         could_not_iterate = ts_to is None
         could_not_complete = ts_to and ts_to != timestamp_to
@@ -96,28 +80,11 @@ class TimeBasedCandle(ClusterBucketMixin, Candle):
                 cache_df = pd.DataFrame()
 
             if len(cache_df):
-                # Defer last cluster before bucket assignment
-                if use_clusters:
-                    cache_df = self._defer_last_cluster(cache_df, cache_data)
-                    if not cache_df.empty:
-                        cache_df = self._assign_buckets_and_update_ema(
-                            cache_df, cache_data, halflife
-                        )
-
                 cache_data = self._get_next_cache(
                     cache_df, cache_data, timestamp=cache_ts_from
                 )
 
         return data, cache_data
-
-    def _should_merge_partial_cluster(
-        self, partial: DataFrame, new_clusters: DataFrame, cache_data: dict
-    ) -> bool:
-        """Override: merge only if same time window."""
-        partial_ts = partial["timestamp"].iloc[0]
-        new_ts = new_clusters["timestamp"].iloc[0]
-        window = self.json_data["window"]
-        return get_min_time(partial_ts, window) == get_min_time(new_ts, window)
 
     def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
         """On retry."""

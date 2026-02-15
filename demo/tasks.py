@@ -152,7 +152,6 @@ def get_workflow(url: str, exchanges: list[str]) -> dict:
     """Get workflow."""
     aggregate_trades = urljoin(url, "aggregate-trades/")
     aggregate_candles = urljoin(url, "aggregate-candles/")
-    inference = urljoin(url, "inference/")
     return {
         "main": {
             "steps": [
@@ -188,15 +187,6 @@ def get_workflow(url: str, exchanges: list[str]) -> dict:
                         "call": "http.get",
                         "args": {
                             "url": aggregate_candles,
-                            "auth": {"type": "OIDC"},
-                        },
-                    }
-                },
-                {
-                    "inference": {
-                        "call": "http.get",
-                        "args": {
-                            "url": inference,
                             "auth": {"type": "OIDC"},
                         },
                     }

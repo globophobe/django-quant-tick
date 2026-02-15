@@ -1,6 +1,6 @@
 from rest_framework.permissions import AllowAny
 
-from quant_tick.views import AggregateCandleView, AggregateTradeDataView, InferenceView
+from quant_tick.views import AggregateCandleView, AggregateTradeDataView
 
 
 class GCPAggregateTradeDataView(AggregateTradeDataView):
@@ -11,11 +11,5 @@ class GCPAggregateTradeDataView(AggregateTradeDataView):
 
 class GCPAggregateCandleView(AggregateCandleView):
     """Aggregate candle view."""
-
-    permission_classes = (AllowAny,)
-
-
-class GCPInferenceView(InferenceView):
-    """Inference view."""
 
     permission_classes = (AllowAny,)
