@@ -49,44 +49,6 @@ class Frequency(models.IntegerChoices):
     WEEK = 10080, _("week").capitalize()
 
 
-class Direction(models.IntegerChoices):
-    """Direction."""
-
-    LONG = 1, _("long")
-    SHORT = -1, _("short")
-
-
-class Decision(models.TextChoices):
-    """Decision."""
-
-    TAKE = "take", _("take")
-    PASS = "pass", _("pass")
-
-
-class PositionType(models.TextChoices):
-    """Position type."""
-
-    BACKTEST = "backtest", _("backtest")
-    PAPER = "paper", _("paper")
-    LIVE = "live", _("live")
-
-
-class PositionStatus(models.TextChoices):
-    """Position status."""
-
-    PENDING = "pending", _("pending")
-    OPEN = "open", _("open")
-    CLOSED = "closed", _("closed")
-    FAILED = "failed", _("failed")
-
-
-class RenkoKind(models.TextChoices):
-    """Renko kind."""
-
-    BODY = "body", _("body")
-    WICK = "wick", _("wick")
-
-
 class FileData(models.TextChoices):
     """File data."""
 

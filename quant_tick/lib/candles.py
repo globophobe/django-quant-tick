@@ -93,7 +93,7 @@ def aggregate_candle(
 
 
 def _aggregate_ohlc(df: DataFrame) -> dict:
-    """Aggregate OHLC from trade data or pre-clustered data."""
+    """Aggregate OHLC from trade data."""
     if "price" in df.columns:
         return {
             "open": df.iloc[0].price,

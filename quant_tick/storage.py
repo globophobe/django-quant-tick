@@ -259,7 +259,6 @@ def clean_trade_data_with_non_existing_files(
         FileData.RAW: "save_raw",
         FileData.AGGREGATED: "save_aggregated",
         FileData.FILTERED: "save_filtered",
-        FileData.CLUSTERED: "save_clustered",
     }.items():
         if getattr(symbol, attr):
             fields.append(file_data)
@@ -310,7 +309,6 @@ def clean_unlinked_trade_data_files(
         FileData.RAW: "save_raw",
         FileData.AGGREGATED: "save_aggregated",
         FileData.FILTERED: "save_filtered",
-        FileData.CLUSTERED: "save_clustered",
     }.items():
         if getattr(symbol, attr):
             fields.append(file_data)
