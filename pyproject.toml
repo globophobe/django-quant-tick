@@ -19,9 +19,6 @@ httpx = "*"
 pandas = "*"
 pyarrow = "*"
 randomname = "*"
-scikit-learn = "*"
-seaborn = "*"
-tqdm = "*"
 
 [tool.poetry.dev-dependencies]
 coverage = "*"
