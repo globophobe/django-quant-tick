@@ -197,17 +197,32 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
                 "ticks": None,
             }
         )
-    buy_side = df[df.tickRule == 1]
-    data.update(
-        {
-            "high": df.price.max(),
-            "low": df.price.min(),
-            "totalBuyVolume": buy_side.volume.sum() or ZERO,
-            "totalVolume": df.volume.sum() or ZERO,
-            "totalBuyNotional": buy_side.notional.sum() or ZERO,
-            "totalNotional": df.notional.sum() or ZERO,
-            "totalBuyTicks": buy_side.ticks.sum(),
-            "totalTicks": df.ticks.sum(),
-        }
-    )
+    has_totals = "totalVolume" in df.columns
+    if has_totals:
+        data.update(
+            {
+                "high": df.high.max(),
+                "low": df.low.min(),
+                "totalBuyVolume": df.totalBuyVolume.sum() or ZERO,
+                "totalVolume": df.totalVolume.sum() or ZERO,
+                "totalBuyNotional": df.totalBuyNotional.sum() or ZERO,
+                "totalNotional": df.totalNotional.sum() or ZERO,
+                "totalBuyTicks": int(df.totalBuyTicks.sum()),
+                "totalTicks": int(df.totalTicks.sum()),
+            }
+        )
+    else:
+        buy_side = df[df.tickRule == 1]
+        data.update(
+            {
+                "high": df.price.max(),
+                "low": df.price.min(),
+                "totalBuyVolume": buy_side.volume.sum() or ZERO,
+                "totalVolume": df.volume.sum() or ZERO,
+                "totalBuyNotional": buy_side.notional.sum() or ZERO,
+                "totalNotional": df.notional.sum() or ZERO,
+                "totalBuyTicks": buy_side.ticks.sum(),
+                "totalTicks": df.ticks.sum(),
+            }
+        )
     return data

@@ -15,7 +15,7 @@ from quant_tick.serializers import (
 class CandleView(ListAPIView):
     """Candle view."""
 
-    queryset = Candle.objects.prefetch_related("symbols__global_symbol")
+    queryset = Candle.objects.select_related("symbol__global_symbol")
     filterset_class = CandleFilter
     filter_backends = (DjangoFilterBackend,)
     serializer_class = CandleSerializer
@@ -27,7 +27,7 @@ class CandleDataView(RetrieveAPIView):
     queryset = Candle.objects.all()
     lookup_field = "code_name"
 
-    def get(self, request: Request, *args, **kwargs) -> Response:
+    def post(self, request: Request, *args, **kwargs) -> Response:
         """Get candles."""
         serializer = TimeFrameWithLimitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

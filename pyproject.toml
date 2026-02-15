@@ -16,13 +16,9 @@ python = ">=3.10"
 django-polymorphic = "*"
 djangorestframework = "*"
 httpx = "*"
-lightgbm = "*"
-optuna = "*"
 pandas = "*"
 pyarrow = "*"
 randomname = "*"
-scikit-learn = "*"
-seaborn = "*"
 
 [tool.poetry.dev-dependencies]
 coverage = "*"

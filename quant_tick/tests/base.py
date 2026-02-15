@@ -108,6 +108,7 @@ class BaseRandomTradeTest:
 
 class BaseSymbolTest:
     def setUp(self):
+        super().setUp()
         self.global_symbol = GlobalSymbol.objects.create(name="global-symbol")
         self.timestamp_from = get_min_time(get_current_time(), "1d")
 
@@ -174,7 +175,9 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         tick_rule: int | None = None,
     ) -> DataFrame:
         """Get filtered."""
-        data_frame = self.get_aggregated(timestamp, nanoseconds, price, notional, tick_rule)
+        data_frame = self.get_aggregated(
+            timestamp, nanoseconds, price, notional, tick_rule
+        )
         return volume_filter_with_time_window(
             data_frame, min_volume=min_volume, window="1min"
         )
@@ -188,7 +191,7 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         test_path = Path("test-trades")
         for obj in Symbol.objects.all():
             upload_path = Path("/".join(obj.upload_path))
-            for file_data in ("raw", "aggregated", "filtered", "clustered", "candles"):
+            for file_data in ("raw", "aggregated", "filtered", "candles"):
                 file_path = Path(file_data)
                 p = test_path / upload_path / file_path
                 if p.exists():

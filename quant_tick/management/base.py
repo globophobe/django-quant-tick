@@ -10,8 +10,17 @@ from quant_tick.models import Candle, Symbol
 logger = logging.getLogger(__name__)
 
 
-class BaseTimeFrameCommand(BaseCommand):
-    """Base time frame command."""
+class BaseDateCommand(BaseCommand):
+    """Base date command."""
+
+    def add_arguments(self, parser: CommandParser) -> None:
+        """Add arguments."""
+        parser.add_argument("--date-to", type=str, default=None)
+        parser.add_argument("--date-from", type=str, default=None)
+
+
+class BaseDateTimeCommand(BaseCommand):
+    """Base date time command."""
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""
@@ -21,7 +30,7 @@ class BaseTimeFrameCommand(BaseCommand):
         parser.add_argument("--time-from", type=str, default=None)
 
 
-class BaseTradeDataCommand(BaseTimeFrameCommand):
+class BaseTradeDataCommand(BaseDateTimeCommand):
     """Base trade data command."""
 
     def get_queryset(self) -> QuerySet:
@@ -98,12 +107,12 @@ class BaseTradeDataWithRetryCommand(BaseTradeDataCommand):
             yield k
 
 
-class BaseCandleCommand(BaseTimeFrameCommand):
+class BaseCandleCommand(BaseDateTimeCommand):
     """Base candle command."""
 
     def get_queryset(self) -> QuerySet:
         """Get queryset."""
-        return Candle.objects.prefetch_related("symbols")
+        return Candle.objects.select_related("symbol")
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add arguments."""

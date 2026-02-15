@@ -11,6 +11,9 @@ from .dataframe import is_decimal_close
 from .experimental import calc_notional_exponent, calc_volume_exponent
 
 ZERO = Decimal("0")
+DISTRIBUTION_ORIGIN = 1.0
+DISTRIBUTION_STEP = 0.001
+LOG_STEP = np.log1p(DISTRIBUTION_STEP)
 
 
 def candles_to_data_frame(
@@ -74,41 +77,35 @@ def aggregate_candle(
     timestamp: datetime | None = None,
     min_volume_exponent: int = 2,
     min_notional_exponent: int = 1,
+    distribution_stats: bool = False,
 ) -> dict:
     """Aggregate candle."""
-    # Multi exchange
-    if "exchange" in data_frame.columns:
-        exchanges = data_frame["exchange"].unique()
-        if len(exchanges) > 1:
-            return _aggregate_multi_exchange(
-                data_frame, exchanges, timestamp, min_volume_exponent, min_notional_exponent
-            )
-    # Single exchange
-    return agg_candle(data_frame, timestamp, min_volume_exponent, min_notional_exponent)
-
-
-def agg_candle(
-    df: DataFrame,
-    timestamp: datetime | None = None,
-    min_volume_exponent: int = 2,
-    min_notional_exponent: int = 1,
-) -> dict:
-    """Aggregate single-exchange candle data."""
-    ts = timestamp if timestamp else df.iloc[0].timestamp
+    ts = timestamp if timestamp else data_frame.iloc[0].timestamp
     data = {"timestamp": ts}
-    data.update(_aggregate_ohlc(df))
-    data.update(_aggregate_totals(df, min_volume_exponent, min_notional_exponent))
-    data.update(_aggregate_realized_variance(df))
+    data.update(_aggregate_ohlc(data_frame))
+    data.update(
+        _aggregate_totals(data_frame, min_volume_exponent, min_notional_exponent)
+    )
+    data.update(_aggregate_realized_variance(data_frame))
+    if distribution_stats:
+        data["distribution"] = _aggregate_distribution(data_frame)
     return data
 
 
 def _aggregate_ohlc(df: DataFrame) -> dict:
     """Aggregate OHLC from trade data."""
+    if "price" in df.columns:
+        return {
+            "open": df.iloc[0].price,
+            "high": df.price.max(),
+            "low": df.price.min(),
+            "close": df.iloc[-1].price,
+        }
     return {
-        "open": df.iloc[0].price,
-        "high": df.price.max(),
-        "low": df.price.min(),
-        "close": df.iloc[-1].price,
+        "open": df.iloc[0].open,
+        "high": df.high.max(),
+        "low": df.low.min(),
+        "close": df.iloc[-1].close,
     }
 
 
@@ -143,23 +140,33 @@ def _aggregate_totals(
     # Round volume
     volume_exps = df.volume.apply(calc_volume_exponent)
     is_round_volume = volume_exps >= min_volume_exponent
-    data["roundVolume"] = df.loc[is_round_volume, "volume"].sum()
-    data["roundBuyVolume"] = df.loc[is_round_volume & is_buy, "volume"].sum()
+    round_vol = df.loc[is_round_volume]
+    round_buy_vol = df.loc[is_round_volume & is_buy]
+    data["roundVolume"] = round_vol.volume.sum() if len(round_vol) else ZERO
+    data["roundBuyVolume"] = round_buy_vol.volume.sum() if len(round_buy_vol) else ZERO
     # Round notional
     notional_exps = df.notional.apply(calc_notional_exponent)
     is_round_notional = notional_exps >= min_notional_exponent
-    data["roundNotional"] = df.loc[is_round_notional, "notional"].sum()
-    data["roundBuyNotional"] = df.loc[is_round_notional & is_buy, "notional"].sum()
+    round_not = df.loc[is_round_notional]
+    round_buy_not = df.loc[is_round_notional & is_buy]
+    data["roundNotional"] = round_not.notional.sum() if len(round_not) else ZERO
+    data["roundBuyNotional"] = (
+        round_buy_not.notional.sum() if len(round_buy_not) else ZERO
+    )
     return data
 
 
 def _aggregate_realized_variance(df: DataFrame) -> dict:
     """Compute realized variance."""
-    if "price" not in df.columns or len(df) == 0:
+    if len(df) == 0:
+        return {"realizedVariance": ZERO}
+
+    price_col = "price" if "price" in df.columns else "close"
+    if price_col not in df.columns:
         return {"realizedVariance": ZERO}
 
     if len(df) > 1:
-        prices = df.price.astype(float)
+        prices = df[price_col].astype(float)
         log_prices = np.log(prices)
         log_returns = log_prices.diff().dropna()
         return {"realizedVariance": Decimal(str((log_returns**2).sum()))}
@@ -167,39 +174,55 @@ def _aggregate_realized_variance(df: DataFrame) -> dict:
     return {"realizedVariance": ZERO}
 
 
-def _aggregate_multi_exchange(
-    df: DataFrame,
-    exchanges: list,
-    timestamp: datetime | None,
-    min_volume_exponent: int,
-    min_notional_exponent: int,
-) -> dict:
-    """Aggregate multi-exchange candle data."""
-    ts = timestamp if timestamp else df.iloc[0].timestamp
-    data = {"timestamp": ts}
+def _aggregate_distribution(df: DataFrame) -> dict:
+    """Aggregate price distribution using multiplicative percent scaling."""
+    if df.empty:
+        return {}
 
-    # Per-exchange OHLCV and realized variance
-    for exchange in exchanges:
-        ex_df = df[df["exchange"] == exchange]
-        if len(ex_df) == 0:
-            continue
-        # OHLC with exchange prefix (binanceOpen, binanceHigh, etc.)
-        ohlc = _aggregate_ohlc(ex_df)
-        for k, v in ohlc.items():
-            data[f"{exchange}{k.title()}"] = v
-        # Per-exchange volume
-        has_totals = "totalVolume" in ex_df.columns
+    price_col = "price" if "price" in df.columns else "close"
+    prices = df[price_col].values.astype(float)
+    levels = np.floor(np.log(prices / DISTRIBUTION_ORIGIN) / LOG_STEP).astype(np.int64)
+
+    df = df.copy()
+    df["_level"] = levels
+
+    distribution = {}
+    has_totals = "totalVolume" in df.columns
+
+    for level, g in df.groupby("_level"):
+        is_buy = g["tickRule"] == 1
+
         if has_totals:
-            data[f"{exchange}Volume"] = ex_df.totalVolume.sum()
+            data = {
+                "ticks": int(g["totalTicks"].sum()),
+                "buyTicks": (
+                    int(g.loc[is_buy, "totalBuyTicks"].sum()) if is_buy.any() else 0
+                ),
+                "volume": g["totalVolume"].sum(),
+                "buyVolume": (
+                    g.loc[is_buy, "totalBuyVolume"].sum() if is_buy.any() else ZERO
+                ),
+                "notional": g["totalNotional"].sum(),
+                "buyNotional": (
+                    g.loc[is_buy, "totalBuyNotional"].sum() if is_buy.any() else ZERO
+                ),
+            }
         else:
-            data[f"{exchange}Volume"] = ex_df.volume.sum()
-        # Per-exchange realized variance
-        rv = _aggregate_realized_variance(ex_df)
-        data[f"{exchange}RealizedVariance"] = rv["realizedVariance"]
+            data = {
+                "ticks": len(g),
+                "buyTicks": int(is_buy.sum()),
+                "volume": g["volume"].sum(),
+                "buyVolume": g.loc[is_buy, "volume"].sum() if is_buy.any() else ZERO,
+                "notional": g["notional"].sum(),
+                "buyNotional": (
+                    g.loc[is_buy, "notional"].sum() if is_buy.any() else ZERO
+                ),
+            }
 
-    # Aggregate across all exchanges
-    data.update(_aggregate_totals(df, min_volume_exponent, min_notional_exponent))
-    return data
+        if data["notional"] > 0 or data["volume"] > 0:
+            distribution[str(int(level))] = data
+
+    return distribution
 
 
 def validate_aggregated_candles(
@@ -265,3 +288,35 @@ def validate_aggregated_candles(
                     ok = False
 
     return aggregated_candles, ok
+
+
+def update_cluster_ema(cache_data: dict, volume: float, halflife: int) -> dict:
+    """Update rolling EMA with new cluster volume.
+
+    All EMA math uses floats for performance.
+    """
+    if not np.isfinite(volume) or volume <= 0:
+        return cache_data  # Skip invalid volume
+
+    if halflife <= 0:
+        return cache_data  # Skip invalid halflife
+
+    alpha = 1 - np.exp(-np.log(2) / halflife)
+    log_vol = np.log(volume)
+
+    if "cluster_ema_mean" not in cache_data:
+        cache_data["cluster_ema_mean"] = log_vol
+        cache_data["cluster_ema_var"] = 0.0
+        cache_data["cluster_ema_count"] = 1
+    else:
+        old_mean = float(cache_data["cluster_ema_mean"])
+        old_var = float(cache_data["cluster_ema_var"])
+
+        new_mean = old_mean + alpha * (log_vol - old_mean)
+        new_var = (1 - alpha) * (old_var + alpha * (log_vol - old_mean) ** 2)
+
+        cache_data["cluster_ema_mean"] = new_mean
+        cache_data["cluster_ema_var"] = new_var
+        cache_data["cluster_ema_count"] = int(cache_data["cluster_ema_count"]) + 1
+
+    return cache_data

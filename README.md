@@ -6,9 +6,9 @@ Django Quant Tick aggregates candlesticks from high frequency tick data.
 
 Tick data is preferable for analyzing financial markets. Candlesticks aggregated by `django-quant-tick` are equally informationally dense. Such candles can be useful for analyzing financial markets. As an example, refer to ["Low-Frequency Traders in a High-Frequency World: A Survival Guide"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2150876) and ["The Volume Clock: Insights into the High Frequency Paradigm"](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2034858). Lopez de Prado recommends volume candlesticks, however they are are computationally expensive to generate.
 
-Tick data may be downloaded raw, or optionally aggregated. Aggregation can save disk space, and may increase information. There are 3 complementary aggregations. The first is by equal symbol, timestamp, nanoseconds and tick rule. The second is by filtering significant trades, for example at least $1000. The third is by clustering consecutively executed buy or sell orders.
+Tick data may be downloaded raw, or optionally aggregated. Aggregation can save disk space, and may increase information. There are 2 complementary aggregations. The first is by equal symbol, timestamp, nanoseconds and tick rule. The second is by filtering significant trades, for example at least $1000.
 
-By aggregating, filtering, and clustering raw tick data, volume candlesticks can be computed faster, with little loss in precision.
+By aggregating and filtering raw tick data, volume candlesticks can be computed faster, with little loss in precision.
 
 1. First tick data may be aggregated by equal symbol, timestamp, nanoseconds and tick rule. Aggregating trades in this way can increase information, as they are either orders of size or stop loss cascades. As well, the number of rows can be reduced by 30-50%
 

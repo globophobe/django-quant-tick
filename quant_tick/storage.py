@@ -8,8 +8,9 @@ from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import TruncDate
 
-from quant_tick.constants import FileData, Frequency
+from quant_tick.constants import ZERO, FileData, Frequency
 from quant_tick.lib import (
+    aggregate_candle,
     get_existing,
     get_min_time,
     get_next_time,
@@ -98,11 +99,16 @@ def convert_candle_cache_to_daily(candle: Candle) -> None:
                     )
 
 
-def convert_trade_data_to_hourly(
+def convert_trade_data_to_daily(
     symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ) -> None:
-    """Convert trade data by minute, to hourly."""
-    queryset = TradeData.objects.filter(symbol=symbol, frequency=Frequency.MINUTE)
+    """Convert trade data by minute, or hourly, to daily.
+
+    * Convert any order.
+    """
+    queryset = TradeData.objects.filter(
+        symbol=symbol, frequency__in=(Frequency.MINUTE, Frequency.HOUR)
+    )
     trade_data = queryset.filter(
         timestamp__gte=timestamp_from, timestamp__lte=timestamp_to
     )
@@ -118,16 +124,33 @@ def convert_trade_data_to_hourly(
         for daily_ts_from, daily_ts_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d", reverse=True
         ):
-            for hourly_ts_from, hourly_ts_to in iter_timeframe(
-                daily_ts_from, daily_ts_to, value="1h", reverse=True
-            ):
-                minute_trade_data = queryset.filter(
-                    timestamp__gte=hourly_ts_from,
-                    timestamp__lt=hourly_ts_to,
-                    frequency=Frequency.MINUTE,
-                )
-                if minute_trade_data.count() == Frequency.HOUR:
-                    convert_trade_data(minute_trade_data, hourly_ts_from, hourly_ts_to)
+            # First, convert any complete hours of minute data to hourly.
+            minute_trade_data = queryset.filter(
+                timestamp__gte=daily_ts_from,
+                timestamp__lt=daily_ts_to,
+                frequency=Frequency.MINUTE,
+            )
+            if minute_trade_data.exists():
+                for hourly_ts_from, hourly_ts_to in iter_timeframe(
+                    daily_ts_from, daily_ts_to, value="1h", reverse=True
+                ):
+                    hour_minute_data = minute_trade_data.filter(
+                        timestamp__gte=hourly_ts_from,
+                        timestamp__lt=hourly_ts_to,
+                    )
+                    if hour_minute_data.count() == Frequency.HOUR:
+                        convert_trade_data(
+                            hour_minute_data, hourly_ts_from, hourly_ts_to
+                        )
+
+            # Then, convert hourly to daily if complete.
+            hourly_trade_data = queryset.filter(
+                timestamp__gte=daily_ts_from,
+                timestamp__lt=daily_ts_to,
+                frequency=Frequency.HOUR,
+            )
+            if hourly_trade_data.count() == Frequency.DAY // Frequency.HOUR:
+                convert_trade_data(hourly_trade_data, daily_ts_from, daily_ts_to)
     logger.info("{symbol}: done".format(symbol=str(symbol)))
 
 
@@ -139,7 +162,7 @@ def convert_trade_data(
     """Convert trade data."""
     delta = timestamp_to - timestamp_from
     frequency = delta.total_seconds() / 60
-    assert frequency == Frequency.HOUR
+    assert frequency in (Frequency.HOUR, Frequency.DAY)
     first = trade_data.first()
 
     new_trade_data = TradeData.objects.create(
@@ -149,6 +172,7 @@ def convert_trade_data(
         frequency=frequency,
         ok=all(trade_data.values_list("ok", flat=True)),
     )
+    candle_df = None
     for file_data in FileData:
         data_frames = {
             t: t.get_data_frame(file_data)
@@ -176,8 +200,23 @@ def convert_trade_data(
             for t in trade_data:
                 getattr(t, file_data).delete()
 
+            # FIXME: round columns
+            # if file_data != FileData.CANDLE:
+            #     data_frame.reset_index(inplace=True)
             # Next, create hourly or daily.
-            if file_data != FileData.CANDLE:
+            if file_data == FileData.CANDLE:
+                # Ensure consistent Decimal types for round* columns.
+                for col in (
+                    "roundVolume",
+                    "roundBuyVolume",
+                    "roundNotional",
+                    "roundBuyNotional",
+                ):
+                    if col in data_frame.columns:
+                        data_frame[col] = data_frame[col].apply(
+                            lambda x: ZERO if x == 0 else x
+                        )
+            else:
                 data_frame.reset_index(inplace=True)
 
             if len(data_frame):
@@ -186,27 +225,14 @@ def convert_trade_data(
                     file_data,
                     TradeData.prepare_data(data_frame),
                 )
-                if not new_trade_data.json_data:
-                    candles = pd.DataFrame(
-                        [t.json_data["candle"] for t in trade_data if t.json_data]
-                    )
-                    first_row = candles.iloc[0]
-                    last_row = candles.iloc[-1]
-                    candle = {
-                        "timestamp": first_row.timestamp,
-                        "open": first_row.open,
-                        "high": candles.high.max(),
-                        "low": candles.low.min(),
-                        "close": last_row.close,
-                        "volume": candles.volume.sum(),
-                        "buyVolume": candles.buyVolume.sum(),
-                        "notional": candles.notional.sum(),
-                        "buyNotional": candles.buyNotional.sum(),
-                        "ticks": candles.ticks.sum(),
-                        "buyTicks": candles.buyTicks.sum(),
-                    }
-                    new_trade_data.json_data = {"candle": candle}
                 new_trade_data.save()
+                if file_data in (FileData.RAW, FileData.AGGREGATED, FileData.FILTERED):
+                    candle_df = data_frame
+
+    if candle_df is not None:
+        candle = aggregate_candle(candle_df)
+        new_trade_data.json_data = {"candle": candle}
+        new_trade_data.save()
 
     # Completely delete minutes.
     trade_data.delete()
@@ -216,7 +242,7 @@ def convert_trade_data(
             **{
                 "timestamp_from": timestamp_from,
                 "timestamp_to": timestamp_to,
-                "frequency": "hourly",
+                "frequency": "daily" if frequency == Frequency.DAY else "hourly",
             }
         )
     )
@@ -233,7 +259,6 @@ def clean_trade_data_with_non_existing_files(
         FileData.RAW: "save_raw",
         FileData.AGGREGATED: "save_aggregated",
         FileData.FILTERED: "save_filtered",
-        FileData.CLUSTERED: "save_clustered",
     }.items():
         if getattr(symbol, attr):
             fields.append(file_data)
@@ -284,7 +309,6 @@ def clean_unlinked_trade_data_files(
         FileData.RAW: "save_raw",
         FileData.AGGREGATED: "save_aggregated",
         FileData.FILTERED: "save_filtered",
-        FileData.CLUSTERED: "save_clustered",
     }.items():
         if getattr(symbol, attr):
             fields.append(file_data)

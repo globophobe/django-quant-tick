@@ -1,18 +1,22 @@
-from datetime import datetime
+import datetime
 from decimal import Decimal
 
+import numpy as np
+import pandas as pd
 from pandas import DataFrame
 
 from quant_tick.controllers import SequentialIntegerMixin
+from quant_tick.lib import set_dtypes
 
 from .candles import binance_candles
+from .constants import S3_URL
 from .trades import get_binance_trades_timestamp, get_trades
 
 
 class BinanceMixin(SequentialIntegerMixin):
     """Binance mixin."""
 
-    def iter_api(self, timestamp_from: datetime, pagination_id: str) -> tuple:
+    def iter_api(self, timestamp_from: datetime.datetime, pagination_id: str) -> tuple:
         """Iterate Binance API."""
         return get_trades(
             self.symbol.api_symbol,
@@ -25,7 +29,7 @@ class BinanceMixin(SequentialIntegerMixin):
         """Get uid."""
         return str(trade["id"])
 
-    def get_timestamp(self, trade: dict) -> datetime:
+    def get_timestamp(self, trade: dict) -> datetime.datetime:
         """Get timestamp."""
         return get_binance_trades_timestamp(trade)
 
@@ -58,8 +62,8 @@ class BinanceMixin(SequentialIntegerMixin):
 
     def assert_data_frame(
         self,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
         data_frame: DataFrame,
         trades: list | None = None,
     ) -> None:
@@ -72,7 +76,7 @@ class BinanceMixin(SequentialIntegerMixin):
         assert abs(diff.sum()) == expected
 
     def get_candles(
-        self, timestamp_from: datetime, timestamp_to: datetime
+        self, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
     ) -> DataFrame:
         """Get candles from Exchange API."""
         return binance_candles(
@@ -82,3 +86,65 @@ class BinanceMixin(SequentialIntegerMixin):
             interval="1m",
             limit=60,
         )
+
+
+class BinanceS3Mixin(BinanceMixin):
+    """Binance S3 mixin."""
+
+    @property
+    def csv_columns(self) -> list:
+        """CSV columns."""
+        return [
+            "id",
+            "price",
+            "qty",
+            "quoteQty",
+            "time",
+            "isBuyerMaker",
+            "isBestMatch",
+        ]
+
+    @property
+    def columns(self) -> list:
+        """Columns."""
+        return [
+            "uid",
+            "timestamp",
+            "nanoseconds",
+            "price",
+            "volume",
+            "notional",
+            "tickRule",
+        ]
+
+    def get_url(self, date: datetime.date) -> str:
+        """Get URL."""
+        symbol = self.symbol.api_symbol
+        date_str = date.strftime("%Y-%m-%d")
+        return f"{S3_URL}/{symbol}/{symbol}-trades-{date_str}.zip"
+
+    def get_index(self, trade: dict) -> int:
+        """Get index.
+
+        * No sequential index.
+        """
+        return np.nan
+
+    def parse_dtypes_and_strip_columns(self, df: DataFrame) -> DataFrame:
+        """Parse dtypes and strip columns."""
+        df = df.copy()
+        df = set_dtypes(df)
+        # S3 files are daily, so first timestamp
+        first_time = int(df["time"].iloc[0])
+        # Milliseconds: ~13 digits (1e12), microseconds: ~16 digits (1e15)
+        unit = "us" if first_time > 1e14 else "ms"
+        df["timestamp"] = pd.to_datetime(
+            df["time"].astype("int64"), unit=unit, utc=True
+        )
+        df["nanoseconds"] = 0
+        if unit == "us":
+            df["nanoseconds"] = (df["time"].astype("int64") % 1000) * 1000
+        df = df.rename(columns={"id": "uid", "qty": "notional"})
+        df["volume"] = df["price"] * df["notional"]
+        df["tickRule"] = df["isBuyerMaker"].apply(lambda x: -1 if x == "True" else 1)
+        return df[self.columns]

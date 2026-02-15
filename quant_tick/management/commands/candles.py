@@ -1,9 +1,4 @@
-import logging
-
-from quant_tick.controllers import aggregate_candles
 from quant_tick.management.base import BaseCandleCommand
-
-logger = logging.getLogger(__name__)
 
 
 class Command(BaseCandleCommand):
@@ -13,6 +8,5 @@ class Command(BaseCandleCommand):
 
     def handle(self, *args, **options) -> None:
         """Run command."""
-        kwargs = super().handle(*args, **options)
-        for k in kwargs:
-            aggregate_candles(**k)
+        for k in super().handle(*args, **options):
+            k["candle"].candles(k["timestamp_from"], k["timestamp_to"], k["retry"])

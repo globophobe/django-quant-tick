@@ -49,32 +49,6 @@ class Frequency(models.IntegerChoices):
     WEEK = 10080, _("week").capitalize()
 
 
-class PositionType(models.TextChoices):
-    """Position type."""
-
-    BACKTEST = "backtest", _("backtest")
-    PAPER = "paper", _("paper")
-    LIVE = "live", _("live")
-
-
-class ExitReason(models.TextChoices):
-    """Exit reason."""
-
-    TOUCHED_LOWER = "touched_lower", _("touched lower")
-    TOUCHED_UPPER = "touched_upper", _("touched upper")
-    REBALANCED = "rebalanced", _("rebalanced")
-    MAX_DURATION = "max_duration", _("max duration")
-
-
-class PositionStatus(models.TextChoices):
-    """Position status."""
-
-    PENDING = "pending", _("pending")
-    OPEN = "open", _("open")
-    CLOSED = "closed", _("closed")
-    FAILED = "failed", _("failed")
-
-
 class FileData(models.TextChoices):
     """File data."""
 
