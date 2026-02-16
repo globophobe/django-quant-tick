@@ -1,7 +1,6 @@
 import datetime
 from decimal import Decimal
 
-import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
@@ -122,13 +121,6 @@ class BinanceS3Mixin(BinanceMixin):
         symbol = self.symbol.api_symbol
         date_str = date.strftime("%Y-%m-%d")
         return f"{S3_URL}/{symbol}/{symbol}-trades-{date_str}.zip"
-
-    def get_index(self, trade: dict) -> int:
-        """Get index.
-
-        * No sequential index.
-        """
-        return np.nan
 
     def parse_dtypes_and_strip_columns(self, df: DataFrame) -> DataFrame:
         """Parse dtypes and strip columns."""
