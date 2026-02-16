@@ -5,7 +5,7 @@ import pandas as pd
 from pandas import DataFrame
 
 from quant_tick.controllers import SequentialIntegerMixin
-from quant_tick.lib import set_dtypes
+from quant_tick.lib import set_type_decimal
 
 from .candles import binance_candles
 from .constants import S3_URL
@@ -125,7 +125,8 @@ class BinanceS3Mixin(BinanceMixin):
     def parse_dtypes_and_strip_columns(self, df: DataFrame) -> DataFrame:
         """Parse dtypes and strip columns."""
         df = df.copy()
-        df = set_dtypes(df)
+        df = set_type_decimal(df, "price")
+        df = set_type_decimal(df, "qty")
         # S3 files are daily, so first timestamp
         first_time = int(df["time"].iloc[0])
         # Milliseconds: ~13 digits (1e12), microseconds: ~16 digits (1e15)
