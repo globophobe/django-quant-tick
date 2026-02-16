@@ -100,6 +100,7 @@ class ConstantCandle(CacheResetMixin, Candle):
             if "next" in cache_data:
                 candle = cache_data.pop("next")
                 candle["incomplete"] = True
+                data.append(candle)
         return data, cache_data
 
     class Meta:
