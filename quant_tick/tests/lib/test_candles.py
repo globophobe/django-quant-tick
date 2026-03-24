@@ -116,6 +116,7 @@ class CandleTest(SimpleTestCase):
 
         self.assertEqual(result["volume"], Decimal("105"))
         self.assertEqual(result["roundVolume"], Decimal("100"))
+        self.assertEqual(result["roundVolumeNotional"], Decimal("10000"))
 
     def test_distribution_disabled_by_default(self):
         """Distribution not included by default."""
@@ -198,8 +199,12 @@ class MergeCacheTest(SimpleTestCase):
             "buyTicks": 3,
             "roundVolume": Decimal("10"),
             "roundBuyVolume": Decimal("6"),
+            "roundVolumeNotional": Decimal("1000"),
+            "roundBuyVolumeNotional": Decimal("600"),
             "roundNotional": Decimal("1000"),
             "roundBuyNotional": Decimal("600"),
+            "roundNotionalVolume": Decimal("10"),
+            "roundBuyNotionalVolume": Decimal("6"),
             "realizedVariance": Decimal("0.001"),
             "distribution": {},
         }

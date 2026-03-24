@@ -43,8 +43,12 @@ def merge_cache(previous: dict, current: dict) -> dict:
         "buyTicks",
         "roundVolume",
         "roundBuyVolume",
+        "roundVolumeNotional",
+        "roundBuyVolumeNotional",
         "roundNotional",
         "roundBuyNotional",
+        "roundNotionalVolume",
+        "roundBuyNotionalVolume",
     ):
         current[key] += previous[key]
 

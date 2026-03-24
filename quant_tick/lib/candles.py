@@ -144,6 +144,10 @@ def _aggregate_totals(
     round_buy_vol = df.loc[is_round_volume & is_buy]
     data["roundVolume"] = round_vol.volume.sum() if len(round_vol) else ZERO
     data["roundBuyVolume"] = round_buy_vol.volume.sum() if len(round_buy_vol) else ZERO
+    data["roundVolumeNotional"] = round_vol.notional.sum() if len(round_vol) else ZERO
+    data["roundBuyVolumeNotional"] = (
+        round_buy_vol.notional.sum() if len(round_buy_vol) else ZERO
+    )
     # Round notional
     notional_exps = df.notional.apply(calc_notional_exponent)
     is_round_notional = notional_exps >= min_notional_exponent
@@ -152,6 +156,10 @@ def _aggregate_totals(
     data["roundNotional"] = round_not.notional.sum() if len(round_not) else ZERO
     data["roundBuyNotional"] = (
         round_buy_not.notional.sum() if len(round_buy_not) else ZERO
+    )
+    data["roundNotionalVolume"] = round_not.volume.sum() if len(round_not) else ZERO
+    data["roundBuyNotionalVolume"] = (
+        round_buy_not.volume.sum() if len(round_buy_not) else ZERO
     )
     return data
 
