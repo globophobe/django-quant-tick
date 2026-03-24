@@ -161,6 +161,20 @@ def _aggregate_totals(
     data["roundBuyNotionalVolume"] = (
         round_buy_not.volume.sum() if len(round_buy_not) else ZERO
     )
+    # Round either
+    is_round_either = is_round_volume | is_round_notional
+    round_either = df.loc[is_round_either]
+    round_either_buy = df.loc[is_round_either & is_buy]
+    data["roundEitherVolume"] = round_either.volume.sum() if len(round_either) else ZERO
+    data["roundEitherBuyVolume"] = (
+        round_either_buy.volume.sum() if len(round_either_buy) else ZERO
+    )
+    data["roundEitherNotional"] = (
+        round_either.notional.sum() if len(round_either) else ZERO
+    )
+    data["roundEitherBuyNotional"] = (
+        round_either_buy.notional.sum() if len(round_either_buy) else ZERO
+    )
     return data
 
 

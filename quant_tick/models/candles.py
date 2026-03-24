@@ -312,11 +312,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Process data frame - convert Decimal columns to float."""
         if df.empty:
             return df
-        numeric_cols = []
-        for col in ["open", "high", "low", "close", "volume", "buyVolume", "notional"]:
-            if col in df.columns:
-                numeric_cols.append(col)
-        for col in numeric_cols:
+        for col in df.columns:
             if df[col].dtype == object:
                 df[col] = df[col].apply(
                     lambda x: float(x) if isinstance(x, Decimal) else x

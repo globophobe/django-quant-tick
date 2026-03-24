@@ -65,7 +65,7 @@ class CandleTest(SimpleTestCase):
         result = aggregate_candle(df)
 
         self.assertEqual(result["volume"], Decimal("18"))
-        self.assertEqual(result["buyVolume"], Decimal("8"))  # 5 + 3
+        self.assertEqual(result["buyVolume"], Decimal("8"))
 
     def test_ticks_count(self):
         """Tick count."""
@@ -109,7 +109,7 @@ class CandleTest(SimpleTestCase):
         """Round volume filtering."""
         df = self.get_data_frame(
             prices=[100, 100],
-            volumes=[100, 5],  # 100 is round, 5 is not
+            volumes=[100, 5],
             tick_rules=[1, 1],
         )
         result = aggregate_candle(df, min_volume_exponent=2)
@@ -117,6 +117,30 @@ class CandleTest(SimpleTestCase):
         self.assertEqual(result["volume"], Decimal("105"))
         self.assertEqual(result["roundVolume"], Decimal("100"))
         self.assertEqual(result["roundVolumeNotional"], Decimal("10000"))
+
+    def test_round_either_uses_notional_only_trade(self):
+        """Round either captures trades round in notional only."""
+        df = self.get_data_frame(prices=[100], volumes=[4.5], tick_rules=[1])
+        result = aggregate_candle(df)
+
+        self.assertEqual(result["roundVolume"], Decimal("0"))
+        self.assertEqual(result["roundNotional"], Decimal("450.0"))
+        self.assertEqual(result["roundEitherVolume"], Decimal("4.5"))
+        self.assertEqual(result["roundEitherBuyVolume"], Decimal("4.5"))
+        self.assertEqual(result["roundEitherNotional"], Decimal("450.0"))
+        self.assertEqual(result["roundEitherBuyNotional"], Decimal("450.0"))
+
+    def test_round_either_does_not_double_count_trade(self):
+        """Round either should count trades round in both dimensions once."""
+        df = self.get_data_frame(prices=[4], volumes=[100], tick_rules=[1])
+        result = aggregate_candle(df)
+
+        self.assertEqual(result["roundVolume"], Decimal("100"))
+        self.assertEqual(result["roundNotional"], Decimal("400"))
+        self.assertEqual(result["roundEitherVolume"], Decimal("100"))
+        self.assertEqual(result["roundEitherBuyVolume"], Decimal("100"))
+        self.assertEqual(result["roundEitherNotional"], Decimal("400"))
+        self.assertEqual(result["roundEitherBuyNotional"], Decimal("400"))
 
     def test_distribution_disabled_by_default(self):
         """Distribution not included by default."""
@@ -171,8 +195,6 @@ class CandleTest(SimpleTestCase):
         dist = result["distribution"]
         self.assertEqual(len(dist), 0)
 
-
-
 class MergeCacheTest(SimpleTestCase):
     """Merge cache."""
 
@@ -205,6 +227,10 @@ class MergeCacheTest(SimpleTestCase):
             "roundBuyNotional": Decimal("600"),
             "roundNotionalVolume": Decimal("10"),
             "roundBuyNotionalVolume": Decimal("6"),
+            "roundEitherVolume": Decimal("10"),
+            "roundEitherBuyVolume": Decimal("6"),
+            "roundEitherNotional": Decimal("1000"),
+            "roundEitherBuyNotional": Decimal("600"),
             "realizedVariance": Decimal("0.001"),
             "distribution": {},
         }
@@ -368,4 +394,3 @@ class MergeCacheTest(SimpleTestCase):
         dist = result["distribution"]
         self.assertEqual(len(dist), 1)
         self.assertEqual(dist["0"]["ticks"], 3)
-

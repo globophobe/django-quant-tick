@@ -206,12 +206,7 @@ def convert_trade_data(
             # Next, create hourly or daily.
             if file_data == FileData.CANDLE:
                 # Ensure consistent Decimal types for round* columns.
-                for col in (
-                    "roundVolume",
-                    "roundBuyVolume",
-                    "roundNotional",
-                    "roundBuyNotional",
-                ):
+                for col in [c for c in data_frame.columns if c.startswith("round")]:
                     if col in data_frame.columns:
                         data_frame[col] = data_frame[col].apply(
                             lambda x: ZERO if x == 0 else x
