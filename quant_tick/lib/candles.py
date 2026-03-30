@@ -42,13 +42,18 @@ def aggregate_candles(
     timestamp_to: datetime,
     window: str = "1min",
     as_data_frame: bool = True,
+    min_notional_exponent: int = 1,
 ) -> list[dict]:
     """Aggregate candles"""
     data = []
     for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, window):
         df = filter_by_timestamp(data_frame, ts_from, ts_to)
         if len(df):
-            candle = aggregate_candle(df, timestamp=ts_from)
+            candle = aggregate_candle(
+                df,
+                timestamp=ts_from,
+                min_notional_exponent=min_notional_exponent,
+            )
             data.append(candle)
         else:
             d = {"timestamp": ts_from}

@@ -231,6 +231,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             df,
             timestamp=timestamp,
             distribution_stats=self.json_data.get("distribution_stats", False),
+            min_notional_exponent=int(self.json_data.get("min_notional_exponent", 1)),
         )
 
     def _merge_cache(self, prev: dict, curr: dict) -> dict:

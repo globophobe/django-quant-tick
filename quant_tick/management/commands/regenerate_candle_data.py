@@ -10,8 +10,13 @@ class Command(BaseTradeDataCommand):
 
     help = "Regenerate TradeData.candle_data from filtered_data."
 
+    def add_arguments(self, parser) -> None:
+        super().add_arguments(parser)
+        parser.add_argument("--min-notional-exponent", type=int, default=1)
+
     def handle(self, *args, **options) -> None:
         """Run command."""
+        min_notional_exponent = int(options.get("min_notional_exponent", 1))
         for kwargs in super().handle(*args, **options):
             qs = TradeData.objects.filter(
                 symbol=kwargs["symbol"],
@@ -29,7 +34,12 @@ class Command(BaseTradeDataCommand):
                 # Read old candle_data for validated + exchange* columns.
                 old_candles = obj.get_data_frame("candle_data")
                 # Regenerate from filtered_data.
-                new_candles = aggregate_candles(filtered, ts_from, ts_to)
+                new_candles = aggregate_candles(
+                    filtered,
+                    ts_from,
+                    ts_to,
+                    min_notional_exponent=min_notional_exponent,
+                )
                 # Copy validation columns and match original column order.
                 if old_candles is not None and len(old_candles) and len(new_candles):
                     validation_cols = [
@@ -41,7 +51,12 @@ class Command(BaseTradeDataCommand):
                         new_candles[col] = old_candles[col].reindex(new_candles.index)
                     new_candles = new_candles[old_candles.columns]
                 # Regenerate json_data candle.
-                obj.json_data = {"candle": aggregate_candle(filtered)}
+                obj.json_data = {
+                    "candle": aggregate_candle(
+                        filtered,
+                        min_notional_exponent=min_notional_exponent,
+                    )
+                }
                 # Save.
                 obj.candle_data.delete(save=False)
                 obj.candle_data = TradeData.prepare_data(new_candles)
