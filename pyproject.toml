@@ -12,7 +12,7 @@ classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Indepen
 packages = [{ include = "quant_tick" }]
 
 [tool.poetry.dependencies]
-python = ">=3.10"
+python = ">=3.12"
 django-polymorphic = "*"
 djangorestframework = "*"
 httpx = "*"
@@ -44,7 +44,7 @@ exclude = [
     "migrations",
 ]
 line-length = 88
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 ignore = [
