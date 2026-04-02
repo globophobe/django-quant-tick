@@ -1,5 +1,5 @@
 import random
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -84,7 +84,7 @@ class BaseRandomTradeTest:
         tick_rule = tick_rule or random.choice((1, -1))
         data = {
             "uid": uuid4().hex,
-            "timestamp": timestamp.replace(tzinfo=timezone.utc),
+            "timestamp": timestamp.replace(tzinfo=UTC),
             "nanoseconds": nanoseconds,
             "price": price,
             "volume": volume,

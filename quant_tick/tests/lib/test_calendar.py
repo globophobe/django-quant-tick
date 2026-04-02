@@ -1,4 +1,4 @@
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 
 import pandas as pd
 from django.test import SimpleTestCase
@@ -22,7 +22,7 @@ class GetMinTimeTest(SimpleTestCase):
         min_time = get_min_time(now, value="1d")
         self.assertEqual(
             min_time,
-            datetime.combine(min_time.date(), time.min).replace(tzinfo=timezone.utc),
+            datetime.combine(min_time.date(), time.min).replace(tzinfo=UTC),
         )
 
 
@@ -33,7 +33,7 @@ class GetNexttimeTest(SimpleTestCase):
         tomorrow = get_next_time(now, value="1d")
         self.assertEqual(
             tomorrow,
-            datetime.combine(tomorrow.date(), time.min).replace(tzinfo=timezone.utc),
+            datetime.combine(tomorrow.date(), time.min).replace(tzinfo=UTC),
         )
 
 

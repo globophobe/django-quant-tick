@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -172,7 +172,7 @@ class CandleTest(BaseSymbolTest, BaseDayIteratorTest, TestCase):
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 4, 0, 3).replace(tzinfo=timezone.utc),
+    return_value=datetime(2009, 1, 4, 0, 3).replace(tzinfo=UTC),
 )
 class TimeBasedMinuteFrequencyCandleTest(
     BaseMinuteIteratorTest,
@@ -346,7 +346,7 @@ class TimeBasedTwoMinuteFrequencyCandleTest(
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
+    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=UTC),
 )
 class TimeBasedHourFrequencyCandleTest(
     BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
@@ -475,7 +475,7 @@ class TimeBasedHourFrequencyCandleTest(
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
+    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=UTC),
 )
 class TimeBasedTwoHourFrequencyCandleTest(
     BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
@@ -548,7 +548,7 @@ class TimeBasedTwoHourFrequencyCandleTest(
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
+    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=UTC),
 )
 class ConstantNotionalHourFrequencyCandleTest(
     BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
@@ -731,7 +731,7 @@ class ConstantNotionalHourFrequencyCandleTest(
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 5).replace(tzinfo=timezone.utc),
+    return_value=datetime(2009, 1, 5).replace(tzinfo=UTC),
 )
 class ConstantNotionalDayFrequencyIrregularCandleTest(
     BaseDayIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase
@@ -775,7 +775,7 @@ class ConstantNotionalDayFrequencyIrregularCandleTest(
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=timezone.utc),
+    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=UTC),
 )
 class AdaptiveNotionalCandleTest(
     BaseHourIteratorTest, BaseWriteTradeDataTest, BaseCandleCacheIteratorTest, TestCase

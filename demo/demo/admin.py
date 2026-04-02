@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from django.contrib import admin
 from django.contrib.auth.models import Group, User
@@ -97,8 +97,8 @@ class CandleAdmin(SemanticModelAdmin):
                 two_years_ago = current_year - 2
 
             # Get current year extremes
-            current_year_start = datetime(current_year, 1, 1, tzinfo=timezone.utc)
-            current_year_end = datetime(current_year, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+            current_year_start = datetime(current_year, 1, 1, tzinfo=UTC)
+            current_year_end = datetime(current_year, 12, 31, 23, 59, 59, tzinfo=UTC)
 
             yearly_anchors = []
 
@@ -217,8 +217,8 @@ class CandleAdmin(SemanticModelAdmin):
                 )
 
             # Get last year extremes
-            last_year_start = datetime(last_year, 1, 1, tzinfo=timezone.utc)
-            last_year_end = datetime(last_year, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+            last_year_start = datetime(last_year, 1, 1, tzinfo=UTC)
+            last_year_end = datetime(last_year, 12, 31, 23, 59, 59, tzinfo=UTC)
 
             # Find actual max high and min low in last year from all candles
             last_year_candles = list(
@@ -334,8 +334,8 @@ class CandleAdmin(SemanticModelAdmin):
                 )
 
             # Get two years ago extremes
-            two_years_ago_start = datetime(two_years_ago, 1, 1, tzinfo=timezone.utc)
-            two_years_ago_end = datetime(two_years_ago, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+            two_years_ago_start = datetime(two_years_ago, 1, 1, tzinfo=UTC)
+            two_years_ago_end = datetime(two_years_ago, 12, 31, 23, 59, 59, tzinfo=UTC)
 
             # Find actual max high and min low in two years ago from all candles
             two_years_ago_candles = list(
@@ -494,7 +494,9 @@ class CandleAdmin(SemanticModelAdmin):
                 try:
                     before_dt = datetime.fromisoformat(before_timestamp)
                 except ValueError:
-                    before_dt = datetime.strptime(before_timestamp, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    before_dt = datetime.strptime(before_timestamp, "%Y-%m-%d").replace(
+                        tzinfo=UTC
+                    )
 
             queryset = queryset.filter(
                 timestamp__lt=before_dt
@@ -507,7 +509,9 @@ class CandleAdmin(SemanticModelAdmin):
                 try:
                     after_dt = datetime.fromisoformat(after_timestamp)
                 except ValueError:
-                    after_dt = datetime.strptime(after_timestamp, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    after_dt = datetime.strptime(after_timestamp, "%Y-%m-%d").replace(
+                        tzinfo=UTC
+                    )
 
             queryset = queryset.filter(
                 timestamp__gt=after_dt

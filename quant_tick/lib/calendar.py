@@ -1,6 +1,6 @@
 import re
 from collections.abc import Generator
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 
 import pandas as pd
 from pandas import Timestamp
@@ -8,15 +8,15 @@ from pandas import Timestamp
 
 def parse_datetime(value: str, unit: str = "ns") -> datetime:
     """Parse datetime with pandas for nanosecond accuracy."""
-    return pd.to_datetime(value, unit=unit).replace(tzinfo=timezone.utc)
+    return pd.to_datetime(value, unit=unit).replace(tzinfo=UTC)
 
 
 def to_pydatetime(timestamp: Timestamp) -> datetime:
     """Timestamp to datetime."""
-    return timestamp.replace(nanosecond=0).to_pydatetime().replace(tzinfo=timezone.utc)
+    return timestamp.replace(nanosecond=0).to_pydatetime().replace(tzinfo=UTC)
 
 
-def get_current_time(tzinfo: str = timezone.utc) -> datetime:
+def get_current_time(tzinfo: str = UTC) -> datetime:
     """Get current time."""
     return datetime.utcnow().replace(tzinfo=tzinfo)
 
@@ -81,8 +81,8 @@ def parse_period_from_to(
         date_to = tomorrow
     time_to = time.fromisoformat(time_to) if time_to else time.min
     # UTC, please.
-    timestamp_from = datetime.combine(date_from, time_from).replace(tzinfo=timezone.utc)
-    timestamp_to = datetime.combine(date_to, time_to).replace(tzinfo=timezone.utc)
+    timestamp_from = datetime.combine(date_from, time_from).replace(tzinfo=UTC)
+    timestamp_to = datetime.combine(date_to, time_to).replace(tzinfo=UTC)
     # Sane defaults.
     timestamp_to = get_min_time(now, "1min") if timestamp_to >= now else timestamp_to
     timestamp_from = timestamp_to if timestamp_from > timestamp_to else timestamp_from

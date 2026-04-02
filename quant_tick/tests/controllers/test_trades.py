@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pandas as pd
@@ -33,7 +33,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 3).replace(tzinfo=timezone.utc),
+        return_value=datetime(2009, 1, 3).replace(tzinfo=UTC),
     )
     def test_iter_all_with_no_results(self, mock_get_max_timestamp_to):
         """No results."""
@@ -42,7 +42,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_head(self, mock_get_max_timestamp_to):
         """First is OK."""
@@ -59,7 +59,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_one_ok(self, mock_get_max_timestamp_to):
         """Second is OK."""
@@ -78,7 +78,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_two_ok(self, mock_get_max_timestamp_to):
         """Second and fourth are OK."""
@@ -105,7 +105,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_tail(self, mock_get_max_timestamp_to):
         """Last is OK."""
@@ -122,7 +122,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_retry_and_one_not_ok(self, mock_get_max_timestamp_to):
         """One is not OK."""
@@ -139,7 +139,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=timezone.utc),
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_retry_and_one_missing(self, mock_get_max_timestamp_to):
         """One is missing."""

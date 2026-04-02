@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
 
 import pandas as pd
@@ -43,7 +43,7 @@ def bitmex_candles(
     )
     for candle in candles:
         timestamp, _ = candle["timestamp"].split(".000Z")
-        tstamp = datetime.fromisoformat(timestamp).replace(tzinfo=timezone.utc)
+        tstamp = datetime.fromisoformat(timestamp).replace(tzinfo=UTC)
         candle["timestamp"] = tstamp - pd.Timedelta(bin_size)
         candle["volume"] = candle["foreignNotional"]
         for key in (

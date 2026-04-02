@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pandas as pd
@@ -22,7 +22,7 @@ class CandleTest(SimpleTestCase):
         n = len(prices)
         volumes = volumes or [1.0] * n
         tick_rules = tick_rules or [1] * n
-        base_time = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        base_time = datetime(2024, 1, 1, tzinfo=UTC)
 
         data = {
             "timestamp": [base_time + pd.Timedelta(seconds=i) for i in range(n)],
@@ -80,13 +80,13 @@ class CandleTest(SimpleTestCase):
         df = self.get_data_frame(prices=[100, 101])
         result = aggregate_candle(df)
 
-        expected = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        expected = datetime(2024, 1, 1, tzinfo=UTC)
         self.assertEqual(result["timestamp"], expected)
 
     def test_timestamp_override(self):
         """Timestamp override."""
         df = self.get_data_frame(prices=[100, 101])
-        custom_ts = datetime(2024, 6, 15, 12, 0, tzinfo=timezone.utc)
+        custom_ts = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
         result = aggregate_candle(df, timestamp=custom_ts)
 
         self.assertEqual(result["timestamp"], custom_ts)
@@ -208,7 +208,7 @@ class MergeCacheTest(SimpleTestCase):
     ) -> dict:
         """Create candle data for testing."""
         return {
-            "timestamp": timestamp or datetime(2024, 1, 1, tzinfo=timezone.utc),
+            "timestamp": timestamp or datetime(2024, 1, 1, tzinfo=UTC),
             "open": open_price,
             "high": high,
             "low": low,
@@ -245,13 +245,13 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("110"),
             Decimal("101"),
             Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
 
         result = merge_cache(previous, current)
 
         self.assertEqual(result["open"], Decimal("100"))
-        self.assertEqual(result["timestamp"], datetime(2024, 1, 1, tzinfo=timezone.utc))
+        self.assertEqual(result["timestamp"], datetime(2024, 1, 1, tzinfo=UTC))
 
     def test_merge_high_low(self):
         """Merged candle uses max high and min low."""
@@ -263,7 +263,7 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("110"),
             Decimal("95"),
             Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
 
         result = merge_cache(previous, current)
@@ -281,7 +281,7 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("110"),
             Decimal("101"),
             Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
 
         result = merge_cache(previous, current)
@@ -301,7 +301,7 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("110"),
             Decimal("101"),
             Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
 
         result = merge_cache(previous, current)
@@ -323,7 +323,7 @@ class MergeCacheTest(SimpleTestCase):
         }
         current = self.get_candle_data(
             Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
         current["distribution"] = {
             "0": {
@@ -354,7 +354,7 @@ class MergeCacheTest(SimpleTestCase):
         }
         current = self.get_candle_data(
             Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
         current["distribution"] = {
             "1": {
@@ -380,7 +380,7 @@ class MergeCacheTest(SimpleTestCase):
         previous["distribution"] = {}
         current = self.get_candle_data(
             Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
         current["distribution"] = {
             "0": {

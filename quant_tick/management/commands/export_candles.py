@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pyarrow as pa
@@ -56,8 +56,8 @@ class Command(BaseDateCommand):
         date_to = (
             datetime.fromisoformat(options["date_to"]) if options["date_to"] else None
         )
-        timestamp_from = date_from.replace(tzinfo=timezone.utc) if date_from else None
-        timestamp_to = date_to.replace(tzinfo=timezone.utc) if date_to else None
+        timestamp_from = date_from.replace(tzinfo=UTC) if date_from else None
+        timestamp_to = date_to.replace(tzinfo=UTC) if date_to else None
 
         if timestamp_from and timestamp_to:
             ts_min = timestamp_from
@@ -82,10 +82,10 @@ class Command(BaseDateCommand):
 
         writer = None
         total_rows = 0
-        cur = datetime(ts_min.year, 1, 1, tzinfo=timezone.utc)
+        cur = datetime(ts_min.year, 1, 1, tzinfo=UTC)
 
         while cur < ts_max:
-            next_year = datetime(cur.year + 1, 1, 1, tzinfo=timezone.utc)
+            next_year = datetime(cur.year + 1, 1, 1, tzinfo=UTC)
             chunk_from = max(cur, ts_min)
             chunk_to = min(next_year, ts_max)
             rows = candle.get_candle_data(
