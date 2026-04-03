@@ -7,7 +7,7 @@ from demo.views import (
 
 urlpatterns = [
     path(
-        "aggregate-trades/",
+        "aggregate-trades/<str:exchange>/",
         GCPAggregateTradeDataView.as_view(),
         name="aggregate_trades",
     ),

@@ -167,11 +167,8 @@ def get_workflow(url: str, exchanges: list[str]) -> dict:
                                             "try": {
                                                 "call": "http.get",
                                                 "args": {
-                                                    "url": aggregate_trades,
+                                                    "url": f"{aggregate_trades}${{exchange}}/",
                                                     "auth": {"type": "OIDC"},
-                                                    "query": {
-                                                        "exchange": "${exchange}"
-                                                    },
                                                 },
                                             },
                                             "except": {"as": "e", "steps": []},
