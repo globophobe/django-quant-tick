@@ -15,7 +15,7 @@ from quant_tick.serializers import (
 class CandleView(ListAPIView):
     """Candle view."""
 
-    queryset = Candle.objects.select_related("symbol__global_symbol")
+    queryset = Candle.objects.select_related("symbol")
     filterset_class = CandleFilter
     filter_backends = (DjangoFilterBackend,)
     serializer_class = CandleSerializer

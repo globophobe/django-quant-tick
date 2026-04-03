@@ -1,38 +1,15 @@
 from django.db import models
 
-from quant_tick.constants import Exchange, SymbolType
+from quant_tick.constants import Exchange
 from quant_tick.utils import gettext_lazy as _
 
 from .base import AbstractCodeName
 
 
-class GlobalSymbol(models.Model):
-    """Global symbol."""
-
-    name = models.CharField(_("name"), unique=True, max_length=255)
-
-    def __str__(self) -> str:
-        """str."""
-        return self.name
-
-    class Meta:
-        db_table = "quant_tick_global_symbol"
-        verbose_name = _("global symbol")
-        verbose_name_plural = _("global symbols")
-
-
 class Symbol(AbstractCodeName):
     """Symbol."""
 
-    global_symbol = models.ForeignKey(
-        "quant_tick.GlobalSymbol",
-        related_name="symbols",
-        on_delete=models.CASCADE,
-    )
     exchange = models.CharField(_("exchange"), choices=Exchange.choices, max_length=255)
-    symbol_type = models.CharField(
-        _("type"), choices=SymbolType.choices, max_length=255
-    )
     api_symbol = models.CharField(_("API symbol"), max_length=255)
     save_raw = models.BooleanField(
         _("save raw"),
@@ -56,14 +33,6 @@ class Symbol(AbstractCodeName):
             "aggregated, according to the the algorithm described in the documentation."
         ),
         default=0,
-    )
-    recent_error_at = models.DateTimeField(
-        _("recent API error"),
-        help_text=_(
-            "If there was a recent API error, for example due to exchange maintenance, "
-            "then backoff."
-        ),
-        null=True,
     )
     is_active = models.BooleanField(_("active"), default=True)
 

@@ -13,7 +13,6 @@ class BaseCandleTest(TestCase):
     def get_symbol(self, name: str, exchange: Exchange = Exchange.COINBASE) -> Symbol:
         """Get symbol."""
         return Symbol.objects.create(
-            global_symbol=self.global_symbol,
             exchange=exchange,
             api_symbol=name,
         )

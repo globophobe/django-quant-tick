@@ -15,7 +15,7 @@ from quant_tick.lib import (
     get_min_time,
     volume_filter_with_time_window,
 )
-from quant_tick.models import GlobalSymbol, Symbol, TradeData
+from quant_tick.models import Symbol, TradeData
 
 
 class BaseRandomTradeTest:
@@ -109,7 +109,6 @@ class BaseRandomTradeTest:
 class BaseSymbolTest:
     def setUp(self):
         super().setUp()
-        self.global_symbol = GlobalSymbol.objects.create(name="global-symbol")
         self.timestamp_from = get_min_time(get_current_time(), "1d")
 
     def get_symbol(
@@ -121,7 +120,6 @@ class BaseSymbolTest:
     ) -> Symbol:
         """Get symbol."""
         return Symbol.objects.create(
-            global_symbol=self.global_symbol,
             exchange=Exchange.COINBASE,
             api_symbol=api_symbol,
             save_raw=save_raw,
