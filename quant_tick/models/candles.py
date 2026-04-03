@@ -185,6 +185,12 @@ class Candle(AbstractCodeName, PolymorphicModel):
                 obj_to = obj.timestamp + pd.Timedelta(f"{obj.frequency}min")
                 # Stop on gap between TradeData
                 if prev_end is not None and obj_from != prev_end:
+                    logger.warning(
+                        "Candle %s stopped on TradeData gap: expected next timestamp %s but found %s",
+                        self,
+                        prev_end,
+                        obj_from,
+                    )
                     break
                 prev_end = obj_to
                 # Clamp to requested range
