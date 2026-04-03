@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -98,9 +97,6 @@ class Command(BaseDateCommand):
                 for col in df.columns:
                     if df[col].dtype == object:
                         df[col] = df[col].apply(_convert_decimals)
-                # Serialize variable-key dicts to JSON strings
-                if "distribution" in df.columns:
-                    df["distribution"] = df["distribution"].apply(json.dumps)
                 table = pa.Table.from_pandas(df, preserve_index=False)
                 if writer is None:
                     writer = pq.ParquetWriter(output_path, table.schema)
