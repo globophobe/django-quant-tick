@@ -1,4 +1,5 @@
 import logging
+import re
 from collections.abc import Generator, Iterator
 from datetime import datetime
 from decimal import Decimal
@@ -20,34 +21,15 @@ from quant_tick.lib import (
 )
 from quant_tick.utils import gettext_lazy as _
 
-from .base import AbstractCodeName, JSONField
+from .base import AbstractCodeName, BigDecimalField, JSONField
 from .trades import TradeData
 
 logger = logging.getLogger(__name__)
 
 
-class CacheResetMixin:
-    """Mixin for candles that support cache reset and sequential aggregation."""
-
-    def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
-        """Get cache data."""
-        if self.should_reset_cache(timestamp, data):
-            data = self.get_initial_cache(timestamp)
-        return data
-
-    def should_reset_cache(self, timestamp: datetime, data: dict) -> bool:
-        """Should reset cache."""
-        date = timestamp.date()
-        cache_date = data.get("date")
-        cache_reset = self.json_data.get("cache_reset")
-        is_daily_reset = cache_reset == Frequency.DAY
-        is_weekly_reset = cache_reset == Frequency.WEEK and date.weekday() == 0
-        if cache_date:
-            is_same_day = cache_date == date
-            if not is_same_day:
-                if is_daily_reset or is_weekly_reset:
-                    return True
-        return False
+def camel_to_snake(value: str) -> str:
+    """Convert camelCase to snake_case."""
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", value).lower()
 
 
 class Candle(AbstractCodeName, PolymorphicModel):
@@ -236,7 +218,6 @@ class Candle(AbstractCodeName, PolymorphicModel):
         return aggregate_candle(
             df,
             timestamp=timestamp,
-            distribution_stats=self.json_data.get("distribution_stats", False),
             min_notional_exponent=int(self.json_data.get("min_notional_exponent", 1)),
         )
 
@@ -287,10 +268,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         ).delete()
         data = []
         for j in json_data:
-            timestamp = j.pop("timestamp")
-            kwargs = {"timestamp": timestamp, "json_data": j}
-            c = CandleData(candle=self, **kwargs)
-            data.append(c)
+            data.append(CandleData.objects.from_data(self, j))
         CandleData.objects.bulk_create(data)
 
     def get_candle_data(
@@ -307,12 +285,21 @@ class Candle(AbstractCodeName, PolymorphicModel):
             queryset = queryset.filter(timestamp__lt=timestamp_to)
         queryset = queryset.order_by("timestamp")
 
-        for idx, obj in enumerate(queryset.iterator(chunk_size=10000)):
+        for obj in queryset.iterator(chunk_size=10000):
+            payload = {}
+            for field_name in CandleData.DATA_FIELDS:
+                value = getattr(obj, field_name)
+                if field_name == "incomplete":
+                    if value:
+                        payload[field_name] = True
+                    continue
+                if value is not None:
+                    payload[field_name] = value
+            if obj.extra_data:
+                payload.update(obj.extra_data)
             yield {
                 "timestamp": obj.timestamp,
-                "candle_data_id": obj.pk,
-                "bar_index": idx,
-                **obj.json_data,
+                **payload,
             }
 
     def process_data_frame(self, df: DataFrame) -> DataFrame:
@@ -350,14 +337,88 @@ class CandleCache(models.Model):
         verbose_name = verbose_name_plural = _("candle cache")
 
 
+class CandleDataManager(models.Manager):
+    """Manager for constructing candle rows from aggregated data."""
+
+    def from_data(self, candle: Candle, data: dict) -> "CandleData":
+        """Build candle data row from aggregated candle data."""
+        remaining = dict(data)
+        kwargs = {
+            "candle": candle,
+            "timestamp": remaining.pop("timestamp"),
+            "extra_data": {},
+        }
+        for key in list(remaining):
+            field_name = camel_to_snake(key)
+            if field_name in self.model.DATA_FIELDS:
+                kwargs[field_name] = remaining.pop(key)
+        if remaining:
+            kwargs["extra_data"] = remaining
+        return self.model(**kwargs)
+
+
 class CandleData(models.Model):
     """Candle data."""
+
+    DATA_FIELDS = (
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "buy_volume",
+        "notional",
+        "buy_notional",
+        "ticks",
+        "buy_ticks",
+        "round_volume",
+        "round_buy_volume",
+        "round_volume_sum_notional",
+        "round_buy_volume_sum_notional",
+        "round_notional",
+        "round_buy_notional",
+        "round_notional_sum_volume",
+        "round_buy_notional_sum_volume",
+        "realized_variance",
+        "incomplete",
+    )
 
     candle = models.ForeignKey(
         "quant_tick.Candle", on_delete=models.CASCADE, verbose_name=_("candle")
     )
     timestamp = models.DateTimeField(_("timestamp"), db_index=True)
-    json_data = JSONField(_("json data"), default=dict)
+    open = BigDecimalField(_("open"), null=True, blank=True)
+    high = BigDecimalField(_("high"), null=True, blank=True)
+    low = BigDecimalField(_("low"), null=True, blank=True)
+    close = BigDecimalField(_("close"), null=True, blank=True)
+    volume = BigDecimalField(_("volume"))
+    buy_volume = BigDecimalField(_("buy volume"))
+    notional = BigDecimalField(_("notional"))
+    buy_notional = BigDecimalField(_("buy notional"))
+    ticks = models.PositiveIntegerField(_("ticks"))
+    buy_ticks = models.PositiveIntegerField(_("buy ticks"))
+    round_volume = BigDecimalField(_("round volume"))
+    round_buy_volume = BigDecimalField(_("round buy volume"))
+    round_volume_sum_notional = BigDecimalField(
+        _("round volume sum notional"),
+    )
+    round_buy_volume_sum_notional = BigDecimalField(
+        _("round buy volume sum notional"),
+    )
+    round_notional = BigDecimalField(_("round notional"))
+    round_buy_notional = BigDecimalField(_("round buy notional"))
+    round_notional_sum_volume = BigDecimalField(
+        _("round notional sum volume"),
+    )
+    round_buy_notional_sum_volume = BigDecimalField(
+        _("round buy notional sum volume"),
+    )
+    realized_variance = BigDecimalField(
+        _("realized variance"),
+    )
+    incomplete = models.BooleanField(_("incomplete"), default=False)
+    extra_data = JSONField(_("extra data"), default=dict)
+    objects = CandleDataManager()
 
     class Meta:
         db_table = "quant_tick_candle_data"
