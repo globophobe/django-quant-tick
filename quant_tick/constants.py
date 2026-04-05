@@ -21,15 +21,6 @@ class Exchange(models.TextChoices):
     BITFINEX = "bitfinex", "Bitfinex"
     BITMEX = "bitmex", "BitMEX"
     COINBASE = "coinbase", "Coinbase"
-    DRIFT = "drift", "Drift"
-    HYPERLIQUID = "hyperliquid", "Hyperliquid"
-
-
-class SymbolType(models.TextChoices):
-    """Symbol type."""
-
-    SPOT = "spot", _("spot")
-    PERP = "perp", _("perp")
 
 
 class SampleType(models.TextChoices):
