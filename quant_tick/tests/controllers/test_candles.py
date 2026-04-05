@@ -23,6 +23,7 @@ from quant_tick.models import (
     TimeBasedCandle,
     TradeData,
 )
+from quant_tick.models.candles import camel_to_snake
 
 from ..base import BaseSymbolTest, BaseWriteTradeDataTest
 
@@ -228,9 +229,19 @@ class TimeBasedMinuteFrequencyCandleTest(
         self, mock_get_max_timestamp_to
     ):
         """Two candles, one in first minute, and another in the second minute."""
-        filtered_1 = self.get_filtered(self.timestamp_from)
+        filtered_1 = self.get_filtered(
+            self.timestamp_from,
+            price=Decimal("5"),
+            notional=Decimal("1"),
+            tick_rule=1,
+        )
         self.write_trade_data(self.timestamp_from, self.one_minute_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_minute_from_now)
+        filtered_2 = self.get_filtered(
+            self.one_minute_from_now,
+            price=Decimal("6"),
+            notional=Decimal("2"),
+            tick_rule=-1,
+        )
         self.write_trade_data(
             self.one_minute_from_now, self.two_minutes_from_now, filtered_2
         )
@@ -264,11 +275,30 @@ class TimeBasedMinuteFrequencyCandleTest(
         self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
         self.assertEqual(candle_data[1].timestamp, self.two_minutes_from_now)
 
+    def test_gap_logs_warning_and_stops_iteration(self, mock_get_max_timestamp_to):
+        """Gaps are logged before iteration stops."""
+        filtered_1 = self.get_filtered(self.timestamp_from)
+        self.write_trade_data(self.timestamp_from, self.one_minute_from_now, filtered_1)
+        filtered_2 = self.get_filtered(self.two_minutes_from_now)
+        self.write_trade_data(
+            self.two_minutes_from_now, self.three_minutes_from_now, filtered_2
+        )
+
+        with self.assertLogs("quant_tick.models.candles", level="WARNING") as logs:
+            values = list(
+                self.candle.iter_all(self.timestamp_from, self.three_minutes_from_now)
+            )
+
+        self.assertEqual(len(values), 1)
+        self.assertEqual(values[0][0], self.timestamp_from)
+        self.assertIn("stopped on TradeData gap", logs.output[0])
+        self.assertIn(str(self.candle), logs.output[0])
+
 
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 4, 0, 3).replace(tzinfo=timezone.utc),
+    return_value=datetime(2009, 1, 4, 0, 3).replace(tzinfo=UTC),
 )
 class TimeBasedTwoMinuteFrequencyCandleTest(
     BaseMinuteIteratorTest,
@@ -297,9 +327,19 @@ class TimeBasedTwoMinuteFrequencyCandleTest(
         self, mock_get_max_timestamp_to
     ):
         """Next cache created, if candle window is exceeded."""
-        filtered_1 = self.get_filtered(self.timestamp_from)
+        filtered_1 = self.get_filtered(
+            self.timestamp_from,
+            price=Decimal("5"),
+            notional=Decimal("1"),
+            tick_rule=1,
+        )
         self.write_trade_data(self.timestamp_from, self.one_minute_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_minute_from_now)
+        filtered_2 = self.get_filtered(
+            self.one_minute_from_now,
+            price=Decimal("6"),
+            notional=Decimal("2"),
+            tick_rule=-1,
+        )
         self.write_trade_data(
             self.one_minute_from_now, self.two_minutes_from_now, filtered_2
         )
@@ -315,9 +355,19 @@ class TimeBasedTwoMinuteFrequencyCandleTest(
         """
         One candle from one trade in the first minute, and another in the second.
         """
-        filtered_1 = self.get_filtered(self.timestamp_from)
+        filtered_1 = self.get_filtered(
+            self.timestamp_from,
+            price=Decimal("5"),
+            notional=Decimal("1"),
+            tick_rule=1,
+        )
         self.write_trade_data(self.timestamp_from, self.one_minute_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_minute_from_now)
+        filtered_2 = self.get_filtered(
+            self.one_minute_from_now,
+            price=Decimal("6"),
+            notional=Decimal("2"),
+            tick_rule=-1,
+        )
         self.write_trade_data(
             self.one_minute_from_now, self.two_minutes_from_now, filtered_2
         )
@@ -340,7 +390,18 @@ class TimeBasedTwoMinuteFrequencyCandleTest(
         df = pd.concat([filtered_1, filtered_2])
         candle = aggregate_candle(df)
         del candle["timestamp"]
-        self.assertEqual(candle_data.json_data, candle)
+        candle = {camel_to_snake(key): value for key, value in candle.items()}
+        actual = next(self.candle.get_candle_data())
+        for key in ("timestamp",):
+            del actual[key]
+        self.assertGreater(actual["realized_variance"], 0)
+        self.assertGreater(candle["realized_variance"], 0)
+        self.assertAlmostEqual(
+            float(actual.pop("realized_variance")),
+            float(candle.pop("realized_variance")),
+            places=12,
+        )
+        self.assertEqual(actual, candle)
 
 
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
@@ -399,9 +460,19 @@ class TimeBasedHourFrequencyCandleTest(
         self, mock_get_max_timestamp_to
     ):
         """Two candles, one in the first hour, and another in the second hour."""
-        filtered_1 = self.get_filtered(self.timestamp_from)
+        filtered_1 = self.get_filtered(
+            self.timestamp_from,
+            price=Decimal("5"),
+            notional=Decimal("1"),
+            tick_rule=1,
+        )
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_hour_from_now)
+        filtered_2 = self.get_filtered(
+            self.one_hour_from_now,
+            price=Decimal("6"),
+            notional=Decimal("2"),
+            tick_rule=-1,
+        )
         self.write_trade_data(
             self.one_hour_from_now, self.two_hours_from_now, filtered_2
         )
@@ -501,9 +572,19 @@ class TimeBasedTwoHourFrequencyCandleTest(
         self, mock_get_max_timestamp_to
     ):
         """Next cache created, if candle window is exceeded."""
-        filtered_1 = self.get_filtered(self.timestamp_from)
+        filtered_1 = self.get_filtered(
+            self.timestamp_from,
+            price=Decimal("5"),
+            notional=Decimal("1"),
+            tick_rule=1,
+        )
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_hour_from_now)
+        filtered_2 = self.get_filtered(
+            self.one_hour_from_now,
+            price=Decimal("6"),
+            notional=Decimal("2"),
+            tick_rule=-1,
+        )
         self.write_trade_data(
             self.one_hour_from_now, self.two_hours_from_now, filtered_2
         )
@@ -517,9 +598,19 @@ class TimeBasedTwoHourFrequencyCandleTest(
         self, mock_get_max_timestamp_to
     ):
         """One candle from one trade in the first hour, and another in the second."""
-        filtered_1 = self.get_filtered(self.timestamp_from)
+        filtered_1 = self.get_filtered(
+            self.timestamp_from,
+            price=Decimal("5"),
+            notional=Decimal("1"),
+            tick_rule=1,
+        )
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_hour_from_now)
+        filtered_2 = self.get_filtered(
+            self.one_hour_from_now,
+            price=Decimal("6"),
+            notional=Decimal("2"),
+            tick_rule=-1,
+        )
         self.write_trade_data(
             self.one_hour_from_now, self.two_hours_from_now, filtered_2
         )
@@ -542,7 +633,18 @@ class TimeBasedTwoHourFrequencyCandleTest(
         df = pd.concat([filtered_1, filtered_2])
         candle = aggregate_candle(df)
         del candle["timestamp"]
-        self.assertEqual(candle_data.json_data, candle)
+        candle = {camel_to_snake(key): value for key, value in candle.items()}
+        actual = next(self.candle.get_candle_data())
+        for key in ("timestamp",):
+            del actual[key]
+        self.assertGreater(actual["realized_variance"], 0)
+        self.assertGreater(candle["realized_variance"], 0)
+        self.assertAlmostEqual(
+            float(actual.pop("realized_variance")),
+            float(candle.pop("realized_variance")),
+            places=12,
+        )
+        self.assertEqual(actual, candle)
 
 
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
@@ -587,7 +689,7 @@ class ConstantNotionalHourFrequencyCandleTest(
 
     def test_one_candle_from_trade_in_the_first_hour(self, mock_get_max_timestamp_to):
         """One candle from a trade in the first hour."""
-        filtered = self.get_filtered(self.timestamp_from, notional=1)
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
         self.candle.candles(self.timestamp_from, self.one_hour_from_now)
         candle_data = CandleData.objects.all()
@@ -598,7 +700,7 @@ class ConstantNotionalHourFrequencyCandleTest(
         self, mock_get_max_timestamp_to
     ):
         """One candle from a trade in the first hour with retry."""
-        filtered = self.get_filtered(self.timestamp_from, notional=1)
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
         for i in range(2):
             self.candle.candles(
@@ -661,8 +763,7 @@ class ConstantNotionalHourFrequencyCandleTest(
             )["totalNotional"].sum()
             for td in trade_data
         )
-        data = candle_data[0].json_data
-        self.assertEqual(data["notional"], total_notional)
+        self.assertEqual(candle_data[0].notional, total_notional)
         candle_cache = CandleCache.objects.all()
         self.assertEqual(candle_cache.count(), 2)
         self.assertIn("next", candle_cache[0].json_data)
@@ -672,9 +773,9 @@ class ConstantNotionalHourFrequencyCandleTest(
         self, mock_get_max_timestamp_to
     ):
         """Two candles, one in the first hour, and another in the second hour."""
-        filtered_1 = self.get_filtered(self.timestamp_from, notional=1)
+        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=1)
+        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=Decimal("1"))
         self.write_trade_data(
             self.one_hour_from_now, self.two_hours_from_now, filtered_2
         )
@@ -694,7 +795,7 @@ class ConstantNotionalHourFrequencyCandleTest(
         self.write_trade_data(
             self.timestamp_from,
             self.one_hour_from_now,
-            self.get_filtered(self.timestamp_from, notional=1),
+            self.get_filtered(self.timestamp_from, notional=Decimal("1")),
         )
         TradeData.objects.create(
             symbol=self.symbol,
@@ -704,7 +805,7 @@ class ConstantNotionalHourFrequencyCandleTest(
         self.write_trade_data(
             self.two_hours_from_now,
             self.three_hours_from_now,
-            self.get_filtered(self.two_hours_from_now, notional=1),
+            self.get_filtered(self.two_hours_from_now, notional=Decimal("1")),
         )
         self.candle.candles(self.timestamp_from, self.three_hours_from_now)
         candle_data = CandleData.objects.all()
@@ -769,7 +870,7 @@ class ConstantNotionalDayFrequencyIrregularCandleTest(
         candle_data = CandleData.objects.all()
         self.assertEqual(candle_data.count(), 1)
         self.assertEqual(candle_data[0].timestamp, last_hour)
-        self.assertTrue(candle_data[0].json_data["incomplete"])
+        self.assertTrue(candle_data[0].incomplete)
 
 
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
@@ -826,7 +927,7 @@ class AdaptiveNotionalCandleTest(
 
     def test_one_candle_from_trade_in_the_first_hour(self, mock_get_max_timestamp_to):
         """One candle from a trade in the first hour."""
-        filtered = self.get_filtered(self.timestamp_from, notional=1)
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
         self.candle.candles(self.timestamp_from, self.one_hour_from_now)
         candle_data = CandleData.objects.all()
@@ -837,7 +938,7 @@ class AdaptiveNotionalCandleTest(
         self, mock_get_max_timestamp_to
     ):
         """One candle from a trade in the first hour with retry."""
-        filtered = self.get_filtered(self.timestamp_from, notional=1)
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
         for i in range(2):
             self.candle.candles(
@@ -897,8 +998,7 @@ class AdaptiveNotionalCandleTest(
             )["totalNotional"].sum()
             for td in trade_data
         )
-        data = candle_data[0].json_data
-        self.assertEqual(data["notional"], total_notional)
+        self.assertEqual(candle_data[0].notional, total_notional)
         candle_cache = CandleCache.objects.all()
         self.assertEqual(candle_cache.count(), 2)
         self.assertIn("next", candle_cache[0].json_data)
@@ -908,9 +1008,9 @@ class AdaptiveNotionalCandleTest(
         self, mock_get_max_timestamp_to
     ):
         """Two candles, one in the first hour, and another in the second hour."""
-        filtered_1 = self.get_filtered(self.timestamp_from, notional=1)
+        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=1)
+        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=Decimal("1"))
         self.write_trade_data(
             self.one_hour_from_now, self.two_hours_from_now, filtered_2
         )
@@ -930,7 +1030,7 @@ class AdaptiveNotionalCandleTest(
         self.write_trade_data(
             self.timestamp_from,
             self.one_hour_from_now,
-            self.get_filtered(self.timestamp_from, notional=1),
+            self.get_filtered(self.timestamp_from, notional=Decimal("1")),
         )
         TradeData.objects.create(
             symbol=self.symbol,
@@ -940,7 +1040,7 @@ class AdaptiveNotionalCandleTest(
         self.write_trade_data(
             self.two_hours_from_now,
             self.three_hours_from_now,
-            self.get_filtered(self.two_hours_from_now, notional=1),
+            self.get_filtered(self.two_hours_from_now, notional=Decimal("1")),
         )
         self.candle.candles(self.timestamp_from, self.three_hours_from_now)
         candle_data = CandleData.objects.all()

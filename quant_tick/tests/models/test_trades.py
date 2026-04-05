@@ -1,13 +1,15 @@
 import os
+import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 from django.test import TestCase
 
-from quant_tick.constants import FileData
+from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import get_min_time, get_next_time
 from quant_tick.models import TradeData
-from quant_tick.storage import convert_trade_data_to_daily
+from quant_tick.storage import convert_trade_data, convert_trade_data_to_daily
 
 from ..base import BaseWriteTradeDataTest
 
@@ -136,3 +138,45 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(candle["buyNotional"], candles.buyNotional.sum())
         self.assertEqual(candle["ticks"], candles.ticks.sum())
         self.assertEqual(candle["buyTicks"], candles.buyTicks.sum())
+
+    def test_convert_trade_data_is_atomic_on_failure(self):
+        """Failed promotions do not leave mixed-frequency overlap."""
+        symbol = self.get_symbol()
+        timestamp_from = get_min_time(self.timestamp_from, "1h")
+
+        for minute in range(60):
+            ts_from = timestamp_from + pd.Timedelta(f"{minute}min")
+            ts_to = ts_from + pd.Timedelta("1min")
+            df = self.get_raw(ts_from)
+            TradeData.write(symbol, ts_from, ts_to, df, pd.DataFrame([]))
+
+        queryset = TradeData.objects.filter(
+            symbol=symbol,
+            timestamp__gte=timestamp_from,
+            timestamp__lt=get_next_time(timestamp_from, value="1h"),
+            frequency=Frequency.MINUTE,
+        )
+
+        try:
+            with patch(
+                "django.db.models.query.QuerySet.delete",
+                side_effect=RuntimeError("boom"),
+            ):
+                with self.assertRaises(RuntimeError):
+                    convert_trade_data(
+                        queryset,
+                        timestamp_from,
+                        get_next_time(timestamp_from, value="1h"),
+                    )
+
+            self.assertEqual(
+                TradeData.objects.filter(
+                    symbol=symbol, frequency=Frequency.MINUTE
+                ).count(),
+                60,
+            )
+            self.assertFalse(
+                TradeData.objects.filter(symbol=symbol, frequency=Frequency.HOUR).exists()
+            )
+        finally:
+            shutil.rmtree(Path("test-trades"), ignore_errors=True)
