@@ -30,11 +30,9 @@ class Command(BaseDateCommand):
     help = "Export candle data."
 
     def get_queryset(self) -> QuerySet:
-        """Get queryset."""
         return Candle.objects.filter(is_active=True)
 
     def add_arguments(self, parser: CommandParser) -> None:
-        """Add arguments."""
         super().add_arguments(parser)
         queryset = self.get_queryset()
         parser.add_argument(
@@ -44,7 +42,6 @@ class Command(BaseDateCommand):
         )
 
     def handle(self, *args, **options) -> None:
-        """Handle."""
         code_name = options["code_name"]
         candle = self.get_queryset().get(code_name=code_name)
         date_from = (

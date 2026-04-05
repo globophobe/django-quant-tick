@@ -33,7 +33,7 @@ def camel_to_snake(value: str) -> str:
 
 
 class Candle(AbstractCodeName, PolymorphicModel):
-    """Candle."""
+    """Base candle model."""
 
     symbol = models.ForeignKey(
         "quant_tick.Symbol",
@@ -48,7 +48,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
     def initialize(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
     ) -> tuple[datetime, datetime, dict]:
-        """Initialize."""
+        """Clamp the requested range to available trade and cache data."""
         # Is there a specific date from?
         if self.date_from:
             min_timestamp_from = parse_datetime(self.date_from)
@@ -112,11 +112,11 @@ class Candle(AbstractCodeName, PolymorphicModel):
         return ts_from, ts_to, data
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
-        """Get initial cache."""
+        """Hook for the initial cache state."""
         return {}
 
     def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
-        """Get cache data."""
+        """Hook for per-slice cache updates."""
         return data
 
     def candles(
@@ -125,7 +125,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         timestamp_to: datetime,
         retry: bool = False,
     ) -> None:
-        """Candles."""
+        """Aggregate and persist candles over a time range."""
         min_ts_from, max_ts_to, cache_data = self.initialize(
             timestamp_from, timestamp_to, retry
         )
@@ -141,7 +141,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             logger.info(f"Candle {self}: {ts}")
 
     def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
-        """On retry."""
+        """Delete cached and persisted candle rows before retrying."""
         with transaction.atomic():
             CandleCache.objects.filter(
                 candle=self, timestamp__gte=timestamp_from
@@ -153,7 +153,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
     def iter_all(
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> Generator[tuple[datetime, datetime, TradeData], None, None]:
-        """Iterate all."""
+        """Iterate TradeData slices in the requested range without gaps."""
         max_ts_to = get_min_time(get_current_time(), value="1min")
         ts_to = min(timestamp_to, max_ts_to)
         if timestamp_from < ts_to:
@@ -192,7 +192,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         timestamp_to: datetime,
         trade_data: TradeData,
     ) -> DataFrame:
-        """Get data frame from trade data."""
+        """Load and clip one TradeData slice."""
         df = trade_data.get_data_frame(self.json_data["source_data"])
         if df is not None and len(df):
             return filter_by_timestamp(df, timestamp_from, timestamp_to).reset_index(
@@ -201,7 +201,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         return pd.DataFrame([])
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can aggregate."""
+        """Whether this trade-data slice should be processed."""
         return True
 
     def aggregate(
@@ -211,7 +211,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         data_frame: DataFrame,
         cache_data: dict | None = None,
     ) -> tuple[list, dict | None]:
-        """Aggregate."""
+        """Aggregate trade data into completed candles and cache state."""
         raise NotImplementedError
 
     def _preprocess_data(self, data_frame: DataFrame, cache_data: dict) -> DataFrame:
@@ -231,7 +231,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         )
 
     def _merge_cache(self, prev: dict, curr: dict) -> dict:
-        """Merge cached candle with current. Override to customize cache merging."""
+        """Hook for merging cached candle state into a finished candle."""
         return merge_cache(prev, curr)
 
     def _get_next_cache(
@@ -240,7 +240,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         cache_data: dict,
         timestamp: datetime | None = None,
     ) -> dict:
-        """Cache incomplete candle. Override to customize cached fields."""
+        """Hook for building the next incomplete-cache payload."""
         return get_next_cache(
             df,
             cache_data,
@@ -256,10 +256,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         data: dict | None = None,
         data_frame: DataFrame | None = None,
     ) -> None:
-        """Write cache.
-
-        Delete previously saved data.
-        """
+        """Replace cache rows in the requested window."""
         with transaction.atomic():
             queryset = CandleCache.objects.filter(
                 candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
@@ -275,10 +272,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
     def write_data(
         self, timestamp_from: datetime, timestamp_to: datetime, json_data: list[dict]
     ) -> None:
-        """Write data.
-
-        Delete previously saved data.
-        """
+        """Replace candle rows in the requested window."""
         with transaction.atomic():
             CandleData.objects.filter(
                 candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
@@ -294,7 +288,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         timestamp_to: datetime | None = None,
         is_complete: bool = True,
     ) -> Iterator[dict]:
-        """Get candle data as iterator of dicts."""
+        """Yield stored candle rows as plain dicts."""
         queryset = CandleData.objects.filter(candle=self)
         if timestamp_from is not None:
             queryset = queryset.filter(timestamp__gte=timestamp_from)
@@ -320,7 +314,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             }
 
     def process_data_frame(self, df: DataFrame) -> DataFrame:
-        """Process data frame - convert Decimal columns to float."""
+        """Convert Decimal-valued columns to floats."""
         if df.empty:
             return df
         for col in df.columns:
@@ -337,7 +331,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
 
 class CandleCache(models.Model):
-    """Candle cache."""
+    """Cached incomplete candle state."""
 
     candle = models.ForeignKey(
         "quant_tick.Candle", related_name="data", on_delete=models.CASCADE
@@ -358,7 +352,7 @@ class CandleDataManager(models.Manager):
     """Manager for constructing candle rows from aggregated data."""
 
     def from_data(self, candle: Candle, data: dict) -> "CandleData":
-        """Build candle data row from aggregated candle data."""
+        """Build one CandleData row from aggregated candle output."""
         remaining = dict(data)
         kwargs = {
             "candle": candle,
@@ -375,7 +369,7 @@ class CandleDataManager(models.Manager):
 
 
 class CandleData(models.Model):
-    """Candle data."""
+    """Stored aggregated candle row."""
 
     DATA_FIELDS = (
         "open",

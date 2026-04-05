@@ -12,17 +12,15 @@ def parse_datetime(value: str, unit: str = "ns") -> datetime:
 
 
 def to_pydatetime(timestamp: Timestamp) -> datetime:
-    """Timestamp to datetime."""
     return timestamp.replace(nanosecond=0).to_pydatetime().replace(tzinfo=UTC)
 
 
 def get_current_time(tzinfo: str = UTC) -> datetime:
-    """Get current time."""
     return datetime.utcnow().replace(tzinfo=tzinfo)
 
 
 def get_min_time(timestamp: datetime, value: str) -> datetime:
-    """Get minimum time."""
+    """Floor a timestamp to the requested interval."""
     match = re.match(r"\d+(\w+)", value)
     step = match.group(1)
     ts = pd.to_datetime(timestamp).floor(f"1{step}")
@@ -30,19 +28,16 @@ def get_min_time(timestamp: datetime, value: str) -> datetime:
 
 
 def get_next_time(timestamp: datetime, value: str) -> datetime:
-    """Get next time."""
     return get_min_time(timestamp, value=value) + pd.Timedelta(value)
 
 
 def get_previous_time(timestamp: datetime, value: str) -> datetime:
-    """Get previous time."""
     return get_min_time(timestamp, value=value) - pd.Timedelta(value)
 
 
 def has_timestamps(
     timestamp_from: datetime, timestamp_to: datetime, existing: list[datetime]
 ) -> bool:
-    """Has timestamps?"""
     delta = timestamp_to - timestamp_from
     expected = int(delta.total_seconds() / 60)
     return len(existing) == expected
@@ -103,7 +98,7 @@ def get_range(
 
 
 def get_existing(values: list) -> list[datetime]:
-    """Get existing."""
+    """Expand stored timestamp/frequency rows into minute timestamps."""
     result = []  # List of 1m timestamps.
     for item in values:
         timestamp = item["timestamp"]
@@ -117,7 +112,6 @@ def get_existing(values: list) -> list[datetime]:
 def get_missing(
     timestamp_from: datetime, timestamp_to: datetime, existing: list[datetime]
 ) -> list[datetime]:
-    """Get missing."""
     return [
         timestamp
         for timestamp in get_range(timestamp_from, timestamp_to)
@@ -134,7 +128,7 @@ def iter_window(
     value: str = "1min",
     reverse: bool = False,
 ) -> Generator[tuple[datetime, datetime], None, None]:
-    """Iter window, by value."""
+    """Iterate adjacent timestamp windows at the requested step."""
     values = get_range(timestamp_from, timestamp_to, value)
     return iter_timestamps(values, reverse=reverse)
 
@@ -155,7 +149,6 @@ def iter_timestamps(
 def iter_once(
     timestamp_from: datetime, timestamp_to: datetime
 ) -> Generator[tuple[datetime, datetime], None, None]:
-    """Fake iter, once."""
     yield get_min_time(timestamp_from, "1d"), get_next_time(timestamp_to, "1d")
 
 

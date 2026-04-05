@@ -8,7 +8,7 @@ from django.utils.translation import gettext_lazy as _
 
 from quant_tick.constants import Exchange, TaskType
 
-QUANT_TICK_TASK_BACKOFF_BASE = timedelta(minutes=5)
+QUANT_TICK_TASK_BACKOFF_BASE = timedelta(minutes=10)
 QUANT_TICK_TASK_BACKOFF_CAP = timedelta(hours=1)
 QUANT_TICK_TASK_BACKOFF_MULTIPLIER = 2
 QUANT_TICK_TASK_LOCK_LEASE = timedelta(hours=1)
@@ -62,7 +62,7 @@ def get_task_lock_lease() -> timedelta:
 
 
 class TaskState(models.Model):
-    """Task state."""
+    """Per-task lock and backoff state."""
 
     exchange = models.CharField(
         _("exchange"),

@@ -21,7 +21,6 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         self.symbol = self.get_symbol()
 
     def get_values(self, retry: bool = False) -> list[tuple[datetime, datetime]]:
-        """Get values."""
         return [
             value
             for value in TradeDataIterator(self.symbol).iter_all(
@@ -36,7 +35,6 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         return_value=datetime(2009, 1, 3).replace(tzinfo=UTC),
     )
     def test_iter_all_with_no_results(self, mock_get_max_timestamp_to):
-        """No results."""
         values = self.get_values()
         self.assertEqual(len(values), 0)
 
@@ -45,7 +43,6 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_head(self, mock_get_max_timestamp_to):
-        """First is OK."""
         TradeData.objects.create(
             symbol=self.symbol,
             timestamp=self.timestamp_from,
@@ -62,7 +59,6 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_one_ok(self, mock_get_max_timestamp_to):
-        """Second is OK."""
         obj = TradeData.objects.create(
             symbol=self.symbol,
             timestamp=self.timestamp_from + self.one_minute,
@@ -81,7 +77,6 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_two_ok(self, mock_get_max_timestamp_to):
-        """Second and fourth are OK."""
         obj_one = TradeData.objects.create(
             symbol=self.symbol,
             timestamp=self.timestamp_from + self.one_minute,
@@ -108,7 +103,6 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_tail(self, mock_get_max_timestamp_to):
-        """Last is OK."""
         TradeData.objects.create(
             symbol=self.symbol,
             timestamp=self.timestamp_to - self.one_minute,
@@ -125,7 +119,6 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_retry_and_one_not_ok(self, mock_get_max_timestamp_to):
-        """One is not OK."""
         TradeData.objects.create(
             symbol=self.symbol,
             timestamp=self.timestamp_from,
@@ -142,7 +135,6 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_iter_all_with_retry_and_one_missing(self, mock_get_max_timestamp_to):
-        """One is missing."""
         TradeData.objects.create(
             symbol=self.symbol,
             timestamp=self.timestamp_from,

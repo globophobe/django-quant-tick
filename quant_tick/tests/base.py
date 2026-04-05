@@ -29,7 +29,6 @@ class BaseRandomTradeTest:
         notional: Decimal | None = None,
         total_ticks: int = 1,
     ):
-        """Generate random trades"""
         prices = prices or []
         trades = []
         for index, tick in enumerate(ticks):
@@ -62,7 +61,6 @@ class BaseRandomTradeTest:
     def get_next_price(
         self, price: Decimal, tick_rule: int, jitter: float = 0.0
     ) -> Decimal:
-        """Get next price."""
         change = random.random() * tick_rule * jitter
         return price + Decimal(str(round(change, 2)))  # Change in dollars
 
@@ -76,7 +74,6 @@ class BaseRandomTradeTest:
         tick_rule: int | None = None,
         total_ticks: int = 1,
     ) -> dict:
-        """Get random trade."""
         timestamp = timestamp or datetime.now()
         price = price or Decimal(str(round(random.random() * 10, 2)))
         notional = notional or Decimal(str(random.random() * 10))
@@ -97,7 +94,6 @@ class BaseRandomTradeTest:
         return data
 
     def get_data_frame(self, data: list[dict]) -> DataFrame:
-        """Get data_frame."""
         trades = []
         for item in data:
             prices = item.pop("prices", [])
@@ -118,7 +114,6 @@ class BaseSymbolTest:
         save_aggregated: bool = False,
         save_filtered: bool = False,
     ) -> Symbol:
-        """Get symbol."""
         return Symbol.objects.create(
             exchange=Exchange.COINBASE,
             api_symbol=api_symbol,
@@ -129,7 +124,6 @@ class BaseSymbolTest:
 
 
 class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
-    """Base write trade data test."""
 
     def get_raw(
         self,
@@ -139,7 +133,6 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         notional: Decimal | None = None,
         tick_rule: int | None = None,
     ) -> DataFrame:
-        """Get raw."""
         trades = [
             self.get_random_trade(
                 timestamp=timestamp,
@@ -159,7 +152,6 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         notional: Decimal | None = None,
         tick_rule: int | None = None,
     ) -> DataFrame:
-        """Get aggregated."""
         data_frame = self.get_raw(timestamp, nanoseconds, price, notional, tick_rule)
         return aggregate_trades(data_frame)
 
@@ -172,7 +164,6 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         min_volume: Decimal | None = None,
         tick_rule: int | None = None,
     ) -> DataFrame:
-        """Get filtered."""
         data_frame = self.get_aggregated(
             timestamp, nanoseconds, price, notional, tick_rule
         )
@@ -181,7 +172,6 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         )
 
     def tearDown(self):
-        """Teardown."""
         # Files
         for obj in TradeData.objects.all():
             obj.delete()

@@ -17,7 +17,6 @@ from quant_tick.lib import (
 
 class GetMinTimeTest(SimpleTestCase):
     def test_get_min_time_1d(self):
-        """Get start of current day."""
         now = get_current_time()
         min_time = get_min_time(now, value="1d")
         self.assertEqual(
@@ -28,7 +27,6 @@ class GetMinTimeTest(SimpleTestCase):
 
 class GetNexttimeTest(SimpleTestCase):
     def test_get_next_minute(self):
-        """Get start of next day."""
         now = get_current_time()
         tomorrow = get_next_time(now, value="1d")
         self.assertEqual(
@@ -43,7 +41,6 @@ class GetRangeTest(SimpleTestCase):
         self.timestamp_from = get_min_time(now, value="1d")
 
     def test_get_range_1m(self):
-        """Get range, by 1 minute."""
         one_minute = pd.Timedelta("1min")
         timestamp_to = get_next_time(self.timestamp_from, value="1d") - one_minute
         values = get_range(self.timestamp_from, timestamp_to)
@@ -52,7 +49,6 @@ class GetRangeTest(SimpleTestCase):
         self.assertEqual(values[-1], timestamp_to)
 
     def test_get_range_1d(self):
-        """Get range, by 1 day."""
         values = get_range(self.timestamp_from, self.timestamp_from, value="1d")
         self.assertEqual(len(values), 1)
         self.assertEqual(values[0], self.timestamp_from)
@@ -66,7 +62,6 @@ class IterWindowTest(SimpleTestCase):
         self.two_days_ago = self.yesterday - one_day
 
     def test_iter_window(self):
-        """Iter window by days."""
         values = [
             value for value in iter_window(self.two_days_ago, self.now, value="1d")
         ]
@@ -75,7 +70,6 @@ class IterWindowTest(SimpleTestCase):
         self.assertEqual(values[1][1], get_min_time(self.now, value="1d"))
 
     def test_iter_window_reverse(self):
-        """Iter window by days, in reverse."""
         values = [
             value
             for value in iter_window(
@@ -94,7 +88,6 @@ class IterTimeframeTest(SimpleTestCase):
     def get_values(
         self, timestamp_from: datetime, timestamp_to: datetime, value: str = "1d"
     ) -> list[tuple]:
-        """Get values for timeframe."""
         return [
             value
             for value in iter_timeframe(
@@ -103,7 +96,6 @@ class IterTimeframeTest(SimpleTestCase):
         ]
 
     def test_iter_timeframe_with_head_and_no_body(self):
-        """Current day only."""
         date_from = self.now.date().isoformat()
         time_from = self.now.time().isoformat()
         timestamp_from, timestamp_to = parse_period_from_to(
@@ -116,7 +108,6 @@ class IterTimeframeTest(SimpleTestCase):
         self.assertEqual(ts_to, get_min_time(timestamp_to, "1min"))
 
     def test_iter_timeframe_with_tail_only(self):
-        """Previous day only."""
         yesterday = self.now - pd.Timedelta("1d")
         date_from = yesterday.date().isoformat()
         time_from = yesterday.time().isoformat()
@@ -128,7 +119,6 @@ class IterTimeframeTest(SimpleTestCase):
         self.assertEqual(len(values), 1)
 
     def test_iter_timeframe_with_head(self):
-        """1 min after midnight yesterday, until today."""
         yesterday = get_min_time(self.now, "2d") + pd.Timedelta("1m")
         today = get_min_time(self.now, "1d")
         timestamp_from, timestamp_to = parse_period_from_to(
@@ -148,7 +138,6 @@ class IterTimeframeTest(SimpleTestCase):
                 self.assertEqual(ts_to, get_min_time(ts_to, value="1d"))
 
     def test_iter_timeframe_with_neither_head_nor_tail(self):
-        """Two days ago until yesterday."""
         yesterday = self.now - pd.Timedelta("1d")
         two_days_ago = self.now - pd.Timedelta("2d")
         timestamp_from, timestamp_to = parse_period_from_to(
@@ -161,7 +150,6 @@ class IterTimeframeTest(SimpleTestCase):
         self.assertEqual(values[0][1], timestamp_to)
 
     def test_iter_timeframe_with_tail(self):
-        """Yesterday, 1 minute to midnight."""
         timestamp = get_min_time(self.now, "1d") - pd.Timedelta("1m")
         timestamp_from, timestamp_to = parse_period_from_to(
             date_to=timestamp.date().isoformat(), time_to=timestamp.time().isoformat()
@@ -184,7 +172,6 @@ class IterMissingTest(SimpleTestCase):
         self.timestamps = get_range(self.timestamp_from, self.timestamp_to)
 
     def test_iter_missing_with_no_missing(self):
-        """No missing timestamps."""
         values = [
             value for value in iter_missing(self.timestamp_from, self.timestamp_to, [])
         ]
@@ -193,7 +180,6 @@ class IterMissingTest(SimpleTestCase):
         self.assertEqual(values[-1][1], self.timestamp_to)
 
     def test_iter_missing_with_head(self):
-        """First timestamp is OK."""
         existing = self.timestamps[0]
         values = [
             value
@@ -206,7 +192,6 @@ class IterMissingTest(SimpleTestCase):
         self.assertEqual(values[-1][1], self.timestamp_to)
 
     def test_iter_missing_with_one_timestamp_ok(self):
-        """Second timestamp is OK."""
         existing = self.timestamps[1]
         values = [
             value
@@ -221,7 +206,6 @@ class IterMissingTest(SimpleTestCase):
         self.assertEqual(values[-1][1], self.timestamp_to)
 
     def test_iter_missing_with_two_timestamps_ok(self):
-        """Second and fourth timestamps are OK."""
         existing_one = self.timestamps[1]
         existing_two = self.timestamps[3]
         values = [
@@ -239,7 +223,6 @@ class IterMissingTest(SimpleTestCase):
         self.assertEqual(values[-1][1], self.timestamp_to)
 
     def test_iter_missing_with_tail(self):
-        """Last timestamp is OK."""
         existing = self.timestamps[-1]
         values = [
             value

@@ -14,7 +14,6 @@ def get_coinbase_api_response(
     pagination_id: str | None = None,
     retry: int = 30,
 ) -> list[dict]:
-    """Get Coinbase API response."""
     try:
         url = get_api_url(
             base_url, timestamp_from=timestamp_from, pagination_id=pagination_id

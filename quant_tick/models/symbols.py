@@ -7,8 +7,6 @@ from .base import AbstractCodeName
 
 
 class Symbol(AbstractCodeName):
-    """Symbol."""
-
     exchange = models.CharField(_("exchange"), choices=Exchange.choices, max_length=255)
     api_symbol = models.CharField(_("API symbol"), max_length=255)
     save_raw = models.BooleanField(
@@ -38,10 +36,7 @@ class Symbol(AbstractCodeName):
 
     @property
     def symbol(self) -> str:
-        """Symbol.
-
-        Example: BTCUSD
-        """
+        """Normalized symbol without exchange-specific separators."""
         symbol = self.api_symbol
         for char in ("-", "/", "_"):
             symbol = symbol.replace(char, "")
@@ -53,14 +48,10 @@ class Symbol(AbstractCodeName):
 
     @property
     def upload_path(self) -> str:
-        """Upload path.
-
-        Example: coinbase / BTCUSD / blaring-crocodile
-        """
+        """Storage path components for this symbol."""
         return [self.exchange, self.symbol, self.code_name]
 
     def __str__(self) -> str:
-        """str."""
         exchange = self.get_exchange_display()
         return f"{exchange} {self.symbol} {self.code_name}"
 

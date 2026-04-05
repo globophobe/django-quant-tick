@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 
 def use_s3() -> datetime:
-    """Use S3."""
     date = get_current_time().date() - pd.Timedelta("2d")
     return datetime.datetime.combine(date, datetime.time.min).replace(
         tzinfo=datetime.UTC
@@ -28,15 +27,13 @@ def use_s3() -> datetime:
 
 
 class ExchangeS3(BaseController):
-    """BitMEX and ByBit S3"""
+    """Base controller for daily exchange S3 archives."""
 
     def get_url(self, date: datetime.date) -> str:
-        """Get S3 url."""
         raise NotImplementedError
 
     @property
     def gzipped_csv_columns(self) -> list:
-        """Get column names of CSV file."""
         return [
             "timestamp",
             "symbol",
@@ -51,7 +48,6 @@ class ExchangeS3(BaseController):
 
     @property
     def columns(self) -> list:
-        """Columns."""
         return [
             "uid",
             "timestamp",
@@ -63,7 +59,7 @@ class ExchangeS3(BaseController):
         ]
 
     def main(self) -> None:
-        """Main."""
+        """Fetch daily S3 files and persist matching partitions."""
         iterator = TradeDataIterator(self.symbol)
         for timestamp_from, timestamp_to, existing in iterator.iter_days(
             self.timestamp_from,
@@ -81,7 +77,7 @@ class ExchangeS3(BaseController):
                 break
 
     def get_data_frame(self, date: datetime.date) -> DataFrame | None:
-        """Get data_frame."""
+        """Download and parse one daily S3 file."""
         url = self.get_url(date)
         data_frame = gzip_downloader(url, self.gzipped_csv_columns)
         if data_frame is not None:
@@ -91,14 +87,14 @@ class ExchangeS3(BaseController):
             return df
 
     def filter_by_symbol(self, data_frame: DataFrame) -> DataFrame:
-        """Filter data_frame by symbol."""
+        """Keep rows for the configured symbol."""
         if "symbol" in data_frame.columns:
             return data_frame[data_frame.symbol == self.symbol.api_symbol]
         else:
             return data_frame
 
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
-        """Parse data_frame dtypes and strip unnecessary columns."""
+        """Parse S3 columns into the canonical trade schema."""
         data_frame = set_dtypes(data_frame)
         data_frame = calculate_notional(data_frame)
         data_frame = calculate_tick_rule(data_frame)

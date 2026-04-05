@@ -23,11 +23,9 @@ class AggregateTradeViewTest(TestCase):
         )
 
     def get_url(self, exchange: str = Exchange.COINBASE) -> str:
-        """Get exchange-scoped aggregate trades URL."""
         return reverse("aggregate_trades", kwargs={"exchange": exchange})
 
     def test_get_with_exchange_processes_all_symbols(self, mock_api):
-        """Exchange-scoped requests still fetch matching symbols."""
         order = []
 
         def on_api(symbol, *_args):
@@ -56,7 +54,6 @@ class AggregateTradeViewTest(TestCase):
         self.assertIsNone(task_state.locked_until)
 
     def test_get_skips_when_task_is_backed_off(self, mock_api):
-        """Backed-off exchanges are skipped."""
         TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange=Exchange.COINBASE,
@@ -70,7 +67,6 @@ class AggregateTradeViewTest(TestCase):
         mock_api.assert_not_called()
 
     def test_get_skips_when_task_is_locked(self, mock_api):
-        """Locked exchanges are skipped."""
         TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange=Exchange.COINBASE,
@@ -84,7 +80,6 @@ class AggregateTradeViewTest(TestCase):
         mock_api.assert_not_called()
 
     def test_get_does_not_compact_when_collection_fails(self, mock_api):
-        """Compaction only starts after the full exchange collection loop succeeds."""
         mock_api.side_effect = [None, RuntimeError("boom")]
 
         with patch(
@@ -103,7 +98,6 @@ class AggregateTradeViewTest(TestCase):
         self.assertIsNone(task_state.locked_until)
 
     def test_get_marks_error_and_releases_lock_when_compaction_fails(self, mock_api):
-        """Compaction failures still back off and release the exchange task."""
         with patch(
             "quant_tick.views.aggregate_trades.convert_trade_data_to_daily",
             side_effect=RuntimeError("boom"),

@@ -7,10 +7,8 @@ from quant_tick.models import ConstantCandle
 
 
 class ConstantCandleTest(TestCase):
-    """Constant candle test."""
 
     def test_daily_cache_reset(self):
-        """If not same day, daily cache resets."""
         now = get_current_time()
         one_day_ago = now - pd.Timedelta("1d")
         candle = ConstantCandle(
@@ -22,7 +20,6 @@ class ConstantCandleTest(TestCase):
         self.assertEqual(cache["sample_value"], 0)
 
     def test_daily_cache_does_not_reset(self):
-        """If same day, daily cache does not reset."""
         now = get_current_time()
         candle = ConstantCandle(
             json_data={"source_data": FileData.RAW, "cache_reset": Frequency.DAY}
@@ -31,7 +28,6 @@ class ConstantCandleTest(TestCase):
         self.assertEqual(cache["sample_value"], 123)
 
     def test_weekly_cache_reset(self):
-        """If not same week, weekly cache resets."""
         now = get_current_time()
         days = 7 - now.date().weekday() % 7
         next_monday = now + pd.Timedelta(f"{days}d")
@@ -44,7 +40,6 @@ class ConstantCandleTest(TestCase):
         self.assertEqual(cache["sample_value"], 0)
 
     def test_weekly_cache_does_not_reset(self):
-        """If same week, weekly cache does not reset."""
         now = get_current_time()
         days = 6 - now.date().weekday() % 7
         next_sunday = now + pd.Timedelta(f"{days}d")

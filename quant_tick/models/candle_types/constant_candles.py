@@ -22,7 +22,6 @@ class ConstantCandle(Candle):
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
-        """Get initial cache."""
         cache = {}
         if "cache_reset" in self.json_data:
             cache["date"] = timestamp.date()
@@ -36,7 +35,7 @@ class ConstantCandle(Candle):
         return data
 
     def should_reset_cache(self, timestamp: datetime, data: dict) -> bool:
-        """Should reset cache."""
+        """Whether cache_reset requires a new running total."""
         date = timestamp.date()
         cache_date = data.get("date")
         cache_reset = self.json_data.get("cache_reset")
@@ -55,7 +54,7 @@ class ConstantCandle(Candle):
         data_frame: DataFrame,
         cache_data: dict,
     ) -> tuple[list, dict | None]:
-        """Aggregate."""
+        """Aggregate threshold-based candles over one trade-data slice."""
         data_frame = self._preprocess_data(data_frame, cache_data)
 
         start = 0
@@ -85,7 +84,6 @@ class ConstantCandle(Candle):
         return data, cache_data
 
     def get_sample_value(self, row: tuple) -> Decimal | int:
-        """Get sample value."""
         sample_type = self.json_data["sample_type"]
         key = "total" + sample_type.title()
         if key in row.index:
@@ -93,7 +91,6 @@ class ConstantCandle(Candle):
         return row[sample_type]
 
     def should_aggregate_candle(self, data: dict) -> bool:
-        """Should aggregate candle."""
         return data["sample_value"] >= self.json_data["target_value"]
 
     def get_incomplete_candle(

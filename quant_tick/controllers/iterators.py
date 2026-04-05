@@ -17,11 +17,9 @@ class TradeDataIterator:
     """Trade data iterator for fetching from APIs."""
 
     def __init__(self, symbol: Symbol) -> None:
-        """Initialize."""
         self.symbol = symbol
 
     def get_max_timestamp_to(self) -> datetime:
-        """Get max timestamp to."""
         return get_min_time(get_current_time(), value="1min")
 
     def iter_all(
@@ -45,7 +43,7 @@ class TradeDataIterator:
         timestamp_to: datetime,
         retry: bool = False,
     ) -> Generator[tuple[datetime, datetime, list[datetime]], None, None]:
-        """Iter days."""
+        """Iterate day partitions that still need TradeData."""
         # Trade data iterates from present to past.
         for ts_from, ts_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d", reverse=True
@@ -60,7 +58,7 @@ class TradeDataIterator:
         timestamp_to: datetime,
         partition_existing: list[datetime],
     ) -> Generator[tuple[datetime, datetime], None, None]:
-        """Iter hours."""
+        """Iterate missing hour partitions, then missing minute windows inside them."""
         for ts_from, ts_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1h", reverse=True
         ):
@@ -81,7 +79,7 @@ class TradeDataIterator:
     def get_existing(
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
     ) -> list[datetime]:
-        """Get existing."""
+        """Return existing minute timestamps for the partition."""
         queryset = TradeData.objects.filter(
             symbol=self.symbol,
             timestamp__gte=timestamp_from,

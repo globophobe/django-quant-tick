@@ -18,7 +18,6 @@ def get_trades(
     pagination_id: int,
     log_format: str | None = None,
 ) -> list[dict]:
-    """Get trades."""
     # No start query param
     # Specifying start, end returns MAX_RESULTS
     url = f"{API_URL}/trades/{symbol}/hist?limit={MAX_RESULTS}"

@@ -18,41 +18,32 @@ class BitmexMixin:
     """Bitmex mixin."""
 
     def get_uid(self, trade: dict) -> str:
-        """Get uid."""
         return str(trade["trdMatchID"])
 
     def get_timestamp(self, trade: dict) -> datetime.datetime:
-        """Get timestamp."""
         return get_bitmex_api_timestamp(trade)
 
     def get_nanoseconds(self, trade: dict) -> int:
-        """Get nanoseconds."""
         return self.get_timestamp(trade).nanosecond
 
     def get_price(self, trade: dict) -> Decimal:
-        """Get price."""
         return Decimal(trade["price"])
 
     def get_volume(self, trade: dict) -> Decimal:
-        """Get volume."""
         return Decimal(trade["foreignNotional"])
 
     def get_notional(self, trade: dict) -> Decimal:
-        """Get notional."""
         return self.get_volume(trade) / self.get_price(trade)
 
     def get_tick_rule(self, trade: dict) -> int:
-        """Get tick rule."""
         return 1 if trade["side"] == "Buy" else -1
 
     def get_index(self, trade: dict) -> int:
-        """Get index."""
         return np.nan  # No index, set per partition
 
     def get_candles(
         self, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
     ) -> DataFrame:
-        """Get candles from Exchange API."""
         # Timestamp is candle close.
         return bitmex_candles(
             self.symbol.api_symbol, timestamp_from, timestamp_to, bin_size="1m"
@@ -63,11 +54,9 @@ class BitmexRESTMixin(BitmexMixin):
     """Bitmex REST mixin."""
 
     def get_pagination_id(self, timestamp_to: datetime) -> str:
-        """Get pagination_id."""
         return format_bitmex_api_timestamp(timestamp_to)
 
     def iter_api(self, timestamp_from: datetime, pagination_id: str) -> list:
-        """Iterate Bitmex API."""
         return get_trades(
             self.symbol.api_symbol,
             timestamp_from,
@@ -76,7 +65,7 @@ class BitmexRESTMixin(BitmexMixin):
         )
 
     def get_data_frame(self, trades: list) -> DataFrame:
-        """Get data_frame."""
+        """Build a DataFrame and backfill the per-partition index."""
         data_frame = super().get_data_frame(trades)
         # No index from REST API, and trades are reversed
         data_frame["index"] = data_frame.index.values[::-1]
@@ -87,12 +76,11 @@ class BitmexS3Mixin(BitmexMixin):
     """Bitmex S3 mixin."""
 
     def get_url(self, date: datetime.date) -> str:
-        """Get CSV file url."""
         date_string = date.strftime("%Y%m%d")
         return f"{S3_URL}{date_string}.csv.gz"
 
     def main(self) -> None:
-        """Main."""
+        """Fetch daily BitMEX S3 files and persist matching partitions."""
         iterator = TradeDataIterator(self.symbol)
         exclude = [
             datetime.date(2025, 3, 26),
@@ -118,7 +106,7 @@ class BitmexS3Mixin(BitmexMixin):
                 break
 
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
-        """Parse dtypes and strip unnecessary columns.
+        """Parse BitMEX S3 columns into the canonical trade schema.
 
         Bitmex data maybe accurate to the nanosecond.
         However, data is typically only provided to the microsecond.

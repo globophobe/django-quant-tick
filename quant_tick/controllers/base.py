@@ -6,7 +6,7 @@ from pandas import DataFrame
 
 
 class BaseController:
-    """Base controller."""
+    """Base controller for exchange trade and candle ingestion."""
 
     def __init__(
         self,
@@ -17,7 +17,7 @@ class BaseController:
         retry: bool = False,
         verbose: bool = True,
     ) -> None:
-        """Initialize."""
+        """Store the controller inputs for one symbol and time range."""
         self.symbol = symbol
         self.timestamp_from = timestamp_from
         self.timestamp_to = timestamp_to
@@ -27,13 +27,13 @@ class BaseController:
 
     @property
     def log_format(self) -> str:
-        """Log format."""
+        """Log format string for progress messages."""
         symbol = str(self.symbol)
         return f"{symbol}: {{timestamp}}"
 
     @property
     def columns(self) -> list:
-        """Columns."""
+        """Canonical trade-data column order."""
         return [
             "uid",
             "timestamp",
@@ -46,11 +46,11 @@ class BaseController:
         ]
 
     def main(self) -> None:
-        """Main."""
+        """Fetch data and pass normalized frames to on_data_frame."""
         raise NotImplementedError
 
     def get_candles(
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
-        """Get candles."""
+        """Fetch exchange candle data for validation."""
         raise NotImplementedError

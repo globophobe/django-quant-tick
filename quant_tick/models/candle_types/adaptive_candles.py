@@ -22,7 +22,6 @@ class AdaptiveCandle(ConstantCandle):
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
-        """Get initial cache."""
         return {"date": timestamp.date(), "target_value": None, "sample_value": 0}
 
     def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
@@ -65,7 +64,7 @@ class AdaptiveCandle(ConstantCandle):
         return total / days / self.json_data["target_candles_per_day"]
 
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
-        """Can aggregate."""
+        """Require enough daily history to compute the adaptive threshold."""
         can_agg = super().can_aggregate(timestamp_from, timestamp_to)
         if can_agg:
             trade_data = self.get_trade_data_for_moving_average(timestamp_from)
@@ -75,7 +74,6 @@ class AdaptiveCandle(ConstantCandle):
         return False
 
     def should_aggregate_candle(self, data: dict) -> bool:
-        """Should aggregate candle."""
         return data["sample_value"] >= data["target_value"]
 
     class Meta:

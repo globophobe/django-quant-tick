@@ -11,7 +11,6 @@ from .constants import MAX_RESULTS, MIN_ELAPSED_PER_REQUEST, SPOT_API_URL
 def get_binance_trades_url(
     url: str, timestamp_from: datetime | None = None, pagination_id: int | None = None
 ) -> str:
-    """Get Binance trades url."""
     if pagination_id:
         return url + f"&fromId={pagination_id}"
     return url
@@ -20,7 +19,6 @@ def get_binance_trades_url(
 def get_binance_trades_pagination_id(
     timestamp: datetime, last_data: list | None = None, data: list | None = None
 ) -> int:
-    """Get Binance trades pagination_id."""
     data = data or []
     # Like bybit, binance pagination feels like an IQ test.
     if len(data):
@@ -42,7 +40,6 @@ def get_binance_trades_pagination_id(
 
 
 def get_binance_trades_timestamp(trade: dict) -> datetime:
-    """Get Binance trades timestamp."""
     return parse_datetime(trade["time"], unit="ms")
 
 
@@ -52,7 +49,6 @@ def get_trades(
     pagination_id: int,
     log_format: str | None = None,
 ) -> list[dict]:
-    """Get trades."""
     url = f"{SPOT_API_URL}/historicalTrades?symbol={symbol}&limit={MAX_RESULTS}"
     return iter_api(
         url,

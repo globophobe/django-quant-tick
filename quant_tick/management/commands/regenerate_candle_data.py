@@ -12,12 +12,10 @@ class Command(BaseTradeDataCommand):
     help = "Regenerate TradeData.candle_data from filtered_data."
 
     def add_arguments(self, parser: CommandParser) -> None:
-        """Add command arguments."""
         super().add_arguments(parser)
         parser.add_argument("--min-notional-exponent", type=int, default=1)
 
     def handle(self, *args, **options) -> None:
-        """Run command."""
         min_notional_exponent = int(options.get("min_notional_exponent", 1))
         for kwargs in super().handle(*args, **options):
             qs = TradeData.objects.filter(

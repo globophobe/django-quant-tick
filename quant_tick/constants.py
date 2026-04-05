@@ -14,7 +14,7 @@ NUMERIC_SCALE = 38
 
 
 class Exchange(models.TextChoices):
-    """Exchange."""
+    """Supported exchange identifiers."""
 
     BINANCE = "binance", "Binance"
     BITFINEX = "bitfinex", "Bitfinex"
@@ -23,14 +23,14 @@ class Exchange(models.TextChoices):
 
 
 class TaskType(models.TextChoices):
-    """Task type."""
+    """Kinds of scheduled tasks tracked in TaskState."""
 
     AGGREGATE_TRADES = "aggregate_trades", "Aggregate trades"
     AGGREGATE_CANDLES = "aggregate_candles", "Aggregate candles"
 
 
 class SampleType(models.TextChoices):
-    """Sample type."""
+    """Sampling inputs for non-time-based candles."""
 
     VOLUME = "volume", _("volume")
     NOTIONAL = "notional", _("notional")
@@ -38,7 +38,7 @@ class SampleType(models.TextChoices):
 
 
 class Frequency(models.IntegerChoices):
-    """Frequency."""
+    """Trade-data frequencies in minutes."""
 
     MINUTE = 1, _("minute").capitalize()
     HOUR = 60, _("hour").capitalize()
@@ -47,7 +47,7 @@ class Frequency(models.IntegerChoices):
 
 
 class FileData(models.TextChoices):
-    """File data."""
+    """TradeData parquet file fields."""
 
     RAW = "raw_data", _("raw")
     AGGREGATED = "aggregated_data", _("aggregated")

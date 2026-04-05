@@ -27,12 +27,10 @@ logger = logging.getLogger(__name__)
 
 
 def format_bitfinex_api_timestamp(timestamp: datetime) -> int:
-    """Format Bitfinex API timestmap."""
     return int(timestamp.timestamp() * 1000)  # Millisecond
 
 
 def get_bitfinex_api_url(url: str, pagination_id: int) -> str:
-    """Get Bitfinex API URL."""
     if pagination_id:
         return url + f"&end={pagination_id}"
     return url
@@ -41,7 +39,6 @@ def get_bitfinex_api_url(url: str, pagination_id: int) -> str:
 def get_bitfinex_api_pagination_id(
     timestamp: datetime, last_data: list | None = None, data: list | None = None
 ) -> int | None:
-    """Get Bitfinex API pagination ID."""
     data = data or []
     if len(data):
         last_trade = data[-1]
@@ -54,7 +51,6 @@ def get_bitfinex_api_pagination_id(
 
 
 def get_bitfinex_api_timestamp(trade: dict) -> datetime:
-    """Get Bitfinex API timestamp."""
     return parse_datetime(trade[1], unit="ms")
 
 
@@ -65,7 +61,6 @@ def get_bitfinex_api_response(
     pagination_id: str | None = None,
     retry: int = 30,
 ) -> list[dict]:
-    """Get Bitfinex API response."""
     throttle_api_requests(
         BITFINEX_MAX_REQUESTS_RESET,
         BITFINEX_TOTAL_REQUESTS,

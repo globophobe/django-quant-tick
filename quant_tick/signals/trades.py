@@ -11,7 +11,6 @@ from quant_tick.models import TradeData
     dispatch_uid="trade_data_post_delete",
 )
 def post_delete_file_data(sender: type[TradeData], **kwargs) -> None:
-    """Post delete file data."""
     instance = kwargs["instance"]
     if getattr(instance, "_skip_signal", False):
         return

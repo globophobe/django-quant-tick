@@ -27,30 +27,26 @@ from .symbols import Symbol
 
 
 def upload_raw_data_to(instance: "TradeData", filename: str) -> str:
-    """Upload raw data to."""
     return instance.upload_path("raw", filename)
 
 
 def upload_aggregated_data_to(instance: "TradeData", filename: str) -> str:
-    """Upload aggregated data to."""
     return instance.upload_path("aggregated", filename)
 
 
 def upload_filtered_data_to(instance: "TradeData", filename: str) -> str:
-    """Upload filtered data to."""
     return instance.upload_path("filtered", filename)
 
 
 def upload_candle_data_to(instance: "TradeData", filename: str) -> str:
-    """Upload candle data to."""
     return instance.upload_path("candles", filename)
 
 
 class TradeDataQuerySet(QuerySet):
-    """Trade data queryset."""
+    """QuerySet helpers for TradeData."""
 
     def get_last_uid(self, symbol: Symbol, timestamp: datetime.datetime) -> str:
-        """Get last uid."""
+        """Get the first later non-empty uid for pagination recovery."""
         queryset = self.filter(symbol=symbol, timestamp__gte=timestamp)
         trade_data = queryset.exclude(uid="").order_by("timestamp").first()
         if trade_data:
@@ -59,7 +55,7 @@ class TradeDataQuerySet(QuerySet):
     def get_max_timestamp(
         self, symbol: Symbol, timestamp: datetime.datetime
     ) -> datetime.datetime:
-        """Get max timestamp."""
+        """Clamp to the latest stored TradeData timestamp for the symbol."""
         trade_data = self.filter(symbol=symbol).only("timestamp").last()
         if trade_data and trade_data.timestamp < timestamp:
             return trade_data.timestamp
@@ -68,7 +64,7 @@ class TradeDataQuerySet(QuerySet):
     def get_min_timestamp(
         self, symbol: Symbol, timestamp: datetime.datetime
     ) -> datetime.datetime:
-        """Get min timestamp."""
+        """Clamp to the earliest stored TradeData timestamp for the symbol."""
         trade_data = self.filter(symbol=symbol).only("timestamp").first()
         if trade_data and trade_data.timestamp > timestamp:
             return trade_data.timestamp
@@ -77,7 +73,7 @@ class TradeDataQuerySet(QuerySet):
     def has_timestamps(
         self, symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
     ) -> bool:
-        """Has timestamps."""
+        """Whether the symbol has complete TradeData coverage for the range."""
         trade_data = (
             TradeData.objects.filter(
                 symbol=symbol,
@@ -97,7 +93,7 @@ class TradeDataQuerySet(QuerySet):
         timestamp_to: datetime.datetime,
         frequency: Frequency,
     ) -> None:
-        """Delete existing objects."""
+        """Delete existing rows and their stored files for the range."""
         queryset = self.filter(
             symbol=symbol,
             timestamp__gte=timestamp_from,
@@ -115,7 +111,7 @@ class TradeDataQuerySet(QuerySet):
 
 
 class TradeData(AbstractDataStorage):
-    """Trade data."""
+    """Stored trade-data slice and derived parquet artifacts."""
 
     symbol = models.ForeignKey(
         "quant_tick.Symbol", related_name="trade_data", on_delete=models.CASCADE
@@ -142,7 +138,7 @@ class TradeData(AbstractDataStorage):
     objects = TradeDataQuerySet.as_manager()
 
     def upload_path(self, directory: str, filename: str) -> str:
-        """Upload path.
+        """Build a deterministic storage path for a file field.
 
         Example:
         trades / coinbase / BTCUSD / blaring-crocodile / raw / 2022-01-01 / 0000.parquet
@@ -163,7 +159,7 @@ class TradeData(AbstractDataStorage):
         trades: DataFrame,
         candles: DataFrame,
     ) -> None:
-        """Write data."""
+        """Dispatch writes by slice frequency."""
         delta = timestamp_to - timestamp_from
         frequency = delta.total_seconds() / 60
         assert frequency <= Frequency.DAY
@@ -187,7 +183,7 @@ class TradeData(AbstractDataStorage):
         trades: DataFrame,
         candles: DataFrame,
     ) -> None:
-        """Write daily data."""
+        """Rewrite the daily TradeData row for the range."""
         cls.objects.cleanup(symbol, timestamp_from, timestamp_to, Frequency.DAY)
         cls.write_data_frame(
             TradeData(symbol=symbol, timestamp=timestamp_from, frequency=Frequency.DAY),
@@ -204,7 +200,7 @@ class TradeData(AbstractDataStorage):
         trades: DataFrame,
         candles: DataFrame,
     ) -> None:
-        """Write hourly data."""
+        """Rewrite the hourly TradeData row for the range."""
         cls.objects.cleanup(symbol, timestamp_from, timestamp_to, Frequency.HOUR)
         cls.write_data_frame(
             TradeData(symbol=symbol, timestamp=timestamp_from, frequency=Frequency.HOUR),
@@ -221,7 +217,7 @@ class TradeData(AbstractDataStorage):
         trades: DataFrame,
         candles: DataFrame,
     ) -> None:
-        """Write minute data."""
+        """Rewrite minute TradeData rows for each minute in the range."""
         for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value="1min"):
             cls.objects.cleanup(symbol, ts_from, ts_to, Frequency.MINUTE)
             cls.write_data_frame(
@@ -234,7 +230,7 @@ class TradeData(AbstractDataStorage):
     def write_data_frame(
         cls, obj: "TradeData", trades: DataFrame, candles: DataFrame
     ) -> None:
-        """Write data frame."""
+        """Serialize and persist one TradeData row and its derived artifacts."""
         uid = ""
         json_data = None
         raw_data = None

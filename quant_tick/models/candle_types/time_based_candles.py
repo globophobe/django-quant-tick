@@ -12,12 +12,12 @@ from ..candles import Candle, CandleCache, CandleData
 
 
 class TimeBasedCandle(Candle):
-    """Time based candle."""
+    """Fixed-window candles."""
 
     def get_max_timestamp_to(
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> datetime:
-        """Get max timestamp to."""
+        """Clamp timestamp_to to the last complete window."""
         window = self.json_data["window"]
         total_minutes = pd.Timedelta(window).total_seconds() / Frequency.HOUR
         delta = pd.Timedelta(f"{total_minutes}min")
@@ -33,10 +33,7 @@ class TimeBasedCandle(Candle):
         data_frame: DataFrame,
         cache_data: dict | None = None,
     ) -> tuple[list, dict | None]:
-        """Aggregate.
-
-        Iterate forward. Intermediate results will be saved to CandleCache.json_data
-        """
+        """Aggregate complete windows and keep any remainder in cache."""
         cache_data = cache_data or {}
         data = []
         window = self.json_data["window"]
@@ -89,7 +86,7 @@ class TimeBasedCandle(Candle):
 
     @transaction.atomic
     def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
-        """On retry."""
+        """Delete cached and stored rows inside the retry window."""
         CandleCache.objects.filter(
             candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
         ).delete()

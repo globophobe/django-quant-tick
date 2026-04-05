@@ -14,7 +14,6 @@ from .constants import MAX_RESULTS, MIN_ELAPSED_PER_REQUEST, SPOT_API_URL
 def get_binance_candle_url(
     url: str, timestamp_from: datetime, pagination_id: int
 ) -> DataFrame:
-    """Get Binance candle URL."""
     if pagination_id:
         return url + f"&endTime={pagination_id}"
     return url
@@ -25,14 +24,12 @@ def get_binance_candle_pagination_id(
     last_data: list | None = None,
     data: list | None = None,
 ) -> str | None:
-    """Get Binance candle pagination_id."""
     data = data or []
     if len(data):
         return data[-1][0]
 
 
 def get_binance_candle_timestamp(candle: list) -> datetime:
-    """Get Binance candle timestamp."""
     return parse_datetime(candle[0], unit="ms")
 
 
@@ -44,7 +41,6 @@ def binance_candles(
     limit: int | None = None,
     log_format: str | None = None,
 ) -> DataFrame:
-    """Get coinbase candles."""
     ts_from = format_binance_api_timestamp(timestamp_from)
     ts_to = format_binance_api_timestamp(
         timestamp_to_inclusive(timestamp_from, timestamp_to, value="1min")

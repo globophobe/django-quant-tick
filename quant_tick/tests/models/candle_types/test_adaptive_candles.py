@@ -11,7 +11,6 @@ from quant_tick.tests.base import BaseWriteTradeDataTest
 
 class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
     def test_cache_target_value_is_updated(self):
-        """If not same day, cache target value is updated."""
         now = get_current_time()
         one_day_ago = now - pd.Timedelta("1d")
         yesterday = one_day_ago.date()
@@ -39,7 +38,6 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(cache["target_value"], 123)
 
     def test_cache_target_value_is_not_updated(self):
-        """If same day, cache target value is not updated."""
         candle = AdaptiveCandle(
             json_data={"source_data": FileData.RAW, "cache_reset": Frequency.DAY}
         )
