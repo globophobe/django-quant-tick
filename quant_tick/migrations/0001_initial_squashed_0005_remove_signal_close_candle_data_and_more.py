@@ -536,7 +536,7 @@ class Migration(migrations.Migration):
             name="candle_data",
             field=models.FileField(
                 blank=True,
-                upload_to=quant_tick.models.trades.upload_candle_data_to,
+                upload_to=fake,
                 verbose_name="candle data",
             ),
         ),
