@@ -311,35 +311,3 @@ def validate_aggregated_candles(
                     ok = False
 
     return aggregated_candles, ok
-
-
-def update_cluster_ema(cache_data: dict, volume: float, halflife: int) -> dict:
-    """Update rolling EMA with new cluster volume.
-
-    All EMA math uses floats for performance.
-    """
-    if not np.isfinite(volume) or volume <= 0:
-        return cache_data  # Skip invalid volume
-
-    if halflife <= 0:
-        return cache_data  # Skip invalid halflife
-
-    alpha = 1 - np.exp(-np.log(2) / halflife)
-    log_vol = np.log(volume)
-
-    if "cluster_ema_mean" not in cache_data:
-        cache_data["cluster_ema_mean"] = log_vol
-        cache_data["cluster_ema_var"] = 0.0
-        cache_data["cluster_ema_count"] = 1
-    else:
-        old_mean = float(cache_data["cluster_ema_mean"])
-        old_var = float(cache_data["cluster_ema_var"])
-
-        new_mean = old_mean + alpha * (log_vol - old_mean)
-        new_var = (1 - alpha) * (old_var + alpha * (log_vol - old_mean) ** 2)
-
-        cache_data["cluster_ema_mean"] = new_mean
-        cache_data["cluster_ema_var"] = new_var
-        cache_data["cluster_ema_count"] = int(cache_data["cluster_ema_count"]) + 1
-
-    return cache_data

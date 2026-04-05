@@ -66,18 +66,6 @@ def start_proxy(ctx: Any) -> None:
 
 
 @task
-def create_user(ctx: Any, username: str, password: str, proxy: bool = False) -> None:
-    """Create user."""
-    django_settings(ctx, proxy=proxy)
-    from django.contrib.auth import get_user_model
-
-    User = get_user_model()
-    user = User.objects.create(username=username, is_superuser=True, is_staff=True)
-    user.set_password(password)
-    user.save()
-
-
-@task
 def get_container_name(ctx: Any, name: str, region: str = "asia-northeast1") -> str:
     """Get container name."""
     project_id = ctx.run("gcloud config get-value project").stdout.strip()

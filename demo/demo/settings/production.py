@@ -34,9 +34,6 @@ STORAGES = {
     "default": {
         "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
     },
-    "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
-    },
 }
 
 GS_BUCKET_NAME = (
@@ -44,19 +41,6 @@ GS_BUCKET_NAME = (
     if "test" in sys.argv
     else os.environ["GCS_BUCKET_NAME"]
 )
-
-INSTALLED_APPS = [
-    "django.contrib.contenttypes",
-    "django.contrib.postgres",
-    "polymorphic",
-    "quant_tick",
-]
-
-MIDDLEWARE = [
-    "django.middleware.security.SecurityMiddleware",
-    "django.middleware.common.CommonMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
-]
 
 sentry_sdk.init(
     dsn=os.environ["SENTRY_DSN"],
