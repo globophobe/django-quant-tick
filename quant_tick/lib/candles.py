@@ -87,6 +87,8 @@ def aggregate_candles(
     window: str = "1min",
     as_data_frame: bool = True,
     min_notional_exponent: int = 1,
+    round_volume: bool = False,
+    round_notional: bool = False,
 ) -> list[dict]:
     """Aggregate candles"""
     data = []
@@ -97,6 +99,8 @@ def aggregate_candles(
                 df,
                 timestamp=ts_from,
                 min_notional_exponent=min_notional_exponent,
+                round_volume=round_volume,
+                round_notional=round_notional,
             )
             data.append(candle)
         else:
@@ -126,13 +130,21 @@ def aggregate_candle(
     timestamp: datetime | None = None,
     min_volume_exponent: int = 2,
     min_notional_exponent: int = 1,
+    round_volume: bool = False,
+    round_notional: bool = False,
 ) -> dict:
     """Aggregate candle."""
     ts = timestamp if timestamp else data_frame.iloc[0].timestamp
     data = {"timestamp": ts}
     data.update(_aggregate_ohlc(data_frame))
     data.update(
-        _aggregate_totals(data_frame, min_volume_exponent, min_notional_exponent)
+        _aggregate_totals(
+            data_frame,
+            min_volume_exponent,
+            min_notional_exponent,
+            round_volume=round_volume,
+            round_notional=round_notional,
+        )
     )
     data.update(_aggregate_realized_variance(data_frame))
     return data
@@ -159,6 +171,8 @@ def _aggregate_totals(
     df: DataFrame,
     min_volume_exponent: int = 2,
     min_notional_exponent: int = 1,
+    round_volume: bool = False,
+    round_notional: bool = False,
 ) -> dict:
     """Aggregate volume, notional, ticks, and round fields."""
     data = {}
@@ -183,34 +197,36 @@ def _aggregate_totals(
         else:
             data["ticks"] = len(df)
             data["buyTicks"] = int(is_buy.sum())
-    # Round volume
-    volume_exps = df.volume.apply(calc_volume_exponent)
-    is_round_volume = volume_exps >= min_volume_exponent
-    round_vol = df.loc[is_round_volume]
-    round_buy_vol = df.loc[is_round_volume & is_buy]
-    data["roundVolume"] = round_vol.volume.sum() if len(round_vol) else ZERO
-    data["roundBuyVolume"] = round_buy_vol.volume.sum() if len(round_buy_vol) else ZERO
-    data["roundVolumeSumNotional"] = (
-        round_vol.notional.sum() if len(round_vol) else ZERO
-    )
-    data["roundBuyVolumeSumNotional"] = (
-        round_buy_vol.notional.sum() if len(round_buy_vol) else ZERO
-    )
-    # Round notional
-    notional_exps = df.notional.apply(calc_notional_exponent)
-    is_round_notional = notional_exps >= min_notional_exponent
-    round_not = df.loc[is_round_notional]
-    round_buy_not = df.loc[is_round_notional & is_buy]
-    data["roundNotional"] = round_not.notional.sum() if len(round_not) else ZERO
-    data["roundBuyNotional"] = (
-        round_buy_not.notional.sum() if len(round_buy_not) else ZERO
-    )
-    data["roundNotionalSumVolume"] = (
-        round_not.volume.sum() if len(round_not) else ZERO
-    )
-    data["roundBuyNotionalSumVolume"] = (
-        round_buy_not.volume.sum() if len(round_buy_not) else ZERO
-    )
+    if round_volume:
+        volume_exps = df.volume.apply(calc_volume_exponent)
+        is_round_volume = volume_exps >= min_volume_exponent
+        round_vol = df.loc[is_round_volume]
+        round_buy_vol = df.loc[is_round_volume & is_buy]
+        data["roundVolume"] = round_vol.volume.sum() if len(round_vol) else ZERO
+        data["roundBuyVolume"] = (
+            round_buy_vol.volume.sum() if len(round_buy_vol) else ZERO
+        )
+        data["roundVolumeSumNotional"] = (
+            round_vol.notional.sum() if len(round_vol) else ZERO
+        )
+        data["roundBuyVolumeSumNotional"] = (
+            round_buy_vol.notional.sum() if len(round_buy_vol) else ZERO
+        )
+    if round_notional:
+        notional_exps = df.notional.apply(calc_notional_exponent)
+        is_round_notional = notional_exps >= min_notional_exponent
+        round_not = df.loc[is_round_notional]
+        round_buy_not = df.loc[is_round_notional & is_buy]
+        data["roundNotional"] = round_not.notional.sum() if len(round_not) else ZERO
+        data["roundBuyNotional"] = (
+            round_buy_not.notional.sum() if len(round_buy_not) else ZERO
+        )
+        data["roundNotionalSumVolume"] = (
+            round_not.volume.sum() if len(round_not) else ZERO
+        )
+        data["roundBuyNotionalSumVolume"] = (
+            round_buy_not.volume.sum() if len(round_buy_not) else ZERO
+        )
     return data
 
 

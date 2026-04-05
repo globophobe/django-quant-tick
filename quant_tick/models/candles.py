@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 
 import pandas as pd
-from django.db import models
+from django.db import models, transaction
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
@@ -142,8 +142,13 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
     def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
         """On retry."""
-        CandleCache.objects.filter(candle=self, timestamp__gte=timestamp_from).delete()
-        CandleData.objects.filter(candle=self, timestamp__gte=timestamp_from).delete()
+        with transaction.atomic():
+            CandleCache.objects.filter(
+                candle=self, timestamp__gte=timestamp_from
+            ).delete()
+            CandleData.objects.filter(
+                candle=self, timestamp__gte=timestamp_from
+            ).delete()
 
     def iter_all(
         self, timestamp_from: datetime, timestamp_to: datetime
@@ -219,6 +224,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
             df,
             timestamp=timestamp,
             min_notional_exponent=int(self.json_data.get("min_notional_exponent", 1)),
+            round_volume=self.json_data.get("round_volume", False),
+            round_notional=self.json_data.get("round_notional", False),
         )
 
     def _merge_cache(self, prev: dict, curr: dict) -> dict:
@@ -232,7 +239,13 @@ class Candle(AbstractCodeName, PolymorphicModel):
         timestamp: datetime | None = None,
     ) -> dict:
         """Cache incomplete candle. Override to include bucket stats."""
-        return get_next_cache(df, cache_data, timestamp=timestamp)
+        return get_next_cache(
+            df,
+            cache_data,
+            timestamp=timestamp,
+            round_volume=self.json_data.get("round_volume", False),
+            round_notional=self.json_data.get("round_notional", False),
+        )
 
     def write_cache(
         self,
@@ -245,16 +258,17 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
         Delete previously saved data.
         """
-        queryset = CandleCache.objects.filter(
-            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
-        )
-        queryset.delete()
-        delta = timestamp_to - timestamp_from
-        # FIXME: Can't define every value in constants.
-        frequency = delta.total_seconds() / 60
-        CandleCache.objects.create(
-            candle=self, timestamp=timestamp_from, frequency=frequency, json_data=data
-        )
+        with transaction.atomic():
+            queryset = CandleCache.objects.filter(
+                candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+            )
+            queryset.delete()
+            delta = timestamp_to - timestamp_from
+            # FIXME: Can't define every value in constants.
+            frequency = delta.total_seconds() / 60
+            CandleCache.objects.create(
+                candle=self, timestamp=timestamp_from, frequency=frequency, json_data=data
+            )
 
     def write_data(
         self, timestamp_from: datetime, timestamp_to: datetime, json_data: list[dict]
@@ -263,13 +277,14 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
         Delete previously saved data.
         """
-        CandleData.objects.filter(
-            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
-        ).delete()
-        data = []
-        for j in json_data:
-            data.append(CandleData.objects.from_data(self, j))
-        CandleData.objects.bulk_create(data)
+        with transaction.atomic():
+            CandleData.objects.filter(
+                candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+            ).delete()
+            data = []
+            for j in json_data:
+                data.append(CandleData.objects.from_data(self, j))
+            CandleData.objects.bulk_create(data)
 
     def get_candle_data(
         self,
@@ -371,14 +386,6 @@ class CandleData(models.Model):
         "buy_notional",
         "ticks",
         "buy_ticks",
-        "round_volume",
-        "round_buy_volume",
-        "round_volume_sum_notional",
-        "round_buy_volume_sum_notional",
-        "round_notional",
-        "round_buy_notional",
-        "round_notional_sum_volume",
-        "round_buy_notional_sum_volume",
         "realized_variance",
         "incomplete",
     )
@@ -397,22 +404,6 @@ class CandleData(models.Model):
     buy_notional = BigDecimalField(_("buy notional"))
     ticks = models.PositiveIntegerField(_("ticks"))
     buy_ticks = models.PositiveIntegerField(_("buy ticks"))
-    round_volume = BigDecimalField(_("round volume"))
-    round_buy_volume = BigDecimalField(_("round buy volume"))
-    round_volume_sum_notional = BigDecimalField(
-        _("round volume sum notional"),
-    )
-    round_buy_volume_sum_notional = BigDecimalField(
-        _("round buy volume sum notional"),
-    )
-    round_notional = BigDecimalField(_("round notional"))
-    round_buy_notional = BigDecimalField(_("round buy notional"))
-    round_notional_sum_volume = BigDecimalField(
-        _("round notional sum volume"),
-    )
-    round_buy_notional_sum_volume = BigDecimalField(
-        _("round buy notional sum volume"),
-    )
     realized_variance = BigDecimalField(
         _("realized variance"),
     )

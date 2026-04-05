@@ -11,9 +11,16 @@ def get_next_cache(
     data_frame: DataFrame,
     cache_data: dict,
     timestamp: datetime | None = None,
+    round_volume: bool = False,
+    round_notional: bool = False,
 ) -> dict:
     """Get next cache."""
-    values = aggregate_candle(data_frame, timestamp)
+    values = aggregate_candle(
+        data_frame,
+        timestamp,
+        round_volume=round_volume,
+        round_notional=round_notional,
+    )
     if "next" in cache_data:
         previous_values = cache_data.pop("next")
         cache_data["next"] = merge_cache(previous_values, values)
@@ -48,7 +55,10 @@ def merge_cache(previous: dict, current: dict) -> dict:
         "roundNotionalSumVolume",
         "roundBuyNotionalSumVolume",
     ):
-        current[key] += previous[key]
+        if key in previous or key in current:
+            current[key] = current.get(key, Decimal("0")) + previous.get(
+                key, Decimal("0")
+            )
 
     cross_var = _calc_cross_segment_variance(previous.get("close"), curr_open)
     current["realizedVariance"] += previous["realizedVariance"] + cross_var
