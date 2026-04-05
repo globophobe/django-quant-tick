@@ -38,10 +38,6 @@ def upload_filtered_data_to(instance: "TradeData", filename: str) -> str:
     return instance.upload_path("filtered", filename)
 
 
-def upload_candle_data_to(instance: "TradeData", filename: str) -> str:
-    return instance.upload_path("candles", filename)
-
-
 class TradeDataQuerySet(QuerySet):
     """QuerySet helpers for TradeData."""
 
@@ -129,9 +125,6 @@ class TradeData(AbstractDataStorage):
     )
     filtered_data = models.FileField(
         _("filtered data"), blank=True, upload_to=upload_filtered_data_to
-    )
-    candle_data = models.FileField(
-        _("candle data"), blank=True, upload_to=upload_candle_data_to
     )
     json_data = JSONField(_("json data"), null=True)
     ok = models.BooleanField(_("ok"), null=True, default=False, db_index=True)
@@ -236,52 +229,44 @@ class TradeData(AbstractDataStorage):
         raw_data = None
         aggregated_data = None
         filtered_data = None
-        candle_data = None
-
         # Are there any trades?
         aggregated_candles = pd.DataFrame([])
         if len(trades):
             # Set TradeData.uid as first uid.
             uid = trades.iloc[0].uid
             symbol = obj.symbol
-            if symbol.save_aggregated or symbol.save_filtered:
-                aggregated = aggregate_trades(trades)
-                filtered = aggregated
+            validation = trades
             if symbol.save_raw:
                 raw_data = cls.prepare_data(trades)
-            if symbol.save_aggregated:
-                aggregated_data = cls.prepare_data(aggregated)
-            if symbol.save_filtered:
-                if symbol.save_filtered and symbol.significant_trade_filter:
+            if symbol.save_aggregated or symbol.significant_trade_filter:
+                aggregated = aggregate_trades(trades)
+                validation = aggregated
+                if symbol.significant_trade_filter:
                     filtered = volume_filter_with_time_window(
-                        aggregated, min_volume=symbol.significant_trade_filter
+                        aggregated,
+                        min_volume=symbol.significant_trade_filter,
                     )
+                    validation = filtered
                     filtered_data = cls.prepare_data(filtered)
+                if symbol.save_aggregated:
+                    aggregated_data = cls.prepare_data(aggregated)
             aggregated_candles = aggregate_candles(
-                trades,
+                validation,
                 obj.timestamp,
                 obj.timestamp + pd.Timedelta(f"{obj.frequency}min"),
             )
             assert is_decimal_close(
                 aggregated_candles.notional.sum(), trades.notional.sum()
             )
-
             json_data = {"candle": aggregate_candle(trades)}
 
-        aggregated_candles, ok = validate_aggregated_candles(
-            aggregated_candles,
-            candles,
-        )
-        if len(aggregated_candles):
-            candle_data = cls.prepare_data(aggregated_candles)
-
+        ok = validate_aggregated_candles(aggregated_candles, candles)
         with transaction.atomic():
             obj.uid = uid
             obj.json_data = json_data
             obj.raw_data = raw_data
             obj.aggregated_data = aggregated_data
             obj.filtered_data = filtered_data
-            obj.candle_data = candle_data
             obj.ok = ok
             obj.save()
 

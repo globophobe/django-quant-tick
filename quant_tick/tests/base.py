@@ -112,14 +112,14 @@ class BaseSymbolTest:
         api_symbol: str = "test",
         save_raw: bool = True,
         save_aggregated: bool = False,
-        save_filtered: bool = False,
+        significant_trade_filter: int = 0,
     ) -> Symbol:
         return Symbol.objects.create(
             exchange=Exchange.COINBASE,
             api_symbol=api_symbol,
             save_raw=save_raw,
             save_aggregated=save_aggregated,
-            save_filtered=save_filtered,
+            significant_trade_filter=significant_trade_filter,
         )
 
 
@@ -179,7 +179,7 @@ class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
         test_path = Path("test-trades")
         for obj in Symbol.objects.all():
             upload_path = Path("/".join(obj.upload_path))
-            for file_data in ("raw", "aggregated", "filtered", "candles"):
+            for file_data in ("raw", "aggregated", "filtered"):
                 file_path = Path(file_data)
                 p = test_path / upload_path / file_path
                 if p.exists():

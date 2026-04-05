@@ -19,11 +19,6 @@ class Symbol(AbstractCodeName):
         help_text=_("Should trades be aggregated?"),
         default=False,
     )
-    save_filtered = models.BooleanField(
-        _("save filtered"),
-        help_text=_("Save filtered data?"),
-        default=True,
-    )
     significant_trade_filter = models.PositiveIntegerField(
         _("significant trade filter"),
         help_text=_(
@@ -42,8 +37,6 @@ class Symbol(AbstractCodeName):
             symbol = symbol.replace(char, "")
         if self.exchange == Exchange.BITFINEX:
             return symbol[1:]  # API symbol prepended with t
-        # elif self.exchange == Exchange.UPBIT:
-        #     return symbol[3:] + symbol[:3]  # Reversed
         return symbol
 
     @property

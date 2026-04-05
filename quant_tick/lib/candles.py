@@ -250,64 +250,51 @@ def _aggregate_realized_variance(df: DataFrame) -> dict:
 
 def validate_aggregated_candles(
     aggregated_candles: DataFrame, exchange_candles: DataFrame
-) -> tuple[DataFrame, bool | None]:
+) -> bool | None:
     """Validate data_frame with candles from Exchange API."""
+    if not len(exchange_candles):
+        return None
+
+    if "notional" in exchange_candles.columns:
+        key = "notional"
+    elif "volume" in exchange_candles.columns:
+        key = "volume"
+    else:
+        raise NotImplementedError
+
     ok = None
-    aggregated_candles["validated"] = pd.Series()
-    if len(exchange_candles):
-        if "notional" in exchange_candles.columns:
-            key = "notional"
-        elif "volume" in exchange_candles.columns:
-            key = "volume"
-        else:
-            raise NotImplementedError
-        k = key.title()
-        exchange_key = f"exchange{k}"
-        if len(aggregated_candles):
-            aggregated_candles.insert(
-                aggregated_candles.columns.get_loc(key), exchange_key, pd.Series()
-            )
-            for row in aggregated_candles.itertuples():
-                timestamp = row.Index
-                try:
-                    candle = exchange_candles.loc[timestamp]
-                # Candle may be missing from API result.
-                except KeyError:
-                    pass
-                else:
-                    value = getattr(candle, key)
-                    if isinstance(value, int):
-                        value = Decimal(value)
-                    aggregated_candles.at[row.Index, exchange_key] = value
-                    aggregated_candles.at[row.Index, "validated"] = is_decimal_close(
-                        getattr(row, key), value
-                    )
-            all_true = all(aggregated_candles.validated.eq(True))
-            some_false = any(aggregated_candles.validated.eq(False))
-            some_none = any(aggregated_candles.validated.isna())
-            if all_true:
-                ok = True
-            elif some_false or some_none:
-                if some_false:
-                    ok = False
-                else:
-                    ok = None
+    if len(aggregated_candles):
+        missing_exchange_rows = False
+        has_false = False
+        for row in aggregated_candles.itertuples():
+            timestamp = row.Index
+            try:
+                candle = exchange_candles.loc[timestamp]
+            # Candle may be missing from API result.
+            except KeyError:
+                missing_exchange_rows = True
             else:
-                raise NotImplementedError
-
-        elif exchange_candles[key].sum() == 0:
+                value = getattr(candle, key)
+                if isinstance(value, int):
+                    value = Decimal(value)
+                if not is_decimal_close(getattr(row, key), value):
+                    has_false = True
+        if has_false:
+            ok = False
+        elif missing_exchange_rows:
+            ok = None
+        else:
             ok = True
+    elif exchange_candles[key].sum() == 0:
+        ok = True
 
-        if ok in (True, None):
-            # Maybe candle with no volume or notional.
-            missing = exchange_candles.index.difference(aggregated_candles.index)
-            if len(missing):
-                # If missing candles have volume or notional, then ok should be False.
-                # Maybe validates on retry.
-                if (
-                    exchange_candles[exchange_candles.index.isin(missing)][key].sum()
-                    != 0
-                ):
-                    ok = False
+    if ok in (True, None):
+        # Maybe candle with no volume or notional.
+        missing = exchange_candles.index.difference(aggregated_candles.index)
+        if len(missing):
+            # If missing candles have volume or notional, then ok should be False.
+            # Maybe validates on retry.
+            if exchange_candles.loc[missing, key].sum() != 0:
+                ok = False
 
-    return aggregated_candles, ok
+    return ok
