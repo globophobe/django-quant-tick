@@ -8,7 +8,7 @@ from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import TruncDate
 
-from quant_tick.constants import ZERO, FileData, Frequency
+from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
     aggregate_candle,
     get_existing,
@@ -165,13 +165,7 @@ def convert_trade_data(
     assert frequency in (Frequency.HOUR, Frequency.DAY)
     first = trade_data.first()
 
-    new_trade_data = TradeData.objects.create(
-        symbol=first.symbol,
-        timestamp=first.timestamp,
-        uid=first.uid,
-        frequency=frequency,
-        ok=all(trade_data.values_list("ok", flat=True)),
-    )
+    prepared_files = {}
     candle_df = None
     for file_data in FileData:
         data_frames = {
@@ -196,46 +190,39 @@ def convert_trade_data(
             actual = data_frame[key].sum()
             assert is_decimal_close(expected, actual)
 
-            # First, delete minutes, as naming convention is same as hourly or daily.
-            for t in trade_data:
-                getattr(t, file_data).delete()
-
-            # FIXME: round columns
-            # if file_data != FileData.CANDLE:
-            #     data_frame.reset_index(inplace=True)
             # Next, create hourly or daily.
-            if file_data == FileData.CANDLE:
-                # Ensure consistent Decimal types for round* columns.
-                for col in (
-                    "roundVolume",
-                    "roundBuyVolume",
-                    "roundNotional",
-                    "roundBuyNotional",
-                ):
-                    if col in data_frame.columns:
-                        data_frame[col] = data_frame[col].apply(
-                            lambda x: ZERO if x == 0 else x
-                        )
-            else:
+            if file_data != FileData.CANDLE:
                 data_frame.reset_index(inplace=True)
 
             if len(data_frame):
-                setattr(
-                    new_trade_data,
-                    file_data,
-                    TradeData.prepare_data(data_frame),
-                )
-                new_trade_data.save()
-                if file_data in (FileData.RAW, FileData.AGGREGATED, FileData.FILTERED):
+                prepared_files[file_data] = TradeData.prepare_data(data_frame)
+                if file_data in (
+                    FileData.RAW,
+                    FileData.AGGREGATED,
+                    FileData.FILTERED,
+                ):
                     candle_df = data_frame
 
+    json_data = None
     if candle_df is not None:
         candle = aggregate_candle(candle_df)
-        new_trade_data.json_data = {"candle": candle}
+        json_data = {"candle": candle}
+
+    with transaction.atomic():
+        new_trade_data = TradeData.objects.create(
+            symbol=first.symbol,
+            timestamp=first.timestamp,
+            uid=first.uid,
+            frequency=frequency,
+            ok=all(trade_data.values_list("ok", flat=True)),
+        )
+        for file_data, prepared in prepared_files.items():
+            setattr(new_trade_data, file_data, prepared)
+        new_trade_data.json_data = json_data
         new_trade_data.save()
 
-    # Completely delete minutes.
-    trade_data.delete()
+        # Completely delete minutes after the new higher-frequency row is ready.
+        trade_data.delete()
 
     logging.info(
         _("Converted {timestamp_from} {timestamp_to} to {frequency}").format(

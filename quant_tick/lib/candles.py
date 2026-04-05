@@ -8,12 +8,56 @@ from pandas import DataFrame
 from .aggregate import filter_by_timestamp
 from .calendar import iter_window
 from .dataframe import is_decimal_close
-from .experimental import calc_notional_exponent, calc_volume_exponent
 
 ZERO = Decimal("0")
-DISTRIBUTION_ORIGIN = 1.0
-DISTRIBUTION_STEP = 0.001
-LOG_STEP = np.log1p(DISTRIBUTION_STEP)
+
+
+def calc_volume_exponent(
+    volume: int | Decimal, divisor: int = 10, decimal_places: int = 1
+) -> int:
+    """Calculate volume exponent.
+
+    Returns power of divisor if volume is a round integer (i.e. 100, 1000, 10000)
+    """
+    if not volume:
+        return 0
+
+    if volume % 1 != 0:
+        return 0
+
+    volume = int(volume)
+
+    if volume % (divisor**decimal_places) == 0:
+        decimal_places += 1
+        while volume % (divisor**decimal_places) == 0:
+            decimal_places += 1
+        return decimal_places - 1
+
+    return 0
+
+
+def calc_notional_exponent(
+    notional: Decimal, divisor: Decimal = Decimal("0.1"), decimal_places: int = 1
+) -> int:
+    """Calculate notional exponent.
+
+    Returns power of divisor if notional is a round decimal (i.e. 1.0, 10.5, 100.0)
+    """
+    if not notional:
+        return 0
+
+    check_divisor = divisor * (Decimal("10") ** (decimal_places - 1))
+    if notional % check_divisor == 0:
+        decimal_places += 1
+        while True:
+            check_divisor = divisor * (Decimal("10") ** (decimal_places - 1))
+            if notional % check_divisor == 0:
+                decimal_places += 1
+            else:
+                break
+        return decimal_places - 1
+
+    return 0
 
 
 def candles_to_data_frame(
@@ -42,13 +86,22 @@ def aggregate_candles(
     timestamp_to: datetime,
     window: str = "1min",
     as_data_frame: bool = True,
+    min_notional_exponent: int = 1,
+    round_volume: bool = False,
+    round_notional: bool = False,
 ) -> list[dict]:
     """Aggregate candles"""
     data = []
     for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, window):
         df = filter_by_timestamp(data_frame, ts_from, ts_to)
         if len(df):
-            candle = aggregate_candle(df, timestamp=ts_from)
+            candle = aggregate_candle(
+                df,
+                timestamp=ts_from,
+                min_notional_exponent=min_notional_exponent,
+                round_volume=round_volume,
+                round_notional=round_notional,
+            )
             data.append(candle)
         else:
             d = {"timestamp": ts_from}
@@ -77,18 +130,23 @@ def aggregate_candle(
     timestamp: datetime | None = None,
     min_volume_exponent: int = 2,
     min_notional_exponent: int = 1,
-    distribution_stats: bool = False,
+    round_volume: bool = False,
+    round_notional: bool = False,
 ) -> dict:
     """Aggregate candle."""
     ts = timestamp if timestamp else data_frame.iloc[0].timestamp
     data = {"timestamp": ts}
     data.update(_aggregate_ohlc(data_frame))
     data.update(
-        _aggregate_totals(data_frame, min_volume_exponent, min_notional_exponent)
+        _aggregate_totals(
+            data_frame,
+            min_volume_exponent,
+            min_notional_exponent,
+            round_volume=round_volume,
+            round_notional=round_notional,
+        )
     )
     data.update(_aggregate_realized_variance(data_frame))
-    if distribution_stats:
-        data["distribution"] = _aggregate_distribution(data_frame)
     return data
 
 
@@ -113,6 +171,8 @@ def _aggregate_totals(
     df: DataFrame,
     min_volume_exponent: int = 2,
     min_notional_exponent: int = 1,
+    round_volume: bool = False,
+    round_notional: bool = False,
 ) -> dict:
     """Aggregate volume, notional, ticks, and round fields."""
     data = {}
@@ -137,22 +197,36 @@ def _aggregate_totals(
         else:
             data["ticks"] = len(df)
             data["buyTicks"] = int(is_buy.sum())
-    # Round volume
-    volume_exps = df.volume.apply(calc_volume_exponent)
-    is_round_volume = volume_exps >= min_volume_exponent
-    round_vol = df.loc[is_round_volume]
-    round_buy_vol = df.loc[is_round_volume & is_buy]
-    data["roundVolume"] = round_vol.volume.sum() if len(round_vol) else ZERO
-    data["roundBuyVolume"] = round_buy_vol.volume.sum() if len(round_buy_vol) else ZERO
-    # Round notional
-    notional_exps = df.notional.apply(calc_notional_exponent)
-    is_round_notional = notional_exps >= min_notional_exponent
-    round_not = df.loc[is_round_notional]
-    round_buy_not = df.loc[is_round_notional & is_buy]
-    data["roundNotional"] = round_not.notional.sum() if len(round_not) else ZERO
-    data["roundBuyNotional"] = (
-        round_buy_not.notional.sum() if len(round_buy_not) else ZERO
-    )
+    if round_volume:
+        volume_exps = df.volume.apply(calc_volume_exponent)
+        is_round_volume = volume_exps >= min_volume_exponent
+        round_vol = df.loc[is_round_volume]
+        round_buy_vol = df.loc[is_round_volume & is_buy]
+        data["roundVolume"] = round_vol.volume.sum() if len(round_vol) else ZERO
+        data["roundBuyVolume"] = (
+            round_buy_vol.volume.sum() if len(round_buy_vol) else ZERO
+        )
+        data["roundVolumeSumNotional"] = (
+            round_vol.notional.sum() if len(round_vol) else ZERO
+        )
+        data["roundBuyVolumeSumNotional"] = (
+            round_buy_vol.notional.sum() if len(round_buy_vol) else ZERO
+        )
+    if round_notional:
+        notional_exps = df.notional.apply(calc_notional_exponent)
+        is_round_notional = notional_exps >= min_notional_exponent
+        round_not = df.loc[is_round_notional]
+        round_buy_not = df.loc[is_round_notional & is_buy]
+        data["roundNotional"] = round_not.notional.sum() if len(round_not) else ZERO
+        data["roundBuyNotional"] = (
+            round_buy_not.notional.sum() if len(round_buy_not) else ZERO
+        )
+        data["roundNotionalSumVolume"] = (
+            round_not.volume.sum() if len(round_not) else ZERO
+        )
+        data["roundBuyNotionalSumVolume"] = (
+            round_buy_not.volume.sum() if len(round_buy_not) else ZERO
+        )
     return data
 
 
@@ -172,57 +246,6 @@ def _aggregate_realized_variance(df: DataFrame) -> dict:
         return {"realizedVariance": Decimal(str((log_returns**2).sum()))}
 
     return {"realizedVariance": ZERO}
-
-
-def _aggregate_distribution(df: DataFrame) -> dict:
-    """Aggregate price distribution using multiplicative percent scaling."""
-    if df.empty:
-        return {}
-
-    price_col = "price" if "price" in df.columns else "close"
-    prices = df[price_col].values.astype(float)
-    levels = np.floor(np.log(prices / DISTRIBUTION_ORIGIN) / LOG_STEP).astype(np.int64)
-
-    df = df.copy()
-    df["_level"] = levels
-
-    distribution = {}
-    has_totals = "totalVolume" in df.columns
-
-    for level, g in df.groupby("_level"):
-        is_buy = g["tickRule"] == 1
-
-        if has_totals:
-            data = {
-                "ticks": int(g["totalTicks"].sum()),
-                "buyTicks": (
-                    int(g.loc[is_buy, "totalBuyTicks"].sum()) if is_buy.any() else 0
-                ),
-                "volume": g["totalVolume"].sum(),
-                "buyVolume": (
-                    g.loc[is_buy, "totalBuyVolume"].sum() if is_buy.any() else ZERO
-                ),
-                "notional": g["totalNotional"].sum(),
-                "buyNotional": (
-                    g.loc[is_buy, "totalBuyNotional"].sum() if is_buy.any() else ZERO
-                ),
-            }
-        else:
-            data = {
-                "ticks": len(g),
-                "buyTicks": int(is_buy.sum()),
-                "volume": g["volume"].sum(),
-                "buyVolume": g.loc[is_buy, "volume"].sum() if is_buy.any() else ZERO,
-                "notional": g["notional"].sum(),
-                "buyNotional": (
-                    g.loc[is_buy, "notional"].sum() if is_buy.any() else ZERO
-                ),
-            }
-
-        if data["notional"] > 0 or data["volume"] > 0:
-            distribution[str(int(level))] = data
-
-    return distribution
 
 
 def validate_aggregated_candles(

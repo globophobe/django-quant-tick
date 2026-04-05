@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from functools import partial
 
@@ -38,7 +38,7 @@ def get_coinbase_candle_pagination_id(
 
 def get_coinbase_candle_timestamp(candle: list) -> datetime:
     """Get Coinbase candle timestamp."""
-    return datetime.fromtimestamp(candle[0]).replace(tzinfo=timezone.utc)
+    return datetime.fromtimestamp(candle[0]).replace(tzinfo=UTC)
 
 
 def coinbase_candles(
@@ -65,7 +65,7 @@ def coinbase_candles(
     )
     c = [
         {
-            "timestamp": datetime.fromtimestamp(candle[0]).replace(tzinfo=timezone.utc),
+            "timestamp": datetime.fromtimestamp(candle[0]).replace(tzinfo=UTC),
             "open": Decimal(str(candle[3])),
             "high": Decimal(str(candle[2])),
             "low": Decimal(str(candle[1])),

@@ -25,6 +25,8 @@ from .calendar import (
 from .candles import (
     aggregate_candle,
     aggregate_candles,
+    calc_notional_exponent,
+    calc_volume_exponent,
     candles_to_data_frame,
     validate_aggregated_candles,
 )
@@ -37,7 +39,6 @@ from .dataframe import (
     set_type_decimal,
 )
 from .download import gzip_downloader, zip_downloader
-from .experimental import calc_notional_exponent, calc_volume_exponent
 
 __all__ = [
     "aggregate_candle",

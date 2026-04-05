@@ -1,10 +1,11 @@
 import logging
+import re
 from collections.abc import Generator, Iterator
 from datetime import datetime
 from decimal import Decimal
 
 import pandas as pd
-from django.db import models
+from django.db import models, transaction
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
@@ -20,34 +21,15 @@ from quant_tick.lib import (
 )
 from quant_tick.utils import gettext_lazy as _
 
-from .base import AbstractCodeName, JSONField
+from .base import AbstractCodeName, BigDecimalField, JSONField
 from .trades import TradeData
 
 logger = logging.getLogger(__name__)
 
 
-class CacheResetMixin:
-    """Mixin for candles that support cache reset and sequential aggregation."""
-
-    def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
-        """Get cache data."""
-        if self.should_reset_cache(timestamp, data):
-            data = self.get_initial_cache(timestamp)
-        return data
-
-    def should_reset_cache(self, timestamp: datetime, data: dict) -> bool:
-        """Should reset cache."""
-        date = timestamp.date()
-        cache_date = data.get("date")
-        cache_reset = self.json_data.get("cache_reset")
-        is_daily_reset = cache_reset == Frequency.DAY
-        is_weekly_reset = cache_reset == Frequency.WEEK and date.weekday() == 0
-        if cache_date:
-            is_same_day = cache_date == date
-            if not is_same_day:
-                if is_daily_reset or is_weekly_reset:
-                    return True
-        return False
+def camel_to_snake(value: str) -> str:
+    """Convert camelCase to snake_case."""
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", value).lower()
 
 
 class Candle(AbstractCodeName, PolymorphicModel):
@@ -160,8 +142,13 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
     def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
         """On retry."""
-        CandleCache.objects.filter(candle=self, timestamp__gte=timestamp_from).delete()
-        CandleData.objects.filter(candle=self, timestamp__gte=timestamp_from).delete()
+        with transaction.atomic():
+            CandleCache.objects.filter(
+                candle=self, timestamp__gte=timestamp_from
+            ).delete()
+            CandleData.objects.filter(
+                candle=self, timestamp__gte=timestamp_from
+            ).delete()
 
     def iter_all(
         self, timestamp_from: datetime, timestamp_to: datetime
@@ -185,6 +172,12 @@ class Candle(AbstractCodeName, PolymorphicModel):
                 obj_to = obj.timestamp + pd.Timedelta(f"{obj.frequency}min")
                 # Stop on gap between TradeData
                 if prev_end is not None and obj_from != prev_end:
+                    logger.warning(
+                        "Candle %s stopped on TradeData gap: expected next timestamp %s but found %s",
+                        self,
+                        prev_end,
+                        obj_from,
+                    )
                     break
                 prev_end = obj_to
                 # Clamp to requested range
@@ -230,7 +223,9 @@ class Candle(AbstractCodeName, PolymorphicModel):
         return aggregate_candle(
             df,
             timestamp=timestamp,
-            distribution_stats=self.json_data.get("distribution_stats", False),
+            min_notional_exponent=int(self.json_data.get("min_notional_exponent", 1)),
+            round_volume=self.json_data.get("round_volume", False),
+            round_notional=self.json_data.get("round_notional", False),
         )
 
     def _merge_cache(self, prev: dict, curr: dict) -> dict:
@@ -244,7 +239,13 @@ class Candle(AbstractCodeName, PolymorphicModel):
         timestamp: datetime | None = None,
     ) -> dict:
         """Cache incomplete candle. Override to include bucket stats."""
-        return get_next_cache(df, cache_data, timestamp=timestamp)
+        return get_next_cache(
+            df,
+            cache_data,
+            timestamp=timestamp,
+            round_volume=self.json_data.get("round_volume", False),
+            round_notional=self.json_data.get("round_notional", False),
+        )
 
     def write_cache(
         self,
@@ -257,16 +258,17 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
         Delete previously saved data.
         """
-        queryset = CandleCache.objects.filter(
-            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
-        )
-        queryset.delete()
-        delta = timestamp_to - timestamp_from
-        # FIXME: Can't define every value in constants.
-        frequency = delta.total_seconds() / 60
-        CandleCache.objects.create(
-            candle=self, timestamp=timestamp_from, frequency=frequency, json_data=data
-        )
+        with transaction.atomic():
+            queryset = CandleCache.objects.filter(
+                candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+            )
+            queryset.delete()
+            delta = timestamp_to - timestamp_from
+            # FIXME: Can't define every value in constants.
+            frequency = delta.total_seconds() / 60
+            CandleCache.objects.create(
+                candle=self, timestamp=timestamp_from, frequency=frequency, json_data=data
+            )
 
     def write_data(
         self, timestamp_from: datetime, timestamp_to: datetime, json_data: list[dict]
@@ -275,16 +277,14 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
         Delete previously saved data.
         """
-        CandleData.objects.filter(
-            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
-        ).delete()
-        data = []
-        for j in json_data:
-            timestamp = j.pop("timestamp")
-            kwargs = {"timestamp": timestamp, "json_data": j}
-            c = CandleData(candle=self, **kwargs)
-            data.append(c)
-        CandleData.objects.bulk_create(data)
+        with transaction.atomic():
+            CandleData.objects.filter(
+                candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+            ).delete()
+            data = []
+            for j in json_data:
+                data.append(CandleData.objects.from_data(self, j))
+            CandleData.objects.bulk_create(data)
 
     def get_candle_data(
         self,
@@ -300,23 +300,28 @@ class Candle(AbstractCodeName, PolymorphicModel):
             queryset = queryset.filter(timestamp__lt=timestamp_to)
         queryset = queryset.order_by("timestamp")
 
-        for idx, obj in enumerate(queryset.iterator(chunk_size=10000)):
+        for obj in queryset.iterator(chunk_size=10000):
+            payload = {}
+            for field_name in CandleData.DATA_FIELDS:
+                value = getattr(obj, field_name)
+                if field_name == "incomplete":
+                    if value:
+                        payload[field_name] = True
+                    continue
+                if value is not None:
+                    payload[field_name] = value
+            if obj.extra_data:
+                payload.update(obj.extra_data)
             yield {
                 "timestamp": obj.timestamp,
-                "candle_data_id": obj.pk,
-                "bar_index": idx,
-                **obj.json_data,
+                **payload,
             }
 
     def process_data_frame(self, df: DataFrame) -> DataFrame:
         """Process data frame - convert Decimal columns to float."""
         if df.empty:
             return df
-        numeric_cols = []
-        for col in ["open", "high", "low", "close", "volume", "buyVolume", "notional"]:
-            if col in df.columns:
-                numeric_cols.append(col)
-        for col in numeric_cols:
+        for col in df.columns:
             if df[col].dtype == object:
                 df[col] = df[col].apply(
                     lambda x: float(x) if isinstance(x, Decimal) else x
@@ -347,14 +352,64 @@ class CandleCache(models.Model):
         verbose_name = verbose_name_plural = _("candle cache")
 
 
+class CandleDataManager(models.Manager):
+    """Manager for constructing candle rows from aggregated data."""
+
+    def from_data(self, candle: Candle, data: dict) -> "CandleData":
+        """Build candle data row from aggregated candle data."""
+        remaining = dict(data)
+        kwargs = {
+            "candle": candle,
+            "timestamp": remaining.pop("timestamp"),
+            "extra_data": {},
+        }
+        for key in list(remaining):
+            field_name = camel_to_snake(key)
+            if field_name in self.model.DATA_FIELDS:
+                kwargs[field_name] = remaining.pop(key)
+        if remaining:
+            kwargs["extra_data"] = remaining
+        return self.model(**kwargs)
+
+
 class CandleData(models.Model):
     """Candle data."""
+
+    DATA_FIELDS = (
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "buy_volume",
+        "notional",
+        "buy_notional",
+        "ticks",
+        "buy_ticks",
+        "realized_variance",
+        "incomplete",
+    )
 
     candle = models.ForeignKey(
         "quant_tick.Candle", on_delete=models.CASCADE, verbose_name=_("candle")
     )
     timestamp = models.DateTimeField(_("timestamp"), db_index=True)
-    json_data = JSONField(_("json data"), default=dict)
+    open = BigDecimalField(_("open"), null=True, blank=True)
+    high = BigDecimalField(_("high"), null=True, blank=True)
+    low = BigDecimalField(_("low"), null=True, blank=True)
+    close = BigDecimalField(_("close"), null=True, blank=True)
+    volume = BigDecimalField(_("volume"))
+    buy_volume = BigDecimalField(_("buy volume"))
+    notional = BigDecimalField(_("notional"))
+    buy_notional = BigDecimalField(_("buy notional"))
+    ticks = models.PositiveIntegerField(_("ticks"))
+    buy_ticks = models.PositiveIntegerField(_("buy ticks"))
+    realized_variance = BigDecimalField(
+        _("realized variance"),
+    )
+    incomplete = models.BooleanField(_("incomplete"), default=False)
+    extra_data = JSONField(_("extra data"), default=dict)
+    objects = CandleDataManager()
 
     class Meta:
         db_table = "quant_tick_candle_data"

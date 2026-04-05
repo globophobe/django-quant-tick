@@ -4,12 +4,13 @@ from decimal import Decimal
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.constants import Frequency
 from quant_tick.utils import gettext_lazy as _
 
-from ..candles import CacheResetMixin, Candle
+from ..candles import Candle
 
 
-class ConstantCandle(CacheResetMixin, Candle):
+class ConstantCandle(Candle):
     """Fixed-threshold bars that close after accumulating a constant amount of activity.
 
     These bars close when a specific measure of market activity hits a fixed threshold.
@@ -39,6 +40,25 @@ class ConstantCandle(CacheResetMixin, Candle):
             cache["date"] = timestamp.date()
         cache["sample_value"] = 0
         return cache
+
+    def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
+        """Reset cache when configured day/week boundaries are crossed."""
+        if self.should_reset_cache(timestamp, data):
+            data = self.get_initial_cache(timestamp)
+        return data
+
+    def should_reset_cache(self, timestamp: datetime, data: dict) -> bool:
+        """Should reset cache."""
+        date = timestamp.date()
+        cache_date = data.get("date")
+        cache_reset = self.json_data.get("cache_reset")
+        is_daily_reset = cache_reset == Frequency.DAY
+        is_weekly_reset = cache_reset == Frequency.WEEK and date.weekday() == 0
+        if cache_date:
+            is_same_day = cache_date == date
+            if not is_same_day and (is_daily_reset or is_weekly_reset):
+                return True
+        return False
 
     def aggregate(
         self,
@@ -100,6 +120,7 @@ class ConstantCandle(CacheResetMixin, Candle):
             if "next" in cache_data:
                 candle = cache_data.pop("next")
                 candle["incomplete"] = True
+                data.append(candle)
         return data, cache_data
 
     class Meta:

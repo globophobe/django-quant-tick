@@ -21,15 +21,13 @@ class Exchange(models.TextChoices):
     BITFINEX = "bitfinex", "Bitfinex"
     BITMEX = "bitmex", "BitMEX"
     COINBASE = "coinbase", "Coinbase"
-    DRIFT = "drift", "Drift"
-    HYPERLIQUID = "hyperliquid", "Hyperliquid"
 
 
-class SymbolType(models.TextChoices):
-    """Symbol type."""
+class TaskType(models.TextChoices):
+    """Task type."""
 
-    SPOT = "spot", _("spot")
-    PERP = "perp", _("perp")
+    AGGREGATE_TRADES = "aggregate_trades", "Aggregate trades"
+    AGGREGATE_CANDLES = "aggregate_candles", "Aggregate candles"
 
 
 class SampleType(models.TextChoices):

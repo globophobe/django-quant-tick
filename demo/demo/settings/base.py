@@ -10,10 +10,9 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.0/ref/settings/
 """
 
+import os
 import sys
 from pathlib import Path
-
-from decouple import config
 
 TEST = "test" in sys.argv
 
@@ -24,14 +23,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config("SECRET_KEY")
+SECRET_KEY = os.environ.get("SECRET_KEY", "development-secret-key")
 
 # Application definition
 
 INSTALLED_APPS = [
-    "semantic_forms",
-    "semantic_admin",
-    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -41,8 +37,6 @@ INSTALLED_APPS = [
     "django.contrib.postgres",
     # 3rd party
     "polymorphic",
-    "rest_framework",
-    "whitenoise",
     # Main
     "demo",
     "quant_tick",
@@ -50,8 +44,6 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    # Whitenoise for static
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     # For internationalization
     "django.middleware.locale.LocaleMiddleware",
@@ -94,14 +86,6 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
-
-# REST Framework
-
-REST_FRAMEWORK = {
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
-    ]
-}
 
 
 # Internationalization

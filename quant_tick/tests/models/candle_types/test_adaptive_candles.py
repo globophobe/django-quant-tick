@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pandas as pd
 from django.test import TestCase
 
@@ -24,7 +26,11 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
                 "cache_reset": Frequency.DAY,
             },
         )
-        filtered = self.get_filtered(one_day_ago, price=1, notional=123)
+        filtered = self.get_filtered(
+            one_day_ago,
+            price=Decimal("1"),
+            notional=Decimal("123"),
+        )
         trade_data = TradeData.objects.create(
             symbol=symbol, timestamp=one_day_ago, frequency=Frequency.DAY
         )

@@ -1,41 +1,65 @@
-[tool.poetry]
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
 name = "django-quant-tick"
 version = "0.1.4"
 description = "Django Quant Tick aggregates candlesticks from high frequency tick data from S3 and REST APIs"
-authors = ["Alex <globophobe@gmail.com>"]
 readme = "README.md"
-license = "MIT"
-homepage = "https://github.com/globophobe/django-quant-tick"
-repository = "https://github.com/globophobe/django-quant-tick"
-keywords = ["django", "cryptocurrency", "candlesticks", "quant", "trading", "trading-strategies", "binance", "bitfinex", "bitmex", "coinbase"]
-classifiers = ["Development Status :: 4 - Beta", "Operating System :: OS Independent"]
-packages = [{ include = "quant_tick" }]
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Alex", email = "globophobe@gmail.com" }]
+keywords = [
+    "django",
+    "cryptocurrency",
+    "candlesticks",
+    "quant",
+    "trading",
+    "trading-strategies",
+    "binance",
+    "bitfinex",
+    "bitmex",
+    "coinbase",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "django>=4.2",
+    "django-polymorphic>=3.1.0",
+    "httpx>=0.28.1",
+    "pandas>=2.2.3",
+    "pyarrow>=18.1.0",
+    "randomname>=0.2.1",
+]
 
-[tool.poetry.dependencies]
-python = ">=3.10"
-django-polymorphic = "*"
-djangorestframework = "*"
-httpx = "*"
-pandas = "*"
-pyarrow = "*"
-randomname = "*"
+[project.urls]
+Homepage = "https://github.com/globophobe/django-quant-tick"
+Repository = "https://github.com/globophobe/django-quant-tick"
 
-[tool.poetry.dev-dependencies]
-coverage = "*"
-django-filter = "*"
-django-semantic-admin = "*"
-django-semantic-forms = "*"
-django-storages = {version = "*", extras = ["google"]}
-gunicorn = "*"
-invoke = "*"
-ipython = "*"
-psycopg2-binary = "*"
-python-decouple = "*"
-ruff = "*"
-sentry-sdk = "*"
-setuptools = "*"
-time-machine = "*"
-whitenoise = "*"
+[tool.hatch.build.targets.wheel]
+packages = ["quant_tick"]
+
+[dependency-groups]
+deploy = [
+    "django-storages[google]>=1.14.6",
+    "gunicorn>=23.0.0",
+    "psycopg2-binary>=2.9.10",
+    "sentry-sdk>=2.39.0",
+]
+dev = [
+    "coverage>=7.11.0",
+    "invoke>=2.2.1",
+    "ipython>=9.6.0",
+    "psycopg2-binary>=2.9.10",
+    "ruff>=0.15.2",
+    "time-machine>=2.19.0",
+]
+
+[tool.uv]
+exclude-newer = "P3D"
 
 [tool.ruff]
 exclude = [
@@ -44,7 +68,7 @@ exclude = [
     "migrations",
 ]
 line-length = 88
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 ignore = [
@@ -100,7 +124,3 @@ unfixable = ["F401", "F841"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["quant_tick"]
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"

@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import pandas as pd
+from django.db import transaction
 from pandas import DataFrame
 
 from quant_tick.constants import Frequency
@@ -86,6 +87,7 @@ class TimeBasedCandle(Candle):
 
         return data, cache_data
 
+    @transaction.atomic
     def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
         """On retry."""
         CandleCache.objects.filter(

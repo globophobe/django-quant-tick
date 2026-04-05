@@ -23,7 +23,7 @@ def use_s3() -> datetime:
     """Use S3."""
     date = get_current_time().date() - pd.Timedelta("2d")
     return datetime.datetime.combine(date, datetime.time.min).replace(
-        tzinfo=datetime.timezone.utc
+        tzinfo=datetime.UTC
     )
 
 

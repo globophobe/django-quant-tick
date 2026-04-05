@@ -4,7 +4,6 @@ import time
 from datetime import datetime, timedelta
 
 import httpx
-from decouple import config
 
 from quant_tick.controllers import HTTPX_ERRORS
 from quant_tick.lib import get_current_time
@@ -37,7 +36,7 @@ def get_binance_api_response(
 ) -> list[dict]:
     """Get Binance API response."""
     try:
-        headers = {"X-MBX-APIKEY": config(BINANCE_API_KEY)}
+        headers = {"X-MBX-APIKEY": os.environ[BINANCE_API_KEY]}
         url = get_api_url(
             base_url, timestamp_from=timestamp_from, pagination_id=pagination_id
         )

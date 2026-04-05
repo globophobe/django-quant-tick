@@ -1,11 +1,10 @@
 import json
 import os
-import re
 import tempfile
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
-from decouple import config
 from invoke import task
 
 
@@ -61,8 +60,8 @@ def migrate(ctx: Any) -> None:
 @task
 def start_proxy(ctx: Any) -> None:
     """Start proxy."""
-    host = config("PRODUCTION_DATABASE_HOST")
-    port = config("PROXY_DATABASE_PORT")
+    host = os.environ["PRODUCTION_DATABASE_HOST"]
+    port = os.environ["PROXY_DATABASE_PORT"]
     ctx.run(f"cloud-tools/cloud-sql-proxy {host} -p {port}")
 
 
@@ -86,9 +85,9 @@ def get_container_name(ctx: Any, name: str, region: str = "asia-northeast1") -> 
 
 
 def docker_secrets() -> str:
-    """Docker secrets."""
+    """Docker build args for the current deploy contract."""
     build_args = [
-        f'{secret}="{config(secret)}"'
+        f'{secret}="{os.environ[secret]}"'
         for secret in (
             "SECRET_KEY",
             "SENTRY_DSN",
@@ -108,21 +107,37 @@ def docker_secrets() -> str:
 
 def build_quant_tick(ctx: Any) -> str:
     """Build django-quant-tick."""
-    result = ctx.run("poetry build").stdout
-    return re.search(r"django_quant_tick-.*\.whl", result).group()
+    dist_dir = Path("dist")
+    if dist_dir.exists():
+        for wheel in dist_dir.glob("django_quant_tick-*.whl"):
+            wheel.unlink()
+    ctx.run("uv build --wheel")
+    wheels = sorted(dist_dir.glob("django_quant_tick-*.whl"))
+    if len(wheels) != 1:
+        raise RuntimeError(f"expected exactly one built wheel, found {len(wheels)}")
+    return wheels[0].name
 
 
 def build_container(
-    ctx: Any, name: str, suffix: str, region: str = "asia-northeast1"
+    ctx: Any, name: str, region: str = "asia-northeast1"
 ) -> None:
-    """Build container."""
+    """Build the API container."""
     wheel = build_quant_tick(ctx)
-    settings = django_settings(ctx, target="production")
-    with open(settings.BASE_DIR.parent.parent / "requirements.txt", "w") as f:
-        reqs = ctx.run("poetry export --format=requirements.txt").stdout
-        f.write(reqs)
+    repo_root = Path(__file__).resolve().parent.parent
+    requirements = repo_root / "requirements.txt"
+    ctx.run(
+        "uv export "
+        "--format requirements.txt "
+        "--group deploy "
+        "--no-header "
+        "--no-annotate "
+        "--no-editable "
+        "--no-hashes "
+        "--no-emit-project "
+        f"--output-file {requirements}"
+    )
     # Build
-    build_args = {"WHEEL": wheel, "POETRY_EXPORT": reqs}
+    build_args = {"WHEEL": wheel}
     build_args = " ".join(
         [f'--build-arg {key}="{value}"' for key, value in build_args.items()]
     )
@@ -133,16 +148,17 @@ def build_container(
                 "docker build",
                 build_args,
                 docker_secrets(),
-                f"--no-cache --file=docker/Dockerfile.{suffix} --tag={name} .",
+                "--no-cache --file=Dockerfile",
+                f"--tag={name} .",
             ]
         )
         ctx.run(cmd)
 
 
 @task
-def push_container(ctx: Any, suffix: str, hostname: str = "asia.gcr.io") -> None:
-    """Push container."""
-    name = get_container_name(ctx, suffix, hostname=hostname)
+def push_container(ctx: Any, name: str, region: str = "asia-northeast1") -> None:
+    """Push the API container."""
+    name = get_container_name(ctx, name, region=region)
     # Push
     cmd = f"docker push {name}"
     ctx.run(cmd)
@@ -167,11 +183,8 @@ def get_workflow(url: str, exchanges: list[str]) -> dict:
                                             "try": {
                                                 "call": "http.get",
                                                 "args": {
-                                                    "url": aggregate_trades,
+                                                    "url": f"{aggregate_trades}${{exchange}}/",
                                                     "auth": {"type": "OIDC"},
-                                                    "query": {
-                                                        "exchange": "${exchange}"
-                                                    },
                                                 },
                                             },
                                             "except": {"as": "e", "steps": []},
@@ -214,7 +227,7 @@ def push_rest_workflow(
     ctx: Any, name: str = "django-quant-tick-rest", location: str = "asia-northeast1"
 ) -> None:
     """Push REST workflow."""
-    url = f'https://{config("PRODUCTION_API_URL")}'
+    url = f'https://{os.environ["PRODUCTION_API_URL"]}'
     exchanges = ["binance", "bitfinex", "bitmex", "coinbase"]
     workflow = get_workflow(url, exchanges)
     push_workflow(ctx, name, workflow, location=location)

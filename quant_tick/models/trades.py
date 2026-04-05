@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.db.models import QuerySet
 from pandas import DataFrame
 
@@ -14,10 +14,9 @@ from quant_tick.lib import (
     aggregate_trades,
     filter_by_timestamp,
     get_existing,
-    get_missing,
-    get_next_time,
     has_timestamps,
     is_decimal_close,
+    iter_window,
     validate_aggregated_candles,
     volume_filter_with_time_window,
 )
@@ -90,6 +89,27 @@ class TradeDataQuerySet(QuerySet):
         )
         existing = get_existing(trade_data.values("timestamp", "frequency"))
         return has_timestamps(timestamp_from, timestamp_to, existing)
+
+    def cleanup(
+        self,
+        symbol: Symbol,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        frequency: Frequency,
+    ) -> None:
+        """Delete existing objects."""
+        queryset = self.filter(
+                symbol=symbol,
+                timestamp__gte=timestamp_from,
+                timestamp__lt=timestamp_to,
+                frequency=frequency,
+        )
+        objs = list(queryset)
+        with transaction.atomic():
+            queryset.delete()
+        for obj in objs:
+            for file_data in FileData:
+                getattr(obj, file_data).delete(save=False)
 
 
 class TradeData(AbstractDataStorage):
@@ -166,17 +186,12 @@ class TradeData(AbstractDataStorage):
         candles: DataFrame,
     ) -> None:
         """Write daily data."""
-        params = {
-            "symbol": symbol,
-            "timestamp": timestamp_from,
-            "frequency": Frequency.DAY,
-        }
-        try:
-            obj = cls.objects.get(**params)
-        except cls.DoesNotExist:
-            obj = cls(**params)
-        finally:
-            cls.write_data_frame(obj, trades, candles)
+        cls.objects.cleanup(symbol, timestamp_from, timestamp_to, Frequency.DAY)
+        cls.write_data_frame(
+            TradeData(symbol=symbol, timestamp=timestamp_from, frequency=Frequency.DAY),
+            trades,
+            candles,
+        )
 
     @classmethod
     def write_hour(
@@ -188,17 +203,12 @@ class TradeData(AbstractDataStorage):
         candles: DataFrame,
     ) -> None:
         """Write hourly data."""
-        params = {
-            "symbol": symbol,
-            "timestamp": timestamp_from,
-            "frequency": Frequency.HOUR,
-        }
-        try:
-            obj = cls.objects.get(**params)
-        except cls.DoesNotExist:
-            obj = cls(**params)
-        finally:
-            cls.write_data_frame(obj, trades, candles)
+        cls.objects.cleanup(symbol, timestamp_from, timestamp_to, Frequency.HOUR)
+        cls.write_data_frame(
+            TradeData(symbol=symbol, timestamp=timestamp_from, frequency=Frequency.HOUR),
+            trades,
+            candles,
+        )
 
     @classmethod
     def write_minutes(
@@ -210,31 +220,10 @@ class TradeData(AbstractDataStorage):
         candles: DataFrame,
     ) -> None:
         """Write minute data."""
-        queryset = cls.objects.filter(
-            symbol=symbol, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
-        )
-        existing = get_existing(queryset.values("timestamp", "frequency"))
-        timestamps = get_missing(timestamp_from, timestamp_to, existing)
-        existing = {
-            obj.timestamp: obj
-            for obj in cls.objects.filter(
-                symbol=symbol,
-                timestamp__in=timestamps,
-                frequency=Frequency.MINUTE,
-            )
-        }
-        for ts_from in timestamps:
-            ts_to = get_next_time(ts_from, "1min")
-            if ts_from in existing:
-                obj = existing[ts_from]
-            else:
-                obj = cls(
-                    symbol=symbol,
-                    timestamp=ts_from,
-                    frequency=Frequency.MINUTE,
-                )
+        for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value="1min"):
+            cls.objects.cleanup(symbol, ts_from, ts_to, Frequency.MINUTE)
             cls.write_data_frame(
-                obj,
+                TradeData(symbol=symbol, timestamp=ts_from, frequency=Frequency.MINUTE),
                 filter_by_timestamp(trades, ts_from, ts_to),
                 filter_by_timestamp(candles, ts_from, ts_to),
             )
@@ -244,32 +233,32 @@ class TradeData(AbstractDataStorage):
         cls, obj: "TradeData", trades: DataFrame, candles: DataFrame
     ) -> None:
         """Write data frame."""
-        # Delete previously saved data.
-        if obj.pk:
-            for file_data in FileData:
-                getattr(obj, file_data).delete()
-
-        # Set TradeData.uid as first uid.
-        if len(trades):
-            obj.uid = trades.iloc[0].uid
+        uid = ""
+        json_data = None
+        raw_data = None
+        aggregated_data = None
+        filtered_data = None
+        candle_data = None
 
         # Are there any trades?
         aggregated_candles = pd.DataFrame([])
         if len(trades):
+            # Set TradeData.uid as first uid.
+            uid = trades.iloc[0].uid
             symbol = obj.symbol
             if symbol.save_aggregated or symbol.save_filtered:
                 aggregated = aggregate_trades(trades)
                 filtered = aggregated
             if symbol.save_raw:
-                obj.raw_data = cls.prepare_data(trades)
+                raw_data = cls.prepare_data(trades)
             if symbol.save_aggregated:
-                obj.aggregated_data = cls.prepare_data(aggregated)
+                aggregated_data = cls.prepare_data(aggregated)
             if symbol.save_filtered:
                 if symbol.save_filtered and symbol.significant_trade_filter:
                     filtered = volume_filter_with_time_window(
                         aggregated, min_volume=symbol.significant_trade_filter
                     )
-                    obj.filtered_data = cls.prepare_data(filtered)
+                    filtered_data = cls.prepare_data(filtered)
             aggregated_candles = aggregate_candles(
                 trades,
                 obj.timestamp,
@@ -279,16 +268,24 @@ class TradeData(AbstractDataStorage):
                 aggregated_candles.notional.sum(), trades.notional.sum()
             )
 
-            obj.json_data = {"candle": aggregate_candle(trades)}
+            json_data = {"candle": aggregate_candle(trades)}
 
         aggregated_candles, ok = validate_aggregated_candles(
             aggregated_candles,
             candles,
         )
         if len(aggregated_candles):
-            obj.candle_data = cls.prepare_data(aggregated_candles)
-        obj.ok = ok
-        obj.save()
+            candle_data = cls.prepare_data(aggregated_candles)
+
+        with transaction.atomic():
+            obj.uid = uid
+            obj.json_data = json_data
+            obj.raw_data = raw_data
+            obj.aggregated_data = aggregated_data
+            obj.filtered_data = filtered_data
+            obj.candle_data = candle_data
+            obj.ok = ok
+            obj.save()
 
     class Meta:
         db_table = "quant_tick_trade_data"

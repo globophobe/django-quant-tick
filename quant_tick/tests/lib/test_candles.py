@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pandas as pd
@@ -9,36 +9,34 @@ from quant_tick.lib.candles import aggregate_candle
 
 
 class CandleTest(SimpleTestCase):
-    """Candle test."""
+    """Candle aggregation tests."""
 
     def get_data_frame(
         self,
         prices: list[float],
         volumes: list[float] | None = None,
         tick_rules: list[int] | None = None,
-        exchange: str | None = None,
     ) -> pd.DataFrame:
-        """Get data frame."""
+        """Build a trade-like data frame."""
         n = len(prices)
         volumes = volumes or [1.0] * n
         tick_rules = tick_rules or [1] * n
-        base_time = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        base_time = datetime(2024, 1, 1, tzinfo=UTC)
 
-        data = {
-            "timestamp": [base_time + pd.Timedelta(seconds=i) for i in range(n)],
-            "price": [Decimal(str(p)) for p in prices],
-            "volume": [Decimal(str(v)) for v in volumes],
-            "notional": [
-                Decimal(str(p * v)) for p, v in zip(prices, volumes, strict=True)
-            ],
-            "tickRule": tick_rules,
-        }
-        if exchange:
-            data["exchange"] = [exchange] * n
-        return pd.DataFrame(data)
+        return pd.DataFrame(
+            {
+                "timestamp": [base_time + pd.Timedelta(seconds=i) for i in range(n)],
+                "price": [Decimal(str(price)) for price in prices],
+                "volume": [Decimal(str(volume)) for volume in volumes],
+                "notional": [
+                    Decimal(str(price * volume))
+                    for price, volume in zip(prices, volumes, strict=True)
+                ],
+                "tickRule": tick_rules,
+            }
+        )
 
     def test_ohlc(self):
-        """OHLC."""
         df = self.get_data_frame(prices=[100, 105, 95, 102])
         result = aggregate_candle(df)
 
@@ -48,7 +46,6 @@ class CandleTest(SimpleTestCase):
         self.assertEqual(result["close"], Decimal("102"))
 
     def test_volume_aggregation(self):
-        """Volume aggregation."""
         df = self.get_data_frame(prices=[100, 100], volumes=[5, 10])
         result = aggregate_candle(df)
 
@@ -56,7 +53,6 @@ class CandleTest(SimpleTestCase):
         self.assertEqual(result["notional"], Decimal("1500"))
 
     def test_buy_volume_aggregation(self):
-        """Buy volume aggregation."""
         df = self.get_data_frame(
             prices=[100, 100, 100],
             volumes=[5, 10, 3],
@@ -65,10 +61,10 @@ class CandleTest(SimpleTestCase):
         result = aggregate_candle(df)
 
         self.assertEqual(result["volume"], Decimal("18"))
-        self.assertEqual(result["buyVolume"], Decimal("8"))  # 5 + 3
+        self.assertEqual(result["buyVolume"], Decimal("8"))
+        self.assertEqual(result["buyNotional"], Decimal("800"))
 
     def test_ticks_count(self):
-        """Tick count."""
         df = self.get_data_frame(prices=[100, 100, 100], tick_rules=[1, -1, 1])
         result = aggregate_candle(df)
 
@@ -76,104 +72,78 @@ class CandleTest(SimpleTestCase):
         self.assertEqual(result["buyTicks"], 2)
 
     def test_timestamp_from_first_row(self):
-        """Timestamp from first row."""
         df = self.get_data_frame(prices=[100, 101])
         result = aggregate_candle(df)
 
-        expected = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        self.assertEqual(result["timestamp"], expected)
+        self.assertEqual(result["timestamp"], datetime(2024, 1, 1, tzinfo=UTC))
 
     def test_timestamp_override(self):
-        """Timestamp override."""
         df = self.get_data_frame(prices=[100, 101])
-        custom_ts = datetime(2024, 6, 15, 12, 0, tzinfo=timezone.utc)
+        custom_ts = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
         result = aggregate_candle(df, timestamp=custom_ts)
 
         self.assertEqual(result["timestamp"], custom_ts)
 
     def test_realized_variance_single_trade(self):
-        """Realized variance single trade."""
         df = self.get_data_frame(prices=[100])
         result = aggregate_candle(df)
 
         self.assertEqual(result["realizedVariance"], Decimal("0"))
 
     def test_realized_variance_multiple_trades(self):
-        """Realized variance multiple trades."""
         df = self.get_data_frame(prices=[100, 110, 105])
         result = aggregate_candle(df)
 
         self.assertGreater(result["realizedVariance"], Decimal("0"))
 
     def test_round_volume_filtering(self):
-        """Round volume filtering."""
         df = self.get_data_frame(
             prices=[100, 100],
-            volumes=[100, 5],  # 100 is round, 5 is not
+            volumes=[100, 5],
             tick_rules=[1, 1],
         )
-        result = aggregate_candle(df, min_volume_exponent=2)
+        result = aggregate_candle(df, min_volume_exponent=2, round_volume=True)
 
-        self.assertEqual(result["volume"], Decimal("105"))
         self.assertEqual(result["roundVolume"], Decimal("100"))
+        self.assertEqual(result["roundBuyVolume"], Decimal("100"))
+        self.assertEqual(
+            result["roundVolumeSumNotional"],
+            Decimal("10000"),
+        )
+        self.assertEqual(
+            result["roundBuyVolumeSumNotional"],
+            Decimal("10000"),
+        )
 
-    def test_distribution_disabled_by_default(self):
-        """Distribution not included by default."""
-        df = self.get_data_frame(prices=[100, 100, 100], volumes=[1, 2, 3])
-        result = aggregate_candle(df)
-
-        self.assertNotIn("distribution", result)
-
-    def test_distribution_single_price_level(self):
-        """All trades at same price go to single level."""
-        df = self.get_data_frame(prices=[100, 100, 100], volumes=[1, 2, 3])
-        result = aggregate_candle(df, distribution_stats=True)
-
-        dist = result["distribution"]
-        self.assertEqual(len(dist), 1)
-        level = list(dist.values())[0]
-        self.assertEqual(level["ticks"], 3)
-        self.assertEqual(level["volume"], Decimal("6"))
-
-    def test_distribution_multiple_price_levels(self):
-        """Trades at different prices go to different levels."""
-        df = self.get_data_frame(prices=[100, 200], volumes=[1, 2])
-        result = aggregate_candle(df, distribution_stats=True)
-
-        dist = result["distribution"]
-        self.assertGreaterEqual(len(dist), 2)
-        total_ticks = sum(level["ticks"] for level in dist.values())
-        self.assertEqual(total_ticks, 2)
-
-    def test_distribution_buy_sell_split(self):
-        """Buy/sell volumes split correctly."""
+    def test_round_notional_filtering(self):
         df = self.get_data_frame(
-            prices=[100, 100, 100],
-            volumes=[5, 10, 3],
+            prices=[100, 100, 101],
+            volumes=[4.5, 1.0, 1.0],
             tick_rules=[1, -1, 1],
         )
-        result = aggregate_candle(df, distribution_stats=True)
+        result = aggregate_candle(df, round_notional=True)
 
-        dist = result["distribution"]
-        self.assertEqual(len(dist), 1)
-        level = list(dist.values())[0]
-        self.assertEqual(level["ticks"], 3)
-        self.assertEqual(level["buyTicks"], 2)
-        self.assertEqual(level["volume"], Decimal("18"))
-        self.assertEqual(level["buyVolume"], Decimal("8"))
+        self.assertEqual(result["roundNotional"], Decimal("651.0"))
+        self.assertEqual(result["roundBuyNotional"], Decimal("551.0"))
+        self.assertEqual(
+            result["roundNotionalSumVolume"],
+            Decimal("6.5"),
+        )
+        self.assertEqual(
+            result["roundBuyNotionalSumVolume"],
+            Decimal("5.5"),
+        )
 
-    def test_distribution_no_levels_when_empty(self):
-        """No levels when all notional is zero."""
-        df = self.get_data_frame(prices=[100], volumes=[0])
-        result = aggregate_candle(df, distribution_stats=True)
+    def test_round_stats_default_off(self):
+        df = self.get_data_frame(prices=[100, 100], volumes=[100, 5])
+        result = aggregate_candle(df)
 
-        dist = result["distribution"]
-        self.assertEqual(len(dist), 0)
-
+        self.assertNotIn("roundVolume", result)
+        self.assertNotIn("roundNotional", result)
 
 
 class MergeCacheTest(SimpleTestCase):
-    """Merge cache."""
+    """Merge cache tests."""
 
     def get_candle_data(
         self,
@@ -185,7 +155,7 @@ class MergeCacheTest(SimpleTestCase):
     ) -> dict:
         """Create candle data for testing."""
         return {
-            "timestamp": timestamp or datetime(2024, 1, 1, tzinfo=timezone.utc),
+            "timestamp": timestamp or datetime(2024, 1, 1, tzinfo=UTC),
             "open": open_price,
             "high": high,
             "low": low,
@@ -198,14 +168,16 @@ class MergeCacheTest(SimpleTestCase):
             "buyTicks": 3,
             "roundVolume": Decimal("10"),
             "roundBuyVolume": Decimal("6"),
+            "roundVolumeSumNotional": Decimal("1000"),
+            "roundBuyVolumeSumNotional": Decimal("600"),
             "roundNotional": Decimal("1000"),
             "roundBuyNotional": Decimal("600"),
+            "roundNotionalSumVolume": Decimal("10"),
+            "roundBuyNotionalSumVolume": Decimal("6"),
             "realizedVariance": Decimal("0.001"),
-            "distribution": {},
         }
 
     def test_merge_preserves_open(self):
-        """Merged candle uses open from first."""
         previous = self.get_candle_data(
             Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
         )
@@ -214,16 +186,15 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("110"),
             Decimal("101"),
             Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
 
         result = merge_cache(previous, current)
 
         self.assertEqual(result["open"], Decimal("100"))
-        self.assertEqual(result["timestamp"], datetime(2024, 1, 1, tzinfo=timezone.utc))
+        self.assertEqual(result["timestamp"], datetime(2024, 1, 1, tzinfo=UTC))
 
     def test_merge_high_low(self):
-        """Merged candle uses max high and min low."""
         previous = self.get_candle_data(
             Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
         )
@@ -232,16 +203,15 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("110"),
             Decimal("95"),
             Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
 
         result = merge_cache(previous, current)
 
-        self.assertEqual(result["high"], Decimal("110"))  # max(105, 110)
-        self.assertEqual(result["low"], Decimal("95"))  # min(98, 95)
+        self.assertEqual(result["high"], Decimal("110"))
+        self.assertEqual(result["low"], Decimal("95"))
 
     def test_merge_sums(self):
-        """Merge sums."""
         previous = self.get_candle_data(
             Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
         )
@@ -250,7 +220,7 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("110"),
             Decimal("101"),
             Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
 
         result = merge_cache(previous, current)
@@ -258,10 +228,16 @@ class MergeCacheTest(SimpleTestCase):
         self.assertEqual(result["volume"], Decimal("20"))
         self.assertEqual(result["buyVolume"], Decimal("12"))
         self.assertEqual(result["notional"], Decimal("2000"))
+        self.assertEqual(result["buyNotional"], Decimal("1200"))
         self.assertEqual(result["ticks"], 10)
+        self.assertEqual(result["buyTicks"], 6)
+        self.assertEqual(result["roundVolumeSumNotional"], Decimal("2000"))
+        self.assertEqual(
+            result["roundBuyNotionalSumVolume"],
+            Decimal("12"),
+        )
 
     def test_merge_realized_variance_with_cross_segment(self):
-        """Realized variance with cross-segment."""
         previous = self.get_candle_data(
             Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
         )
@@ -270,97 +246,40 @@ class MergeCacheTest(SimpleTestCase):
             Decimal("110"),
             Decimal("101"),
             Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
 
         result = merge_cache(previous, current)
 
-        # Should be > sum of individual variances due to cross-segment
         expected_min = Decimal("0.001") + Decimal("0.001")
         self.assertGreater(result["realizedVariance"], expected_min)
 
-    def test_merge_distributions_same_levels(self):
-        """Merge distributions with same levels sums values."""
+    def test_merge_without_round_keys(self):
         previous = self.get_candle_data(
             Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
         )
-        previous["distribution"] = {
-            "0": {
-                "ticks": 2, "buyTicks": 1, "volume": Decimal("10"), "buyVolume": Decimal("5"),
-                "notional": Decimal("1000"), "buyNotional": Decimal("500"),
-            },
-        }
         current = self.get_candle_data(
-            Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            Decimal("102"),
+            Decimal("110"),
+            Decimal("101"),
+            Decimal("108"),
+            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
         )
-        current["distribution"] = {
-            "0": {
-                "ticks": 3, "buyTicks": 2, "volume": Decimal("15"), "buyVolume": Decimal("10"),
-                "notional": Decimal("1500"), "buyNotional": Decimal("1000"),
-            },
-        }
+        for key in (
+            "roundVolume",
+            "roundBuyVolume",
+            "roundVolumeSumNotional",
+            "roundBuyVolumeSumNotional",
+            "roundNotional",
+            "roundBuyNotional",
+            "roundNotionalSumVolume",
+            "roundBuyNotionalSumVolume",
+        ):
+            previous.pop(key)
+            current.pop(key)
 
         result = merge_cache(previous, current)
 
-        dist = result["distribution"]
-        self.assertEqual(len(dist), 1)
-        self.assertEqual(dist["0"]["ticks"], 5)
-        self.assertEqual(dist["0"]["buyTicks"], 3)
-        self.assertEqual(dist["0"]["volume"], Decimal("25"))
-        self.assertEqual(dist["0"]["buyVolume"], Decimal("15"))
-
-    def test_merge_distributions_different_levels(self):
-        """Merge distributions with disjoint levels preserves all."""
-        previous = self.get_candle_data(
-            Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
-        )
-        previous["distribution"] = {
-            "0": {
-                "ticks": 2, "buyTicks": 1, "volume": Decimal("10"), "buyVolume": Decimal("5"),
-                "notional": Decimal("1000"), "buyNotional": Decimal("500"),
-            },
-        }
-        current = self.get_candle_data(
-            Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
-        )
-        current["distribution"] = {
-            "1": {
-                "ticks": 3, "buyTicks": 2, "volume": Decimal("15"), "buyVolume": Decimal("10"),
-                "notional": Decimal("1500"), "buyNotional": Decimal("1000"),
-            },
-        }
-
-        result = merge_cache(previous, current)
-
-        dist = result["distribution"]
-        self.assertEqual(len(dist), 2)
-        self.assertIn("0", dist)
-        self.assertIn("1", dist)
-        self.assertEqual(dist["0"]["ticks"], 2)
-        self.assertEqual(dist["1"]["ticks"], 3)
-
-    def test_merge_distributions_empty(self):
-        """Merge distributions with one or both empty."""
-        previous = self.get_candle_data(
-            Decimal("100"), Decimal("105"), Decimal("98"), Decimal("102")
-        )
-        previous["distribution"] = {}
-        current = self.get_candle_data(
-            Decimal("102"), Decimal("110"), Decimal("101"), Decimal("108"),
-            timestamp=datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
-        )
-        current["distribution"] = {
-            "0": {
-                "ticks": 3, "buyTicks": 2, "volume": Decimal("15"), "buyVolume": Decimal("10"),
-                "notional": Decimal("1500"), "buyNotional": Decimal("1000"),
-            },
-        }
-
-        result = merge_cache(previous, current)
-
-        dist = result["distribution"]
-        self.assertEqual(len(dist), 1)
-        self.assertEqual(dist["0"]["ticks"], 3)
-
+        self.assertNotIn("roundVolume", result)
+        self.assertNotIn("roundNotional", result)
+        self.assertEqual(result["volume"], Decimal("20"))
