@@ -1,4 +1,5 @@
 import pandas as pd
+from django.core.management.base import CommandParser
 
 from quant_tick.lib import aggregate_candle, aggregate_candles
 from quant_tick.management.base import BaseTradeDataCommand
@@ -10,7 +11,8 @@ class Command(BaseTradeDataCommand):
 
     help = "Regenerate TradeData.candle_data from filtered_data."
 
-    def add_arguments(self, parser) -> None:
+    def add_arguments(self, parser: CommandParser) -> None:
+        """Add command arguments."""
         super().add_arguments(parser)
         parser.add_argument("--min-notional-exponent", type=int, default=1)
 
