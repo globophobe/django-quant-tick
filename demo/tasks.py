@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
+from dotenv import load_dotenv
 from invoke import task
+
+load_dotenv(Path(__file__).resolve().with_name(".env"))
 
 
 @task
@@ -54,7 +57,8 @@ def migrate(ctx: Any) -> None:
 def start_proxy(ctx: Any) -> None:
     host = os.environ["PRODUCTION_DATABASE_HOST"]
     port = os.environ["PROXY_DATABASE_PORT"]
-    ctx.run(f"cloud-tools/cloud-sql-proxy {host} -p {port}")
+    credentials = Path(__file__).parent.parent.parent.joinpath("keys", os.environ["GOOGLE_APPLICATION_CREDENTIALS"]).resolve()
+    ctx.run(f"cloud-tools/cloud-sql-proxy -c {credentials} {host} -p {port}")
 
 
 @task
