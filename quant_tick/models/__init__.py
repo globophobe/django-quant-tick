@@ -1,6 +1,7 @@
 from .candle_types import AdaptiveCandle, ConstantCandle, TimeBasedCandle
 from .candles import Candle, CandleCache, CandleData
-from .symbols import GlobalSymbol, Symbol
+from .symbols import Symbol
+from .task_state import TaskState
 from .trades import TradeData
 
 __all__ = [
@@ -10,7 +11,7 @@ __all__ = [
     "Candle",
     "CandleCache",
     "CandleData",
-    "GlobalSymbol",
     "Symbol",
+    "TaskState",
     "TradeData",
 ]
