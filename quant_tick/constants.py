@@ -23,6 +23,13 @@ class Exchange(models.TextChoices):
     COINBASE = "coinbase", "Coinbase"
 
 
+class TaskType(models.TextChoices):
+    """Task type."""
+
+    AGGREGATE_TRADES = "aggregate_trades", "Aggregate trades"
+    AGGREGATE_CANDLES = "aggregate_candles", "Aggregate candles"
+
+
 class SampleType(models.TextChoices):
     """Sample type."""
 

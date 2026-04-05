@@ -5,7 +5,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
-from quant_tick.constants import Exchange
+from quant_tick.constants import Exchange, TaskType
 from quant_tick.exchanges import api
 from quant_tick.lib import get_current_time, get_min_time
 from quant_tick.models import Symbol, TaskState
@@ -50,7 +50,7 @@ class AggregateTradeDataView(View):
     def get_task_state(self, exchange: str) -> TaskState:
         """Get the exchange-scoped task state."""
         task_state, _ = TaskState.objects.get_or_create(
-            name="aggregate_trades",
+            task_type=TaskType.AGGREGATE_TRADES,
             exchange=exchange,
         )
         return task_state

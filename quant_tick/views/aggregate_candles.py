@@ -4,6 +4,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
+from quant_tick.constants import TaskType
 from quant_tick.models import Candle, TaskState
 from quant_tick.storage import convert_candle_cache_to_daily
 from quant_tick.views.aggregate_trades import get_request_params
@@ -19,7 +20,7 @@ class AggregateCandleView(View):
     def get_task_state(self) -> TaskState:
         """Get the global task state for candle aggregation."""
         task_state, _ = TaskState.objects.get_or_create(
-            name="aggregate_candles",
+            task_type=TaskType.AGGREGATE_CANDLES,
             exchange="",
         )
         return task_state
