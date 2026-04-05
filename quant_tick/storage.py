@@ -160,87 +160,88 @@ def convert_trade_data(
     timestamp_to: datetime.datetime,
 ) -> None:
     """Convert trade data."""
-    delta = timestamp_to - timestamp_from
-    frequency = delta.total_seconds() / 60
-    assert frequency in (Frequency.HOUR, Frequency.DAY)
-    first = trade_data.first()
+    with transaction.atomic():
+        delta = timestamp_to - timestamp_from
+        frequency = delta.total_seconds() / 60
+        assert frequency in (Frequency.HOUR, Frequency.DAY)
+        first = trade_data.first()
 
-    new_trade_data = TradeData.objects.create(
-        symbol=first.symbol,
-        timestamp=first.timestamp,
-        uid=first.uid,
-        frequency=frequency,
-        ok=all(trade_data.values_list("ok", flat=True)),
-    )
-    candle_df = None
-    for file_data in FileData:
-        data_frames = {
-            t: t.get_data_frame(file_data)
-            for t in trade_data
-            if getattr(t, file_data).name
-        }
-
-        if len(data_frames):
-            # Ignore: The behavior of DataFrame concatenation with empty or
-            # all-NA entries is deprecated.
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=FutureWarning)
-                data_frame = pd.concat(data_frames.values())
-
-            key = (
-                "notional"
-                if file_data in (FileData.RAW, FileData.AGGREGATED, FileData.CANDLE)
-                else "totalNotional"
-            )
-            expected = sum([getattr(df, key).sum() for df in data_frames.values()])
-            actual = data_frame[key].sum()
-            assert is_decimal_close(expected, actual)
-
-            # First, delete minutes, as naming convention is same as hourly or daily.
-            for t in trade_data:
-                getattr(t, file_data).delete()
-
-            # FIXME: round columns
-            # if file_data != FileData.CANDLE:
-            #     data_frame.reset_index(inplace=True)
-            # Next, create hourly or daily.
-            if file_data == FileData.CANDLE:
-                # Ensure consistent Decimal types for round* columns.
-                for col in [c for c in data_frame.columns if c.startswith("round")]:
-                    if col in data_frame.columns:
-                        data_frame[col] = data_frame[col].apply(
-                            lambda x: ZERO if x == 0 else x
-                        )
-            else:
-                data_frame.reset_index(inplace=True)
-
-            if len(data_frame):
-                setattr(
-                    new_trade_data,
-                    file_data,
-                    TradeData.prepare_data(data_frame),
-                )
-                new_trade_data.save()
-                if file_data in (FileData.RAW, FileData.AGGREGATED, FileData.FILTERED):
-                    candle_df = data_frame
-
-    if candle_df is not None:
-        candle = aggregate_candle(candle_df)
-        new_trade_data.json_data = {"candle": candle}
-        new_trade_data.save()
-
-    # Completely delete minutes.
-    trade_data.delete()
-
-    logging.info(
-        _("Converted {timestamp_from} {timestamp_to} to {frequency}").format(
-            **{
-                "timestamp_from": timestamp_from,
-                "timestamp_to": timestamp_to,
-                "frequency": "daily" if frequency == Frequency.DAY else "hourly",
-            }
+        new_trade_data = TradeData.objects.create(
+            symbol=first.symbol,
+            timestamp=first.timestamp,
+            uid=first.uid,
+            frequency=frequency,
+            ok=all(trade_data.values_list("ok", flat=True)),
         )
-    )
+        candle_df = None
+        for file_data in FileData:
+            data_frames = {
+                t: t.get_data_frame(file_data)
+                for t in trade_data
+                if getattr(t, file_data).name
+            }
+
+            if len(data_frames):
+                # Ignore: The behavior of DataFrame concatenation with empty or
+                # all-NA entries is deprecated.
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=FutureWarning)
+                    data_frame = pd.concat(data_frames.values())
+
+                key = (
+                    "notional"
+                    if file_data in (FileData.RAW, FileData.AGGREGATED, FileData.CANDLE)
+                    else "totalNotional"
+                )
+                expected = sum([getattr(df, key).sum() for df in data_frames.values()])
+                actual = data_frame[key].sum()
+                assert is_decimal_close(expected, actual)
+
+                # FIXME: round columns
+                # if file_data != FileData.CANDLE:
+                #     data_frame.reset_index(inplace=True)
+                # Next, create hourly or daily.
+                if file_data == FileData.CANDLE:
+                    # Ensure consistent Decimal types for round* columns.
+                    for col in [c for c in data_frame.columns if c.startswith("round")]:
+                        if col in data_frame.columns:
+                            data_frame[col] = data_frame[col].apply(
+                                lambda x: ZERO if x == 0 else x
+                            )
+                else:
+                    data_frame.reset_index(inplace=True)
+
+                if len(data_frame):
+                    setattr(
+                        new_trade_data,
+                        file_data,
+                        TradeData.prepare_data(data_frame),
+                    )
+                    new_trade_data.save()
+                    if file_data in (
+                        FileData.RAW,
+                        FileData.AGGREGATED,
+                        FileData.FILTERED,
+                    ):
+                        candle_df = data_frame
+
+        if candle_df is not None:
+            candle = aggregate_candle(candle_df)
+            new_trade_data.json_data = {"candle": candle}
+            new_trade_data.save()
+
+        # Completely delete minutes after the new higher-frequency row is ready.
+        trade_data.delete()
+
+        logging.info(
+            _("Converted {timestamp_from} {timestamp_to} to {frequency}").format(
+                **{
+                    "timestamp_from": timestamp_from,
+                    "timestamp_to": timestamp_to,
+                    "frequency": "daily" if frequency == Frequency.DAY else "hourly",
+                }
+            )
+        )
 
 
 def clean_trade_data_with_non_existing_files(
