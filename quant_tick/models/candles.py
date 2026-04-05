@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pandas as pd
 from django.db import models, transaction
+from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
@@ -19,7 +20,6 @@ from quant_tick.lib import (
     merge_cache,
     parse_datetime,
 )
-from quant_tick.utils import gettext_lazy as _
 
 from .base import AbstractCodeName, BigDecimalField, JSONField
 from .trades import TradeData
@@ -218,8 +218,10 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Preprocess data before iteration. Override in mixins."""
         return data_frame
 
-    def _build_candle(self, df: DataFrame, timestamp: datetime | None = None) -> dict:
-        """Build candle dict. Override in mixins to add extensions."""
+    def _aggregate_candle(
+        self, df: DataFrame, timestamp: datetime | None = None
+    ) -> dict:
+        """Aggregate one candle payload from a trade slice."""
         return aggregate_candle(
             df,
             timestamp=timestamp,
@@ -229,7 +231,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         )
 
     def _merge_cache(self, prev: dict, curr: dict) -> dict:
-        """Merge cached candle with current. Override to add bucket stats merging."""
+        """Merge cached candle with current. Override to customize cache merging."""
         return merge_cache(prev, curr)
 
     def _get_next_cache(
@@ -238,7 +240,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         cache_data: dict,
         timestamp: datetime | None = None,
     ) -> dict:
-        """Cache incomplete candle. Override to include bucket stats."""
+        """Cache incomplete candle. Override to customize cached fields."""
         return get_next_cache(
             df,
             cache_data,

@@ -3,41 +3,22 @@ from decimal import Decimal
 
 import pandas as pd
 from django.db.models import QuerySet
+from django.utils.translation import gettext_lazy as _
 
 from quant_tick.constants import Frequency
 from quant_tick.lib import get_existing, get_min_time
-from quant_tick.utils import gettext_lazy as _
 
 from ..trades import TradeData
 from .constant_candles import ConstantCandle
 
 
 class AdaptiveCandle(ConstantCandle):
-    """Dynamic-threshold bars that adapt to recent average activity levels.
+    """Moving-average threshold candles.
 
-    Instead of using a fixed threshold like constant bars, adaptive bars adjust their
-    threshold based on recent market conditions. The threshold is the moving average
-    of activity divided by target bars per day.
-
-    How it works:
-    - Define a lookback period (e.g., 7 days, 50 days)
-    - Compute moving average of daily activity (ticks, volume, or dollar)
-    - Set threshold = MA / target_candles_per_day
-    - Close bar when accumulated activity >= threshold
-
-    For example, with 7-day MA and target of 24 bars/day:
-    - If recent avg is 240,000 ticks/day, threshold = 240,000 / 24 = 10,000 ticks/bar
-    - If market gets busier and avg rises to 480,000 ticks/day, threshold rises to 20,000
-    - This keeps bar frequency stable even as overall market activity changes
-
-    Why use adaptive bars? They maintain consistent bar frequency across different
-    market regimes. During bull markets with high activity, fixed thresholds would
-    create too many bars. During bear markets with low activity, fixed thresholds would
-    create too few bars. Adaptive bars solve this by tracking the moving average.
-
-    Common configurations:
-    - Short-term adaptive: 7-day MA, 24 bars/day (intraday trading)
-    - Long-term adaptive: 50-day MA, 6 bars/day (swing trading)
+    These candles recompute `target_value` from recent daily activity and
+    `target_candles_per_day`, so the threshold adapts with market activity.
+    Example: if a 7-day average volume is 240,000 and the target is 24
+    candles per day, each candle closes at 10,000 volume.
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
@@ -45,7 +26,7 @@ class AdaptiveCandle(ConstantCandle):
         return {"date": timestamp.date(), "target_value": None, "sample_value": 0}
 
     def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
-        """Get cache data frame."""
+        """Refresh cache target for the current day."""
         data = super().get_cache_data(timestamp, data)
         date = timestamp.date()
         is_same_day = data["date"] == date
@@ -56,7 +37,7 @@ class AdaptiveCandle(ConstantCandle):
         return data
 
     def get_trade_data_for_moving_average(self, timestamp: datetime) -> QuerySet:
-        """Get trade data for moving average."""
+        """Get daily trade data for the moving-average window."""
         days = self.json_data["moving_average_number_of_days"]
         delta = pd.Timedelta(f"{days}d")
         ts = get_min_time(timestamp, value="1d") - delta
@@ -65,7 +46,7 @@ class AdaptiveCandle(ConstantCandle):
         )
 
     def get_moving_average_value(self, timestamp: datetime) -> Decimal:
-        """Get moving average value."""
+        """Get the current adaptive threshold."""
         days = self.json_data["moving_average_number_of_days"]
         trade_data = (
             self.get_trade_data_for_moving_average(timestamp)

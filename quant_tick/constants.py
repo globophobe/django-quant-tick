@@ -1,8 +1,7 @@
 from decimal import Decimal
 
 from django.db import models
-
-from quant_tick.utils import gettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 
 ZERO = Decimal("0")
 ONE = Decimal("1")

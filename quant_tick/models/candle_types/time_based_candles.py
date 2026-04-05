@@ -2,11 +2,11 @@ from datetime import datetime
 
 import pandas as pd
 from django.db import transaction
+from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
 from quant_tick.constants import Frequency
 from quant_tick.lib import filter_by_timestamp, get_min_time, iter_window
-from quant_tick.utils import gettext_lazy as _
 
 from ..candles import Candle, CandleCache, CandleData
 
@@ -59,7 +59,7 @@ class TimeBasedCandle(Candle):
                 df = pd.DataFrame()
 
             if len(df):
-                candle = self._build_candle(df, timestamp=win_from)
+                candle = self._aggregate_candle(df, timestamp=win_from)
 
                 if "next" in cache_data:
                     previous = cache_data.pop("next")

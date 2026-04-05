@@ -7,6 +7,7 @@ import pandas as pd
 from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import TruncDate
+from django.utils.translation import gettext_lazy as _
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
@@ -25,7 +26,6 @@ from quant_tick.models.trades import (
     upload_filtered_data_to,
     upload_raw_data_to,
 )
-from quant_tick.utils import gettext_lazy as _
 
 logger = logging.getLogger(__name__)
 

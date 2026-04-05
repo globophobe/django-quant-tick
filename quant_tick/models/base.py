@@ -11,11 +11,11 @@ import randomname
 from django.core.files.base import ContentFile
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
 from quant_tick.constants import NUMERIC_PRECISION, NUMERIC_SCALE
 from quant_tick.lib import to_pydatetime
-from quant_tick.utils import gettext_lazy as _
 
 
 class QuantTickEncoder(DjangoJSONEncoder):

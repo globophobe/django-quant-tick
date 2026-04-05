@@ -1,7 +1,7 @@
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 from quant_tick.constants import Exchange
-from quant_tick.utils import gettext_lazy as _
 
 from .base import AbstractCodeName
 

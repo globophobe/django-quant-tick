@@ -5,6 +5,7 @@ import pandas as pd
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import QuerySet
+from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
 from quant_tick.constants import FileData, Frequency
@@ -20,7 +21,6 @@ from quant_tick.lib import (
     validate_aggregated_candles,
     volume_filter_with_time_window,
 )
-from quant_tick.utils import gettext_lazy as _
 
 from .base import AbstractDataStorage, JSONField
 from .symbols import Symbol
@@ -99,14 +99,16 @@ class TradeDataQuerySet(QuerySet):
     ) -> None:
         """Delete existing objects."""
         queryset = self.filter(
-                symbol=symbol,
-                timestamp__gte=timestamp_from,
-                timestamp__lt=timestamp_to,
-                frequency=frequency,
+            symbol=symbol,
+            timestamp__gte=timestamp_from,
+            timestamp__lt=timestamp_to,
+            frequency=frequency,
         )
         objs = list(queryset)
         with transaction.atomic():
-            queryset.delete()
+            for obj in objs:
+                obj._skip_signal = True
+                obj.delete()
         for obj in objs:
             for file_data in FileData:
                 getattr(obj, file_data).delete(save=False)
