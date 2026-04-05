@@ -10,7 +10,7 @@ from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 from polymorphic.models import PolymorphicModel
 
-from quant_tick.constants import FileData, Frequency
+from quant_tick.constants import FileData
 from quant_tick.lib import (
     aggregate_candle,
     filter_by_timestamp,
@@ -262,11 +262,12 @@ class Candle(AbstractCodeName, PolymorphicModel):
                 candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
             )
             queryset.delete()
-            delta = timestamp_to - timestamp_from
-            # FIXME: Can't define every value in constants.
-            frequency = delta.total_seconds() / 60
+            span_minutes = int((timestamp_to - timestamp_from).total_seconds() / 60)
             CandleCache.objects.create(
-                candle=self, timestamp=timestamp_from, frequency=frequency, json_data=data
+                candle=self,
+                timestamp=timestamp_from,
+                frequency=span_minutes,
+                json_data=data,
             )
 
     def write_data(
@@ -331,15 +332,13 @@ class Candle(AbstractCodeName, PolymorphicModel):
 
 
 class CandleCache(models.Model):
-    """Cached incomplete candle state."""
+    """Cached incomplete candle state keyed by covered minutes."""
 
     candle = models.ForeignKey(
         "quant_tick.Candle", related_name="data", on_delete=models.CASCADE
     )
     timestamp = models.DateTimeField(_("timestamp"), db_index=True)
-    frequency = models.PositiveIntegerField(
-        _("frequency"), choices=Frequency.choices, db_index=True
-    )
+    frequency = models.PositiveIntegerField(_("frequency"), db_index=True)
     json_data = JSONField(_("json data"), default=dict)
 
     class Meta:

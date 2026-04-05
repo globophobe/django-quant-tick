@@ -68,7 +68,6 @@ class BitfinexMixin:
         REST API returns results unsorted
         Sort by uid, reversed
         """
-        # TODO: Reverify against candles.
         return super().get_data_frame(trades)
 
     def get_candles(

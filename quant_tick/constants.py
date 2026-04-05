@@ -52,4 +52,3 @@ class FileData(models.TextChoices):
     RAW = "raw_data", _("raw")
     AGGREGATED = "aggregated_data", _("aggregated")
     FILTERED = "filtered_data", _("filtered")
-    CANDLE = "candle_data", _("candles")
