@@ -241,6 +241,9 @@ def _aggregate_realized_variance(df: DataFrame) -> dict:
 
     if len(df) > 1:
         prices = df[price_col].astype(float)
+        prices = prices[prices > 0]
+        if len(prices) <= 1:
+            return {"realizedVariance": ZERO}
         log_prices = np.log(prices)
         log_returns = log_prices.diff().dropna()
         return {"realizedVariance": Decimal(str((log_returns**2).sum()))}
