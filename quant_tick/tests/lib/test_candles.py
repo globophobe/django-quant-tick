@@ -94,6 +94,12 @@ class CandleTest(SimpleTestCase):
 
         self.assertGreater(result["realizedVariance"], Decimal("0"))
 
+    def test_realized_variance_ignores_non_positive_prices(self):
+        df = self.get_data_frame(prices=[100, 0, 110])
+        result = aggregate_candle(df)
+
+        self.assertGreater(result["realizedVariance"], Decimal("0"))
+
     def test_round_volume_filtering(self):
         df = self.get_data_frame(
             prices=[100, 100],
