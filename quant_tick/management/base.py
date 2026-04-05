@@ -54,16 +54,12 @@ class BaseTradeDataCommand(BaseDateTimeCommand):
             choices=queryset.values_list("api_symbol", flat=True),
             nargs="+",
         )
-        parser.add_argument("--aggregate-trades", type=bool)
-        parser.add_argument("--significant-trade-filter", type=int)
 
     def handle(self, *args, **options) -> dict | None:
         """Run command."""
         exchanges = options.get("exchange")
         api_symbols = options.get("api_symbol")
         code_names = options.get("code_name")
-        aggregate_trades = options.get("aggregate_trades")
-        significant_trade_filter = options.get("significant_trade_filter")
         symbols = self.get_queryset()
         if exchanges:
             symbols = symbols.filter(exchange__in=exchanges)
@@ -71,10 +67,6 @@ class BaseTradeDataCommand(BaseDateTimeCommand):
             symbols = symbols.filter(api_symbol__in=api_symbols)
         if code_names:
             symbols = symbols.filter(code_name__in=code_names)
-        if aggregate_trades:
-            symbols = symbols.filter(aggregate_trades=aggregate_trades)
-        if significant_trade_filter:
-            symbols = symbols.filter(significant_trade_filter=significant_trade_filter)
         if symbols:
             timestamp_from, timestamp_to = parse_period_from_to(
                 date_from=options["date_from"],
