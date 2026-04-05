@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
 
 [project]
 name = "django-quant-tick"
@@ -28,9 +28,7 @@ classifiers = [
 ]
 dependencies = [
     "django>=4.2",
-    "django-filter>=24.3",
     "django-polymorphic>=3.1.0",
-    "djangorestframework>=3.15.2",
     "httpx>=0.28.1",
     "pandas>=2.2.3",
     "pyarrow>=18.1.0",
@@ -41,30 +39,27 @@ dependencies = [
 Homepage = "https://github.com/globophobe/django-quant-tick"
 Repository = "https://github.com/globophobe/django-quant-tick"
 
-[tool.setuptools.packages.find]
-include = ["quant_tick*"]
+[tool.hatch.build.targets.wheel]
+packages = ["quant_tick"]
 
 [dependency-groups]
 deploy = [
-    "django-semantic-admin>=0.1.12",
-    "django-semantic-forms>=0.1.7",
     "django-storages[google]>=1.14.6",
     "gunicorn>=23.0.0",
     "psycopg2-binary>=2.9.10",
-    "python-decouple>=3.8",
     "sentry-sdk>=2.39.0",
-    "whitenoise>=6.11.0",
 ]
 dev = [
     "coverage>=7.11.0",
     "invoke>=2.2.1",
     "ipython>=9.6.0",
+    "psycopg2-binary>=2.9.10",
     "ruff>=0.15.2",
     "time-machine>=2.19.0",
 ]
 
 [tool.uv]
-exclude-newer = "P7D"
+exclude-newer = "P3D"
 
 [tool.ruff]
 exclude = [
