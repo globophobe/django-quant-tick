@@ -9,7 +9,6 @@ from quant_tick.lib.candles import aggregate_candle
 
 
 class CandleTest(SimpleTestCase):
-    """Candle aggregation tests."""
 
     def get_data_frame(
         self,
@@ -17,7 +16,6 @@ class CandleTest(SimpleTestCase):
         volumes: list[float] | None = None,
         tick_rules: list[int] | None = None,
     ) -> pd.DataFrame:
-        """Build a trade-like data frame."""
         n = len(prices)
         volumes = volumes or [1.0] * n
         tick_rules = tick_rules or [1] * n
@@ -143,7 +141,6 @@ class CandleTest(SimpleTestCase):
 
 
 class MergeCacheTest(SimpleTestCase):
-    """Merge cache tests."""
 
     def get_candle_data(
         self,
@@ -153,7 +150,6 @@ class MergeCacheTest(SimpleTestCase):
         close: Decimal,
         timestamp: datetime | None = None,
     ) -> dict:
-        """Create candle data for testing."""
         return {
             "timestamp": timestamp or datetime(2024, 1, 1, tzinfo=UTC),
             "open": open_price,

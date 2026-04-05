@@ -11,7 +11,6 @@ from ..base import BaseSymbolTest, BaseWriteTradeDataTest
 
 class BaseCandleTest(TestCase):
     def get_symbol(self, name: str, exchange: Exchange = Exchange.COINBASE) -> Symbol:
-        """Get symbol."""
         return Symbol.objects.create(
             exchange=exchange,
             api_symbol=name,
@@ -28,7 +27,6 @@ class CandleTest(BaseWriteTradeDataTest, BaseCandleTest):
         )
 
     def test_get_data_frame(self):
-        """Get data frame."""
         filtered = self.get_filtered(self.timestamp_from)
         TradeData.write(
             self.symbol,
@@ -55,7 +53,6 @@ class CandleCacheTest(BaseSymbolTest, BaseCandleTest):
         )
 
     def test_convert_candle_cache_to_daily(self):
-        """Convert candle cache to daily."""
         timestamp_to = get_min_time(get_current_time(), value="1d")
         timestamp_from = get_previous_time(timestamp_to, value="1d")
         total = 24
@@ -97,7 +94,6 @@ class CandleCacheTest(BaseSymbolTest, BaseCandleTest):
         self.assertEqual(daily.json_data["next"], expected_next)
 
     def test_candle_cache_is_not_converted_to_daily_without_all_timestamps(self):
-        """Candle cache is not converted to daily, without all timestamps."""
         timestamp_to = get_min_time(get_current_time(), value="1d")
         timestamp_from = get_previous_time(timestamp_to, value="1d")
         CandleCache.objects.create(

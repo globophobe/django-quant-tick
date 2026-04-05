@@ -14,12 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 def format_binance_api_timestamp(timestamp: datetime) -> int:
-    """Format Binance API timestmap."""
     return int(timestamp.timestamp() * 1000)  # Millisecond
 
 
 def get_binance_api_sleep_duration() -> float:
-    """Get Binance API sleep duration."""
     now = get_current_time()
     current_minute = now.replace(second=0, microsecond=0)
     next_minute = current_minute + timedelta(minutes=1)
@@ -34,7 +32,6 @@ def get_binance_api_response(
     pagination_id: int | None = None,
     retry: int = 30,
 ) -> list[dict]:
-    """Get Binance API response."""
     try:
         headers = {"X-MBX-APIKEY": os.environ[BINANCE_API_KEY]}
         url = get_api_url(

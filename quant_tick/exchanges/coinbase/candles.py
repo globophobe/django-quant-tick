@@ -14,7 +14,6 @@ from .constants import API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
 def get_coinbase_candle_url(
     url: str, timestamp_from: datetime, pagination_id: int
 ) -> str:
-    """Get Coinbase candle URL."""
     start = timestamp_from.replace(tzinfo=None).isoformat()
     url += f"&start={start}"
     if pagination_id:
@@ -27,17 +26,12 @@ def get_coinbase_candle_pagination_id(
     last_data: list | None = None,
     data: list | None = None,
 ) -> str | None:
-    """Get Coinbase candle pagination_id.
-
-    Pagination details: https://docs.pro.coinbase.com/#pagination
-    """
     data = data or []
     if len(data):
         return datetime.fromtimestamp(data[-1][0]).isoformat()
 
 
 def get_coinbase_candle_timestamp(candle: list) -> datetime:
-    """Get Coinbase candle timestamp."""
     return datetime.fromtimestamp(candle[0]).replace(tzinfo=UTC)
 
 
@@ -48,7 +42,6 @@ def coinbase_candles(
     granularity: int = 60,
     log_format: str | None = None,
 ) -> DataFrame:
-    """Get coinbase candles."""
     url = f"{API_URL}/products/{api_symbol}/candles?granularity={granularity}"
     ts_to = timestamp_to_inclusive(timestamp_from, timestamp_to, value="1min")
     pagination_id = ts_to.replace(tzinfo=None).isoformat()

@@ -1,16 +1,13 @@
 .coverage
 .env
 *.pyc
-*.joblib
 *.parquet
 *.sqlite3
 *.sqlite3-journal
+*.egg-info/
 
 dist/
 requirements.txt
 cloud-tools/
 keys/
 media/
-static/
-
-*.egg-info/

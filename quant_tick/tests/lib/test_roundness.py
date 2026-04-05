@@ -6,7 +6,6 @@ from quant_tick.lib import calc_notional_exponent, calc_volume_exponent
 
 
 class RoundnessTest(SimpleTestCase):
-    """Roundness helper tests."""
 
     def test_calc_volume_exponent_current_behavior(self):
         self.assertEqual(calc_volume_exponent(Decimal("10")), 1)

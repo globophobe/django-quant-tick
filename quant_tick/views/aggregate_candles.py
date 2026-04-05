@@ -13,12 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class AggregateCandleView(View):
-    """Aggregate candle view."""
-
     queryset = Candle.objects.filter(is_active=True).select_related("symbol")
 
     def get_task_state(self) -> TaskState:
-        """Get the global task state for candle aggregation."""
         task_state, _ = TaskState.objects.get_or_create(
             task_type=TaskType.AGGREGATE_CANDLES,
             exchange="",
@@ -26,7 +23,6 @@ class AggregateCandleView(View):
         return task_state
 
     def get_queryset(self) -> QuerySet:
-        """Get queryset."""
         queryset = self.queryset
         code_name = self.request.GET.get("code_name")
         if code_name:
@@ -34,7 +30,6 @@ class AggregateCandleView(View):
         return queryset
 
     def get_params(self, request: HttpRequest) -> list[tuple]:
-        """Get params."""
         timestamp_from, timestamp_to, retry = get_request_params(request)
         queryset = self.get_queryset()
         return [
@@ -48,7 +43,6 @@ class AggregateCandleView(View):
         ]
 
     def get(self, request: HttpRequest, *args, **kwargs) -> JsonResponse:
-        """Get data for each symbol."""
         try:
             params = self.get_params(request)
         except ValueError as exc:

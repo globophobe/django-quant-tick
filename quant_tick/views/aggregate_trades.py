@@ -28,12 +28,9 @@ def get_request_params(request: HttpRequest) -> tuple[pd.Timestamp, pd.Timestamp
 
 
 class AggregateTradeDataView(View):
-    """Aggregate trade data view."""
-
     queryset = Symbol.objects.filter(is_active=True)
 
     def get_queryset(self) -> QuerySet:
-        """Get queryset."""
         queryset = self.queryset.filter(exchange=self.get_exchange())
         api_symbol = self.request.GET.get("api_symbol")
         if api_symbol:
@@ -41,14 +38,12 @@ class AggregateTradeDataView(View):
         return queryset
 
     def get_exchange(self) -> str:
-        """Get the required path exchange."""
         exchange = self.kwargs.get("exchange")
         if exchange not in Exchange.values:
             raise ValueError("Invalid exchange.")
         return exchange
 
     def get_task_state(self, exchange: str) -> TaskState:
-        """Get the exchange-scoped task state."""
         task_state, _ = TaskState.objects.get_or_create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange=exchange,
@@ -56,7 +51,6 @@ class AggregateTradeDataView(View):
         return task_state
 
     def get_params(self, request: HttpRequest) -> list[tuple]:
-        """Get params."""
         timestamp_from, timestamp_to, retry = get_request_params(request)
         queryset = self.get_queryset()
         return [
@@ -70,7 +64,6 @@ class AggregateTradeDataView(View):
         ]
 
     def get(self, request: HttpRequest, *args, **kwargs) -> JsonResponse:
-        """Get data for each symbol."""
         try:
             exchange = self.get_exchange()
             params = self.get_params(request)

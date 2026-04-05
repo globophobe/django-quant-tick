@@ -250,96 +250,51 @@ def _aggregate_realized_variance(df: DataFrame) -> dict:
 
 def validate_aggregated_candles(
     aggregated_candles: DataFrame, exchange_candles: DataFrame
-) -> tuple[DataFrame, bool | None]:
+) -> bool | None:
     """Validate data_frame with candles from Exchange API."""
-    ok = None
-    aggregated_candles["validated"] = pd.Series()
-    if len(exchange_candles):
-        if "notional" in exchange_candles.columns:
-            key = "notional"
-        elif "volume" in exchange_candles.columns:
-            key = "volume"
-        else:
-            raise NotImplementedError
-        k = key.title()
-        exchange_key = f"exchange{k}"
-        if len(aggregated_candles):
-            aggregated_candles.insert(
-                aggregated_candles.columns.get_loc(key), exchange_key, pd.Series()
-            )
-            for row in aggregated_candles.itertuples():
-                timestamp = row.Index
-                try:
-                    candle = exchange_candles.loc[timestamp]
-                # Candle may be missing from API result.
-                except KeyError:
-                    pass
-                else:
-                    value = getattr(candle, key)
-                    if isinstance(value, int):
-                        value = Decimal(value)
-                    aggregated_candles.at[row.Index, exchange_key] = value
-                    aggregated_candles.at[row.Index, "validated"] = is_decimal_close(
-                        getattr(row, key), value
-                    )
-            all_true = all(aggregated_candles.validated.eq(True))
-            some_false = any(aggregated_candles.validated.eq(False))
-            some_none = any(aggregated_candles.validated.isna())
-            if all_true:
-                ok = True
-            elif some_false or some_none:
-                if some_false:
-                    ok = False
-                else:
-                    ok = None
-            else:
-                raise NotImplementedError
+    if not len(exchange_candles):
+        return None
 
-        elif exchange_candles[key].sum() == 0:
-            ok = True
-
-        if ok in (True, None):
-            # Maybe candle with no volume or notional.
-            missing = exchange_candles.index.difference(aggregated_candles.index)
-            if len(missing):
-                # If missing candles have volume or notional, then ok should be False.
-                # Maybe validates on retry.
-                if (
-                    exchange_candles[exchange_candles.index.isin(missing)][key].sum()
-                    != 0
-                ):
-                    ok = False
-
-    return aggregated_candles, ok
-
-
-def update_cluster_ema(cache_data: dict, volume: float, halflife: int) -> dict:
-    """Update rolling EMA with new cluster volume.
-
-    All EMA math uses floats for performance.
-    """
-    if not np.isfinite(volume) or volume <= 0:
-        return cache_data  # Skip invalid volume
-
-    if halflife <= 0:
-        return cache_data  # Skip invalid halflife
-
-    alpha = 1 - np.exp(-np.log(2) / halflife)
-    log_vol = np.log(volume)
-
-    if "cluster_ema_mean" not in cache_data:
-        cache_data["cluster_ema_mean"] = log_vol
-        cache_data["cluster_ema_var"] = 0.0
-        cache_data["cluster_ema_count"] = 1
+    if "notional" in exchange_candles.columns:
+        key = "notional"
+    elif "volume" in exchange_candles.columns:
+        key = "volume"
     else:
-        old_mean = float(cache_data["cluster_ema_mean"])
-        old_var = float(cache_data["cluster_ema_var"])
+        raise NotImplementedError
 
-        new_mean = old_mean + alpha * (log_vol - old_mean)
-        new_var = (1 - alpha) * (old_var + alpha * (log_vol - old_mean) ** 2)
+    ok = None
+    if len(aggregated_candles):
+        missing_exchange_rows = False
+        has_false = False
+        for row in aggregated_candles.itertuples():
+            timestamp = row.Index
+            try:
+                candle = exchange_candles.loc[timestamp]
+            # Candle may be missing from API result.
+            except KeyError:
+                missing_exchange_rows = True
+            else:
+                value = getattr(candle, key)
+                if isinstance(value, int):
+                    value = Decimal(value)
+                if not is_decimal_close(getattr(row, key), value):
+                    has_false = True
+        if has_false:
+            ok = False
+        elif missing_exchange_rows:
+            ok = None
+        else:
+            ok = True
+    elif exchange_candles[key].sum() == 0:
+        ok = True
 
-        cache_data["cluster_ema_mean"] = new_mean
-        cache_data["cluster_ema_var"] = new_var
-        cache_data["cluster_ema_count"] = int(cache_data["cluster_ema_count"]) + 1
+    if ok in (True, None):
+        # Maybe candle with no volume or notional.
+        missing = exchange_candles.index.difference(aggregated_candles.index)
+        if len(missing):
+            # If missing candles have volume or notional, then ok should be False.
+            # Maybe validates on retry.
+            if exchange_candles.loc[missing, key].sum() != 0:
+                ok = False
 
-    return cache_data
+    return ok

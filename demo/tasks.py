@@ -10,7 +10,6 @@ from invoke import task
 
 @task
 def django_settings(ctx: Any, proxy: bool = False) -> Any:
-    """Django settings."""
     name = "proxy" if proxy else "development"
     os.environ["DJANGO_SETTINGS_MODULE"] = f"demo.settings.{name}"
     import django
@@ -23,63 +22,44 @@ def django_settings(ctx: Any, proxy: bool = False) -> Any:
 
 @task
 def test(ctx: Any) -> None:
-    """Run tests."""
     ctx.run("python manage.py test quant_tick")
 
 
 @task
 def coverage(ctx: Any) -> None:
-    """Run tests with coverage."""
     ctx.run("coverage run --source=../ manage.py test quant_tick; coverage report")
 
 
 @task
 def lint(ctx: Any) -> None:
-    """Run ruff linter."""
     ctx.run("ruff check ../")
 
 
 @task
 def format(ctx: Any) -> None:
-    """Run ruff formatter."""
     ctx.run("ruff check ../ --fix")
 
 
 @task
 def makemigrations(ctx: Any) -> None:
-    """Make migrations."""
     ctx.run("python manage.py makemigrations quant_tick")
 
 
 @task
 def migrate(ctx: Any) -> None:
-    """Run migrations."""
     ctx.run("python manage.py migrate")
 
 
 @task
 def start_proxy(ctx: Any) -> None:
-    """Start proxy."""
     host = os.environ["PRODUCTION_DATABASE_HOST"]
     port = os.environ["PROXY_DATABASE_PORT"]
     ctx.run(f"cloud-tools/cloud-sql-proxy {host} -p {port}")
 
 
 @task
-def create_user(ctx: Any, username: str, password: str, proxy: bool = False) -> None:
-    """Create user."""
-    django_settings(ctx, proxy=proxy)
-    from django.contrib.auth import get_user_model
-
-    User = get_user_model()
-    user = User.objects.create(username=username, is_superuser=True, is_staff=True)
-    user.set_password(password)
-    user.save()
-
-
-@task
 def get_container_name(ctx: Any, name: str, region: str = "asia-northeast1") -> str:
-    """Get container name."""
+    """Build the Artifact Registry image name."""
     project_id = ctx.run("gcloud config get-value project").stdout.strip()
     return f"{region}-docker.pkg.dev/{project_id}/{name}/{name}"
 
@@ -106,7 +86,7 @@ def docker_secrets() -> str:
 
 
 def build_quant_tick(ctx: Any) -> str:
-    """Build django-quant-tick."""
+    """Build the wheel and return its filename."""
     dist_dir = Path("dist")
     if dist_dir.exists():
         for wheel in dist_dir.glob("django_quant_tick-*.whl"):
@@ -121,7 +101,6 @@ def build_quant_tick(ctx: Any) -> str:
 def build_container(
     ctx: Any, name: str, region: str = "asia-northeast1"
 ) -> None:
-    """Build the API container."""
     wheel = build_quant_tick(ctx)
     repo_root = Path(__file__).resolve().parent.parent
     requirements = repo_root / "requirements.txt"
@@ -157,7 +136,6 @@ def build_container(
 
 @task
 def push_container(ctx: Any, name: str, region: str = "asia-northeast1") -> None:
-    """Push the API container."""
     name = get_container_name(ctx, name, region=region)
     # Push
     cmd = f"docker push {name}"
@@ -165,7 +143,7 @@ def push_container(ctx: Any, name: str, region: str = "asia-northeast1") -> None
 
 
 def get_workflow(url: str, exchanges: list[str]) -> dict:
-    """Get workflow."""
+    """Build the Cloud Workflow definition for REST aggregation."""
     aggregate_trades = urljoin(url, "aggregate-trades/")
     aggregate_candles = urljoin(url, "aggregate-candles/")
     return {
@@ -212,7 +190,7 @@ def get_workflow(url: str, exchanges: list[str]) -> dict:
 def push_workflow(
     ctx: Any, name: str, workflow: dict, location: str = "asia-northeast1"
 ) -> None:
-    """Push workflow."""
+    """Deploy a Cloud Workflow definition."""
     with tempfile.NamedTemporaryFile(mode="w") as f:
         json.dump(workflow, f)
         f.seek(0)
@@ -226,7 +204,6 @@ def push_workflow(
 def push_rest_workflow(
     ctx: Any, name: str = "django-quant-tick-rest", location: str = "asia-northeast1"
 ) -> None:
-    """Push REST workflow."""
     url = f'https://{os.environ["PRODUCTION_API_URL"]}'
     exchanges = ["binance", "bitfinex", "bitmex", "coinbase"]
     workflow = get_workflow(url, exchanges)

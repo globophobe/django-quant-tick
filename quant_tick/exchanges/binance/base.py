@@ -16,7 +16,6 @@ class BinanceMixin(SequentialIntegerMixin):
     """Binance mixin."""
 
     def iter_api(self, timestamp_from: datetime.datetime, pagination_id: str) -> tuple:
-        """Iterate Binance API."""
         return get_trades(
             self.symbol.api_symbol,
             timestamp_from,
@@ -25,27 +24,21 @@ class BinanceMixin(SequentialIntegerMixin):
         )
 
     def get_uid(self, trade: dict) -> str:
-        """Get uid."""
         return str(trade["id"])
 
     def get_timestamp(self, trade: dict) -> datetime.datetime:
-        """Get timestamp."""
         return get_binance_trades_timestamp(trade)
 
     def get_nanoseconds(self, trade: dict) -> int:
-        """Get nanoseconds."""
         return self.get_timestamp(trade).nanosecond
 
     def get_price(self, trade: dict) -> Decimal:
-        """Get price."""
         return Decimal(trade["price"])
 
     def get_volume(self, trade: dict) -> Decimal:
-        """Get volume."""
         return self.get_price(trade) * self.get_notional(trade)
 
     def get_notional(self, trade: dict) -> Decimal:
-        """Get notional."""
         return Decimal(trade["qty"])
 
     def get_tick_rule(self, trade: dict) -> int:
@@ -56,7 +49,6 @@ class BinanceMixin(SequentialIntegerMixin):
         return 1 if not trade["isBuyerMaker"] else -1
 
     def get_index(self, trade: dict) -> int:
-        """Get index."""
         return int(trade["id"])
 
     def assert_data_frame(
@@ -66,7 +58,7 @@ class BinanceMixin(SequentialIntegerMixin):
         data_frame: DataFrame,
         trades: list | None = None,
     ) -> None:
-        """Assertions on data_frame."""
+        """Assert Binance-specific integrity constraints."""
         # Duplicates.
         assert len(data_frame["uid"].unique()) == len(trades)
         # Missing orders.
@@ -77,7 +69,6 @@ class BinanceMixin(SequentialIntegerMixin):
     def get_candles(
         self, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
     ) -> DataFrame:
-        """Get candles from Exchange API."""
         return binance_candles(
             self.symbol.api_symbol,
             timestamp_from,
@@ -92,7 +83,6 @@ class BinanceS3Mixin(BinanceMixin):
 
     @property
     def csv_columns(self) -> list:
-        """CSV columns."""
         return [
             "id",
             "price",
@@ -105,7 +95,6 @@ class BinanceS3Mixin(BinanceMixin):
 
     @property
     def columns(self) -> list:
-        """Columns."""
         return [
             "uid",
             "timestamp",
@@ -117,13 +106,12 @@ class BinanceS3Mixin(BinanceMixin):
         ]
 
     def get_url(self, date: datetime.date) -> str:
-        """Get URL."""
         symbol = self.symbol.api_symbol
         date_str = date.strftime("%Y-%m-%d")
         return f"{S3_URL}/{symbol}/{symbol}-trades-{date_str}.zip"
 
     def parse_dtypes_and_strip_columns(self, df: DataFrame) -> DataFrame:
-        """Parse dtypes and strip columns."""
+        """Parse Binance S3 columns into the canonical trade schema."""
         df = df.copy()
         df = set_type_decimal(df, "price")
         df = set_type_decimal(df, "qty")

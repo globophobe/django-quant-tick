@@ -11,19 +11,17 @@ logger = logging.getLogger(__name__)
 
 
 class BaseDateCommand(BaseCommand):
-    """Base date command."""
+    """Base command with date range arguments."""
 
     def add_arguments(self, parser: CommandParser) -> None:
-        """Add arguments."""
         parser.add_argument("--date-to", type=str, default=None)
         parser.add_argument("--date-from", type=str, default=None)
 
 
 class BaseDateTimeCommand(BaseCommand):
-    """Base date time command."""
+    """Base command with date and time range arguments."""
 
     def add_arguments(self, parser: CommandParser) -> None:
-        """Add arguments."""
         parser.add_argument("--date-to", type=str, default=None)
         parser.add_argument("--time-to", type=str, default=None)
         parser.add_argument("--date-from", type=str, default=None)
@@ -31,14 +29,12 @@ class BaseDateTimeCommand(BaseCommand):
 
 
 class BaseTradeDataCommand(BaseDateTimeCommand):
-    """Base trade data command."""
+    """Base command for iterating trade-data jobs."""
 
     def get_queryset(self) -> QuerySet:
-        """Get queryset."""
         return Symbol.objects.filter(is_active=True)
 
     def add_arguments(self, parser: CommandParser) -> None:
-        """Add arguments."""
         super().add_arguments(parser)
         queryset = self.get_queryset()
         parser.add_argument(
@@ -56,7 +52,6 @@ class BaseTradeDataCommand(BaseDateTimeCommand):
         )
 
     def handle(self, *args, **options) -> dict | None:
-        """Run command."""
         exchanges = options.get("exchange")
         api_symbols = options.get("api_symbol")
         code_names = options.get("code_name")
@@ -84,15 +79,13 @@ class BaseTradeDataCommand(BaseDateTimeCommand):
 
 
 class BaseTradeDataWithRetryCommand(BaseTradeDataCommand):
-    """Base trade data with retry."""
+    """Base trade-data command with a retry flag."""
 
     def add_arguments(self, parser: CommandParser) -> None:
-        """Add arguments."""
         super().add_arguments(parser)
         parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> dict | None:
-        """Run command."""
         kwargs = super().handle(*args, **options)
         for k in kwargs:
             k["retry"] = options.get("retry")
@@ -100,14 +93,12 @@ class BaseTradeDataWithRetryCommand(BaseTradeDataCommand):
 
 
 class BaseCandleCommand(BaseDateTimeCommand):
-    """Base candle command."""
+    """Base command for iterating candle jobs."""
 
     def get_queryset(self) -> QuerySet:
-        """Get queryset."""
         return Candle.objects.select_related("symbol")
 
     def add_arguments(self, parser: CommandParser) -> None:
-        """Add arguments."""
         super().add_arguments(parser)
         parser.add_argument(
             "--code-name",
@@ -119,7 +110,6 @@ class BaseCandleCommand(BaseDateTimeCommand):
         parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> None:
-        """Run command."""
         code_names = options.get("code_name")
         candles = self.get_queryset()
         is_active = options.get("is_active")

@@ -20,7 +20,6 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.timestamp_to = self.timestamp_from + pd.Timedelta("1min")
 
     def test_write_trade_data(self):
-        """Write trade data."""
         symbol = self.get_symbol()
         raw = self.get_raw(self.timestamp_from)
         TradeData.write(
@@ -36,7 +35,6 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertFalse(t.ok)
 
     def test_retry_raw_trade(self):
-        """Retry raw trade."""
         symbol = self.get_symbol(save_raw=True)
         raw = self.get_raw(self.timestamp_from)
         for i in range(2):
@@ -67,7 +65,6 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(filename, fname)
 
     def test_retry_aggregated_trade(self):
-        """Retry aggregated trade."""
         symbol = self.get_symbol(save_aggregated=True)
         aggregated = self.get_aggregated(self.timestamp_from)
         for i in range(2):
@@ -98,7 +95,6 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(filename, fname)
 
     def test_convert_trade_data_to_daily(self):
-        """Convert trade data to daily."""
         symbol = self.get_symbol()
         timestamp_from = get_min_time(self.timestamp_from, "1h")
 
@@ -140,7 +136,6 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(candle["buyTicks"], candles.buyTicks.sum())
 
     def test_convert_trade_data_is_atomic_on_failure(self):
-        """Failed promotions do not leave mixed-frequency overlap."""
         symbol = self.get_symbol()
         timestamp_from = get_min_time(self.timestamp_from, "1h")
 

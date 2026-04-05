@@ -8,7 +8,7 @@ from quant_tick.models import TaskState
 
 
 @override_settings(
-    QUANT_TICK_TASK_BACKOFF_BASE_SECONDS=300,
+    QUANT_TICK_TASK_BACKOFF_BASE_SECONDS=600,
     QUANT_TICK_TASK_BACKOFF_CAP_SECONDS=1800,
     QUANT_TICK_TASK_BACKOFF_MULTIPLIER=2,
     QUANT_TICK_TASK_LOCK_LEASE_SECONDS=600,
@@ -16,7 +16,6 @@ from quant_tick.models import TaskState
 class TaskStateTest(TestCase):
     @time_machine.travel(datetime(2024, 1, 1, 12, 0, tzinfo=UTC), tick=False)
     def test_mark_recent_error_sets_first_backoff_window(self):
-        """First failure sets the base backoff window."""
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",
@@ -32,18 +31,17 @@ class TaskStateTest(TestCase):
         self.assertEqual(task_state.recent_error_count, 1)
         self.assertEqual(
             task_state.next_fetch_at,
-            datetime(2024, 1, 1, 12, 5, tzinfo=UTC),
+            datetime(2024, 1, 1, 12, 10, tzinfo=UTC),
         )
 
-    @time_machine.travel(datetime(2024, 1, 1, 12, 5, tzinfo=UTC), tick=False)
+    @time_machine.travel(datetime(2024, 1, 1, 12, 10, tzinfo=UTC), tick=False)
     def test_mark_recent_error_grows_backoff_exponentially(self):
-        """Later consecutive failures increase the backoff window."""
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",
             recent_error_at=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
             recent_error_count=1,
-            next_fetch_at=datetime(2024, 1, 1, 12, 5, tzinfo=UTC),
+            next_fetch_at=datetime(2024, 1, 1, 12, 10, tzinfo=UTC),
         )
 
         task_state.mark_recent_error()
@@ -52,12 +50,11 @@ class TaskStateTest(TestCase):
         self.assertEqual(task_state.recent_error_count, 2)
         self.assertEqual(
             task_state.next_fetch_at,
-            datetime(2024, 1, 1, 12, 15, tzinfo=UTC),
+            datetime(2024, 1, 1, 12, 30, tzinfo=UTC),
         )
 
     @time_machine.travel(datetime(2024, 1, 1, 12, 0, tzinfo=UTC), tick=False)
     def test_acquire_sets_lock_lease(self):
-        """Task leases are acquired atomically."""
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",
@@ -74,7 +71,6 @@ class TaskStateTest(TestCase):
 
     @time_machine.travel(datetime(2024, 1, 1, 12, 1, tzinfo=UTC), tick=False)
     def test_acquire_fails_while_lease_is_active(self):
-        """Active leases block overlapping runs."""
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",
@@ -84,7 +80,6 @@ class TaskStateTest(TestCase):
         self.assertFalse(task_state.acquire())
 
     def test_clear_recent_error_resets_backoff_state(self):
-        """Success clears the retry state."""
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",

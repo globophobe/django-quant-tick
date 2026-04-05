@@ -18,7 +18,6 @@ def get_trades(
     pagination_id: str,
     log_format: str | None = None,
 ) -> list[dict]:
-    """Get trades."""
     url = f"{API_URL}/trade?symbol={symbol}"
     return iter_api(
         url,

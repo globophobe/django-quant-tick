@@ -7,6 +7,7 @@ import pandas as pd
 from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import TruncDate
+from django.utils.translation import gettext_lazy as _
 
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import (
@@ -21,11 +22,9 @@ from quant_tick.lib import (
 from quant_tick.models import Candle, CandleCache, Symbol, TradeData
 from quant_tick.models.trades import (
     upload_aggregated_data_to,
-    upload_candle_data_to,
     upload_filtered_data_to,
     upload_raw_data_to,
 )
-from quant_tick.utils import gettext_lazy as _
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +182,7 @@ def convert_trade_data(
 
             key = (
                 "notional"
-                if file_data in (FileData.RAW, FileData.AGGREGATED, FileData.CANDLE)
+                if file_data in (FileData.RAW, FileData.AGGREGATED)
                 else "totalNotional"
             )
             expected = sum([getattr(df, key).sum() for df in data_frames.values()])
@@ -191,8 +190,7 @@ def convert_trade_data(
             assert is_decimal_close(expected, actual)
 
             # Next, create hourly or daily.
-            if file_data != FileData.CANDLE:
-                data_frame.reset_index(inplace=True)
+            data_frame.reset_index(inplace=True)
 
             if len(data_frame):
                 prepared_files[file_data] = TradeData.prepare_data(data_frame)
@@ -241,14 +239,17 @@ def clean_trade_data_with_non_existing_files(
     """Clean trade data with non-existing files."""
     logging.info(_("Checking objects with non existent files"))
 
-    fields = [FileData.CANDLE]
+    fields = []
     for file_data, attr in {
         FileData.RAW: "save_raw",
         FileData.AGGREGATED: "save_aggregated",
-        FileData.FILTERED: "save_filtered",
     }.items():
         if getattr(symbol, attr):
             fields.append(file_data)
+    if symbol.significant_trade_filter:
+        fields.append(FileData.FILTERED)
+    if not fields:
+        return
 
     exclude = Q()
     for f in fields:
@@ -291,14 +292,17 @@ def clean_unlinked_trade_data_files(
     """Clean unlinked trade data files."""
     logging.info(_("Checking unlinked trade data files"))
 
-    fields = [FileData.CANDLE]
+    fields = []
     for file_data, attr in {
         FileData.RAW: "save_raw",
         FileData.AGGREGATED: "save_aggregated",
-        FileData.FILTERED: "save_filtered",
     }.items():
         if getattr(symbol, attr):
             fields.append(file_data)
+    if symbol.significant_trade_filter:
+        fields.append(FileData.FILTERED)
+    if not fields:
+        return
 
     exclude = Q()
     for f in fields:
@@ -317,7 +321,6 @@ def clean_unlinked_trade_data_files(
             FileData.RAW: upload_raw_data_to,
             FileData.AGGREGATED: upload_aggregated_data_to,
             FileData.FILTERED: upload_filtered_data_to,
-            FileData.CANDLE: upload_candle_data_to,
         }.items()
         if k in fields
     }

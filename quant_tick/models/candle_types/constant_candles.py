@@ -2,39 +2,26 @@ from datetime import datetime
 from decimal import Decimal
 
 import pandas as pd
+from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
 from quant_tick.constants import Frequency
-from quant_tick.utils import gettext_lazy as _
 
 from ..candles import Candle
 
 
 class ConstantCandle(Candle):
-    """Fixed-threshold bars that close after accumulating a constant amount of activity.
+    """Constant-threshold candles.
 
-    These bars close when a specific measure of market activity hits a fixed threshold.
-    Unlike time-based bars that close every N minutes regardless of activity, constant
-    bars adapt to market pace: they close faster during busy periods and slower during
-    quiet periods.
+    These candles close when cumulative ticks, volume, or notional reaches
+    `target_value`. Example: a volume candle with `target_value=10_000`
+    closes each time 10,000 units trade.
 
-    Common types:
-    - Tick bars: Close after N ticks (e.g., 1000 ticks per bar)
-    - Volume bars: Close after N contracts traded (e.g., 10,000 BTC)
-    - Dollar bars: Close after $N notional traded (e.g., $1M USD)
-
-    Why use constant bars instead of time bars? Market activity is not uniform. During
-    volatile periods, more information arrives per minute. During quiet periods, less
-    happens. Constant bars ensure each bar contains roughly the same amount of market
-    activity, making them more stationary and better for statistical analysis.
-
-    Based on AFML Chapter 2 - constant bars are the foundation for more advanced
-    information-driven sampling (imbalance bars, run bars). They're simple, effective,
-    and widely used in quantitative finance.
+    Optional `cache_reset` settings restart the running total on day or week
+    boundaries.
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
-        """Get initial cache."""
         cache = {}
         if "cache_reset" in self.json_data:
             cache["date"] = timestamp.date()
@@ -42,13 +29,13 @@ class ConstantCandle(Candle):
         return cache
 
     def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
-        """Reset cache when configured day/week boundaries are crossed."""
+        """Reset cache at configured day/week boundaries."""
         if self.should_reset_cache(timestamp, data):
             data = self.get_initial_cache(timestamp)
         return data
 
     def should_reset_cache(self, timestamp: datetime, data: dict) -> bool:
-        """Should reset cache."""
+        """Whether cache_reset requires a new running total."""
         date = timestamp.date()
         cache_date = data.get("date")
         cache_reset = self.json_data.get("cache_reset")
@@ -67,7 +54,7 @@ class ConstantCandle(Candle):
         data_frame: DataFrame,
         cache_data: dict,
     ) -> tuple[list, dict | None]:
-        """Aggregate."""
+        """Aggregate threshold-based candles over one trade-data slice."""
         data_frame = self._preprocess_data(data_frame, cache_data)
 
         start = 0
@@ -76,7 +63,7 @@ class ConstantCandle(Candle):
             cache_data["sample_value"] += self.get_sample_value(row)
             if self.should_aggregate_candle(cache_data):
                 df = data_frame.loc[start:index]
-                candle = self._build_candle(df)
+                candle = self._aggregate_candle(df)
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
                     if "open" in previous:
@@ -97,7 +84,6 @@ class ConstantCandle(Candle):
         return data, cache_data
 
     def get_sample_value(self, row: tuple) -> Decimal | int:
-        """Get sample value."""
         sample_type = self.json_data["sample_type"]
         key = "total" + sample_type.title()
         if key in row.index:
@@ -105,7 +91,6 @@ class ConstantCandle(Candle):
         return row[sample_type]
 
     def should_aggregate_candle(self, data: dict) -> bool:
-        """Should aggregate candle."""
         return data["sample_value"] >= self.json_data["target_value"]
 
     def get_incomplete_candle(

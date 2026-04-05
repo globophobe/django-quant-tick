@@ -17,11 +17,9 @@ class AggregateCandleViewTest(TestCase):
         )
 
     def get_url(self) -> str:
-        """Get aggregate candles URL."""
         return reverse("aggregate_candles")
 
     def test_get_processes_all_candles_before_compaction(self):
-        """Candle aggregation completes before cache compaction starts."""
         order = []
         Candle.objects.create(symbol=self.symbol)
         Candle.objects.create(symbol=self.symbol)
@@ -62,7 +60,6 @@ class AggregateCandleViewTest(TestCase):
         self.assertIsNone(task_state.locked_until)
 
     def test_get_skips_when_task_is_backed_off(self):
-        """Backed-off candle aggregation is skipped."""
         TaskState.objects.create(
             task_type=TaskType.AGGREGATE_CANDLES,
             exchange="",
@@ -77,7 +74,6 @@ class AggregateCandleViewTest(TestCase):
         mock_candles.assert_not_called()
 
     def test_get_skips_when_task_is_locked(self):
-        """Locked candle aggregation is skipped."""
         TaskState.objects.create(
             task_type=TaskType.AGGREGATE_CANDLES,
             exchange="",
@@ -92,7 +88,6 @@ class AggregateCandleViewTest(TestCase):
         mock_candles.assert_not_called()
 
     def test_get_does_not_compact_when_aggregation_fails(self):
-        """Cache compaction starts only after all candle aggregation succeeds."""
         Candle.objects.create(symbol=self.symbol)
         Candle.objects.create(symbol=self.symbol)
 

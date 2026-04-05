@@ -11,18 +11,18 @@ import randomname
 from django.core.files.base import ContentFile
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
 from quant_tick.constants import NUMERIC_PRECISION, NUMERIC_SCALE
 from quant_tick.lib import to_pydatetime
-from quant_tick.utils import gettext_lazy as _
 
 
 class QuantTickEncoder(DjangoJSONEncoder):
-    """Quant tick encoder."""
+    """JSON encoder for quant_tick model payloads."""
 
     def default(self, obj: Any) -> Any:
-        """Default."""
+        """Encode numpy ints and preserve UTC microseconds in datetimes."""
         if isinstance(obj, np.int64):
             return int(obj)
         # Default DjangoJSONEncoder strips microseconds.
@@ -36,7 +36,7 @@ class QuantTickEncoder(DjangoJSONEncoder):
 
 
 def quant_tick_json_decoder(data: dict) -> dict:
-    """Quant tick JSON decoder."""
+    """Decode Decimal, date, and datetime strings from JSON payloads."""
     for key, value in data.items():
         if isinstance(data[key], str):
             try:
@@ -57,17 +57,17 @@ def quant_tick_json_decoder(data: dict) -> dict:
 
 
 class QuantTickDecoder(JSONDecoder):
-    """Quant tick decoder."""
+    """JSON decoder using quant_tick_json_decoder as the object hook."""
 
     def __init__(self, *args, **kwargs) -> None:
-        """Initialize."""
+        """Install quant_tick_json_decoder as the default object hook."""
         if "object_hook" not in kwargs:
             kwargs["object_hook"] = quant_tick_json_decoder
         super().__init__(*args, **kwargs)
 
 
 def JSONField(name: str, **kwargs) -> models.JSONField:  # noqa: N802
-    """JSON."""
+    """Return a JSONField with the quant_tick encoder and decoder."""
     if "encoder" not in kwargs:
         kwargs["encoder"] = QuantTickEncoder
     if "decoder" not in kwargs:
@@ -76,7 +76,7 @@ def JSONField(name: str, **kwargs) -> models.JSONField:  # noqa: N802
 
 
 def BigDecimalField(name: str, **kwargs) -> models.DecimalField:  # noqa: N802
-    """Big decimal."""
+    """Return a DecimalField with project-wide precision defaults."""
     if "max_digits" not in kwargs:
         kwargs["max_digits"] = NUMERIC_PRECISION
     if "decimal_places" not in kwargs:
@@ -85,17 +85,16 @@ def BigDecimalField(name: str, **kwargs) -> models.DecimalField:  # noqa: N802
 
 
 class AbstractCodeName(models.Model):
-    """Abstract code name."""
+    """Abstract model with a generated unique code name."""
 
     code_name = models.SlugField(_("code name"), unique=True, max_length=255)
 
     def __str__(self) -> str:
-        """String."""
         return self.code_name
 
     @classmethod
     def get_random_name(cls) -> str:
-        """Get random name."""
+        """Generate a unique random code name."""
         name = randomname.get_name()
         if cls.objects.filter(code_name=name).exists():
             return cls.get_random_name()
@@ -103,7 +102,7 @@ class AbstractCodeName(models.Model):
             return name
 
     def save(self, *args, **kwargs) -> models.Model:
-        """Save."""
+        """Populate code_name on first save."""
         if not self.pk and not self.code_name:
             self.code_name = self.get_random_name()
         return super().save(*args, **kwargs)
@@ -113,11 +112,11 @@ class AbstractCodeName(models.Model):
 
 
 class AbstractDataStorage(models.Model):
-    """Abstract data storage."""
+    """Abstract model for parquet-backed file storage."""
 
     @classmethod
     def prepare_data(cls, data_frame: DataFrame) -> ContentFile:
-        """Prepare data, exclude uid."""
+        """Serialize a DataFrame to parquet after dropping transient columns."""
         drop_columns = []
         if "index" in data_frame.columns:
             drop_columns.append("index")
@@ -131,12 +130,12 @@ class AbstractDataStorage(models.Model):
         return ContentFile(buffer.getvalue(), "data.parquet")
 
     def has_data_frame(self, field: str) -> bool:
-        """Has data frame."""
+        """Whether the named file field has stored data."""
         data = getattr(self, field)
         return data.name != ""
 
     def get_data_frame(self, field: str) -> DataFrame:
-        """Get data frame."""
+        """Read the named parquet file field into a DataFrame."""
         if self.has_data_frame(field):
             return pd.read_parquet(getattr(self, field).open())
 

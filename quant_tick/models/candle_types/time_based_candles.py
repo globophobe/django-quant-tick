@@ -2,22 +2,22 @@ from datetime import datetime
 
 import pandas as pd
 from django.db import transaction
+from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
 from quant_tick.constants import Frequency
 from quant_tick.lib import filter_by_timestamp, get_min_time, iter_window
-from quant_tick.utils import gettext_lazy as _
 
 from ..candles import Candle, CandleCache, CandleData
 
 
 class TimeBasedCandle(Candle):
-    """Time based candle."""
+    """Fixed-window candles."""
 
     def get_max_timestamp_to(
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> datetime:
-        """Get max timestamp to."""
+        """Clamp timestamp_to to the last complete window."""
         window = self.json_data["window"]
         total_minutes = pd.Timedelta(window).total_seconds() / Frequency.HOUR
         delta = pd.Timedelta(f"{total_minutes}min")
@@ -33,10 +33,7 @@ class TimeBasedCandle(Candle):
         data_frame: DataFrame,
         cache_data: dict | None = None,
     ) -> tuple[list, dict | None]:
-        """Aggregate.
-
-        Iterate forward. Intermediate results will be saved to CandleCache.json_data
-        """
+        """Aggregate complete windows and keep any remainder in cache."""
         cache_data = cache_data or {}
         data = []
         window = self.json_data["window"]
@@ -59,7 +56,7 @@ class TimeBasedCandle(Candle):
                 df = pd.DataFrame()
 
             if len(df):
-                candle = self._build_candle(df, timestamp=win_from)
+                candle = self._aggregate_candle(df, timestamp=win_from)
 
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
@@ -89,7 +86,7 @@ class TimeBasedCandle(Candle):
 
     @transaction.atomic
     def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
-        """On retry."""
+        """Delete cached and stored rows inside the retry window."""
         CandleCache.objects.filter(
             candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
         ).delete()

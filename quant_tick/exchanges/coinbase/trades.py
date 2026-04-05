@@ -13,7 +13,6 @@ def get_coinbase_trades_url(
     timestamp_from: datetime | None = None,
     pagination_id: int | None = None,
 ) -> str:
-    """Get coinbase trades URL."""
     if pagination_id:
         url = f"{url}?after={pagination_id}"
     return url
@@ -22,16 +21,11 @@ def get_coinbase_trades_url(
 def get_coinbase_trades_pagination_id(
     timestamp: datetime, last_data: list | None = None, data: list | None = None
 ) -> int | None:
-    """Get Coinbase trades pagination_id.
-
-    Pagination details: https://docs.pro.coinbase.com/#pagination
-    """
     if len(data):
         return data[-1]["trade_id"]
 
 
 def get_coinbase_trades_timestamp(trade: dict) -> datetime:
-    """Get Coinbase trades timestamp."""
     return parse_datetime(trade["time"])
 
 
@@ -41,7 +35,6 @@ def get_trades(
     pagination_id: int,
     log_format: str | None = None,
 ) -> list[dict]:
-    """Get trades."""
     url = f"{API_URL}/products/{symbol}/trades"
     return iter_api(
         url,

@@ -19,7 +19,7 @@ def api(
     retry: bool = False,
     verbose: bool = False,
 ) -> None:
-    """API."""
+    """Fetch exchange trades and persist TradeData rows."""
 
     def on_data_frame(
         symbol: Symbol,
@@ -28,7 +28,7 @@ def api(
         trades: DataFrame,
         candles: DataFrame,
     ) -> DataFrame:
-        """On data_frame, write trade data."""
+        """Write one fetched trade slice."""
         TradeData.write(symbol, timestamp_from, timestamp_to, trades, candles)
 
     trades_api(
@@ -49,7 +49,7 @@ def trades_api(
     retry: bool = False,
     verbose: bool = False,
 ) -> None:
-    """Trades API."""
+    """Dispatch trade fetching to the exchange-specific adapter."""
     exchange = symbol.exchange
     kwargs = {
         "timestamp_from": timestamp_from,
@@ -71,7 +71,7 @@ def trades_api(
 def candles_api(
     symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
 ) -> DataFrame:
-    """Candles API."""
+    """Dispatch candle fetching to the exchange-specific adapter."""
     exchange = symbol.exchange
     api_symbol = symbol.api_symbol
     kwargs = {"timestamp_from": timestamp_from, "timestamp_to": timestamp_to}

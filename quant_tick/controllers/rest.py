@@ -28,7 +28,7 @@ def iter_api(
     pagination_id: str | None = None,
     log_format: str | None = None,
 ) -> list:
-    """Iterate exchange API."""
+    """Iterate a paginated exchange API until the partition is covered."""
     results = []
     last_data = []
     stop_iteration = False
@@ -70,7 +70,6 @@ def iter_api(
 
 
 def get_api_max_requests_reset(seconds: int) -> float:
-    """Get API max requests reset."""
     return time.time() + seconds
 
 
@@ -80,7 +79,6 @@ def set_api_environ_vars(
     max_requests_reset: float,
     reset: bool = False,
 ) -> None:
-    """Set API environment variables."""
     if reset or (max_requests_reset_key not in os.environ):
         max_requests_reset = get_api_max_requests_reset(max_requests_reset)
         os.environ[max_requests_reset_key] = str(max_requests_reset)
@@ -89,7 +87,6 @@ def set_api_environ_vars(
 
 
 def increment_api_total_requests(total_requests_key: str) -> None:
-    """Increment API total requests."""
     total_requests = int(os.environ[total_requests_key])
     os.environ[total_requests_key] = str(total_requests + 1)
 
@@ -100,7 +97,7 @@ def throttle_api_requests(
     max_requests_reset: float,
     max_requests: int,
 ) -> None:
-    """Throttle API requests."""
+    """Throttle requests using env-backed request counters."""
     set_api_environ_vars(
         max_requests_reset_key,
         total_requests_key,
@@ -126,26 +123,24 @@ def throttle_api_requests(
 
 
 class ExchangeREST(BaseController):
-    """Exchange REST."""
+    """Base controller for REST trade ingestion."""
 
     def get_pagination_id(self, timestamp_to: datetime) -> None:
-        """Get pagination_id for symbol."""
         raise NotImplementedError
 
     def iter_api(self, symbol: Symbol, pagination_id: str, log_format: str) -> None:
-        """Iter exchange API."""
         raise NotImplementedError
 
     def get_max_timestamp_to(self) -> datetime:
-        """Get max timestamp_to, to omit incomplete candles."""
+        """Get the latest safe timestamp_to for exchange data."""
 
     def get_timestamp_to(
         self, timestamp_to: datetime, max_timestamp_to: datetime
     ) -> datetime:
-        """Get timestamp_to, omitting first incomplete candle."""
+        """Clamp timestamp_to to complete exchange data."""
 
     def main(self) -> DataFrame:
-        """Main loop, with TradeDataIterator.iter_all"""
+        """Fetch, normalize, validate, and persist TradeData slices."""
         for timestamp_from, timestamp_to in TradeDataIterator(self.symbol).iter_all(
             self.timestamp_from,
             self.timestamp_to,
@@ -169,7 +164,7 @@ class ExchangeREST(BaseController):
                 break
 
     def parse_data(self, data: list) -> list:
-        """Parse trade data."""
+        """Normalize raw trades into the canonical trade dict schema."""
         return [
             {
                 "uid": self.get_uid(trade),
@@ -187,7 +182,7 @@ class ExchangeREST(BaseController):
     def get_valid_trades(
         self, timestamp_from: datetime, timestamp_to: datetime, trades: list
     ) -> list:
-        """Get valid trades."""
+        """Drop duplicate trades and trades outside the partition."""
         unique = set()
         valid_trades = []
         for trade in trades:
@@ -199,35 +194,28 @@ class ExchangeREST(BaseController):
         return valid_trades
 
     def get_uid(self, trade: dict) -> str:
-        """Get uid."""
         raise NotImplementedError
 
     def get_timestamp(self, trade: dict) -> datetime:
-        """Get timestamp."""
         raise NotImplementedError
 
     def get_price(self, trade: dict) -> Decimal:
-        """Get price."""
         raise NotImplementedError
 
     def get_volume(self, trade: dict) -> Decimal:
-        """Get volume."""
         raise NotImplementedError
 
     def get_notional(self, trade: dict) -> Decimal:
-        """Get notional."""
         raise NotImplementedError
 
     def get_tick_rule(self, trade: dict) -> int:
-        """Get tick rule."""
         raise NotImplementedError
 
     def get_index(self, trade: dict) -> int:
-        """Get index."""
         raise NotImplementedError
 
     def get_data_frame(self, trades: list) -> DataFrame:
-        """Get data_frame."""
+        """Build a DataFrame from normalized trades in ascending order."""
         data_frame = pd.DataFrame(trades, columns=self.columns)
         # REST API, data is reverse order
         return data_frame.iloc[::-1]
@@ -239,7 +227,7 @@ class ExchangeREST(BaseController):
         data_frame: DataFrame,
         trades: list | None = None,
     ) -> None:
-        """Assertions for data_frame."""
+        """Assert basic integrity of a normalized trade frame."""
         # Are trades unique?
         assert len(data_frame["uid"].unique()) == len(trades)
         assert_type_decimal(data_frame, ("price", "volume", "notional"))

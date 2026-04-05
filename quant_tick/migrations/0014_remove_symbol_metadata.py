@@ -19,6 +19,14 @@ class Migration(migrations.Migration):
             model_name="symbol",
             name="recent_error_at",
         ),
+        migrations.RemoveField(
+            model_name="symbol",
+            name="save_filtered",
+        ),
+        migrations.RemoveField(
+            model_name="tradedata",
+            name="candle_data",
+        ),
         migrations.DeleteModel(
             name="GlobalSymbol",
         ),
