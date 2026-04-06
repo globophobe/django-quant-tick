@@ -1,5 +1,4 @@
 import datetime
-from typing import Any
 
 import pandas as pd
 from pandas import DataFrame
@@ -8,22 +7,6 @@ from quant_tick.constants import ZERO
 
 from .calendar import iter_once, iter_window
 from .dataframe import is_decimal_close
-
-
-def is_sample(data_frame: DataFrame, first_index: int, last_index: int) -> bool:
-    """Is the range a sample? Short-circuit logic for speed."""
-    first_row = data_frame.loc[first_index]
-    last_row = data_frame.loc[last_index]
-    # For speed, short-circuit
-    if first_row.timestamp == last_row.timestamp:
-        if first_row.nanoseconds == last_row.nanoseconds:
-            if first_row.tickRule == last_row.tickRule:
-                if "symbol" in data_frame.columns:
-                    if first_row.symbol == last_row.symbol:
-                        return False
-                else:
-                    return False
-    return True
 
 
 def aggregate_trades(data_frame: DataFrame) -> DataFrame:
@@ -35,78 +18,76 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
     Resulting aggregation was either a single market order, or a
     cascade of executed orders.
     """
-    df = data_frame.reset_index()
-    idx = 0
+    if not len(data_frame):
+        return pd.DataFrame([])
+
+    has_symbol = "symbol" in data_frame.columns
     samples = []
-    total_rows = len(df) - 1
-    # Were there two or more trades?
-    if len(df) > 1:
-        for row in df.itertuples():
-            index = row.Index
-            last_index = index - 1
-            if index > 0:
-                is_last_iteration = index == total_rows
-                # Is this the last iteration?
-                if is_last_iteration:
-                    # If equal, one sample
-                    if not is_sample(df, idx, index):
-                        # Aggregate from idx to end of data frame.
-                        sample = df.loc[idx:]
-                        samples.append(agg_trades(sample))
-                    # Otherwise, two samples.
-                    else:
-                        # Aggregate from idx to last_index
-                        sample = df.loc[idx:last_index]
-                        samples.append(agg_trades(sample))
-                        # Append last row.
-                        sample = df.loc[index:]
-                        assert len(sample) == 1
-                        samples.append(agg_trades(sample))
-                # Is the last row equal to the current row?
-                elif is_sample(df, last_index, index):
-                    # Aggregate from idx to last_index.
-                    sample = df.loc[idx:last_index]
-                    aggregated_sample = agg_trades(sample)
-                    samples.append(aggregated_sample)
-                    idx = index
-    # Only one trade in data_frame.
-    elif len(df) == 1:
-        aggregated_sample = agg_trades(df)
-        samples.append(aggregated_sample)
+    iterator = data_frame.itertuples(index=False)
+    first_row = next(iterator)
+    uid = first_row.uid
+    timestamp = first_row.timestamp
+    nanoseconds = first_row.nanoseconds
+    tick_rule = first_row.tickRule
+    price = first_row.price
+    volume = first_row.volume
+    notional = first_row.notional
+    ticks = 1
+    symbol = first_row.symbol if has_symbol else None
+    for row in iterator:
+        is_same_sample = (
+            row.timestamp == timestamp
+            and row.nanoseconds == nanoseconds
+            and row.tickRule == tick_rule
+            and (not has_symbol or row.symbol == symbol)
+        )
+        if is_same_sample:
+            price = row.price
+            volume += row.volume
+            notional += row.notional
+            ticks += 1
+            continue
+        data = {
+            "uid": uid,
+            "timestamp": timestamp,
+            "nanoseconds": nanoseconds,
+            "price": price,
+            "volume": volume,
+            "notional": notional,
+            "ticks": ticks,
+            "tickRule": tick_rule,
+        }
+        if has_symbol:
+            data["symbol"] = symbol
+        samples.append(data)
+        uid = row.uid
+        timestamp = row.timestamp
+        nanoseconds = row.nanoseconds
+        tick_rule = row.tickRule
+        price = row.price
+        volume = row.volume
+        notional = row.notional
+        ticks = 1
+        if has_symbol:
+            symbol = row.symbol
+    data = {
+        "uid": uid,
+        "timestamp": timestamp,
+        "nanoseconds": nanoseconds,
+        "price": price,
+        "volume": volume,
+        "notional": notional,
+        "ticks": ticks,
+        "tickRule": tick_rule,
+    }
+    if has_symbol:
+        data["symbol"] = symbol
+    samples.append(data)
     # Assert volume equal.
     aggregated = pd.DataFrame(samples)
     is_close = is_decimal_close(data_frame.volume.sum(), aggregated.volume.sum())
     assert is_close, "Volume is not equal."
     return aggregated
-
-
-def agg_trades(data_frame: DataFrame) -> dict[str, Any]:
-    """Aggregate trades."""
-    first_row = data_frame.iloc[0]
-    last_row = data_frame.iloc[-1]
-    timestamp = last_row.timestamp
-    last_price = last_row.price
-    ticks = len(data_frame)
-    # Is there more than 1 trade to aggregate?
-    if ticks > 1:
-        volume = data_frame.volume.sum()
-        notional = data_frame.notional.sum()
-    else:
-        volume = last_row.volume
-        notional = last_row.notional
-    data = {
-        "uid": first_row.uid,
-        "timestamp": timestamp,
-        "nanoseconds": last_row.nanoseconds,
-        "price": last_price,
-        "volume": volume,
-        "notional": notional,
-        "ticks": ticks,
-        "tickRule": last_row.tickRule,
-    }
-    if "symbol" in data_frame.columns:
-        data.update({"symbol": last_row.symbol})
-    return data
 
 
 def filter_by_timestamp(
