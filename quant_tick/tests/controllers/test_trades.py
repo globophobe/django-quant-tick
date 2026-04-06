@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import patch
 
 import pandas as pd
@@ -6,7 +7,7 @@ import time_machine
 from django.test import TestCase
 
 from quant_tick.constants import Frequency
-from quant_tick.controllers import TradeDataIterator
+from quant_tick.controllers import ExchangeREST, TradeDataIterator
 from quant_tick.models import TradeData
 
 from ..base import BaseSymbolTest
@@ -145,3 +146,117 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         self.assertEqual(len(values), 1)
         self.assertEqual(values[0][0], self.timestamp_from + self.one_minute)
         self.assertEqual(values[-1][1], self.timestamp_to)
+
+
+class DummyExchangeREST(ExchangeREST):
+    def __init__(
+        self,
+        *args,
+        api_results: list[tuple[list[dict], bool, str | None]],
+        **kwargs,
+    ) -> None:
+        self.frames = []
+        self.api_results = api_results
+        self.api_calls = 0
+        super().__init__(*args, on_data_frame=self.capture_frame, **kwargs)
+
+    def capture_frame(self, symbol, timestamp_from, timestamp_to, data_frame, candles):
+        self.frames.append((timestamp_from, timestamp_to, data_frame.copy()))
+
+    def get_pagination_id(self, timestamp_to: datetime) -> str:
+        return "start"
+
+    def iter_api(self, timestamp_from: datetime, pagination_id: str) -> tuple:
+        result = self.api_results[self.api_calls]
+        self.api_calls += 1
+        return result
+
+    def parse_data(self, data: list) -> list:
+        return data
+
+    def get_candles(self, timestamp_from: datetime, timestamp_to: datetime) -> pd.DataFrame:
+        return pd.DataFrame([])
+
+
+@time_machine.travel(datetime(2009, 1, 3), tick=False)
+class ExchangeRESTTest(BaseSymbolTest, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.one_minute = pd.Timedelta("1min")
+        self.symbol = self.get_symbol()
+
+    def test_main_reuses_next_partition_buffer(self):
+        ts0 = self.timestamp_from
+        partitions = [
+            (ts0 + (self.one_minute * 5), ts0 + (self.one_minute * 10)),
+            (ts0, ts0 + (self.one_minute * 5)),
+        ]
+        api_results = [
+            (
+                [
+                    {
+                        "uid": "4",
+                        "timestamp": ts0 + (self.one_minute * 9),
+                        "nanoseconds": 0,
+                        "price": Decimal("100"),
+                        "volume": Decimal("100"),
+                        "notional": Decimal("1"),
+                        "tickRule": 1,
+                        "index": 4,
+                    },
+                    {
+                        "uid": "3",
+                        "timestamp": ts0 + (self.one_minute * 8),
+                        "nanoseconds": 0,
+                        "price": Decimal("100"),
+                        "volume": Decimal("100"),
+                        "notional": Decimal("1"),
+                        "tickRule": 1,
+                        "index": 3,
+                    },
+                    {
+                        "uid": "2",
+                        "timestamp": ts0 + (self.one_minute * 4),
+                        "nanoseconds": 0,
+                        "price": Decimal("100"),
+                        "volume": Decimal("100"),
+                        "notional": Decimal("1"),
+                        "tickRule": 1,
+                        "index": 2,
+                    },
+                    {
+                        "uid": "1",
+                        "timestamp": ts0 + (self.one_minute * 3),
+                        "nanoseconds": 0,
+                        "price": Decimal("100"),
+                        "volume": Decimal("100"),
+                        "notional": Decimal("1"),
+                        "tickRule": 1,
+                        "index": 1,
+                    },
+                ],
+                True,
+                None,
+            )
+        ]
+        controller = DummyExchangeREST(
+            self.symbol,
+            timestamp_from=ts0,
+            timestamp_to=ts0 + (self.one_minute * 10),
+            retry=False,
+            verbose=False,
+            api_results=api_results,
+        )
+
+        with patch(
+            "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+            return_value=partitions,
+        ):
+            controller.main()
+
+        self.assertEqual(controller.api_calls, 1)
+        self.assertEqual(len(controller.frames), 2)
+        first = controller.frames[0][2]
+        second = controller.frames[1][2]
+        self.assertEqual(list(first.timestamp), [ts0 + (self.one_minute * 8), ts0 + (self.one_minute * 9)])
+        self.assertEqual(list(second.timestamp), [ts0 + (self.one_minute * 3), ts0 + (self.one_minute * 4)])
