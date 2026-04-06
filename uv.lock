@@ -14,7 +14,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-02T13:18:08.744931599Z"
+exclude-newer = "2026-04-03T00:36:32.112980874Z"
 exclude-newer-span = "P3D"
 
 [[package]]
@@ -392,6 +392,7 @@ deploy = [
 ]
 dev = [
     { name = "coverage" },
+    { name = "django-storages", extra = ["google"] },
     { name = "invoke" },
     { name = "ipython" },
     { name = "psycopg2-binary" },
@@ -420,6 +421,7 @@ deploy = [
 ]
 dev = [
     { name = "coverage", specifier = ">=7.11.0" },
+    { name = "django-storages", extras = ["google"], specifier = ">=1.14.6" },
     { name = "invoke", specifier = ">=2.2.1" },
     { name = "ipython", specifier = ">=9.6.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.10" },
