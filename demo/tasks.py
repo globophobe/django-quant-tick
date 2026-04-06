@@ -62,7 +62,11 @@ def start_proxy(ctx: Any) -> None:
 
 
 @task
-def get_container_name(ctx: Any, name: str, region: str = "asia-northeast1") -> str:
+def get_container_name(
+    ctx: Any,
+    name: str = "django-quant-tick",
+    region: str = "asia-northeast1",
+) -> str:
     """Build the Artifact Registry image name."""
     project_id = ctx.run("gcloud config get-value project").stdout.strip()
     return f"{region}-docker.pkg.dev/{project_id}/{name}/{name}"
@@ -103,7 +107,9 @@ def build_quant_tick(ctx: Any) -> str:
 
 
 def build_container(
-    ctx: Any, name: str, region: str = "asia-northeast1"
+    ctx: Any,
+    name: str = "django-quant-tick",
+    region: str = "asia-northeast1",
 ) -> None:
     wheel = build_quant_tick(ctx)
     repo_root = Path(__file__).resolve().parent.parent
@@ -139,62 +145,124 @@ def build_container(
 
 
 @task
-def push_container(ctx: Any, name: str, region: str = "asia-northeast1") -> None:
+def push_container(
+    ctx: Any,
+    name: str = "django-quant-tick",
+    region: str = "asia-northeast1",
+) -> None:
     name = get_container_name(ctx, name, region=region)
     # Push
     cmd = f"docker push {name}"
     ctx.run(cmd)
 
 
-def get_workflow(url: str, exchanges: list[str]) -> dict:
+def get_workflow(
+    url: str,
+    exchanges: list[str],
+    callback_url: str | None = None,
+    callback_interval_minutes: int | None = None,
+) -> dict:
     """Build the Cloud Workflow definition for REST aggregation."""
     aggregate_trades = urljoin(url, "aggregate-trades/")
     aggregate_candles = urljoin(url, "aggregate-candles/")
-    return {
-        "main": {
-            "steps": [
-                {
-                    "getTradeData": {
-                        "parallel": {
-                            "for": {
-                                "value": "exchange",
-                                "in": exchanges,
-                                "steps": [
-                                    {
-                                        "tradeData": {
-                                            "try": {
-                                                "call": "http.get",
-                                                "args": {
-                                                    "url": f"{aggregate_trades}${{exchange}}/",
-                                                    "auth": {"type": "OIDC"},
-                                                },
-                                            },
-                                            "except": {"as": "e", "steps": []},
-                                        }
-                                    }
-                                ],
-                            }
-                        }
-                    }
-                },
-                {
-                    "aggregateCandles": {
-                        "call": "http.get",
-                        "args": {
-                            "url": aggregate_candles,
-                            "auth": {"type": "OIDC"},
+    steps = []
+    if callback_url and callback_interval_minutes:
+        steps.append(
+            {
+                "getRunTime": {
+                    "assign": [
+                        {"runTime": "${time.format(sys.now())}"},
+                        {
+                            "runMinutes": "${int(text.substring(runTime, 11, 13)) * 60 + int(text.substring(runTime, 14, 16))}"
                         },
+                    ]
+                }
+            }
+        )
+    steps += [
+        {
+            "getTradeData": {
+                "parallel": {
+                    "for": {
+                        "value": "exchange",
+                        "in": exchanges,
+                        "steps": [
+                            {
+                                "tradeData": {
+                                    "try": {
+                                        "call": "http.get",
+                                        "args": {
+                                            "url": f"{aggregate_trades}${{exchange}}/",
+                                            "auth": {"type": "OIDC"},
+                                        },
+                                    },
+                                    "except": {"as": "e", "steps": []},
+                                }
+                            }
+                        ],
                     }
+                }
+            }
+        },
+        {
+            "aggregateCandles": {
+                "call": "http.get",
+                "args": {
+                    "url": aggregate_candles,
+                    "auth": {"type": "OIDC"},
                 },
-            ]
-        }
-    }
+            }
+        },
+    ]
+    if callback_url and callback_interval_minutes:
+        steps += [
+            {
+                "maybeCallback": {
+                    "switch": [
+                        {
+                            "condition": f"${{runMinutes % {callback_interval_minutes} == 0}}",
+                            "next": "callback",
+                        }
+                    ],
+                    "next": "done",
+                }
+            },
+            {
+                "callback": {
+                    "call": "http.post",
+                    "args": {
+                        "url": callback_url,
+                        "auth": {"type": "OIDC"},
+                        "body": {"timestamp": "${runTime}"},
+                    },
+                    "next": "done",
+                }
+            },
+            {"done": {"return": "ok"}},
+        ]
+    return {"main": {"steps": steps}}
 
 
+@task
 def push_workflow(
-    ctx: Any, name: str, workflow: dict, location: str = "asia-northeast1"
+    ctx: Any, name: str = "django-quant-tick", location: str = "asia-northeast1"
 ) -> None:
-    """Deploy a Cloud Workflow definition."""
+    url = f'https://{os.environ["PRODUCTION_API_URL"]}'
+    callback_url = os.environ.get("CALLBACK_URL") or None
+    callback_interval_minutes = os.environ.get("CALLBACK_INTERVAL_MINUTES") or None
+    if callback_interval_minutes is not None:
+        callback_interval_minutes = int(callback_interval_minutes)
+        if callback_interval_minutes <= 0:
+            raise ValueError("CALLBACK_INTERVAL_MINUTES must be positive.")
+    if callback_url and callback_interval_minutes is None:
+        raise ValueError("CALLBACK_INTERVAL_MINUTES is required when CALLBACK_URL is set.")
+    exchanges = ["binance", "bitfinex", "bitmex", "coinbase"]
+    workflow = get_workflow(
+        url,
+        exchanges,
+        callback_url=callback_url,
+        callback_interval_minutes=callback_interval_minutes,
+    )
     with tempfile.NamedTemporaryFile(mode="w") as f:
         json.dump(workflow, f)
         f.seek(0)
@@ -202,13 +270,3 @@ def push_workflow(
             f"gcloud workflows deploy {name} "
             f"--source={f.name} --location={location}"
         )
-
-
-@task
-def push_rest_workflow(
-    ctx: Any, name: str = "django-quant-tick-rest", location: str = "asia-northeast1"
-) -> None:
-    url = f'https://{os.environ["PRODUCTION_API_URL"]}'
-    exchanges = ["binance", "bitfinex", "bitmex", "coinbase"]
-    workflow = get_workflow(url, exchanges)
-    push_workflow(ctx, name, workflow, location=location)
