@@ -1,8 +1,8 @@
 from quant_tick.exchanges.api import api
-from quant_tick.management.base import BaseTradeDataCommand
+from quant_tick.management.base import BaseTradeDataWithRetryCommand
 
 
-class Command(BaseTradeDataCommand):
+class Command(BaseTradeDataWithRetryCommand):
     help = "Get trades from exchange API or S3."
 
     def handle(self, *args, **options) -> None:
