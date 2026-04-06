@@ -11,15 +11,15 @@ def get_next_cache(
     data_frame: DataFrame,
     cache_data: dict,
     timestamp: datetime | None = None,
-    round_volume: bool = False,
-    round_notional: bool = False,
+    min_volume_exponent: int | None = None,
+    min_notional_exponent: int | None = None,
 ) -> dict:
     """Get next cache."""
     values = aggregate_candle(
         data_frame,
         timestamp,
-        round_volume=round_volume,
-        round_notional=round_notional,
+        min_volume_exponent=min_volume_exponent,
+        min_notional_exponent=min_notional_exponent,
     )
     if "next" in cache_data:
         previous_values = cache_data.pop("next")

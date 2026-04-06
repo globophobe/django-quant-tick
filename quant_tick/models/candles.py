@@ -225,9 +225,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
         return aggregate_candle(
             df,
             timestamp=timestamp,
-            min_notional_exponent=int(self.json_data.get("min_notional_exponent", 1)),
-            round_volume=self.json_data.get("round_volume", False),
-            round_notional=self.json_data.get("round_notional", False),
+            min_volume_exponent=self.json_data.get("min_volume_exponent"),
+            min_notional_exponent=self.json_data.get("min_notional_exponent"),
         )
 
     def _merge_cache(self, prev: dict, curr: dict) -> dict:
@@ -245,8 +244,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
             df,
             cache_data,
             timestamp=timestamp,
-            round_volume=self.json_data.get("round_volume", False),
-            round_notional=self.json_data.get("round_notional", False),
+            min_volume_exponent=self.json_data.get("min_volume_exponent"),
+            min_notional_exponent=self.json_data.get("min_notional_exponent"),
         )
 
     def write_cache(

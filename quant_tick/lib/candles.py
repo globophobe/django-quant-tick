@@ -12,54 +12,6 @@ from .dataframe import is_decimal_close
 ZERO = Decimal("0")
 
 
-def calc_volume_exponent(
-    volume: int | Decimal, divisor: int = 10, decimal_places: int = 1
-) -> int:
-    """Calculate volume exponent.
-
-    Returns power of divisor if volume is a round integer (i.e. 100, 1000, 10000)
-    """
-    if not volume:
-        return 0
-
-    if volume % 1 != 0:
-        return 0
-
-    volume = int(volume)
-
-    if volume % (divisor**decimal_places) == 0:
-        decimal_places += 1
-        while volume % (divisor**decimal_places) == 0:
-            decimal_places += 1
-        return decimal_places - 1
-
-    return 0
-
-
-def calc_notional_exponent(
-    notional: Decimal, divisor: Decimal = Decimal("0.1"), decimal_places: int = 1
-) -> int:
-    """Calculate notional exponent.
-
-    Returns power of divisor if notional is a round decimal (i.e. 1.0, 10.5, 100.0)
-    """
-    if not notional:
-        return 0
-
-    check_divisor = divisor * (Decimal("10") ** (decimal_places - 1))
-    if notional % check_divisor == 0:
-        decimal_places += 1
-        while True:
-            check_divisor = divisor * (Decimal("10") ** (decimal_places - 1))
-            if notional % check_divisor == 0:
-                decimal_places += 1
-            else:
-                break
-        return decimal_places - 1
-
-    return 0
-
-
 def candles_to_data_frame(
     timestamp_from: datetime,
     timestamp_to: datetime,
@@ -86,9 +38,8 @@ def aggregate_candles(
     timestamp_to: datetime,
     window: str = "1min",
     as_data_frame: bool = True,
-    min_notional_exponent: int = 1,
-    round_volume: bool = False,
-    round_notional: bool = False,
+    min_volume_exponent: int | None = None,
+    min_notional_exponent: int | None = None,
 ) -> list[dict]:
     """Aggregate candles"""
     data = []
@@ -98,9 +49,8 @@ def aggregate_candles(
             candle = aggregate_candle(
                 df,
                 timestamp=ts_from,
+                min_volume_exponent=min_volume_exponent,
                 min_notional_exponent=min_notional_exponent,
-                round_volume=round_volume,
-                round_notional=round_notional,
             )
             data.append(candle)
         else:
@@ -128,10 +78,8 @@ def aggregate_candles(
 def aggregate_candle(
     data_frame: DataFrame,
     timestamp: datetime | None = None,
-    min_volume_exponent: int = 2,
-    min_notional_exponent: int = 1,
-    round_volume: bool = False,
-    round_notional: bool = False,
+    min_volume_exponent: int | None = None,
+    min_notional_exponent: int | None = None,
 ) -> dict:
     """Aggregate candle."""
     ts = timestamp if timestamp else data_frame.iloc[0].timestamp
@@ -142,8 +90,6 @@ def aggregate_candle(
             data_frame,
             min_volume_exponent,
             min_notional_exponent,
-            round_volume=round_volume,
-            round_notional=round_notional,
         )
     )
     data.update(_aggregate_realized_variance(data_frame))
@@ -169,10 +115,8 @@ def _aggregate_ohlc(df: DataFrame) -> dict:
 
 def _aggregate_totals(
     df: DataFrame,
-    min_volume_exponent: int = 2,
-    min_notional_exponent: int = 1,
-    round_volume: bool = False,
-    round_notional: bool = False,
+    min_volume_exponent: int | None = None,
+    min_notional_exponent: int | None = None,
 ) -> dict:
     """Aggregate volume, notional, ticks, and round fields."""
     data = {}
@@ -197,11 +141,12 @@ def _aggregate_totals(
         else:
             data["ticks"] = len(df)
             data["buyTicks"] = int(is_buy.sum())
-    if round_volume:
-        volume_exps = df.volume.apply(calc_volume_exponent)
-        is_round_volume = volume_exps >= min_volume_exponent
-        round_vol = df.loc[is_round_volume]
-        round_buy_vol = df.loc[is_round_volume & is_buy]
+    if min_volume_exponent is not None:
+        round_volume_mask = df.volume.apply(
+            is_round_volume, min_volume_exponent=min_volume_exponent
+        )
+        round_vol = df.loc[round_volume_mask]
+        round_buy_vol = df.loc[round_volume_mask & is_buy]
         data["roundVolume"] = round_vol.volume.sum() if len(round_vol) else ZERO
         data["roundBuyVolume"] = (
             round_buy_vol.volume.sum() if len(round_buy_vol) else ZERO
@@ -212,11 +157,12 @@ def _aggregate_totals(
         data["roundBuyVolumeSumNotional"] = (
             round_buy_vol.notional.sum() if len(round_buy_vol) else ZERO
         )
-    if round_notional:
-        notional_exps = df.notional.apply(calc_notional_exponent)
-        is_round_notional = notional_exps >= min_notional_exponent
-        round_not = df.loc[is_round_notional]
-        round_buy_not = df.loc[is_round_notional & is_buy]
+    if min_notional_exponent is not None:
+        round_notional_mask = df.notional.apply(
+            is_round_notional, min_notional_exponent=min_notional_exponent
+        )
+        round_not = df.loc[round_notional_mask]
+        round_buy_not = df.loc[round_notional_mask & is_buy]
         data["roundNotional"] = round_not.notional.sum() if len(round_not) else ZERO
         data["roundBuyNotional"] = (
             round_buy_not.notional.sum() if len(round_buy_not) else ZERO
@@ -228,6 +174,26 @@ def _aggregate_totals(
             round_buy_not.volume.sum() if len(round_buy_not) else ZERO
         )
     return data
+
+
+def is_round_volume(
+    volume: int | Decimal, min_volume_exponent: int, base_unit: int = 1000
+) -> bool:
+    """Whether volume matches the configured round-dollar threshold."""
+    if not volume or volume % 1 != 0:
+        return False
+    required_unit = base_unit * (10 ** (min_volume_exponent - 1))
+    return int(volume) % required_unit == 0
+
+
+def is_round_notional(
+    notional: Decimal, min_notional_exponent: int
+) -> bool:
+    """Whether notional matches the configured round-size threshold."""
+    if not notional:
+        return False
+    required_unit = Decimal("0.1") * (Decimal("10") ** (min_notional_exponent - 1))
+    return notional % required_unit == 0
 
 
 def _aggregate_realized_variance(df: DataFrame) -> dict:
