@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from quant_tick.constants import Exchange
+from quant_tick.constants import Exchange, FileData
 
 from .base import AbstractCodeName
 
@@ -43,6 +43,17 @@ class Symbol(AbstractCodeName):
     def upload_path(self) -> str:
         """Storage path components for this symbol."""
         return [self.exchange, self.symbol, self.code_name]
+
+    @property
+    def trade_data_fields(self) -> tuple[FileData, ...]:
+        fields = []
+        if self.save_raw:
+            fields.append(FileData.RAW)
+        if self.save_aggregated:
+            fields.append(FileData.AGGREGATED)
+        if self.significant_trade_filter:
+            fields.append(FileData.FILTERED)
+        return tuple(fields)
 
     def __str__(self) -> str:
         exchange = self.get_exchange_display()

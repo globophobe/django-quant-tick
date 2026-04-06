@@ -159,6 +159,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             ):
                 with self.assertRaises(RuntimeError):
                     convert_trade_data(
+                        symbol,
                         queryset,
                         timestamp_from,
                         get_next_time(timestamp_from, value="1h"),
