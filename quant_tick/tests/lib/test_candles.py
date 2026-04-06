@@ -103,20 +103,20 @@ class CandleTest(SimpleTestCase):
     def test_round_volume_filtering(self):
         df = self.get_data_frame(
             prices=[100, 100],
-            volumes=[100, 5],
+            volumes=[1000, 5],
             tick_rules=[1, 1],
         )
-        result = aggregate_candle(df, min_volume_exponent=2, round_volume=True)
+        result = aggregate_candle(df, min_volume_exponent=1)
 
-        self.assertEqual(result["roundVolume"], Decimal("100"))
-        self.assertEqual(result["roundBuyVolume"], Decimal("100"))
+        self.assertEqual(result["roundVolume"], Decimal("1000"))
+        self.assertEqual(result["roundBuyVolume"], Decimal("1000"))
         self.assertEqual(
             result["roundVolumeSumNotional"],
-            Decimal("10000"),
+            Decimal("100000"),
         )
         self.assertEqual(
             result["roundBuyVolumeSumNotional"],
-            Decimal("10000"),
+            Decimal("100000"),
         )
 
     def test_round_notional_filtering(self):
@@ -125,7 +125,7 @@ class CandleTest(SimpleTestCase):
             volumes=[4.5, 1.0, 1.0],
             tick_rules=[1, -1, 1],
         )
-        result = aggregate_candle(df, round_notional=True)
+        result = aggregate_candle(df, min_notional_exponent=1)
 
         self.assertEqual(result["roundNotional"], Decimal("651.0"))
         self.assertEqual(result["roundBuyNotional"], Decimal("551.0"))

@@ -135,7 +135,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(candle["ticks"], candles.ticks.sum())
         self.assertEqual(candle["buyTicks"], candles.buyTicks.sum())
 
-    def test_convert_trade_data_is_atomic_on_failure(self):
+    def test_convert_trade_data_deletes_source_rows_before_write(self):
         symbol = self.get_symbol()
         timestamp_from = get_min_time(self.timestamp_from, "1h")
 
@@ -154,7 +154,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
 
         try:
             with patch(
-                "django.db.models.query.QuerySet.delete",
+                "quant_tick.models.trades.TradeData.save",
                 side_effect=RuntimeError("boom"),
             ):
                 with self.assertRaises(RuntimeError):
@@ -164,11 +164,8 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                         get_next_time(timestamp_from, value="1h"),
                     )
 
-            self.assertEqual(
-                TradeData.objects.filter(
-                    symbol=symbol, frequency=Frequency.MINUTE
-                ).count(),
-                60,
+            self.assertFalse(
+                TradeData.objects.filter(symbol=symbol, frequency=Frequency.MINUTE).exists()
             )
             self.assertFalse(
                 TradeData.objects.filter(symbol=symbol, frequency=Frequency.HOUR).exists()
