@@ -5,6 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from quant_tick.constants import Exchange, TaskType
+from quant_tick.lib.download import ArchiveDownloadError
 from quant_tick.models import Symbol, TaskState
 
 
@@ -95,6 +96,25 @@ class AggregateTradeViewTest(TestCase):
             exchange=Exchange.COINBASE,
         )
         self.assertEqual(task_state.recent_error_count, 1)
+        self.assertIsNone(task_state.locked_until)
+
+    def test_get_does_not_mark_error_for_archive_download_failure(self, mock_api):
+        mock_api.side_effect = ArchiveDownloadError("archive boom")
+
+        with patch(
+            "quant_tick.views.aggregate_trades.convert_trade_data_to_daily"
+        ) as mock_compact:
+            with self.assertLogs("django.request", level="ERROR"):
+                with self.assertRaises(ArchiveDownloadError):
+                    self.client.get(self.get_url())
+
+        mock_compact.assert_not_called()
+        task_state = TaskState.objects.get(
+            task_type=TaskType.AGGREGATE_TRADES,
+            exchange=Exchange.COINBASE,
+        )
+        self.assertEqual(task_state.recent_error_count, 0)
+        self.assertIsNone(task_state.next_fetch_at)
         self.assertIsNone(task_state.locked_until)
 
     def test_get_marks_error_and_releases_lock_when_compaction_fails(self, mock_api):
