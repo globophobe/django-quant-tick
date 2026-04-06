@@ -159,17 +159,18 @@ def convert_trade_data(
     timestamp_to: datetime.datetime,
 ) -> None:
     """Convert trade data."""
+    objs = list(trade_data)
     delta = timestamp_to - timestamp_from
     frequency = delta.total_seconds() / 60
     assert frequency in (Frequency.HOUR, Frequency.DAY)
-    first = trade_data.first()
+    first = objs[0]
 
     prepared_files = {}
     candle_df = None
     for file_data in FileData:
         data_frames = {
             t: t.get_data_frame(file_data)
-            for t in trade_data
+            for t in objs
             if getattr(t, file_data).name
         }
 
@@ -206,21 +207,20 @@ def convert_trade_data(
         candle = aggregate_candle(candle_df)
         json_data = {"candle": candle}
 
-    with transaction.atomic():
-        new_trade_data = TradeData.objects.create(
-            symbol=first.symbol,
-            timestamp=first.timestamp,
-            uid=first.uid,
-            frequency=frequency,
-            ok=all(trade_data.values_list("ok", flat=True)),
-        )
-        for file_data, prepared in prepared_files.items():
-            setattr(new_trade_data, file_data, prepared)
-        new_trade_data.json_data = json_data
-        new_trade_data.save()
+    for obj in objs:
+        obj.delete()
 
-        # Completely delete minutes after the new higher-frequency row is ready.
-        trade_data.delete()
+    t = TradeData(
+        symbol=first.symbol,
+        timestamp=first.timestamp,
+        uid=first.uid,
+        frequency=frequency,
+        ok=all(obj.ok for obj in objs),
+        json_data=json_data,
+    )
+    for file_data, prepared in prepared_files.items():
+        setattr(t, file_data, prepared)
+    t.save()
 
     logging.info(
         _("Converted {timestamp_from} {timestamp_to} to {frequency}").format(
