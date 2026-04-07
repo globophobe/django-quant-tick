@@ -139,8 +139,7 @@ def volume_filter_with_time_window(
                             volume_filter(sample, is_min_volume=is_min_volume)
                         )
                         start = index + 1
-                total_rows = len(df)
-                if start < total_rows:
+                if start < len(df):
                     sample = df.iloc[start:]
                     samples.append(volume_filter(sample))
     return pd.DataFrame(samples)
@@ -189,16 +188,16 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
             }
         )
     else:
-        buy_side = df[df.tickRule == 1]
+        is_buy = df.tickRule == 1
         data.update(
             {
                 "high": df.price.max(),
                 "low": df.price.min(),
-                "totalBuyVolume": buy_side.volume.sum() or ZERO,
+                "totalBuyVolume": df.loc[is_buy, "volume"].sum() or ZERO,
                 "totalVolume": df.volume.sum() or ZERO,
-                "totalBuyNotional": buy_side.notional.sum() or ZERO,
+                "totalBuyNotional": df.loc[is_buy, "notional"].sum() or ZERO,
                 "totalNotional": df.notional.sum() or ZERO,
-                "totalBuyTicks": buy_side.ticks.sum(),
+                "totalBuyTicks": df.loc[is_buy, "ticks"].sum(),
                 "totalTicks": df.ticks.sum(),
             }
         )

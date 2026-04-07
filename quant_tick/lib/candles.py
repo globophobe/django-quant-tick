@@ -121,7 +121,6 @@ def _aggregate_totals(
     """Aggregate volume, notional, ticks, and round fields."""
     data = {}
     has_totals = "totalVolume" in df.columns
-    is_buy = df.tickRule == 1
 
     if has_totals:
         data["volume"] = df.totalVolume.sum()
@@ -131,6 +130,7 @@ def _aggregate_totals(
         data["ticks"] = int(df.totalTicks.sum())
         data["buyTicks"] = int(df.totalBuyTicks.sum())
     else:
+        is_buy = df.tickRule == 1
         data["volume"] = df.volume.sum()
         data["buyVolume"] = df.loc[is_buy, "volume"].sum()
         data["notional"] = df.notional.sum()
@@ -142,37 +142,33 @@ def _aggregate_totals(
             data["ticks"] = len(df)
             data["buyTicks"] = int(is_buy.sum())
     if min_volume_exponent is not None:
-        round_volume_mask = df.volume.apply(
-            is_round_volume, min_volume_exponent=min_volume_exponent
-        )
-        round_vol = df.loc[round_volume_mask]
-        round_buy_vol = df.loc[round_volume_mask & is_buy]
-        data["roundVolume"] = round_vol.volume.sum() if len(round_vol) else ZERO
-        data["roundBuyVolume"] = (
-            round_buy_vol.volume.sum() if len(round_buy_vol) else ZERO
-        )
-        data["roundVolumeSumNotional"] = (
-            round_vol.notional.sum() if len(round_vol) else ZERO
-        )
-        data["roundBuyVolumeSumNotional"] = (
-            round_buy_vol.notional.sum() if len(round_buy_vol) else ZERO
-        )
+        data["roundVolume"] = ZERO
+        data["roundBuyVolume"] = ZERO
+        data["roundVolumeSumNotional"] = ZERO
+        data["roundBuyVolumeSumNotional"] = ZERO
     if min_notional_exponent is not None:
-        round_notional_mask = df.notional.apply(
-            is_round_notional, min_notional_exponent=min_notional_exponent
-        )
-        round_not = df.loc[round_notional_mask]
-        round_buy_not = df.loc[round_notional_mask & is_buy]
-        data["roundNotional"] = round_not.notional.sum() if len(round_not) else ZERO
-        data["roundBuyNotional"] = (
-            round_buy_not.notional.sum() if len(round_buy_not) else ZERO
-        )
-        data["roundNotionalSumVolume"] = (
-            round_not.volume.sum() if len(round_not) else ZERO
-        )
-        data["roundBuyNotionalSumVolume"] = (
-            round_buy_not.volume.sum() if len(round_buy_not) else ZERO
-        )
+        data["roundNotional"] = ZERO
+        data["roundBuyNotional"] = ZERO
+        data["roundNotionalSumVolume"] = ZERO
+        data["roundBuyNotionalSumVolume"] = ZERO
+    if min_volume_exponent is not None or min_notional_exponent is not None:
+        for row in df.itertuples(index=False):
+            if min_volume_exponent is not None and is_round_volume(
+                row.volume, min_volume_exponent
+            ):
+                data["roundVolume"] += row.volume
+                data["roundVolumeSumNotional"] += row.notional
+                if row.tickRule == 1:
+                    data["roundBuyVolume"] += row.volume
+                    data["roundBuyVolumeSumNotional"] += row.notional
+            if min_notional_exponent is not None and is_round_notional(
+                row.notional, min_notional_exponent
+            ):
+                data["roundNotional"] += row.notional
+                data["roundNotionalSumVolume"] += row.volume
+                if row.tickRule == 1:
+                    data["roundBuyNotional"] += row.notional
+                    data["roundBuyNotionalSumVolume"] += row.volume
     return data
 
 
