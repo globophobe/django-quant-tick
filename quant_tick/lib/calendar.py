@@ -112,6 +112,7 @@ def get_existing(values: list) -> list[datetime]:
 def get_missing(
     timestamp_from: datetime, timestamp_to: datetime, existing: list[datetime]
 ) -> list[datetime]:
+    existing = set(existing)
     return [
         timestamp
         for timestamp in get_range(timestamp_from, timestamp_to)
@@ -210,6 +211,7 @@ def iter_missing(
     reverse: bool = False,
 ) -> Generator[tuple[datetime, datetime], None, None]:
     """Iter missing, by 1 minute intervals."""
+    existing = set(existing)
     values = []
     for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, reverse=reverse):
         if ts_from not in existing:

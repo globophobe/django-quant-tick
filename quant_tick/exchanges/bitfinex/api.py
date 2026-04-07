@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from functools import partial
 
@@ -13,7 +13,6 @@ from quant_tick.controllers import (
     increment_api_total_requests,
     throttle_api_requests,
 )
-from quant_tick.lib import parse_datetime
 
 from .constants import (
     BITFINEX_MAX_REQUESTS_RESET,
@@ -24,6 +23,7 @@ from .constants import (
 )
 
 logger = logging.getLogger(__name__)
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def format_bitfinex_api_timestamp(timestamp: datetime) -> int:
@@ -51,7 +51,7 @@ def get_bitfinex_api_pagination_id(
 
 
 def get_bitfinex_api_timestamp(trade: dict) -> datetime:
-    return parse_datetime(trade[1], unit="ms")
+    return EPOCH + timedelta(milliseconds=int(trade[1]))
 
 
 def get_bitfinex_api_response(

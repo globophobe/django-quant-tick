@@ -3,7 +3,6 @@ import os
 import time
 from collections.abc import Callable
 from datetime import datetime
-from decimal import Decimal
 
 import pandas as pd
 from pandas import DataFrame
@@ -210,40 +209,6 @@ class ExchangeREST(BaseController):
         return valid_trades, buffered_trades
 
     def parse_data(self, data: list) -> list:
-        """Normalize raw trades into the canonical trade dict schema."""
-        return [
-            {
-                "uid": self.get_uid(trade),
-                "timestamp": self.get_timestamp(trade),
-                "nanoseconds": self.get_nanoseconds(trade),
-                "price": self.get_price(trade),
-                "volume": self.get_volume(trade),
-                "notional": self.get_notional(trade),
-                "tickRule": self.get_tick_rule(trade),
-                "index": self.get_index(trade),
-            }
-            for trade in data
-        ]
-
-    def get_uid(self, trade: dict) -> str:
-        raise NotImplementedError
-
-    def get_timestamp(self, trade: dict) -> datetime:
-        raise NotImplementedError
-
-    def get_price(self, trade: dict) -> Decimal:
-        raise NotImplementedError
-
-    def get_volume(self, trade: dict) -> Decimal:
-        raise NotImplementedError
-
-    def get_notional(self, trade: dict) -> Decimal:
-        raise NotImplementedError
-
-    def get_tick_rule(self, trade: dict) -> int:
-        raise NotImplementedError
-
-    def get_index(self, trade: dict) -> int:
         raise NotImplementedError
 
     def get_data_frame(self, trades: list) -> DataFrame:

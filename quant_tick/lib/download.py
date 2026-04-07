@@ -40,7 +40,6 @@ def gzip_downloader(url: str, columns: Iterable[str]) -> DataFrame | None:
     return pd.read_csv(
         BytesIO(content),
         usecols=columns,
-        engine="python",
         compression="gzip",
         dtype={col: "str" for col in columns},
     )
