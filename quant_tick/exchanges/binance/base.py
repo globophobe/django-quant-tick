@@ -33,7 +33,7 @@ class BinanceMixin(SequentialIntegerMixin):
                 {
                     "uid": str(trade["id"]),
                     "timestamp": timestamp,
-                    "nanoseconds": timestamp.nanosecond,
+                    "nanoseconds": 0,
                     "price": price,
                     "volume": price * notional,
                     "notional": notional,

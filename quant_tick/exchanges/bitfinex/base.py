@@ -43,7 +43,7 @@ class BitfinexMixin:
                 {
                     "uid": str(trade[0]),
                     "timestamp": timestamp,
-                    "nanoseconds": timestamp.nanosecond,
+                    "nanoseconds": 0,
                     "price": price,
                     "volume": price * notional,
                     "notional": notional,
