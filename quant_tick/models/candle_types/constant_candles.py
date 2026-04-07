@@ -1,5 +1,4 @@
 from datetime import datetime
-from decimal import Decimal
 
 import pandas as pd
 from django.utils.translation import gettext_lazy as _
@@ -59,36 +58,31 @@ class ConstantCandle(Candle):
 
         start = 0
         data = []
-        for index, row in data_frame.iterrows():
-            cache_data["sample_value"] += self.get_sample_value(row)
-            if self.should_aggregate_candle(cache_data):
-                df = data_frame.loc[start:index]
-                candle = self._aggregate_candle(df)
-                if "next" in cache_data:
-                    previous = cache_data.pop("next")
-                    if "open" in previous:
-                        candle = self._merge_cache(previous, candle)
-                data.append(candle)
-                # Reinitialize cache
-                cache_data["sample_value"] = 0
-                # Next index
-                start = index + 1
+        if len(data_frame):
+            sample_type = self.json_data["sample_type"]
+            total_key = "total" + sample_type.title()
+            sample_key = total_key if total_key in data_frame.columns else sample_type
+            for index, sample_value in enumerate(data_frame[sample_key]):
+                cache_data["sample_value"] += sample_value
+                if self.should_aggregate_candle(cache_data):
+                    df = data_frame.iloc[start : index + 1]
+                    candle = self._aggregate_candle(df)
+                    if "next" in cache_data:
+                        previous = cache_data.pop("next")
+                        if "open" in previous:
+                            candle = self._merge_cache(previous, candle)
+                    data.append(candle)
+                    cache_data["sample_value"] = 0
+                    start = index + 1
 
         # Cache incomplete candle
         is_last_row = start == len(data_frame)
         if not is_last_row:
-            df = data_frame.loc[start:]
+            df = data_frame.iloc[start:]
             cache_data = self._get_next_cache(df, cache_data)
 
         data, cache_data = self.get_incomplete_candle(timestamp_to, data, cache_data)
         return data, cache_data
-
-    def get_sample_value(self, row: tuple) -> Decimal | int:
-        sample_type = self.json_data["sample_type"]
-        key = "total" + sample_type.title()
-        if key in row.index:
-            return row[key]
-        return row[sample_type]
 
     def should_aggregate_candle(self, data: dict) -> bool:
         return data["sample_value"] >= self.json_data["target_value"]
