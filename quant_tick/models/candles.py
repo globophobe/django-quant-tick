@@ -49,6 +49,10 @@ class Candle(AbstractCodeName, PolymorphicModel):
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
     ) -> tuple[datetime, datetime, dict]:
         """Clamp the requested range to available trade and cache data."""
+        timestamp_range = self.symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
+        if timestamp_range is None:
+            return timestamp_to, timestamp_to, {}
+        timestamp_from, timestamp_to = timestamp_range
         # Is there a specific date from?
         if self.date_from:
             min_timestamp_from = parse_datetime(self.date_from)

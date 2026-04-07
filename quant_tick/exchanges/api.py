@@ -50,6 +50,10 @@ def trades_api(
     verbose: bool = False,
 ) -> None:
     """Dispatch trade fetching to the exchange-specific adapter."""
+    timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
+    if timestamp_range is None:
+        return
+    timestamp_from, timestamp_to = timestamp_range
     exchange = symbol.exchange
     kwargs = {
         "timestamp_from": timestamp_from,

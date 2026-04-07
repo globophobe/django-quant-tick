@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, time
+
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -55,6 +57,17 @@ class Symbol(AbstractCodeName):
         if self.significant_trade_filter:
             fields.append(FileData.FILTERED)
         return tuple(fields)
+
+    def clamp_timestamp_range(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> tuple[datetime, datetime] | None:
+        """Clamp a requested range to the symbol's available history."""
+        if not self.date_from:
+            return timestamp_from, timestamp_to
+        date_from = datetime.combine(self.date_from, time.min).replace(tzinfo=UTC)
+        if timestamp_to <= date_from:
+            return None
+        return max(timestamp_from, date_from), timestamp_to
 
     def __str__(self) -> str:
         exchange = self.get_exchange_display()
