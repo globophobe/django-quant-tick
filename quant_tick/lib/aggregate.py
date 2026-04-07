@@ -129,23 +129,19 @@ def volume_filter_with_time_window(
         for ts_from, ts_to in iterator:
             df = filter_by_timestamp(data_frame, ts_from, ts_to)
             if len(df):
-                next_index = 0
-                df = df.reset_index()
-                for row in df.itertuples():
-                    index = row.Index
-                    is_min_volume = row.volume >= min_volume if min_volume else True
+                start = 0
+                df = df.reset_index(drop=True)
+                for index, volume in enumerate(df.volume):
+                    is_min_volume = volume >= min_volume if min_volume else True
                     if is_min_volume:
-                        if index == 0:
-                            sample = df.loc[:index]
-                        else:
-                            sample = df.loc[next_index:index]
+                        sample = df.iloc[start : index + 1]
                         samples.append(
                             volume_filter(sample, is_min_volume=is_min_volume)
                         )
-                        next_index = index + 1
+                        start = index + 1
                 total_rows = len(df)
-                if next_index < total_rows:
-                    sample = df.loc[next_index:]
+                if start < total_rows:
+                    sample = df.iloc[start:]
                     samples.append(volume_filter(sample))
     return pd.DataFrame(samples)
 
