@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand, CommandParser
 from django.db.models import QuerySet
 
 from quant_tick.constants import Exchange
-from quant_tick.lib import parse_period_from_to
+from quant_tick.lib import parse_datetime, parse_period_from_to
 from quant_tick.models import Candle, Symbol
 
 logger = logging.getLogger(__name__)
@@ -71,9 +71,15 @@ class BaseTradeDataCommand(BaseDateTimeCommand):
             )
             for symbol in symbols:
                 logger.info("{symbol}: starting...".format(**{"symbol": str(symbol)}))
+                ts_from = timestamp_from
+                if symbol.date_from:
+                    date_from = parse_datetime(symbol.date_from)
+                    ts_from = max(timestamp_from, date_from)
+                    if timestamp_to <= date_from:
+                        continue
                 yield {
                     "symbol": symbol,
-                    "timestamp_from": timestamp_from,
+                    "timestamp_from": ts_from,
                     "timestamp_to": timestamp_to,
                 }
 
