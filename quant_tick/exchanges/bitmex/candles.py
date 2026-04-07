@@ -56,33 +56,24 @@ def bitmex_candles(
         ):
             if key in candle:
                 del candle[key]
-    # In rare cases, Bitmex API may return duplicates.
-    delta = timestamp_to - timestamp_from
-    expected = int(delta.total_seconds() / 60)
-    if len(candles) > expected:
-        timestamps = set()
-        duplicates = {}
-        for candle in candles:
-            timestamp = candle["timestamp"]
-            if timestamp in timestamps:
-                duplicates.setdefault(timestamp, []).append(candle)
-            else:
-                timestamps.add(timestamp)
-        for timestamp in duplicates:
-            dups = duplicates[timestamp]
-            first = dups[0]
-            if all([d for d in dups if d == first]):
-                match = False
-                should_remove = []
-                for index, candle in enumerate(candles):
-                    is_equal = candle == first
-                    if not match and is_equal:
-                        match = True
-                    elif is_equal:
-                        should_remove.append(index)
-                candles = [
-                    candle
-                    for index, candle in enumerate(candles)
-                    if index not in should_remove
-                ]
+    candles = dedupe_candles(candles)
     return candles_to_data_frame(timestamp_from, timestamp_to, candles)
+
+
+def dedupe_candles(candles: list[dict]) -> list[dict]:
+    """Drop duplicates.
+
+    BitMEX sometimes returns multiple candles for the same timestamp; keep one only
+    if the duplicate payloads are identical.
+    """
+    deduped = []
+    by_timestamp = {}
+    for candle in candles:
+        timestamp = candle["timestamp"]
+        existing = by_timestamp.get(timestamp)
+        if existing is None:
+            by_timestamp[timestamp] = candle
+            deduped.append(candle)
+        elif candle != existing:
+            raise ValueError("BitMEX returned conflicting duplicate candles.")
+    return deduped
