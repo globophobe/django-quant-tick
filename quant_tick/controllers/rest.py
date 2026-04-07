@@ -143,18 +143,24 @@ class ExchangeREST(BaseController):
         buffered_trades = []
         pagination_id = None
         is_last_iteration = False
+        previous_timestamp_from = None
         for timestamp_from, timestamp_to in TradeDataIterator(self.symbol).iter_all(
             self.timestamp_from,
             self.timestamp_to,
             retry=self.retry,
         ):
-            buffered_trades = [
-                trade
-                for trade in buffered_trades
-                if trade["timestamp"] < timestamp_to
-            ]
-            if pagination_id is None:
+            if previous_timestamp_from == timestamp_to:
+                buffered_trades = [
+                    trade
+                    for trade in buffered_trades
+                    if trade["timestamp"] < timestamp_to
+                ]
+                if pagination_id is None:
+                    pagination_id = self.get_pagination_id(timestamp_to)
+            else:
+                buffered_trades = []
                 pagination_id = self.get_pagination_id(timestamp_to)
+                is_last_iteration = False
             oldest_timestamp = self.get_oldest_timestamp(buffered_trades)
             while (
                 not is_last_iteration
@@ -180,6 +186,7 @@ class ExchangeREST(BaseController):
             self.on_data_frame(
                 self.symbol, timestamp_from, timestamp_to, data_frame, candles
             )
+            previous_timestamp_from = timestamp_from
             # Complete
             if is_last_iteration and not buffered_trades:
                 break
