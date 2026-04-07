@@ -9,6 +9,7 @@ from .base import AbstractCodeName
 class Symbol(AbstractCodeName):
     exchange = models.CharField(_("exchange"), choices=Exchange.choices, max_length=255)
     api_symbol = models.CharField(_("API symbol"), max_length=255)
+    date_from = models.DateField(_("date from"), null=True)
     save_raw = models.BooleanField(
         _("save raw"),
         help_text=_("Save raw data?"),
