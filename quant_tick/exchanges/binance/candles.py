@@ -48,7 +48,7 @@ def binance_candles(
     url = (
         f"{SPOT_API_URL}/klines?symbol={api_symbol}&interval={interval}&startTime={ts_from}"
     )
-    candles, _ = iter_api(
+    candles, _, _ = iter_api(
         url,
         get_binance_candle_pagination_id,
         get_binance_candle_timestamp,

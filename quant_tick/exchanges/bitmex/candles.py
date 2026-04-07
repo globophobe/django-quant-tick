@@ -30,7 +30,7 @@ def bitmex_candles(
     start_time = format_bitmex_api_timestamp(ts_from)
     params = f"symbol={api_symbol}&startTime={start_time}&binSize={bin_size}"
     url = f"{API_URL}/trade/bucketed?{params}"
-    candles, _ = iter_api(
+    candles, _, _ = iter_api(
         url,
         get_bitmex_api_pagination_id,
         get_bitmex_api_timestamp,

@@ -64,7 +64,7 @@ def bitfinex_candles(
     limit = int(total_minutes) + 1
     max_results = limit if limit <= MAX_RESULTS else MAX_RESULTS
     url = f"{API_URL}/candles/trade:{time_frame}:{api_symbol}/hist?limit={max_results}"
-    results, _ = iter_api(
+    results, _, _ = iter_api(
         url,
         get_bitfinex_candle_pagination_id,
         get_bitfinex_candle_timestamp,
