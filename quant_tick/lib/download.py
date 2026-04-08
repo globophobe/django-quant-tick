@@ -10,9 +10,16 @@ from pandas import DataFrame
 logger = logging.getLogger(__name__)
 
 
+class ArchiveDownloadError(RuntimeError):
+    pass
+
+
 def download_content(url: str) -> bytes | None:
     """Download response content."""
-    response = httpx.get(url)
+    try:
+        response = httpx.get(url)
+    except httpx.RequestError as exc:
+        raise ArchiveDownloadError(f"Archive download failed: {url}") from exc
     if response.status_code == 200:
         return response.content
     logger.error(f"Error {response.status_code}: {url}")
@@ -33,7 +40,6 @@ def gzip_downloader(url: str, columns: Iterable[str]) -> DataFrame | None:
     return pd.read_csv(
         BytesIO(content),
         usecols=columns,
-        engine="python",
         compression="gzip",
         dtype={col: "str" for col in columns},
     )

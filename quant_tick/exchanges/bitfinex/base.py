@@ -32,34 +32,26 @@ class BitfinexMixin:
             log_format=self.log_format,
         )
 
-    def get_uid(self, trade: dict) -> str:
-        return str(trade[0])
-
-    def get_timestamp(self, trade: dict) -> datetime:
-        return get_bitfinex_api_timestamp(trade)
-
-    def get_nanoseconds(self, trade: dict) -> int:
-        return self.get_timestamp(trade).nanosecond
-
-    def get_price(self, trade: dict) -> Decimal:
-        return Decimal(trade[3])
-
-    def get_volume(self, trade: dict) -> Decimal:
-        return self.get_price(trade) * self.get_notional(trade)
-
-    def get_notional(self, trade: dict) -> Decimal:
-        return abs(Decimal(trade[2]))
-
-    def get_tick_rule(self, trade: dict) -> int:
-        """Get tick rule.
-
-        Buy side indicates a down-tick because the maker was a buy order and
-        their order was removed. Conversely, sell side indicates an up-tick.
-        """
-        return np.sign(trade[2])
-
-    def get_index(self, trade: dict) -> int:
-        return trade[0]
+    def parse_data(self, data: list) -> list:
+        parsed = []
+        for trade in data:
+            timestamp = get_bitfinex_api_timestamp(trade)
+            amount = Decimal(trade[2])
+            price = Decimal(trade[3])
+            notional = abs(amount)
+            parsed.append(
+                {
+                    "uid": str(trade[0]),
+                    "timestamp": timestamp,
+                    "nanoseconds": 0,
+                    "price": price,
+                    "volume": price * notional,
+                    "notional": notional,
+                    "tickRule": np.sign(amount),
+                    "index": trade[0],
+                }
+            )
+        return parsed
 
     def get_data_frame(self, trades: list) -> list:
         """Build a DataFrame from unsorted Bitfinex REST trades.

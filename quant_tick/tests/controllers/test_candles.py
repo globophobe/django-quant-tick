@@ -107,6 +107,38 @@ class CandleTest(BaseSymbolTest, BaseDayIteratorTest, TestCase):
         )
         self.assertEqual(timestamp_from, self.one_day_from_now)
 
+    def test_initial_timestamp_from_with_symbol_date_from(self):
+        symbol = self.candle.symbol
+        symbol.date_from = self.one_day_from_now.date()
+        symbol.save()
+        timestamp_from, timestamp_to, _ = self.candle.initialize(
+            self.timestamp_from, self.three_days_from_now
+        )
+        self.assertEqual(timestamp_from, self.one_day_from_now)
+        self.assertEqual(timestamp_to, self.three_days_from_now)
+
+    def test_initial_timestamp_from_uses_later_symbol_or_candle_date_from(self):
+        symbol = self.candle.symbol
+        symbol.date_from = self.two_days_from_now.date()
+        symbol.save()
+        self.candle.date_from = self.one_day_from_now.date()
+        timestamp_from, timestamp_to, _ = self.candle.initialize(
+            self.timestamp_from, self.three_days_from_now
+        )
+        self.assertEqual(timestamp_from, self.two_days_from_now)
+        self.assertEqual(timestamp_to, self.three_days_from_now)
+
+    def test_initial_timestamp_from_skips_before_symbol_date_from(self):
+        symbol = self.candle.symbol
+        symbol.date_from = self.three_days_from_now.date()
+        symbol.save()
+        timestamp_from, timestamp_to, data = self.candle.initialize(
+            self.timestamp_from, self.two_days_from_now
+        )
+        self.assertEqual(timestamp_from, self.two_days_from_now)
+        self.assertEqual(timestamp_to, self.two_days_from_now)
+        self.assertEqual(data, {})
+
     def test_initial_timestamp_from_with_candle_cache(self):
         for i in range(2):
             self.create_candle_cache(self.timestamp_from + pd.Timedelta(f"{i}d"))

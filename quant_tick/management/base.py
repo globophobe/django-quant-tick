@@ -70,11 +70,17 @@ class BaseTradeDataCommand(BaseDateTimeCommand):
                 time_to=options["time_to"],
             )
             for symbol in symbols:
+                timestamp_range = symbol.clamp_timestamp_range(
+                    timestamp_from, timestamp_to
+                )
+                if timestamp_range is None:
+                    continue
                 logger.info("{symbol}: starting...".format(**{"symbol": str(symbol)}))
+                ts_from, ts_to = timestamp_range
                 yield {
                     "symbol": symbol,
-                    "timestamp_from": timestamp_from,
-                    "timestamp_to": timestamp_to,
+                    "timestamp_from": ts_from,
+                    "timestamp_to": ts_to,
                 }
 
 

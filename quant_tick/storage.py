@@ -139,6 +139,7 @@ def convert_trade_data_to_daily(
                     )
                     if hour_minute_data.count() == Frequency.HOUR:
                         convert_trade_data(
+                            symbol,
                             hour_minute_data, hourly_ts_from, hourly_ts_to
                         )
 
@@ -149,27 +150,29 @@ def convert_trade_data_to_daily(
                 frequency=Frequency.HOUR,
             )
             if hourly_trade_data.count() == Frequency.DAY // Frequency.HOUR:
-                convert_trade_data(hourly_trade_data, daily_ts_from, daily_ts_to)
+                convert_trade_data(symbol, hourly_trade_data, daily_ts_from, daily_ts_to)
     logger.info("{symbol}: done".format(symbol=str(symbol)))
 
 
 def convert_trade_data(
+    symbol: Symbol,
     trade_data: QuerySet,
     timestamp_from: datetime.datetime,
     timestamp_to: datetime.datetime,
 ) -> None:
     """Convert trade data."""
+    objs = list(trade_data)
     delta = timestamp_to - timestamp_from
     frequency = delta.total_seconds() / 60
     assert frequency in (Frequency.HOUR, Frequency.DAY)
-    first = trade_data.first()
+    first = objs[0]
 
     prepared_files = {}
     candle_df = None
-    for file_data in FileData:
+    for file_data in symbol.trade_data_fields:
         data_frames = {
             t: t.get_data_frame(file_data)
-            for t in trade_data
+            for t in objs
             if getattr(t, file_data).name
         }
 
@@ -206,21 +209,20 @@ def convert_trade_data(
         candle = aggregate_candle(candle_df)
         json_data = {"candle": candle}
 
-    with transaction.atomic():
-        new_trade_data = TradeData.objects.create(
-            symbol=first.symbol,
-            timestamp=first.timestamp,
-            uid=first.uid,
-            frequency=frequency,
-            ok=all(trade_data.values_list("ok", flat=True)),
-        )
-        for file_data, prepared in prepared_files.items():
-            setattr(new_trade_data, file_data, prepared)
-        new_trade_data.json_data = json_data
-        new_trade_data.save()
+    for obj in objs:
+        obj.delete()
 
-        # Completely delete minutes after the new higher-frequency row is ready.
-        trade_data.delete()
+    t = TradeData(
+        symbol=symbol,
+        timestamp=first.timestamp,
+        uid=first.uid,
+        frequency=frequency,
+        ok=all(obj.ok for obj in objs),
+        json_data=json_data,
+    )
+    for file_data, prepared in prepared_files.items():
+        setattr(t, file_data, prepared)
+    t.save()
 
     logging.info(
         _("Converted {timestamp_from} {timestamp_to} to {frequency}").format(
@@ -239,15 +241,7 @@ def clean_trade_data_with_non_existing_files(
     """Clean trade data with non-existing files."""
     logging.info(_("Checking objects with non existent files"))
 
-    fields = []
-    for file_data, attr in {
-        FileData.RAW: "save_raw",
-        FileData.AGGREGATED: "save_aggregated",
-    }.items():
-        if getattr(symbol, attr):
-            fields.append(file_data)
-    if symbol.significant_trade_filter:
-        fields.append(FileData.FILTERED)
+    fields = symbol.trade_data_fields
     if not fields:
         return
 
@@ -292,15 +286,7 @@ def clean_unlinked_trade_data_files(
     """Clean unlinked trade data files."""
     logging.info(_("Checking unlinked trade data files"))
 
-    fields = []
-    for file_data, attr in {
-        FileData.RAW: "save_raw",
-        FileData.AGGREGATED: "save_aggregated",
-    }.items():
-        if getattr(symbol, attr):
-            fields.append(file_data)
-    if symbol.significant_trade_filter:
-        fields.append(FileData.FILTERED)
+    fields = symbol.trade_data_fields
     if not fields:
         return
 

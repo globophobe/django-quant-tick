@@ -49,6 +49,10 @@ class Candle(AbstractCodeName, PolymorphicModel):
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
     ) -> tuple[datetime, datetime, dict]:
         """Clamp the requested range to available trade and cache data."""
+        timestamp_range = self.symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
+        if timestamp_range is None:
+            return timestamp_to, timestamp_to, {}
+        timestamp_from, timestamp_to = timestamp_range
         # Is there a specific date from?
         if self.date_from:
             min_timestamp_from = parse_datetime(self.date_from)
@@ -225,9 +229,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
         return aggregate_candle(
             df,
             timestamp=timestamp,
-            min_notional_exponent=int(self.json_data.get("min_notional_exponent", 1)),
-            round_volume=self.json_data.get("round_volume", False),
-            round_notional=self.json_data.get("round_notional", False),
+            min_volume_exponent=self.json_data.get("min_volume_exponent"),
+            min_notional_exponent=self.json_data.get("min_notional_exponent"),
         )
 
     def _merge_cache(self, prev: dict, curr: dict) -> dict:
@@ -245,8 +248,8 @@ class Candle(AbstractCodeName, PolymorphicModel):
             df,
             cache_data,
             timestamp=timestamp,
-            round_volume=self.json_data.get("round_volume", False),
-            round_notional=self.json_data.get("round_notional", False),
+            min_volume_exponent=self.json_data.get("min_volume_exponent"),
+            min_notional_exponent=self.json_data.get("min_notional_exponent"),
         )
 
     def write_cache(

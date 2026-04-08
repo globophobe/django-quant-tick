@@ -1,7 +1,9 @@
+from datetime import UTC, datetime, time
+
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from quant_tick.constants import Exchange
+from quant_tick.constants import Exchange, FileData
 
 from .base import AbstractCodeName
 
@@ -9,6 +11,7 @@ from .base import AbstractCodeName
 class Symbol(AbstractCodeName):
     exchange = models.CharField(_("exchange"), choices=Exchange.choices, max_length=255)
     api_symbol = models.CharField(_("API symbol"), max_length=255)
+    date_from = models.DateField(_("date from"), null=True)
     save_raw = models.BooleanField(
         _("save raw"),
         help_text=_("Save raw data?"),
@@ -43,6 +46,28 @@ class Symbol(AbstractCodeName):
     def upload_path(self) -> str:
         """Storage path components for this symbol."""
         return [self.exchange, self.symbol, self.code_name]
+
+    @property
+    def trade_data_fields(self) -> tuple[FileData, ...]:
+        fields = []
+        if self.save_raw:
+            fields.append(FileData.RAW)
+        if self.save_aggregated:
+            fields.append(FileData.AGGREGATED)
+        if self.significant_trade_filter:
+            fields.append(FileData.FILTERED)
+        return tuple(fields)
+
+    def clamp_timestamp_range(
+        self, timestamp_from: datetime, timestamp_to: datetime
+    ) -> tuple[datetime, datetime] | None:
+        """Clamp a requested range to the symbol's available history."""
+        if not self.date_from:
+            return timestamp_from, timestamp_to
+        date_from = datetime.combine(self.date_from, time.min).replace(tzinfo=UTC)
+        if timestamp_to <= date_from:
+            return None
+        return max(timestamp_from, date_from), timestamp_to
 
     def __str__(self) -> str:
         exchange = self.get_exchange_display()

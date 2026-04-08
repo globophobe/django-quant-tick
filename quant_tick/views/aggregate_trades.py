@@ -8,8 +8,8 @@ from django.views import View
 from quant_tick.constants import Exchange, TaskType
 from quant_tick.exchanges import api
 from quant_tick.lib import get_current_time, get_min_time
+from quant_tick.lib.download import ArchiveDownloadError
 from quant_tick.models import Symbol, TaskState
-from quant_tick.storage import convert_trade_data_to_daily
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,8 @@ class AggregateTradeDataView(View):
             for symbol, timestamp_from, timestamp_to, retry in params:
                 logger.info("{symbol}: starting...".format(**{"symbol": str(symbol)}))
                 api(symbol, timestamp_from, timestamp_to, retry)
-            for symbol, timestamp_from, timestamp_to, _retry in params:
-                convert_trade_data_to_daily(symbol, timestamp_from, timestamp_to)
+        except ArchiveDownloadError:
+            raise
         except Exception:
             task_state.mark_recent_error()
             raise

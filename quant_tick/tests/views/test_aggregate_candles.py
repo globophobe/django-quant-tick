@@ -19,7 +19,7 @@ class AggregateCandleViewTest(TestCase):
     def get_url(self) -> str:
         return reverse("aggregate_candles")
 
-    def test_get_processes_all_candles_before_compaction(self):
+    def test_get_processes_all_candles(self):
         order = []
         Candle.objects.create(symbol=self.symbol)
         Candle.objects.create(symbol=self.symbol)
@@ -27,30 +27,16 @@ class AggregateCandleViewTest(TestCase):
         def on_candles(candle, *_args):
             order.append(candle.code_name)
 
-        def on_compact(candle, *_args):
-            order.append(f"compact:{candle.code_name}")
-
         with patch(
             "quant_tick.models.candles.Candle.candles",
             autospec=True,
             side_effect=on_candles,
         ) as mock_candles:
-            with patch(
-                "quant_tick.views.aggregate_candles.convert_candle_cache_to_daily",
-                side_effect=on_compact,
-            ) as mock_compact:
-                response = self.client.get(self.get_url())
+            response = self.client.get(self.get_url())
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(mock_candles.call_count, 2)
-        self.assertEqual(mock_compact.call_count, 2)
-        self.assertEqual(len(order), 4)
-        self.assertTrue(all(not value.startswith("compact:") for value in order[:2]))
-        self.assertTrue(all(value.startswith("compact:") for value in order[2:]))
-        self.assertEqual(
-            [f"compact:{value}" for value in order[:2]],
-            order[2:],
-        )
+        self.assertEqual(len(order), 2)
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_CANDLES,
             exchange="",
@@ -87,7 +73,7 @@ class AggregateCandleViewTest(TestCase):
         self.assertEqual(response.json()["skipped"], "locked")
         mock_candles.assert_not_called()
 
-    def test_get_does_not_compact_when_aggregation_fails(self):
+    def test_get_marks_error_when_aggregation_fails(self):
         Candle.objects.create(symbol=self.symbol)
         Candle.objects.create(symbol=self.symbol)
 
@@ -96,14 +82,10 @@ class AggregateCandleViewTest(TestCase):
             autospec=True,
             side_effect=[None, RuntimeError("boom")],
         ):
-            with patch(
-                "quant_tick.views.aggregate_candles.convert_candle_cache_to_daily"
-            ) as mock_compact:
-                with self.assertLogs("django.request", level="ERROR"):
-                    with self.assertRaises(RuntimeError):
-                        self.client.get(self.get_url())
+            with self.assertLogs("django.request", level="ERROR"):
+                with self.assertRaises(RuntimeError):
+                    self.client.get(self.get_url())
 
-        mock_compact.assert_not_called()
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_CANDLES,
             exchange="",

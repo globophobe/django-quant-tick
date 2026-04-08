@@ -23,33 +23,25 @@ class BinanceMixin(SequentialIntegerMixin):
             log_format=self.log_format,
         )
 
-    def get_uid(self, trade: dict) -> str:
-        return str(trade["id"])
-
-    def get_timestamp(self, trade: dict) -> datetime.datetime:
-        return get_binance_trades_timestamp(trade)
-
-    def get_nanoseconds(self, trade: dict) -> int:
-        return self.get_timestamp(trade).nanosecond
-
-    def get_price(self, trade: dict) -> Decimal:
-        return Decimal(trade["price"])
-
-    def get_volume(self, trade: dict) -> Decimal:
-        return self.get_price(trade) * self.get_notional(trade)
-
-    def get_notional(self, trade: dict) -> Decimal:
-        return Decimal(trade["qty"])
-
-    def get_tick_rule(self, trade: dict) -> int:
-        """Get tick rule.
-
-        If isBuyerMaker is true, order was filled by sell order
-        """
-        return 1 if not trade["isBuyerMaker"] else -1
-
-    def get_index(self, trade: dict) -> int:
-        return int(trade["id"])
+    def parse_data(self, data: list) -> list:
+        parsed = []
+        for trade in data:
+            timestamp = get_binance_trades_timestamp(trade)
+            price = Decimal(trade["price"])
+            notional = Decimal(trade["qty"])
+            parsed.append(
+                {
+                    "uid": str(trade["id"]),
+                    "timestamp": timestamp,
+                    "nanoseconds": 0,
+                    "price": price,
+                    "volume": price * notional,
+                    "notional": notional,
+                    "tickRule": 1 if not trade["isBuyerMaker"] else -1,
+                    "index": int(trade["id"]),
+                }
+            )
+        return parsed
 
     def assert_data_frame(
         self,
@@ -112,20 +104,19 @@ class BinanceS3Mixin(BinanceMixin):
 
     def parse_dtypes_and_strip_columns(self, df: DataFrame) -> DataFrame:
         """Parse Binance S3 columns into the canonical trade schema."""
-        df = df.copy()
         df = set_type_decimal(df, "price")
         df = set_type_decimal(df, "qty")
         # S3 files are daily, so first timestamp
-        first_time = int(df["time"].iloc[0])
+        times = df["time"].astype("int64")
+        first_time = int(times.iloc[0])
         # Milliseconds: ~13 digits (1e12), microseconds: ~16 digits (1e15)
         unit = "us" if first_time > 1e14 else "ms"
-        df["timestamp"] = pd.to_datetime(
-            df["time"].astype("int64"), unit=unit, utc=True
-        )
+        df["timestamp"] = pd.to_datetime(times, unit=unit, utc=True)
         df["nanoseconds"] = 0
         if unit == "us":
-            df["nanoseconds"] = (df["time"].astype("int64") % 1000) * 1000
+            df["nanoseconds"] = (times % 1000) * 1000
         df = df.rename(columns={"id": "uid", "qty": "notional"})
         df["volume"] = df["price"] * df["notional"]
-        df["tickRule"] = df["isBuyerMaker"].apply(lambda x: -1 if x == "True" else 1)
+        df["tickRule"] = 1
+        df.loc[df["isBuyerMaker"] == "True", "tickRule"] = -1
         return df[self.columns]

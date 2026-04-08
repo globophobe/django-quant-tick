@@ -3,6 +3,7 @@ from django.urls import path
 from quant_tick.views import (
     AggregateCandleView,
     AggregateTradeDataView,
+    CompactView,
 )
 
 urlpatterns = [
@@ -14,4 +15,5 @@ urlpatterns = [
     path(
         "aggregate-candles/", AggregateCandleView.as_view(), name="aggregate_candles"
     ),
+    path("compact/", CompactView.as_view(), name="compact"),
 ]

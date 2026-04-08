@@ -3,7 +3,6 @@ import os
 import time
 from collections.abc import Callable
 from datetime import datetime
-from decimal import Decimal
 
 import pandas as pd
 from pandas import DataFrame
@@ -66,7 +65,7 @@ def iter_api(
         elapsed = time.time() - start
         if elapsed < min_elapsed_per_request:
             time.sleep(min_elapsed_per_request - elapsed)
-    return results, is_last_iteration
+    return results, is_last_iteration, pagination_id
 
 
 def get_api_max_requests_reset(seconds: int) -> float:
@@ -141,15 +140,43 @@ class ExchangeREST(BaseController):
 
     def main(self) -> DataFrame:
         """Fetch, normalize, validate, and persist TradeData slices."""
+        buffered_trades = []
+        pagination_id = None
+        is_last_iteration = False
+        previous_timestamp_from = None
         for timestamp_from, timestamp_to in TradeDataIterator(self.symbol).iter_all(
             self.timestamp_from,
             self.timestamp_to,
             retry=self.retry,
         ):
-            pagination_id = self.get_pagination_id(timestamp_to)
-            trade_data, is_last_iteration = self.iter_api(timestamp_from, pagination_id)
-            trades = self.parse_data(trade_data)
-            valid_trades = self.get_valid_trades(timestamp_from, timestamp_to, trades)
+            if previous_timestamp_from == timestamp_to:
+                buffered_trades = [
+                    trade
+                    for trade in buffered_trades
+                    if trade["timestamp"] < timestamp_to
+                ]
+                if pagination_id is None:
+                    pagination_id = self.get_pagination_id(timestamp_to)
+            else:
+                buffered_trades = []
+                pagination_id = self.get_pagination_id(timestamp_to)
+                is_last_iteration = False
+            oldest_timestamp = self.get_oldest_timestamp(buffered_trades)
+            while (
+                not is_last_iteration
+                and (oldest_timestamp is None or oldest_timestamp > timestamp_from)
+            ):
+                trade_data, is_last_iteration, pagination_id = self.iter_api(
+                    timestamp_from,
+                    pagination_id,
+                )
+                buffered_trades += self.parse_data(trade_data)
+                oldest_timestamp = self.get_oldest_timestamp(buffered_trades)
+            valid_trades, buffered_trades = self.split_trades(
+                timestamp_from,
+                timestamp_to,
+                buffered_trades,
+            )
             data_frame = self.get_data_frame(valid_trades)
             candles = self.get_candles(timestamp_from, timestamp_to)
             if len(data_frame):
@@ -159,59 +186,36 @@ class ExchangeREST(BaseController):
             self.on_data_frame(
                 self.symbol, timestamp_from, timestamp_to, data_frame, candles
             )
+            previous_timestamp_from = timestamp_from
             # Complete
-            if is_last_iteration:
+            if is_last_iteration and not buffered_trades:
                 break
 
-    def parse_data(self, data: list) -> list:
-        """Normalize raw trades into the canonical trade dict schema."""
-        return [
-            {
-                "uid": self.get_uid(trade),
-                "timestamp": self.get_timestamp(trade),
-                "nanoseconds": self.get_nanoseconds(trade),
-                "price": self.get_price(trade),
-                "volume": self.get_volume(trade),
-                "notional": self.get_notional(trade),
-                "tickRule": self.get_tick_rule(trade),
-                "index": self.get_index(trade),
-            }
-            for trade in data
-        ]
+    def get_oldest_timestamp(self, trades: list[dict]) -> datetime | None:
+        if trades:
+            return trades[-1]["timestamp"]
+        return None
 
-    def get_valid_trades(
-        self, timestamp_from: datetime, timestamp_to: datetime, trades: list
-    ) -> list:
-        """Drop duplicate trades and trades outside the partition."""
+    def split_trades(
+        self, timestamp_from: datetime, timestamp_to: datetime, trades: list[dict]
+    ) -> tuple[list[dict], list[dict]]:
+        """Split fetched trades into the current partition and buffered remainder."""
         unique = set()
         valid_trades = []
+        buffered_trades = []
         for trade in trades:
-            is_unique = trade["uid"] not in unique
-            is_within_partition = timestamp_from <= trade["timestamp"] < timestamp_to
-            if is_unique and is_within_partition:
+            uid = trade["uid"]
+            if uid in unique:
+                continue
+            unique.add(uid)
+            timestamp = trade["timestamp"]
+            if timestamp_from <= timestamp < timestamp_to:
                 valid_trades.append(trade)
-                unique.add(trade["uid"])
-        return valid_trades
+            elif timestamp < timestamp_from:
+                buffered_trades.append(trade)
+        return valid_trades, buffered_trades
 
-    def get_uid(self, trade: dict) -> str:
-        raise NotImplementedError
-
-    def get_timestamp(self, trade: dict) -> datetime:
-        raise NotImplementedError
-
-    def get_price(self, trade: dict) -> Decimal:
-        raise NotImplementedError
-
-    def get_volume(self, trade: dict) -> Decimal:
-        raise NotImplementedError
-
-    def get_notional(self, trade: dict) -> Decimal:
-        raise NotImplementedError
-
-    def get_tick_rule(self, trade: dict) -> int:
-        raise NotImplementedError
-
-    def get_index(self, trade: dict) -> int:
+    def parse_data(self, data: list) -> list:
         raise NotImplementedError
 
     def get_data_frame(self, trades: list) -> DataFrame:

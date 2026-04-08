@@ -14,5 +14,11 @@ def post_delete_file_data(sender: type[TradeData], **kwargs) -> None:
     instance = kwargs["instance"]
     if getattr(instance, "_skip_signal", False):
         return
+    deferred = instance.get_deferred_fields()
     for file_data in FileData:
-        getattr(instance, file_data).delete(save=False)
+        field_name = file_data.value
+        if field_name in deferred:
+            continue
+        field = getattr(instance, field_name)
+        if field.name:
+            field.delete(save=False)

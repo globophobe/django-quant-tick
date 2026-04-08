@@ -1,6 +1,5 @@
 from collections.abc import Iterable
 from decimal import Decimal
-from typing import Any
 
 import numpy as np
 from pandas import DataFrame
@@ -8,15 +7,14 @@ from pandas import DataFrame
 
 def calculate_notional(data_frame: DataFrame) -> DataFrame:
     """Calculate notional."""
-    data_frame["notional"] = data_frame.apply(lambda x: x.volume / x.price, axis=1)
+    data_frame["notional"] = data_frame["volume"] / data_frame["price"]
     return data_frame
 
 
 def calculate_tick_rule(data_frame: DataFrame) -> DataFrame:
     """Calculate tick rule."""
-    data_frame["tickRule"] = data_frame.apply(
-        lambda x: (1 if x.tickDirection in ("PlusTick", "ZeroPlusTick") else -1),
-        axis=1,
+    data_frame["tickRule"] = np.where(
+        data_frame["tickDirection"].isin(("PlusTick", "ZeroPlusTick")), 1, -1
     )
     return data_frame
 
@@ -30,19 +28,14 @@ def set_dtypes(data_frame: DataFrame) -> DataFrame:
 
 def set_type_decimal(data_frame: DataFrame, column: str) -> DataFrame:
     """Set type decimal."""
-    data_frame[column] = data_frame[column].apply(Decimal)
+    data_frame[column] = data_frame[column].map(Decimal)
     return data_frame
 
 
 def assert_type_decimal(data_frame: DataFrame, columns: Iterable[str]) -> None:
     """Assert type decimal."""
     for column in columns:
-        data_frame[column].apply(lambda x: assert_decimal(x))
-
-
-def assert_decimal(x: Any) -> None:
-    """Assert decimal."""
-    assert isinstance(x, Decimal)
+        assert all(isinstance(value, Decimal) for value in data_frame[column])
 
 
 def is_decimal_close(d1: Decimal, d2: Decimal) -> bool:

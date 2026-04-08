@@ -1,11 +1,12 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 
 from quant_tick.controllers import iter_api
-from quant_tick.lib import parse_datetime
 
 from .api import get_binance_api_response
 from .constants import MAX_RESULTS, MIN_ELAPSED_PER_REQUEST, SPOT_API_URL
+
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def get_binance_trades_url(
@@ -40,7 +41,7 @@ def get_binance_trades_pagination_id(
 
 
 def get_binance_trades_timestamp(trade: dict) -> datetime:
-    return parse_datetime(trade["time"], unit="ms")
+    return EPOCH + timedelta(milliseconds=int(trade["time"]))
 
 
 def get_trades(

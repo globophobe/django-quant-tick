@@ -17,29 +17,25 @@ from .trades import get_trades
 class BitmexMixin:
     """Bitmex mixin."""
 
-    def get_uid(self, trade: dict) -> str:
-        return str(trade["trdMatchID"])
-
-    def get_timestamp(self, trade: dict) -> datetime.datetime:
-        return get_bitmex_api_timestamp(trade)
-
-    def get_nanoseconds(self, trade: dict) -> int:
-        return self.get_timestamp(trade).nanosecond
-
-    def get_price(self, trade: dict) -> Decimal:
-        return Decimal(trade["price"])
-
-    def get_volume(self, trade: dict) -> Decimal:
-        return Decimal(trade["foreignNotional"])
-
-    def get_notional(self, trade: dict) -> Decimal:
-        return self.get_volume(trade) / self.get_price(trade)
-
-    def get_tick_rule(self, trade: dict) -> int:
-        return 1 if trade["side"] == "Buy" else -1
-
-    def get_index(self, trade: dict) -> int:
-        return np.nan  # No index, set per partition
+    def parse_data(self, data: list) -> list:
+        parsed = []
+        for trade in data:
+            timestamp = get_bitmex_api_timestamp(trade)
+            price = Decimal(trade["price"])
+            volume = Decimal(trade["foreignNotional"])
+            parsed.append(
+                {
+                    "uid": str(trade["trdMatchID"]),
+                    "timestamp": timestamp,
+                    "nanoseconds": timestamp.nanosecond,
+                    "price": price,
+                    "volume": volume,
+                    "notional": volume / price,
+                    "tickRule": 1 if trade["side"] == "Buy" else -1,
+                    "index": np.nan,
+                }
+            )
+        return parsed
 
     def get_candles(
         self, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
