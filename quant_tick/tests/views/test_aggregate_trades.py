@@ -32,20 +32,12 @@ class AggregateTradeViewTest(TestCase):
         def on_api(symbol, *_args):
             order.append(symbol.api_symbol)
 
-        def on_compact(symbol, *_args):
-            order.append(f"compact:{symbol.api_symbol}")
-
         mock_api.side_effect = on_api
-        with patch(
-            "quant_tick.views.aggregate_trades.convert_trade_data_to_daily",
-            side_effect=on_compact,
-        ) as mock_compact:
-            response = self.client.get(self.get_url())
+        response = self.client.get(self.get_url())
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(mock_api.call_count, 2)
-        self.assertEqual(mock_compact.call_count, 2)
-        self.assertEqual(order, ["test-1", "test-2", "compact:test-1", "compact:test-2"])
+        self.assertEqual(order, ["test-1", "test-2"])
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange=Exchange.COINBASE,
@@ -80,17 +72,13 @@ class AggregateTradeViewTest(TestCase):
         self.assertEqual(response.json()["skipped"], "locked")
         mock_api.assert_not_called()
 
-    def test_get_does_not_compact_when_collection_fails(self, mock_api):
+    def test_get_marks_error_when_collection_fails(self, mock_api):
         mock_api.side_effect = [None, RuntimeError("boom")]
 
-        with patch(
-            "quant_tick.views.aggregate_trades.convert_trade_data_to_daily"
-        ) as mock_compact:
-            with self.assertLogs("django.request", level="ERROR"):
-                with self.assertRaises(RuntimeError):
-                    self.client.get(self.get_url())
+        with self.assertLogs("django.request", level="ERROR"):
+            with self.assertRaises(RuntimeError):
+                self.client.get(self.get_url())
 
-        mock_compact.assert_not_called()
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange=Exchange.COINBASE,
@@ -101,34 +89,14 @@ class AggregateTradeViewTest(TestCase):
     def test_get_does_not_mark_error_for_archive_download_failure(self, mock_api):
         mock_api.side_effect = ArchiveDownloadError("archive boom")
 
-        with patch(
-            "quant_tick.views.aggregate_trades.convert_trade_data_to_daily"
-        ) as mock_compact:
-            with self.assertLogs("django.request", level="ERROR"):
-                with self.assertRaises(ArchiveDownloadError):
-                    self.client.get(self.get_url())
+        with self.assertLogs("django.request", level="ERROR"):
+            with self.assertRaises(ArchiveDownloadError):
+                self.client.get(self.get_url())
 
-        mock_compact.assert_not_called()
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange=Exchange.COINBASE,
         )
         self.assertEqual(task_state.recent_error_count, 0)
         self.assertIsNone(task_state.next_fetch_at)
-        self.assertIsNone(task_state.locked_until)
-
-    def test_get_marks_error_and_releases_lock_when_compaction_fails(self, mock_api):
-        with patch(
-            "quant_tick.views.aggregate_trades.convert_trade_data_to_daily",
-            side_effect=RuntimeError("boom"),
-        ):
-            with self.assertLogs("django.request", level="ERROR"):
-                with self.assertRaises(RuntimeError):
-                    self.client.get(self.get_url())
-
-        task_state = TaskState.objects.get(
-            task_type=TaskType.AGGREGATE_TRADES,
-            exchange=Exchange.COINBASE,
-        )
-        self.assertEqual(task_state.recent_error_count, 1)
         self.assertIsNone(task_state.locked_until)
