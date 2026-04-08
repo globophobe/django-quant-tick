@@ -118,6 +118,7 @@ def build_container(
         "uv export "
         "--format requirements.txt "
         "--group deploy "
+        "--no-dev "
         "--no-header "
         "--no-annotate "
         "--no-editable "
