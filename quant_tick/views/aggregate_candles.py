@@ -6,7 +6,6 @@ from django.views import View
 
 from quant_tick.constants import TaskType
 from quant_tick.models import Candle, TaskState
-from quant_tick.storage import convert_candle_cache_to_daily
 from quant_tick.views.aggregate_trades import get_request_params
 
 logger = logging.getLogger(__name__)
@@ -56,8 +55,6 @@ class AggregateCandleView(View):
             for candle, timestamp_from, timestamp_to, retry in params:
                 logger.info("{candle}: starting...".format(**{"candle": str(candle)}))
                 candle.candles(timestamp_from, timestamp_to, retry)
-            for candle, _timestamp_from, _timestamp_to, _retry in params:
-                convert_candle_cache_to_daily(candle)
         except Exception:
             task_state.mark_recent_error()
             raise
