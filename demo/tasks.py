@@ -165,6 +165,7 @@ def get_workflow(
     """Build the Cloud Workflow definition for REST aggregation."""
     aggregate_trades = urljoin(url, "aggregate-trades/")
     aggregate_candles = urljoin(url, "aggregate-candles/")
+    compact = urljoin(url, "compact/")
     steps = []
     if callback_url and callback_interval_minutes:
         steps.append(
@@ -192,7 +193,7 @@ def get_workflow(
                                     "try": {
                                         "call": "http.get",
                                         "args": {
-                                            "url": f"{aggregate_trades}${{exchange}}/",
+                                            "url": f"{aggregate_trades}${{exchange}}/?time_ago=7d",
                                             "auth": {"type": "OIDC"},
                                         },
                                     },
@@ -208,7 +209,7 @@ def get_workflow(
             "aggregateCandles": {
                 "call": "http.get",
                 "args": {
-                    "url": aggregate_candles,
+                    "url": f"{aggregate_candles}?time_ago=7d",
                     "auth": {"type": "OIDC"},
                 },
             }
@@ -224,7 +225,7 @@ def get_workflow(
                             "next": "callback",
                         }
                     ],
-                    "next": "done",
+                    "next": "compact",
                 }
             },
             {
@@ -235,11 +236,21 @@ def get_workflow(
                         "auth": {"type": "OIDC"},
                         "body": {"timestamp": "${runTime}"},
                     },
-                    "next": "done",
+                    "next": "compact",
                 }
             },
-            {"done": {"return": "ok"}},
         ]
+    steps += [
+        {
+            "compact": {
+                "call": "http.get",
+                "args": {
+                    "url": f"{compact}?time_ago=7d",
+                    "auth": {"type": "OIDC"},
+                },
+            }
+        },
+    ]
     return {"main": {"steps": steps}}
 
 
