@@ -21,9 +21,13 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
     if not len(data_frame):
         return pd.DataFrame([])
 
+    # Build samples by folding consecutive rows that describe the same execution
+    # cascade: same timestamp, nanoseconds, direction, and symbol when present.
     has_symbol = "symbol" in data_frame.columns
     samples = []
     iterator = data_frame.itertuples(index=False)
+
+    # Seed the first sample; following rows either extend this sample or close it.
     first_row = next(iterator)
     uid = first_row.uid
     timestamp = first_row.timestamp
@@ -35,6 +39,7 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
     ticks = 1
     symbol = first_row.symbol if has_symbol else None
     for row in iterator:
+        # Same sample: aggregate size and keep the last execution price.
         is_same_sample = (
             row.timestamp == timestamp
             and row.nanoseconds == nanoseconds
@@ -47,6 +52,8 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
             notional += row.notional
             ticks += 1
             continue
+
+        # New sample: flush the previous aggregate and start from this row.
         data = {
             "uid": uid,
             "timestamp": timestamp,
@@ -70,6 +77,8 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
         ticks = 1
         if has_symbol:
             symbol = row.symbol
+
+    # Flush the final sample after iteration.
     data = {
         "uid": uid,
         "timestamp": timestamp,
