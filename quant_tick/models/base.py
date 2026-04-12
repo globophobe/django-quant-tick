@@ -137,7 +137,9 @@ class AbstractDataStorage(models.Model):
     def get_data_frame(self, field: str) -> DataFrame:
         """Read the named parquet file field into a DataFrame."""
         if self.has_data_frame(field):
-            return pd.read_parquet(getattr(self, field).open())
+            f = getattr(self, field)
+            with f.open("rb") as p:
+                return pd.read_parquet(p)
 
     class Meta:
         abstract = True
