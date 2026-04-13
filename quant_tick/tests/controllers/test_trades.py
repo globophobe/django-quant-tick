@@ -147,6 +147,28 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         self.assertEqual(values[0][0], self.timestamp_from + self.one_minute)
         self.assertEqual(values[-1][1], self.timestamp_to)
 
+    @patch(
+        "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+    )
+    def test_iter_all_ignores_overlapping_coverage_when_minutes_are_complete(
+        self, mock_get_max_timestamp_to
+    ):
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.DAY,
+            ok=True,
+        )
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.MINUTE,
+            ok=True,
+        )
+        values = self.get_values()
+        self.assertEqual(values, [])
+
 
 class DummyExchangeREST(ExchangeREST):
     def __init__(
