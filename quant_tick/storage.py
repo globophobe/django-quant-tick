@@ -18,6 +18,7 @@ from quant_tick.lib import (
     has_timestamps,
     is_decimal_close,
     iter_timeframe,
+    merge_cache,
 )
 from quant_tick.models import Candle, CandleCache, Symbol, TradeData
 from quant_tick.models.trades import (
@@ -169,6 +170,11 @@ def convert_trade_data(
 
     prepared_files = {}
     candle_df = None
+    trade_candles = [
+        dict(obj.json_data["candle"])
+        for obj in objs
+        if obj.json_data is not None and "candle" in obj.json_data
+    ]
     for file_data in symbol.trade_data_fields:
         data_frames = {
             t: t.get_data_frame(file_data)
@@ -205,8 +211,17 @@ def convert_trade_data(
                     candle_df = data_frame
 
     json_data = None
-    if candle_df is not None:
-        candle = aggregate_candle(candle_df)
+    if len(trade_candles) == len(objs) and trade_candles:
+        candle = trade_candles[0]
+        for payload in trade_candles[1:]:
+            candle = merge_cache(candle, dict(payload))
+        json_data = {"candle": candle}
+    elif candle_df is not None:
+        candle = aggregate_candle(
+            candle_df,
+            min_volume_exponent=1,
+            min_notional_exponent=1,
+        )
         json_data = {"candle": candle}
 
     for obj in objs:

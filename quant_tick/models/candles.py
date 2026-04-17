@@ -136,9 +136,20 @@ class Candle(AbstractCodeName, PolymorphicModel):
         if retry:
             self.on_retry(min_ts_from, max_ts_to)
         for ts_from, ts_to, trade_data in self.iter_all(min_ts_from, max_ts_to):
-            df = self.get_data_frame(ts_from, ts_to, trade_data)
+            trade_candle = self.get_trade_candle(ts_from, ts_to, trade_data)
+            df = (
+                pd.DataFrame([])
+                if trade_candle is not None
+                else self.get_data_frame(ts_from, ts_to, trade_data)
+            )
             cache_data = self.get_cache_data(ts_from, cache_data)
-            data, cache_data = self.aggregate(ts_from, ts_to, df, cache_data)
+            data, cache_data = self.aggregate(
+                ts_from,
+                ts_to,
+                df,
+                cache_data,
+                trade_candle=trade_candle,
+            )
             self.write_cache(ts_from, ts_to, cache_data)
             self.write_data(ts_from, ts_to, data)
             ts = ts_to.replace(tzinfo=None)
@@ -204,6 +215,15 @@ class Candle(AbstractCodeName, PolymorphicModel):
             )
         return pd.DataFrame([])
 
+    def get_trade_candle(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        trade_data: TradeData,
+    ) -> dict | None:
+        """Return a trade candle when this slice can use one."""
+        return None
+
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Whether this trade-data slice should be processed."""
         return True
@@ -214,6 +234,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         timestamp_to: datetime,
         data_frame: DataFrame,
         cache_data: dict | None = None,
+        trade_candle: dict | None = None,
     ) -> tuple[list, dict | None]:
         """Aggregate trade data into completed candles and cache state."""
         raise NotImplementedError

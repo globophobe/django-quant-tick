@@ -52,6 +52,7 @@ class ConstantCandle(Candle):
         timestamp_to: datetime,
         data_frame: DataFrame,
         cache_data: dict,
+        trade_candle: dict | None = None,
     ) -> tuple[list, dict | None]:
         """Aggregate threshold-based candles over one trade-data slice."""
         data_frame = self._preprocess_data(data_frame, cache_data)

@@ -147,6 +147,13 @@ class TradeData(AbstractDataStorage):
         path.append(f"{fname}{ext}")
         return "/".join(path)
 
+    def get_candle_source_data(self) -> str | None:
+        """Return the source field of the trade candle."""
+        for file_data in (FileData.FILTERED, FileData.AGGREGATED, FileData.RAW):
+            if self.has_data_frame(file_data):
+                return file_data
+        return None
+
     @classmethod
     def write(
         cls,
@@ -277,7 +284,13 @@ class TradeData(AbstractDataStorage):
             assert is_decimal_close(
                 aggregated_candles.notional.sum(), trades.notional.sum()
             )
-            json_data = {"candle": aggregate_candle(trades, min_volume_exponent=1, min_notional_exponent=1)}
+            json_data = {
+                "candle": aggregate_candle(
+                    validation,
+                    min_volume_exponent=1,
+                    min_notional_exponent=1,
+                )
+            }
 
         ok = validate_aggregated_candles(aggregated_candles, candles)
         with transaction.atomic():
