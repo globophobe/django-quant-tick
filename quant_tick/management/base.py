@@ -107,6 +107,9 @@ class BaseCandleCommand(BaseDateTimeCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         super().add_arguments(parser)
         parser.add_argument(
+            "--exchange", type=Exchange, choices=Exchange.values, nargs="+"
+        )
+        parser.add_argument(
             "--code-name",
             type=str,
             choices=self.get_queryset().values_list("code_name", flat=True),
@@ -116,9 +119,12 @@ class BaseCandleCommand(BaseDateTimeCommand):
         parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> None:
+        exchanges = options.get("exchange")
         code_names = options.get("code_name")
         candles = self.get_queryset()
         is_active = options.get("is_active")
+        if exchanges:
+            candles = candles.filter(symbol__exchange__in=exchanges)
         if is_active:
             candles = candles.filter(is_active=is_active)
         if code_names:

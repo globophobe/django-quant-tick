@@ -124,6 +124,7 @@ def build_container(
         "--no-editable "
         "--no-hashes "
         "--no-emit-project "
+        "--frozen "
         f"--output-file {requirements}"
     )
     # Build

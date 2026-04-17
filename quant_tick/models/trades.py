@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
@@ -87,15 +87,18 @@ class TradeDataQuerySet(QuerySet):
         symbol: Symbol,
         timestamp_from: datetime.datetime,
         timestamp_to: datetime.datetime,
-        frequency: Frequency,
-    ) -> None:
-        """Delete existing rows and their stored files for the range."""
-        queryset = self.filter(
-            symbol=symbol,
-            timestamp__gte=timestamp_from,
-            timestamp__lt=timestamp_to,
-            frequency=frequency,
-        )
+        frequency: Frequency | tuple[Frequency, ...],
+    ) -> int:
+        """Delete overlapping rows and their stored files for the range."""
+        frequencies = frequency if isinstance(frequency, tuple) else (frequency,)
+        query = Q()
+        for item in frequencies:
+            query |= Q(
+                frequency=item,
+                timestamp__gt=timestamp_from - pd.Timedelta(f"{int(item)}min"),
+                timestamp__lt=timestamp_to,
+            )
+        queryset = self.filter(symbol=symbol).filter(query)
         objs = list(queryset)
         with transaction.atomic():
             for obj in objs:
@@ -104,6 +107,7 @@ class TradeDataQuerySet(QuerySet):
         for obj in objs:
             for file_data in FileData:
                 getattr(obj, file_data).delete(save=False)
+        return len(objs)
 
 
 class TradeData(AbstractDataStorage):
@@ -143,6 +147,13 @@ class TradeData(AbstractDataStorage):
         path.append(f"{fname}{ext}")
         return "/".join(path)
 
+    def get_candle_source_data(self) -> str | None:
+        """Return the source field of the trade candle."""
+        for file_data in (FileData.FILTERED, FileData.AGGREGATED, FileData.RAW):
+            if self.has_data_frame(file_data):
+                return file_data
+        return None
+
     @classmethod
     def write(
         cls,
@@ -177,7 +188,12 @@ class TradeData(AbstractDataStorage):
         candles: DataFrame,
     ) -> None:
         """Rewrite the daily TradeData row for the range."""
-        cls.objects.cleanup(symbol, timestamp_from, timestamp_to, Frequency.DAY)
+        cls.objects.cleanup(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
+        )
         cls.write_data_frame(
             TradeData(symbol=symbol, timestamp=timestamp_from, frequency=Frequency.DAY),
             trades,
@@ -194,7 +210,12 @@ class TradeData(AbstractDataStorage):
         candles: DataFrame,
     ) -> None:
         """Rewrite the hourly TradeData row for the range."""
-        cls.objects.cleanup(symbol, timestamp_from, timestamp_to, Frequency.HOUR)
+        cls.objects.cleanup(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
+        )
         cls.write_data_frame(
             TradeData(symbol=symbol, timestamp=timestamp_from, frequency=Frequency.HOUR),
             trades,
@@ -212,7 +233,12 @@ class TradeData(AbstractDataStorage):
     ) -> None:
         """Rewrite minute TradeData rows for each minute in the range."""
         for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value="1min"):
-            cls.objects.cleanup(symbol, ts_from, ts_to, Frequency.MINUTE)
+            cls.objects.cleanup(
+                symbol,
+                ts_from,
+                ts_to,
+                (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
+            )
             cls.write_data_frame(
                 TradeData(symbol=symbol, timestamp=ts_from, frequency=Frequency.MINUTE),
                 filter_by_timestamp(trades, ts_from, ts_to),
@@ -258,7 +284,13 @@ class TradeData(AbstractDataStorage):
             assert is_decimal_close(
                 aggregated_candles.notional.sum(), trades.notional.sum()
             )
-            json_data = {"candle": aggregate_candle(trades)}
+            json_data = {
+                "candle": aggregate_candle(
+                    validation,
+                    min_volume_exponent=1,
+                    min_notional_exponent=1,
+                )
+            }
 
         ok = validate_aggregated_candles(aggregated_candles, candles)
         with transaction.atomic():

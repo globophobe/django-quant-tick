@@ -7,7 +7,7 @@ import time_machine
 from django.test import TestCase
 
 from quant_tick.constants import Frequency
-from quant_tick.controllers import ExchangeREST, TradeDataIterator
+from quant_tick.controllers import ExchangeREST, ExchangeS3, TradeDataIterator
 from quant_tick.models import TradeData
 
 from ..base import BaseSymbolTest
@@ -147,6 +147,28 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         self.assertEqual(values[0][0], self.timestamp_from + self.one_minute)
         self.assertEqual(values[-1][1], self.timestamp_to)
 
+    @patch(
+        "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+    )
+    def test_iter_all_ignores_overlapping_coverage_when_minutes_are_complete(
+        self, mock_get_max_timestamp_to
+    ):
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.DAY,
+            ok=True,
+        )
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.MINUTE,
+            ok=True,
+        )
+        values = self.get_values()
+        self.assertEqual(values, [])
+
 
 class DummyExchangeREST(ExchangeREST):
     def __init__(
@@ -177,6 +199,29 @@ class DummyExchangeREST(ExchangeREST):
         return data
 
     def get_candles(self, timestamp_from: datetime, timestamp_to: datetime) -> pd.DataFrame:
+        return pd.DataFrame([])
+
+
+class DummyExchangeS3(ExchangeS3):
+    def __init__(self, *args, data_frame: pd.DataFrame, **kwargs) -> None:
+        self.frames = []
+        self.candle_calls = []
+        self.download_calls = 0
+        self.data_frame = data_frame
+        super().__init__(*args, on_data_frame=self.capture_frame, **kwargs)
+
+    def capture_frame(self, symbol, timestamp_from, timestamp_to, data_frame, candles):
+        self.frames.append((timestamp_from, timestamp_to, data_frame.copy()))
+
+    def get_url(self, date: datetime.date) -> str:
+        return f"https://example.test/{date.isoformat()}.csv.gz"
+
+    def get_data_frame(self, date: datetime.date) -> pd.DataFrame | None:
+        self.download_calls += 1
+        return self.data_frame.copy()
+
+    def get_candles(self, timestamp_from: datetime, timestamp_to: datetime) -> pd.DataFrame:
+        self.candle_calls.append((timestamp_from, timestamp_to))
         return pd.DataFrame([])
 
 
@@ -286,3 +331,94 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
         )
         self.assertEqual(controller.api_calls, 2)
         self.assertEqual(len(controller.frames), 2)
+
+
+@time_machine.travel(datetime(2009, 1, 3), tick=False)
+class ExchangeS3Test(BaseSymbolTest, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.one_minute = pd.Timedelta("1min")
+        self.one_hour = pd.Timedelta("1h")
+        self.one_day = pd.Timedelta("1d")
+        self.symbol = self.get_symbol()
+
+    def get_data_frame(self) -> pd.DataFrame:
+        timestamps = pd.date_range(
+            self.timestamp_from,
+            self.timestamp_from + self.one_day,
+            freq="1min",
+            inclusive="left",
+        )
+        return pd.DataFrame(
+            {
+                "uid": [str(index) for index, _ in enumerate(timestamps)],
+                "timestamp": timestamps,
+            }
+        )
+
+    def test_main_writes_whole_day_when_no_existing_coverage(self):
+        controller = DummyExchangeS3(
+            self.symbol,
+            timestamp_from=self.timestamp_from,
+            timestamp_to=self.timestamp_from + self.one_day,
+            retry=False,
+            verbose=False,
+            data_frame=self.get_data_frame(),
+        )
+
+        controller.main()
+
+        self.assertEqual(controller.download_calls, 1)
+        self.assertEqual(len(controller.frames), 1)
+        self.assertEqual(controller.frames[0][0], self.timestamp_from)
+        self.assertEqual(controller.frames[0][1], self.timestamp_from + self.one_day)
+        self.assertEqual(len(controller.frames[0][2]), 1440)
+
+    @patch(
+        "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+    )
+    def test_main_writes_only_missing_minute_inside_existing_day(
+        self, mock_get_max_timestamp_to
+    ):
+        missing_hour = 3
+        missing_minute = 14
+        for hour in range(24):
+            ts = self.timestamp_from + (self.one_hour * hour)
+            if hour == missing_hour:
+                for minute in range(60):
+                    if minute == missing_minute:
+                        continue
+                    TradeData.objects.create(
+                        symbol=self.symbol,
+                        timestamp=ts + (self.one_minute * minute),
+                        frequency=Frequency.MINUTE,
+                        ok=True,
+                    )
+            else:
+                TradeData.objects.create(
+                    symbol=self.symbol,
+                    timestamp=ts,
+                    frequency=Frequency.HOUR,
+                    ok=True,
+                )
+        controller = DummyExchangeS3(
+            self.symbol,
+            timestamp_from=self.timestamp_from,
+            timestamp_to=self.timestamp_from + self.one_day,
+            retry=False,
+            verbose=False,
+            data_frame=self.get_data_frame(),
+        )
+
+        controller.main()
+
+        expected_from = self.timestamp_from + (self.one_hour * missing_hour) + (
+            self.one_minute * missing_minute
+        )
+        expected_to = expected_from + self.one_minute
+        self.assertEqual(controller.download_calls, 1)
+        self.assertEqual(len(controller.frames), 1)
+        self.assertEqual(controller.frames[0][0], expected_from)
+        self.assertEqual(controller.frames[0][1], expected_to)
+        self.assertEqual(list(controller.frames[0][2].timestamp), [expected_from])

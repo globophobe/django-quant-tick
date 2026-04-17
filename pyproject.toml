@@ -7,7 +7,7 @@ name = "django-quant-tick"
 version = "0.1.4"
 description = "Django Quant Tick aggregates candlesticks from high frequency tick data from S3 and REST APIs"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Alex", email = "globophobe@gmail.com" }]
 keywords = [
@@ -62,4 +62,4 @@ dev = [
 ]
 
 [tool.uv]
-exclude-newer = "P3D"
+exclude-newer = "P7D"

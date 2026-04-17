@@ -9,7 +9,10 @@ from django.test import TestCase
 from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import get_min_time, get_next_time
 from quant_tick.models import TradeData
-from quant_tick.storage import convert_trade_data, convert_trade_data_to_daily
+from quant_tick.storage import (
+    convert_trade_data,
+    convert_trade_data_to_daily,
+)
 
 from ..base import BaseWriteTradeDataTest
 
@@ -93,6 +96,61 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(len(files), 1)
         fname = files[0]
         self.assertEqual(filename, fname)
+
+    def test_write_day_deletes_overlapping_hourly_and_minute_rows(self):
+        symbol = self.get_symbol()
+        day_from = get_min_time(self.timestamp_from, "1d")
+        TradeData.objects.create(
+            symbol=symbol,
+            timestamp=day_from,
+            frequency=Frequency.HOUR,
+        )
+        TradeData.objects.create(
+            symbol=symbol,
+            timestamp=day_from + pd.Timedelta("1min"),
+            frequency=Frequency.MINUTE,
+        )
+
+        TradeData.write(
+            symbol,
+            day_from,
+            day_from + pd.Timedelta("1d"),
+            self.get_raw(day_from),
+            pd.DataFrame([]),
+        )
+
+        rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].timestamp, day_from)
+        self.assertEqual(rows[0].frequency, Frequency.DAY)
+
+    def test_write_hour_deletes_overlapping_daily_and_minute_rows(self):
+        symbol = self.get_symbol()
+        day_from = get_min_time(self.timestamp_from, "1d")
+        hour_from = day_from + pd.Timedelta("3h")
+        TradeData.objects.create(
+            symbol=symbol,
+            timestamp=day_from,
+            frequency=Frequency.DAY,
+        )
+        TradeData.objects.create(
+            symbol=symbol,
+            timestamp=hour_from + pd.Timedelta("1min"),
+            frequency=Frequency.MINUTE,
+        )
+
+        TradeData.write(
+            symbol,
+            hour_from,
+            hour_from + pd.Timedelta("1h"),
+            self.get_raw(hour_from),
+            pd.DataFrame([]),
+        )
+
+        rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].timestamp, hour_from)
+        self.assertEqual(rows[0].frequency, Frequency.HOUR)
 
     def test_convert_trade_data_to_daily(self):
         symbol = self.get_symbol()

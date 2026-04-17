@@ -14,6 +14,32 @@ from ..candles import Candle, CandleCache, CandleData
 class TimeBasedCandle(Candle):
     """Fixed-window candles."""
 
+    def get_trade_candle(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        trade_data,
+    ) -> dict | None:
+        """Return a trade candle for aligned daily-or-higher slices."""
+        window = self.json_data["window"]
+        window_minutes = int(pd.Timedelta(window).total_seconds() / 60)
+        if window_minutes < Frequency.DAY:
+            return None
+        if self.json_data.get("min_volume_exponent") != 1:
+            return None
+        if self.json_data.get("min_notional_exponent") != 1:
+            return None
+        if trade_data.json_data is None or "candle" not in trade_data.json_data:
+            return None
+        trade_source = trade_data.get_candle_source_data()
+        if trade_source != self.json_data["source_data"]:
+            return None
+        obj_from = trade_data.timestamp
+        obj_to = trade_data.timestamp + pd.Timedelta(f"{trade_data.frequency}min")
+        if timestamp_from != obj_from or timestamp_to != obj_to:
+            return None
+        return dict(trade_data.json_data["candle"])
+
     def get_max_timestamp_to(
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> datetime:
@@ -32,6 +58,7 @@ class TimeBasedCandle(Candle):
         timestamp_to: datetime,
         data_frame: DataFrame,
         cache_data: dict | None = None,
+        trade_candle: dict | None = None,
     ) -> tuple[list, dict | None]:
         """Aggregate complete windows and keep any remainder in cache."""
         cache_data = cache_data or {}
@@ -48,16 +75,18 @@ class TimeBasedCandle(Candle):
         max_ts_to = self.get_max_timestamp_to(ts_from, timestamp_to)
         ts_to = None
 
-        for win_from, win_to in iter_window(ts_from, max_ts_to, window):
-            ts_to = win_to
-            if not data_frame.empty:
-                df = filter_by_timestamp(data_frame, win_from, win_to)
-            else:
-                df = pd.DataFrame()
+        for window_from, window_to in iter_window(ts_from, max_ts_to, window):
+            ts_to = window_to
+            candle = None
+            if trade_candle is not None:
+                candle = dict(trade_candle)
+                candle["timestamp"] = window_from
+            elif not data_frame.empty:
+                df = filter_by_timestamp(data_frame, window_from, window_to)
+                if len(df):
+                    candle = self._aggregate_candle(df, timestamp=window_from)
 
-            if len(df):
-                candle = self._aggregate_candle(df, timestamp=win_from)
-
+            if candle is not None:
                 if "next" in cache_data:
                     previous = cache_data.pop("next")
                     if "open" in previous:
@@ -72,15 +101,20 @@ class TimeBasedCandle(Candle):
 
         if could_not_iterate or could_not_complete:
             cache_ts_from = ts_from if could_not_iterate else ts_to
-            if not data_frame.empty:
+            if trade_candle is not None:
+                values = dict(trade_candle)
+                values["timestamp"] = cache_ts_from
+                if "next" in cache_data:
+                    previous_values = cache_data.pop("next")
+                    cache_data["next"] = self._merge_cache(previous_values, values)
+                else:
+                    cache_data["next"] = values
+            elif not data_frame.empty:
                 cache_df = filter_by_timestamp(data_frame, cache_ts_from, timestamp_to)
-            else:
-                cache_df = pd.DataFrame()
-
-            if len(cache_df):
-                cache_data = self._get_next_cache(
-                    cache_df, cache_data, timestamp=cache_ts_from
-                )
+                if len(cache_df):
+                    cache_data = self._get_next_cache(
+                        cache_df, cache_data, timestamp=cache_ts_from
+                    )
 
         return data, cache_data
 

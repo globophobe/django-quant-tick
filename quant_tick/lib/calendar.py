@@ -40,7 +40,14 @@ def has_timestamps(
 ) -> bool:
     delta = timestamp_to - timestamp_from
     expected = int(delta.total_seconds() / 60)
-    return len(existing) == expected
+    actual = len(
+        {
+            timestamp
+            for timestamp in existing
+            if timestamp_from <= timestamp < timestamp_to
+        }
+    )
+    return actual == expected
 
 
 def timestamp_to_inclusive(

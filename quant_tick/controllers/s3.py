@@ -69,9 +69,14 @@ class ExchangeS3(BaseController):
             date = timestamp_from.date()
             data_frame = self.get_data_frame(date)
             if data_frame is not None:
-                df = filter_by_timestamp(data_frame, timestamp_from, timestamp_to)
-                candles = self.get_candles(timestamp_from, timestamp_to)
-                self.on_data_frame(self.symbol, timestamp_from, timestamp_to, df, candles)
+                if existing:
+                    windows = iterator.iter_hours(timestamp_from, timestamp_to, existing)
+                else:
+                    windows = ((timestamp_from, timestamp_to),)
+                for ts_from, ts_to in windows:
+                    df = filter_by_timestamp(data_frame, ts_from, ts_to)
+                    candles = self.get_candles(ts_from, ts_to)
+                    self.on_data_frame(self.symbol, ts_from, ts_to, df, candles)
             # Complete
             else:
                 break
