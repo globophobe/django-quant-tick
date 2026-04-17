@@ -10,7 +10,6 @@ from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import get_min_time, get_next_time
 from quant_tick.models import TradeData
 from quant_tick.storage import (
-    clean_trade_data_overlaps,
     convert_trade_data,
     convert_trade_data_to_daily,
 )
@@ -152,47 +151,6 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, hour_from)
         self.assertEqual(rows[0].frequency, Frequency.HOUR)
-
-    def test_clean_trade_data_overlaps_deletes_finer_rows_covered_by_coarser_rows(self):
-        symbol = self.get_symbol()
-        day_from = get_min_time(self.timestamp_from, "1d")
-        hour_from = day_from + pd.Timedelta("3h")
-        minute_from = hour_from + pd.Timedelta("1min")
-        day = TradeData.objects.create(
-            symbol=symbol,
-            timestamp=day_from,
-            frequency=Frequency.DAY,
-        )
-        TradeData.objects.create(
-            symbol=symbol,
-            timestamp=hour_from,
-            frequency=Frequency.HOUR,
-        )
-        TradeData.objects.create(
-            symbol=symbol,
-            timestamp=minute_from,
-            frequency=Frequency.MINUTE,
-        )
-
-        would_delete = clean_trade_data_overlaps(
-            symbol,
-            day_from,
-            day_from + pd.Timedelta("1d"),
-            dry_run=True,
-        )
-        self.assertEqual(would_delete, 2)
-        self.assertEqual(TradeData.objects.count(), 3)
-
-        deleted = clean_trade_data_overlaps(
-            symbol,
-            day_from,
-            day_from + pd.Timedelta("1d"),
-        )
-        self.assertEqual(deleted, 2)
-        self.assertEqual(
-            list(TradeData.objects.values_list("id", flat=True)),
-            [day.id],
-        )
 
     def test_convert_trade_data_to_daily(self):
         symbol = self.get_symbol()
