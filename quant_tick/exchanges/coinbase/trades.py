@@ -5,7 +5,7 @@ from quant_tick.controllers import iter_api
 from quant_tick.lib import parse_datetime
 
 from .api import get_coinbase_api_response
-from .constants import API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
+from .constants import API_URL, MIN_ELAPSED_PER_REQUEST, TRADE_MAX_RESULTS
 
 
 def get_coinbase_trades_url(
@@ -41,7 +41,7 @@ def get_trades(
         get_coinbase_trades_pagination_id,
         get_coinbase_trades_timestamp,
         partial(get_coinbase_api_response, get_coinbase_trades_url),
-        MAX_RESULTS,
+        TRADE_MAX_RESULTS,
         MIN_ELAPSED_PER_REQUEST,
         timestamp_from=timestamp_from,
         pagination_id=pagination_id,

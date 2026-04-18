@@ -61,6 +61,93 @@ def timestamp_to_inclusive(
         return timestamp_to
 
 
+def parse_fixed_resolution_minutes(value: str | int | None) -> int:
+    """Parse a fixed-length resolution into whole minutes."""
+    if value is None:
+        return 1
+    if isinstance(value, int):
+        minutes = value
+    else:
+        raw = str(value).strip()
+        if not raw:
+            raise ValueError("resolution must not be blank")
+        if raw[-1].isalpha():
+            amount = int(raw[:-1])
+            unit = raw[-1]
+            if unit == "m":
+                minutes = amount
+            elif unit in {"h", "H"}:
+                minutes = amount * 60
+            elif unit in {"d", "D"}:
+                minutes = amount * 1440
+            elif unit in {"w", "W"}:
+                minutes = amount * 10080
+            elif unit == "M":
+                raise ValueError("month resolutions are not fixed-length")
+            else:
+                raise ValueError(f"unsupported resolution unit: {unit}")
+        else:
+            minutes = int(raw)
+    if minutes <= 0:
+        raise ValueError("resolution must be positive minutes")
+    return minutes
+
+
+def get_interval_offset(value: str | int) -> pd.DateOffset | pd.Timedelta:
+    """Get a pandas offset for a candle interval."""
+    if isinstance(value, int):
+        return pd.Timedelta(f"{value}min")
+    raw = str(value).strip()
+    if not raw:
+        raise ValueError("interval must not be blank")
+    if raw[-1].isalpha():
+        amount = int(raw[:-1])
+        unit = raw[-1]
+    else:
+        amount = int(raw)
+        unit = "m"
+    if unit == "s":
+        return pd.Timedelta(seconds=amount)
+    if unit == "m":
+        return pd.Timedelta(minutes=amount)
+    if unit in {"h", "H"}:
+        return pd.Timedelta(hours=amount)
+    if unit in {"d", "D"}:
+        return pd.Timedelta(days=amount)
+    if unit in {"w", "W"}:
+        return pd.Timedelta(weeks=amount)
+    if unit == "M":
+        return pd.DateOffset(months=amount)
+    raise ValueError(f"unsupported interval: {value}")
+
+
+def get_interval_inclusive_end(
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    value: str | int,
+) -> datetime:
+    """Reduce timestamp_to by one interval for inclusive candle APIs."""
+    ts_to = (pd.Timestamp(timestamp_to) - get_interval_offset(value)).to_pydatetime()
+    return ts_to if timestamp_from <= ts_to else timestamp_to
+
+
+def get_interval_limit(
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    value: str | int,
+    max_results: int,
+) -> int:
+    """Count how many interval buckets fit in the requested range."""
+    current = pd.Timestamp(timestamp_from)
+    end = pd.Timestamp(timestamp_to)
+    offset = get_interval_offset(value)
+    limit = 0
+    while current <= end and limit < max_results:
+        limit += 1
+        current = current + offset
+    return limit
+
+
 def parse_period_from_to(
     date_from: str | None = None,
     time_from: str | None = None,
