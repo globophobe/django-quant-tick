@@ -23,7 +23,7 @@ class CoinbaseCandleTest(SimpleTestCase):
         self.assertEqual(target_minutes, 120)
         self.assertEqual(fetch_granularity, 3600)
 
-    def test_get_coinbase_fetch_granularity_keeps_native_6h(self):
+    def test_get_coinbase_fetch_granularity_has_6h(self):
         target_minutes, fetch_granularity = get_coinbase_fetch_granularity("6h")
 
         self.assertEqual(target_minutes, 360)
@@ -32,31 +32,24 @@ class CoinbaseCandleTest(SimpleTestCase):
     def test_coinbase_candles_resamples_to_requested_2h_resolution(self):
         timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 1, 2, tzinfo=UTC)
-        native = pd.DataFrame(
+        source_candles = pd.DataFrame(
             [
                 {
                     "timestamp": timestamp_from + pd.Timedelta(f"{hour}h"),
-                    "open": Decimal("1"),
-                    "high": Decimal("2"),
-                    "low": Decimal("0"),
-                    "close": Decimal("1"),
-                    "notional": Decimal("1"),
+                    "open": Decimal(str(hour + 1)),
+                    "high": Decimal(str(hour + 11)),
+                    "low": Decimal(str(hour)),
+                    "close": Decimal(str(hour + 2)),
+                    "notional": Decimal("10"),
                 }
                 for hour in range(2)
             ]
         ).set_index("timestamp")
-        expected = native.iloc[:1]
 
-        with (
-            patch(
-                "quant_tick.exchanges.coinbase.candles.fetch_coinbase_candles",
-                return_value=native,
-            ) as fetch,
-            patch(
-                "quant_tick.exchanges.coinbase.candles.resample_candles",
-                return_value=expected,
-            ) as resample,
-        ):
+        with patch(
+            "quant_tick.exchanges.coinbase.candles.fetch_coinbase_candles",
+            return_value=source_candles,
+        ) as fetch:
             result = coinbase_candles(
                 "BTC-USD",
                 timestamp_from,
@@ -71,13 +64,13 @@ class CoinbaseCandleTest(SimpleTestCase):
             granularity=3600,
             log_format=None,
         )
-        resample.assert_called_once_with(
-            native,
-            timestamp_from=timestamp_from,
-            timestamp_to=timestamp_to,
-            resolution_minutes=120,
-        )
-        self.assertTrue(result.equals(expected))
+        self.assertEqual(list(result.index), [timestamp_from])
+        candle = result.iloc[0]
+        self.assertEqual(candle.open, Decimal("1"))
+        self.assertEqual(candle.high, Decimal("12"))
+        self.assertEqual(candle.low, Decimal("0"))
+        self.assertEqual(candle.close, Decimal("3"))
+        self.assertEqual(candle.notional, Decimal("20"))
 
     def test_fetch_coinbase_candles_chunks_large_range(self):
         timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)

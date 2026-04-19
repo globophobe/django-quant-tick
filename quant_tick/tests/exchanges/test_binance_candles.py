@@ -16,12 +16,12 @@ from quant_tick.exchanges.binance.candles import (
 
 class BinanceCandleTest(SimpleTestCase):
 
-    def test_get_binance_interval_uses_native_2h(self):
+    def test_get_binance_interval_has_2h(self):
         interval = get_binance_interval("2h")
 
         self.assertEqual(interval, "2h")
 
-    def test_get_binance_interval_keeps_native_1M(self):
+    def test_get_binance_interval_has_1M(self):
         interval = get_binance_interval("1M")
 
         self.assertEqual(interval, "1M")

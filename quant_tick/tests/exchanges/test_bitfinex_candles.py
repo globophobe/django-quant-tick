@@ -22,7 +22,7 @@ class BitfinexCandleTest(SimpleTestCase):
         self.assertEqual(target_minutes, 120)
         self.assertEqual(fetch_time_frame, "1h")
 
-    def test_get_bitfinex_fetch_time_frame_keeps_native_12h(self):
+    def test_get_bitfinex_fetch_time_frame_has_12h(self):
         target_minutes, fetch_time_frame = get_bitfinex_fetch_time_frame("12h")
 
         self.assertEqual(target_minutes, 720)
@@ -31,31 +31,24 @@ class BitfinexCandleTest(SimpleTestCase):
     def test_bitfinex_candles_resamples_to_requested_2h_resolution(self):
         timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 1, 2, tzinfo=UTC)
-        native = pd.DataFrame(
+        source_candles = pd.DataFrame(
             [
                 {
                     "timestamp": timestamp_from + pd.Timedelta(f"{hour}h"),
-                    "open": Decimal("1"),
-                    "high": Decimal("2"),
-                    "low": Decimal("0"),
-                    "close": Decimal("1"),
-                    "notional": Decimal("1"),
+                    "open": Decimal(str(hour + 1)),
+                    "high": Decimal(str(hour + 11)),
+                    "low": Decimal(str(hour)),
+                    "close": Decimal(str(hour + 2)),
+                    "notional": Decimal("10"),
                 }
                 for hour in range(2)
             ]
         ).set_index("timestamp")
-        expected = native.iloc[:1]
 
-        with (
-            patch(
-                "quant_tick.exchanges.bitfinex.candles.fetch_bitfinex_candles",
-                return_value=native,
-            ) as fetch,
-            patch(
-                "quant_tick.exchanges.bitfinex.candles.resample_candles",
-                return_value=expected,
-            ) as resample,
-        ):
+        with patch(
+            "quant_tick.exchanges.bitfinex.candles.fetch_bitfinex_candles",
+            return_value=source_candles,
+        ) as fetch:
             result = bitfinex_candles(
                 "tBTCUSD",
                 timestamp_from,
@@ -70,13 +63,13 @@ class BitfinexCandleTest(SimpleTestCase):
             time_frame="1h",
             log_format=None,
         )
-        resample.assert_called_once_with(
-            native,
-            timestamp_from=timestamp_from,
-            timestamp_to=timestamp_to,
-            resolution_minutes=120,
-        )
-        self.assertTrue(result.equals(expected))
+        self.assertEqual(list(result.index), [timestamp_from])
+        candle = result.iloc[0]
+        self.assertEqual(candle.open, Decimal("1"))
+        self.assertEqual(candle.high, Decimal("12"))
+        self.assertEqual(candle.low, Decimal("0"))
+        self.assertEqual(candle.close, Decimal("3"))
+        self.assertEqual(candle.notional, Decimal("20"))
 
     def test_candles_api_passes_resolution_to_bitfinex(self):
         symbol = SimpleNamespace(exchange=Exchange.BITFINEX, api_symbol="tBTCUSD")

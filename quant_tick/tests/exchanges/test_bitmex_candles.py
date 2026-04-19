@@ -84,31 +84,24 @@ class BitmexCandleTest(SimpleTestCase):
     def test_bitmex_candles_resamples_to_requested_2h_resolution(self):
         timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 1, 2, tzinfo=UTC)
-        native = pd.DataFrame(
+        source_candles = pd.DataFrame(
             [
                 {
                     "timestamp": timestamp_from + pd.Timedelta(f"{hour}h"),
-                    "open": Decimal("1"),
-                    "high": Decimal("2"),
-                    "low": Decimal("0"),
-                    "close": Decimal("1"),
-                    "volume": Decimal("1"),
+                    "open": Decimal(str(hour + 1)),
+                    "high": Decimal(str(hour + 11)),
+                    "low": Decimal(str(hour)),
+                    "close": Decimal(str(hour + 2)),
+                    "volume": Decimal("10"),
                 }
                 for hour in range(2)
             ]
         ).set_index("timestamp")
-        expected = native.iloc[:1]
 
-        with (
-            patch(
-                "quant_tick.exchanges.bitmex.candles.fetch_bitmex_candles",
-                return_value=native,
-            ) as get_native,
-            patch(
-                "quant_tick.exchanges.bitmex.candles.resample_bitmex_candles",
-                return_value=expected,
-            ) as resample,
-        ):
+        with patch(
+            "quant_tick.exchanges.bitmex.candles.fetch_bitmex_candles",
+            return_value=source_candles,
+        ) as fetch_candles:
             result = bitmex_candles(
                 "XBTUSD",
                 timestamp_from,
@@ -116,20 +109,20 @@ class BitmexCandleTest(SimpleTestCase):
                 resolution="2h",
             )
 
-        get_native.assert_called_once_with(
+        fetch_candles.assert_called_once_with(
             "XBTUSD",
             timestamp_from,
             timestamp_to,
             bin_size="1h",
             log_format=None,
         )
-        resample.assert_called_once_with(
-            native,
-            timestamp_from=timestamp_from,
-            timestamp_to=timestamp_to,
-            resolution_minutes=120,
-        )
-        self.assertTrue(result.equals(expected))
+        self.assertEqual(list(result.index), [timestamp_from])
+        candle = result.iloc[0]
+        self.assertEqual(candle.open, Decimal("1"))
+        self.assertEqual(candle.high, Decimal("12"))
+        self.assertEqual(candle.low, Decimal("0"))
+        self.assertEqual(candle.close, Decimal("3"))
+        self.assertEqual(candle.volume, Decimal("20"))
 
     def test_candles_api_passes_resolution_to_bitmex(self):
         symbol = SimpleNamespace(exchange=Exchange.BITMEX, api_symbol="XBTUSD")

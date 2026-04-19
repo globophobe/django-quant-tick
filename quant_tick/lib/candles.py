@@ -42,12 +42,9 @@ def resample_candles(
     """Aggregate candle to a coarser resolution."""
     if data_frame.empty:
         return data_frame
-    frame = data_frame.reset_index().copy()
-    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
-    frame = frame.sort_values("timestamp").drop_duplicates(
-        subset=["timestamp"], keep="last"
-    )
-    frame["bucket"] = frame["timestamp"].dt.floor(f"{resolution_minutes}min")
+    frame = data_frame.copy()
+    frame.index = frame.index.floor(f"{resolution_minutes}min")
+    frame.index.name = "timestamp"
     aggregations = {
         "open": "first",
         "high": "max",
@@ -57,8 +54,7 @@ def resample_candles(
     for column in ("volume", "notional"):
         if column in frame.columns:
             aggregations[column] = "sum"
-    grouped = frame.groupby("bucket", sort=True).agg(aggregations).reset_index()
-    grouped = grouped.rename(columns={"bucket": "timestamp"})
+    grouped = frame.groupby(level=0, sort=True).agg(aggregations).reset_index()
     return candles_to_data_frame(
         timestamp_from,
         timestamp_to,
