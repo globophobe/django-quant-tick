@@ -41,6 +41,24 @@ def upload_filtered_data_to(instance: "TradeData", filename: str) -> str:
 class TradeDataQuerySet(QuerySet):
     """QuerySet helpers for TradeData."""
 
+    def overlapping(
+        self,
+        symbol: Symbol,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        frequency: Frequency | tuple[Frequency, ...],
+    ) -> QuerySet:
+        """Return rows whose coverage overlaps the requested range."""
+        frequencies = frequency if isinstance(frequency, tuple) else (frequency,)
+        query = Q()
+        for item in frequencies:
+            query |= Q(
+                frequency=item,
+                timestamp__gt=timestamp_from - pd.Timedelta(f"{int(item)}min"),
+                timestamp__lt=timestamp_to,
+            )
+        return self.filter(symbol=symbol).filter(query)
+
     def get_last_uid(self, symbol: Symbol, timestamp: datetime.datetime) -> str:
         """Get the first later non-empty uid for pagination recovery."""
         queryset = self.filter(symbol=symbol, timestamp__gte=timestamp)
@@ -90,16 +108,9 @@ class TradeDataQuerySet(QuerySet):
         frequency: Frequency | tuple[Frequency, ...],
     ) -> int:
         """Delete overlapping rows and their stored files for the range."""
-        frequencies = frequency if isinstance(frequency, tuple) else (frequency,)
-        query = Q()
-        for item in frequencies:
-            query |= Q(
-                frequency=item,
-                timestamp__gt=timestamp_from - pd.Timedelta(f"{int(item)}min"),
-                timestamp__lt=timestamp_to,
-            )
-        queryset = self.filter(symbol=symbol).filter(query)
-        objs = list(queryset)
+        objs = list(self.overlapping(symbol, timestamp_from, timestamp_to, frequency))
+        if not objs:
+            return 0
         with transaction.atomic():
             for obj in objs:
                 obj._skip_signal = True
