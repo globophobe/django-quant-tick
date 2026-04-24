@@ -26,12 +26,19 @@ COINBASE_GRANULARITY_BY_MINUTES = {
 
 
 def get_coinbase_candle_url(
-    url: str, timestamp_from: datetime, pagination_id: str | None
+    url: str,
+    timestamp_from: datetime,
+    pagination_id: datetime | None,
+    *,
+    granularity: int,
+    max_results: int,
 ) -> str:
-    start = timestamp_from.replace(tzinfo=None).isoformat()
-    url += f"&start={start}"
-    if pagination_id:
-        url += f"&end={pagination_id}"
+    current_to = pagination_id or timestamp_from
+    window = timedelta(seconds=granularity * max_results)
+    window_from = max(timestamp_from, current_to - window)
+    start = window_from.replace(tzinfo=None).isoformat()
+    end = get_interval_inclusive_end(window_from, current_to, f"{granularity}s")
+    url += f"&start={start}&end={end.replace(tzinfo=None).isoformat()}"
     return url
 
 
@@ -43,8 +50,9 @@ def get_coinbase_candle_pagination_id(
     timestamp: datetime,
     last_data: list | None = None,
     data: list | None = None,
-) -> None:
-    """Coinbase candle windows are paged explicitly by the caller."""
+) -> datetime:
+    """Backfill Coinbase candles by stepping the exclusive end to the oldest candle."""
+    return timestamp
 
 
 def get_coinbase_fetch_granularity(
@@ -70,43 +78,39 @@ def fetch_coinbase_candles(
 ) -> DataFrame:
     """Fetch Coinbase candles."""
     url = f"{API_URL}/products/{api_symbol}/candles?granularity={granularity}"
-    window = timedelta(seconds=granularity * CANDLE_MAX_RESULTS)
-    candles_by_timestamp = {}
-    current = timestamp_from
-    while current < timestamp_to:
-        window_to = min(current + window, timestamp_to)
-        ts_to = get_interval_inclusive_end(current, window_to, f"{granularity}s")
-        pagination_id = ts_to.replace(tzinfo=None).isoformat()
-        candles, _, _ = iter_api(
-            url,
-            get_coinbase_candle_pagination_id,
-            get_coinbase_candle_timestamp,
-            partial(get_coinbase_api_response, get_coinbase_candle_url),
-            CANDLE_MAX_RESULTS,
-            MIN_ELAPSED_PER_REQUEST,
-            timestamp_from=current,
-            pagination_id=pagination_id,
-            log_format=log_format,
-        )
-        for candle in candles:
-            candle_timestamp = get_coinbase_candle_timestamp(candle)
-            if current <= candle_timestamp < window_to:
-                candles_by_timestamp[candle_timestamp] = {
-                    "timestamp": candle_timestamp,
-                    "open": Decimal(str(candle[3])),
-                    "high": Decimal(str(candle[2])),
-                    "low": Decimal(str(candle[1])),
-                    "close": Decimal(str(candle[4])),
-                    "notional": Decimal(str(candle[5])),
-                }
-        current = window_to
-    parsed = sorted(candles_by_timestamp.values(), key=lambda candle: candle["timestamp"])
-    return candles_to_data_frame(
-        timestamp_from,
-        timestamp_to,
-        parsed,
-        reverse=False,
+    results, _, _ = iter_api(
+        url,
+        get_coinbase_candle_pagination_id,
+        get_coinbase_candle_timestamp,
+        partial(
+            get_coinbase_api_response,
+            partial(
+                get_coinbase_candle_url,
+                granularity=granularity,
+                max_results=CANDLE_MAX_RESULTS,
+            ),
+        ),
+        CANDLE_MAX_RESULTS,
+        MIN_ELAPSED_PER_REQUEST,
+        timestamp_from=timestamp_from,
+        pagination_id=timestamp_to,
+        log_format=log_format,
     )
+    candles = [
+        {
+            "timestamp": get_coinbase_candle_timestamp(candle),
+            "open": Decimal(str(candle[3])),
+            "high": Decimal(str(candle[2])),
+            "low": Decimal(str(candle[1])),
+            "close": Decimal(str(candle[4])),
+            "notional": Decimal(str(candle[5])),
+        }
+        for candle in results
+    ]
+    filtered_candles = [
+        candle for candle in candles if candle["timestamp"] >= timestamp_from
+    ]
+    return candles_to_data_frame(timestamp_from, timestamp_to, filtered_candles)
 
 
 def coinbase_candles(

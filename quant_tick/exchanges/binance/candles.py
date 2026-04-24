@@ -13,7 +13,7 @@ from quant_tick.lib import (
 )
 
 from .api import format_binance_api_timestamp, get_binance_api_response
-from .constants import MAX_RESULTS, MIN_ELAPSED_PER_REQUEST, SPOT_API_URL
+from .constants import CANDLE_MAX_RESULTS, MIN_ELAPSED_PER_REQUEST, SPOT_API_URL
 
 BINANCE_INTERVALS_BY_MINUTES = {
     1: "1m",
@@ -58,7 +58,7 @@ def get_binance_interval(resolution: str | int | None) -> str:
 
 def get_binance_candle_url(
     url: str, timestamp_from: datetime, pagination_id: int
-) -> DataFrame:
+) -> str:
     if pagination_id:
         return url + f"&endTime={pagination_id}"
     return url
@@ -68,14 +68,52 @@ def get_binance_candle_pagination_id(
     timestamp: datetime,
     last_data: list | None = None,
     data: list | None = None,
-) -> str | None:
-    data = data or []
-    if len(data):
-        return data[-1][0]
+) -> int:
+    return format_binance_api_timestamp(timestamp) - 1
 
 
 def get_binance_candle_timestamp(candle: list) -> datetime:
     return parse_datetime(candle[0], unit="ms")
+
+
+def fetch_binance_candles(
+    api_symbol: str,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    *,
+    interval: str,
+    limit: int = CANDLE_MAX_RESULTS,
+    log_format: str | None = None,
+) -> DataFrame:
+    """Fetch Binance candles."""
+    url = f"{SPOT_API_URL}/klines?symbol={api_symbol}&interval={interval}&limit={limit}"
+    ts_to = get_interval_inclusive_end(timestamp_from, timestamp_to, interval)
+    results, _, _ = iter_api(
+        url,
+        get_binance_candle_pagination_id,
+        get_binance_candle_timestamp,
+        partial(get_binance_api_response, get_binance_candle_url),
+        limit,
+        MIN_ELAPSED_PER_REQUEST,
+        timestamp_from=timestamp_from,
+        pagination_id=format_binance_api_timestamp(ts_to),
+        log_format=log_format,
+    )
+    candles = [
+        {
+            "timestamp": get_binance_candle_timestamp(result),
+            "open": Decimal(str(result[1])),
+            "high": Decimal(str(result[2])),
+            "low": Decimal(str(result[3])),
+            "close": Decimal(str(result[4])),
+            "notional": Decimal(str(result[5])),
+        }
+        for result in results
+    ]
+    filtered_candles = [
+        candle for candle in candles if candle["timestamp"] >= timestamp_from
+    ]
+    return candles_to_data_frame(timestamp_from, timestamp_to, filtered_candles)
 
 
 def binance_candles(
@@ -88,33 +126,11 @@ def binance_candles(
     log_format: str | None = None,
 ) -> DataFrame:
     interval = get_binance_interval(resolution if resolution is not None else interval)
-    ts_from = format_binance_api_timestamp(timestamp_from)
-    ts_to = format_binance_api_timestamp(
-        get_interval_inclusive_end(timestamp_from, timestamp_to, interval)
-    )
-    url = (
-        f"{SPOT_API_URL}/klines?symbol={api_symbol}&interval={interval}&startTime={ts_from}"
-    )
-    candles, _, _ = iter_api(
-        url,
-        get_binance_candle_pagination_id,
-        get_binance_candle_timestamp,
-        partial(get_binance_api_response, get_binance_candle_url),
-        MAX_RESULTS,
-        MIN_ELAPSED_PER_REQUEST,
-        timestamp_from=timestamp_from,
-        pagination_id=ts_to,
+    return fetch_binance_candles(
+        api_symbol,
+        timestamp_from,
+        timestamp_to,
+        interval=interval,
+        limit=int(limit or CANDLE_MAX_RESULTS),
         log_format=log_format,
     )
-    c = [
-        {
-            "timestamp": get_binance_candle_timestamp(candle),
-            "open": Decimal(str(candle[1])),
-            "high": Decimal(str(candle[2])),
-            "low": Decimal(str(candle[3])),
-            "close": Decimal(str(candle[4])),
-            "notional": Decimal(str(candle[5])),
-        }
-        for candle in candles
-    ]
-    return candles_to_data_frame(timestamp_from, timestamp_to, c)

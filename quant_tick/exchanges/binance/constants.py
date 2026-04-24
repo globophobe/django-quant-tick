@@ -6,7 +6,9 @@ BINANCE_MAX_WEIGHT = "BINANCE_MAX_WEIGHT"
 SPOT_API_URL = "https://api.binance.com/api/v3"
 FUTURES_API_URL = "https://fapi.binance.com"
 S3_URL = "https://data.binance.vision/data/spot/daily/trades"
-MAX_RESULTS = 1000
+TRADE_MAX_RESULTS = 1000
+CANDLE_MAX_RESULTS = 1000
+MAX_RESULTS = TRADE_MAX_RESULTS
 
 # Response 429, when x-mbx-used-weight-1m is 1200
 MAX_WEIGHT = 1200
