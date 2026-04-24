@@ -11,6 +11,7 @@ from quant_tick.exchanges.api import candles_api
 from quant_tick.exchanges.coinbase.candles import (
     coinbase_candles,
     fetch_coinbase_candles,
+    get_coinbase_candle_pagination_id,
     get_coinbase_fetch_granularity,
 )
 
@@ -72,10 +73,33 @@ class CoinbaseCandleTest(SimpleTestCase):
         self.assertEqual(candle.close, Decimal("3"))
         self.assertEqual(candle.notional, Decimal("20"))
 
-    def test_fetch_coinbase_candles_chunks_large_range(self):
+    def test_get_coinbase_candle_pagination_id_steps_to_oldest_candle(self):
+        timestamp = datetime(2026, 4, 1, 5, tzinfo=UTC)
+
+        pagination_id = get_coinbase_candle_pagination_id(timestamp)
+
+        self.assertEqual(pagination_id, timestamp)
+
+    def test_fetch_coinbase_candles_backfills_with_iter_api(self):
         timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 1, 6, tzinfo=UTC)
-        first_chunk = [
+        results = [
+            [
+                int((timestamp_from + pd.Timedelta("5h59min")).timestamp()),
+                "0",
+                "4",
+                "3",
+                "3.5",
+                "12",
+            ],
+            [
+                int((timestamp_from + pd.Timedelta("5h")).timestamp()),
+                "0",
+                "3",
+                "2.5",
+                "2.75",
+                "7",
+            ],
             [
                 int((timestamp_from + pd.Timedelta("4h59min")).timestamp()),
                 "0",
@@ -93,31 +117,10 @@ class CoinbaseCandleTest(SimpleTestCase):
                 "5",
             ],
         ]
-        second_chunk = [
-            [
-                int((timestamp_from + pd.Timedelta("5h59min")).timestamp()),
-                "0",
-                "4",
-                "3",
-                "3.5",
-                "12",
-            ],
-            [
-                int((timestamp_from + pd.Timedelta("5h")).timestamp()),
-                "0",
-                "3",
-                "2.5",
-                "2.75",
-                "7",
-            ],
-        ]
 
         with patch(
             "quant_tick.exchanges.coinbase.candles.iter_api",
-            side_effect=[
-                (first_chunk, True, None),
-                (second_chunk, True, None),
-            ],
+            return_value=(results, False, timestamp_from),
         ) as mocked:
             result = fetch_coinbase_candles(
                 "BTC-USD",
@@ -126,19 +129,11 @@ class CoinbaseCandleTest(SimpleTestCase):
                 granularity=60,
             )
 
-        self.assertEqual(mocked.call_count, 2)
-        self.assertEqual(mocked.call_args_list[0].kwargs["timestamp_from"], timestamp_from)
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.kwargs["timestamp_from"], timestamp_from)
         self.assertEqual(
-            mocked.call_args_list[0].kwargs["pagination_id"],
-            "2026-04-01T04:59:00",
-        )
-        self.assertEqual(
-            mocked.call_args_list[1].kwargs["timestamp_from"],
-            timestamp_from + pd.Timedelta("5h"),
-        )
-        self.assertEqual(
-            mocked.call_args_list[1].kwargs["pagination_id"],
-            "2026-04-01T05:59:00",
+            mocked.call_args.kwargs["pagination_id"],
+            timestamp_to,
         )
         self.assertEqual(
             list(result.index),
