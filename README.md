@@ -30,7 +30,7 @@ Candles are aggregated at 1 minute intervals, and validated with the exchange's 
 Supported exchanges
 -------------------
 
-:white_check_mark: Binance REST API (requires API key, which requires KYC)
+:white_check_mark: Binance REST API, and [Binance Market Data](https://data.binance.vision/)
 
 :white_check_mark: Bitfinex REST API
 
