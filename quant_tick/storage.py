@@ -54,9 +54,7 @@ def convert_candle_cache_to_daily(candle: Candle) -> None:
         if unique_dates.count() <= 1:
             timestamp_from = last_daily_cache.timestamp
         else:
-            timestamp_from = (
-                hourly_or_minute_cache.only("timestamp").first().timestamp_from
-            )
+            timestamp_from = hourly_or_minute_cache.only("timestamp").first().timestamp
     else:
         any_cache = candle_cache.only("timestamp").first()
         if any_cache:
