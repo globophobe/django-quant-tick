@@ -8,7 +8,6 @@ FUTURES_API_URL = "https://fapi.binance.com"
 S3_URL = "https://data.binance.vision/data/spot/daily/trades"
 TRADE_MAX_RESULTS = 1000
 CANDLE_MAX_RESULTS = 1000
-MAX_RESULTS = TRADE_MAX_RESULTS
 
 # Response 429, when x-mbx-used-weight-1m is 1200
 MAX_WEIGHT = 1200
