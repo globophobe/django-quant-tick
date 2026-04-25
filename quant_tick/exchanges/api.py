@@ -73,12 +73,17 @@ def trades_api(
 
 
 def candles_api(
-    symbol: Symbol, timestamp_from: datetime, timestamp_to: datetime
+    symbol: Symbol,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    resolution: str | int | None = None,
 ) -> DataFrame:
     """Dispatch candle fetching to the exchange-specific adapter."""
     exchange = symbol.exchange
     api_symbol = symbol.api_symbol
     kwargs = {"timestamp_from": timestamp_from, "timestamp_to": timestamp_to}
+    if resolution is not None:
+        kwargs["resolution"] = resolution
     if exchange == Exchange.BINANCE:
         candles = binance_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BITFINEX:

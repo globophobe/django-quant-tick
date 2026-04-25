@@ -5,6 +5,9 @@ from .aggregate import (
 )
 from .cache import get_next_cache, merge_cache
 from .calendar import (
+    get_interval_inclusive_end,
+    get_interval_limit,
+    get_interval_offset,
     get_current_time,
     get_existing,
     get_min_time,
@@ -18,6 +21,7 @@ from .calendar import (
     iter_timestamps,
     iter_window,
     parse_datetime,
+    parse_fixed_resolution_minutes,
     parse_period_from_to,
     timestamp_to_inclusive,
     to_pydatetime,
@@ -26,6 +30,7 @@ from .candles import (
     aggregate_candle,
     aggregate_candles,
     candles_to_data_frame,
+    resample_candles,
     validate_aggregated_candles,
 )
 from .dataframe import (
@@ -47,6 +52,9 @@ __all__ = [
     "get_next_cache",
     "merge_cache",
     "get_current_time",
+    "get_interval_inclusive_end",
+    "get_interval_limit",
+    "get_interval_offset",
     "get_existing",
     "get_min_time",
     "get_missing",
@@ -59,10 +67,12 @@ __all__ = [
     "iter_timeframe",
     "iter_window",
     "parse_datetime",
+    "parse_fixed_resolution_minutes",
     "parse_period_from_to",
     "timestamp_to_inclusive",
     "to_pydatetime",
     "candles_to_data_frame",
+    "resample_candles",
     "validate_aggregated_candles",
     "assert_type_decimal",
     "calculate_notional",

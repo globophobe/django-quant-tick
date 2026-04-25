@@ -10,6 +10,7 @@ from quant_tick.constants import FileData, Frequency
 from quant_tick.lib import get_min_time, get_next_time
 from quant_tick.models import TradeData
 from quant_tick.storage import (
+    clean_trade_data_overlaps,
     convert_trade_data,
     convert_trade_data_to_daily,
 )
@@ -148,6 +149,69 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         )
 
         rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].timestamp, hour_from)
+        self.assertEqual(rows[0].frequency, Frequency.HOUR)
+
+    def test_clean_trade_data_overlaps_deletes_hourly_and_minute_rows(self):
+        symbol = self.get_symbol()
+        day_from = get_min_time(self.timestamp_from, "1d")
+        hour_from = day_from + pd.Timedelta("12h")
+        minute_from = hour_from + pd.Timedelta("5min")
+
+        TradeData.objects.create(
+            symbol=symbol,
+            timestamp=day_from,
+            frequency=Frequency.DAY,
+        )
+        TradeData.objects.create(
+            symbol=symbol,
+            timestamp=hour_from,
+            frequency=Frequency.HOUR,
+        )
+        TradeData.objects.create(
+            symbol=symbol,
+            timestamp=minute_from,
+            frequency=Frequency.MINUTE,
+        )
+
+        deleted = clean_trade_data_overlaps(
+            symbol,
+            hour_from + pd.Timedelta("1min"),
+            hour_from + pd.Timedelta("2min"),
+        )
+
+        rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
+        self.assertEqual(deleted, 2)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].timestamp, day_from)
+        self.assertEqual(rows[0].frequency, Frequency.DAY)
+
+    def test_clean_trade_data_overlaps_deletes_minute_rows_covered_by_hourly_row(self):
+        symbol = self.get_symbol()
+        day_from = get_min_time(self.timestamp_from, "1d")
+        hour_from = day_from + pd.Timedelta("6h")
+        minute_from = hour_from + pd.Timedelta("5min")
+
+        TradeData.objects.create(
+            symbol=symbol,
+            timestamp=hour_from,
+            frequency=Frequency.HOUR,
+        )
+        TradeData.objects.create(
+            symbol=symbol,
+            timestamp=minute_from,
+            frequency=Frequency.MINUTE,
+        )
+
+        deleted = clean_trade_data_overlaps(
+            symbol,
+            minute_from,
+            minute_from + pd.Timedelta("1min"),
+        )
+
+        rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
+        self.assertEqual(deleted, 1)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, hour_from)
         self.assertEqual(rows[0].frequency, Frequency.HOUR)

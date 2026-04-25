@@ -4,7 +4,7 @@ from functools import partial
 from quant_tick.controllers import iter_api
 
 from .api import get_binance_api_response
-from .constants import MAX_RESULTS, MIN_ELAPSED_PER_REQUEST, SPOT_API_URL
+from .constants import MIN_ELAPSED_PER_REQUEST, SPOT_API_URL, TRADE_MAX_RESULTS
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
@@ -30,10 +30,10 @@ def get_binance_trades_pagination_id(
         if last_id == 1:
             return None
         # Is data fetched same as previous?
-        if len(data) == MAX_RESULTS and last_data and last_id == last_data[-1]["id"]:
+        if len(data) == TRADE_MAX_RESULTS and last_data and last_id == last_data[-1]["id"]:
             return None
         # Calculated pagination_id will be negative if remaining trades is
-        # less than MAX_RESULTS.
+        # less than TRADE_MAX_RESULTS.
         elif pagination_id <= 0:
             return 1
         else:
@@ -50,13 +50,13 @@ def get_trades(
     pagination_id: int,
     log_format: str | None = None,
 ) -> list[dict]:
-    url = f"{SPOT_API_URL}/historicalTrades?symbol={symbol}&limit={MAX_RESULTS}"
+    url = f"{SPOT_API_URL}/historicalTrades?symbol={symbol}&limit={TRADE_MAX_RESULTS}"
     return iter_api(
         url,
         get_binance_trades_pagination_id,
         get_binance_trades_timestamp,
         partial(get_binance_api_response, get_binance_trades_url),
-        MAX_RESULTS,
+        TRADE_MAX_RESULTS,
         MIN_ELAPSED_PER_REQUEST,
         timestamp_from=timestamp_from,
         pagination_id=pagination_id,

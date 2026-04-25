@@ -30,10 +30,12 @@ def get_binance_api_response(
     base_url: str,
     timestamp_from: datetime | None = None,
     pagination_id: int | None = None,
+    reverse: bool = True,
     retry: int = 30,
 ) -> list[dict]:
     try:
-        headers = {"X-MBX-APIKEY": os.environ[BINANCE_API_KEY]}
+        api_key = os.environ.get(BINANCE_API_KEY)
+        headers = {"X-MBX-APIKEY": api_key} if api_key else None
         url = get_api_url(
             base_url, timestamp_from=timestamp_from, pagination_id=pagination_id
         )
@@ -47,7 +49,8 @@ def get_binance_api_response(
                 logger.info(f"Max requests, sleeping {sleep_duration} seconds")
                 time.sleep(sleep_duration)
             data = response.json()
-            data.reverse()  # Descending order, please
+            if reverse:
+                data.reverse()  # Descending order, please
             return data
         else:
             response.raise_for_status()
@@ -60,6 +63,7 @@ def get_binance_api_response(
                 base_url,
                 timestamp_from=timestamp_from,
                 pagination_id=pagination_id,
+                reverse=reverse,
                 retry=retry,
             )
         raise

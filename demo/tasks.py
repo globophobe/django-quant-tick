@@ -79,8 +79,6 @@ def docker_secrets() -> str:
         for secret in (
             "SECRET_KEY",
             "SENTRY_DSN",
-            "BINANCE_API_KEY",
-            "BINANCE_API_SECRET",
             "DATABASE_NAME",
             "DATABASE_USER",
             "DATABASE_PASSWORD",

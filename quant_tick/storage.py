@@ -282,9 +282,9 @@ def clean_trade_data_with_non_existing_files(
             if getattr(obj, field):
                 f = getattr(obj, field)
                 if not f.storage.exists(f.name):
+                    deleted += 1
                     obj.delete()
                     break
-                    deleted += 1
 
         logging.info(
             _("Checked {count}/{total} objects").format(
@@ -364,3 +364,46 @@ def clean_unlinked_trade_data_files(
             _("Deleted {deleted} unlinked files").format(**{"deleted": deleted})
         )
     logger.info("{symbol}: done".format(symbol=str(symbol)))
+
+
+def clean_trade_data_overlaps(
+    symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
+) -> int:
+    """Delete lower-frequency rows already covered by higher-frequency TradeData."""
+    deleted = 0
+
+    daily_rows = list(
+        TradeData.objects.overlapping(
+            symbol, timestamp_from, timestamp_to, Frequency.DAY
+        ).only("timestamp")
+    )
+    for row in daily_rows:
+        deleted += TradeData.objects.cleanup(
+            symbol,
+            row.timestamp,
+            row.timestamp + pd.Timedelta("1d"),
+            (Frequency.HOUR, Frequency.MINUTE),
+        )
+
+    hourly_rows = list(
+        TradeData.objects.overlapping(
+            symbol, timestamp_from, timestamp_to, Frequency.HOUR
+        ).only("timestamp")
+    )
+    for row in hourly_rows:
+        deleted += TradeData.objects.cleanup(
+            symbol,
+            row.timestamp,
+            row.timestamp + pd.Timedelta("1h"),
+            Frequency.MINUTE,
+        )
+
+    if deleted:
+        logger.info(
+            _("{symbol}: deleted {deleted} overlapping trade-data rows").format(
+                symbol=str(symbol), deleted=deleted
+            )
+        )
+    else:
+        logger.info("{symbol}: no overlapping trade-data rows".format(symbol=str(symbol)))
+    return deleted

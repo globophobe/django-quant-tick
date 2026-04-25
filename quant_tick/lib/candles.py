@@ -32,6 +32,37 @@ def candles_to_data_frame(
     return df.iloc[::-1] if reverse else df
 
 
+def resample_candles(
+    data_frame: DataFrame,
+    *,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    resolution_minutes: int,
+) -> DataFrame:
+    """Aggregate candle to a coarser resolution."""
+    if data_frame.empty:
+        return data_frame
+    frame = data_frame.copy()
+    frame.index = frame.index.floor(f"{resolution_minutes}min")
+    frame.index.name = "timestamp"
+    aggregations = {
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+    }
+    for column in ("volume", "notional"):
+        if column in frame.columns:
+            aggregations[column] = "sum"
+    grouped = frame.groupby(level=0, sort=True).agg(aggregations).reset_index()
+    return candles_to_data_frame(
+        timestamp_from,
+        timestamp_to,
+        grouped.to_dict("records"),
+        reverse=False,
+    )
+
+
 def aggregate_candles(
     data_frame: DataFrame,
     timestamp_from: datetime,
