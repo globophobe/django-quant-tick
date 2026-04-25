@@ -195,7 +195,7 @@ def get_workflow(
                                     "try": {
                                         "call": "http.get",
                                         "args": {
-                                            "url": f"{aggregate_trades}${{exchange}}/?time_ago=7d",
+                                            "url": '${"' + aggregate_trades + '" + exchange + "/?time_ago=7d"}',
                                             "auth": {"type": "OIDC"},
                                         },
                                     },
@@ -260,7 +260,7 @@ def get_workflow(
 def push_workflow(
     ctx: Any, name: str = "django-quant-tick", location: str = "asia-northeast1"
 ) -> None:
-    url = f'https://{os.environ["PRODUCTION_API_URL"]}'
+    url = os.environ["PRODUCTION_API_URL"]
     callback_url = os.environ.get("CALLBACK_URL") or None
     callback_interval_minutes = os.environ.get("CALLBACK_INTERVAL_MINUTES") or None
     if callback_interval_minutes is not None:
