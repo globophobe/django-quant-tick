@@ -4,7 +4,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
-from quant_tick.constants import TaskType
+from quant_tick.constants import Exchange, TaskType
 from quant_tick.models import Candle, TaskState
 from quant_tick.views.aggregate_trades import get_request_params
 
@@ -12,20 +12,24 @@ logger = logging.getLogger(__name__)
 
 
 class AggregateCandleView(View):
-    queryset = Candle.objects.filter(is_active=True).select_related("symbol")
+    def get_exchange(self) -> str:
+        exchange = self.request.GET.get("exchange", "")
+        if exchange and exchange not in Exchange.values:
+            raise ValueError("Invalid exchange.")
+        return exchange
 
-    def get_task_state(self) -> TaskState:
+    def get_task_state(self, exchange: str) -> TaskState:
         task_state, _ = TaskState.objects.get_or_create(
             task_type=TaskType.AGGREGATE_CANDLES,
-            exchange="",
+            exchange=exchange,
         )
         return task_state
 
     def get_queryset(self) -> QuerySet:
-        queryset = self.queryset
-        code_name = self.request.GET.get("code_name")
-        if code_name:
-            queryset = queryset.filter(code_name=code_name)
+        queryset = Candle.objects.filter(is_active=True).select_related("symbol")
+        exchange = self.get_exchange()
+        if exchange:
+            queryset = queryset.filter(symbol__exchange=exchange)
         return queryset
 
     def get_params(self, request: HttpRequest) -> list[tuple]:
@@ -43,10 +47,11 @@ class AggregateCandleView(View):
 
     def get(self, request: HttpRequest, *args, **kwargs) -> JsonResponse:
         try:
+            exchange = self.get_exchange()
             params = self.get_params(request)
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
-        task_state = self.get_task_state()
+        task_state = self.get_task_state(exchange)
         if not task_state.can_run():
             return JsonResponse({"ok": True, "skipped": "backoff"})
         if not task_state.acquire():
