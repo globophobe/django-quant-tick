@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 from django.db import transaction
 from django.db.models import Count, Q, QuerySet
-from django.db.models.functions import TruncDate
+from django.db.models.functions import TruncDate, TruncHour
 from django.utils.translation import gettext_lazy as _
 
 from quant_tick.constants import FileData, Frequency
@@ -129,18 +129,21 @@ def convert_trade_data_to_daily(
                 frequency=Frequency.MINUTE,
             )
             if minute_trade_data.exists():
-                for hourly_ts_from, hourly_ts_to in iter_timeframe(
-                    daily_ts_from, daily_ts_to, value="1h", reverse=True
-                ):
+                complete_hours = (
+                    minute_trade_data.annotate(hour=TruncHour("timestamp"))
+                    .values("hour")
+                    .annotate(count=Count("id"))
+                    .filter(count=Frequency.HOUR)
+                    .order_by("-hour")
+                )
+                for item in complete_hours:
+                    hourly_ts_from = item["hour"]
+                    hourly_ts_to = hourly_ts_from + pd.Timedelta("1h")
                     hour_minute_data = minute_trade_data.filter(
                         timestamp__gte=hourly_ts_from,
                         timestamp__lt=hourly_ts_to,
                     )
-                    if hour_minute_data.count() == Frequency.HOUR:
-                        convert_trade_data(
-                            symbol,
-                            hour_minute_data, hourly_ts_from, hourly_ts_to
-                        )
+                    convert_trade_data(symbol, hour_minute_data, hourly_ts_from, hourly_ts_to)
 
             # Then, convert hourly to daily if complete.
             hourly_trade_data = queryset.filter(
