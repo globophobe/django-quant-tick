@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from datetime import date, datetime
 
@@ -8,6 +9,13 @@ from quant_tick.models import Symbol
 
 from .base import CoinbaseMixin
 from .constants import BTCUSD
+
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None
+
+logger = logging.getLogger(__name__)
 
 
 def coinbase_trades(
@@ -51,4 +59,13 @@ class CoinbaseTrades(CoinbaseMixin, ExchangeREST):
             elif timestamp_from.date() == date(2019, 4, 11):
                 return
         diff = data_frame["index"].diff().dropna()
-        assert abs(diff.sum()) == expected
+        actual = abs(diff.sum())
+        if actual != expected:
+            message = (
+                "Coinbase trade sequence gap: "
+                f"{self.symbol.api_symbol} {timestamp_from} {timestamp_to} "
+                f"expected={expected} actual={actual}"
+            )
+            logger.warning(message)
+            if sentry_sdk:
+                sentry_sdk.capture_message(message, level="error")

@@ -1,5 +1,6 @@
 import logging
 
+import httpx
 import pandas as pd
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
@@ -12,6 +13,8 @@ from quant_tick.lib.download import ArchiveDownloadError
 from quant_tick.models import Symbol, TaskState
 
 logger = logging.getLogger(__name__)
+
+TRANSIENT_COLLECTION_ERRORS = (httpx.TransportError,)
 
 
 def get_request_params(request: HttpRequest) -> tuple[pd.Timestamp, pd.Timestamp, bool]:
@@ -79,6 +82,9 @@ class AggregateTradeDataView(View):
                 logger.info("{symbol}: starting...".format(**{"symbol": str(symbol)}))
                 api(symbol, timestamp_from, timestamp_to, retry)
         except ArchiveDownloadError:
+            raise
+        except TRANSIENT_COLLECTION_ERRORS:
+            task_state.mark_recent_error(backoff=False)
             raise
         except Exception:
             task_state.mark_recent_error()
