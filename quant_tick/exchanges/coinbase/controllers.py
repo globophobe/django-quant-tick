@@ -59,7 +59,7 @@ class CoinbaseTrades(CoinbaseMixin, ExchangeREST):
             elif timestamp_from.date() == date(2019, 4, 11):
                 return
         diff = data_frame["index"].diff().dropna()
-        actual = abs(diff.sum())
+        actual = int(abs(diff.sum()))
         if actual != expected:
             message = (
                 "Coinbase trade sequence gap: "
