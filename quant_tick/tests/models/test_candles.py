@@ -206,7 +206,6 @@ class CandleCacheTest(BaseSymbolTest, TestCase):
         timestamp_to = get_min_time(get_current_time(), value="1d")
         day_three_from = get_previous_time(timestamp_to, value="3d")
         day_two_from = get_previous_time(timestamp_to, value="2d")
-        day_one_from = get_previous_time(timestamp_to, value="1d")
         CandleCache.objects.create(
             candle=self.candle,
             timestamp=timestamp_to,
