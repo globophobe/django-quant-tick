@@ -173,33 +173,36 @@ class Candle(AbstractCodeName, PolymorphicModel):
         ts_to = min(timestamp_to, max_ts_to)
         if timestamp_from < ts_to:
             queryset = (
-                TradeData.objects.filter(
-                    symbol=self.symbol,
-                    timestamp__gte=get_min_time(timestamp_from, value="1d"),
-                    timestamp__lt=ts_to,
+                TradeData.objects.overlapping(
+                    self.symbol,
+                    timestamp_from,
+                    ts_to,
+                    (1, 60, 1440),
                 )
                 .order_by("timestamp")
                 .only("timestamp", "frequency", *list(FileData))
             )
-            prev_end = None
+            expected_from = timestamp_from
             for obj in queryset.iterator(chunk_size=100):
                 obj_from = obj.timestamp
                 obj_to = obj.timestamp + pd.Timedelta(f"{obj.frequency}min")
+                if obj_to <= expected_from:
+                    continue
                 # Stop on gap between TradeData
-                if prev_end is not None and obj_from != prev_end:
+                if obj_from > expected_from:
                     logger.warning(
                         "Candle %s stopped on TradeData gap: expected next timestamp %s but found %s",
                         self,
-                        prev_end,
+                        expected_from,
                         obj_from,
                     )
                     break
-                prev_end = obj_to
                 # Clamp to requested range
-                td_from = max(obj_from, timestamp_from)
+                td_from = max(obj_from, expected_from)
                 td_to = min(obj_to, ts_to, max_ts_to)
                 if td_from < td_to and self.can_aggregate(td_from, td_to):
                     yield td_from, td_to, obj
+                expected_from = obj_to
 
     def get_data_frame(
         self,
