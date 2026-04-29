@@ -102,7 +102,7 @@ class BaseCandleCommand(BaseDateTimeCommand):
     """Base command for iterating candle jobs."""
 
     def get_queryset(self) -> QuerySet:
-        return Candle.objects.select_related("symbol")
+        return Candle.objects.filter(is_active=True).select_related("symbol")
 
     def add_arguments(self, parser: CommandParser) -> None:
         super().add_arguments(parser)
@@ -115,18 +115,14 @@ class BaseCandleCommand(BaseDateTimeCommand):
             choices=self.get_queryset().values_list("code_name", flat=True),
             nargs="+",
         )
-        parser.add_argument("--is-active", action="store_true")
         parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> None:
         exchanges = options.get("exchange")
         code_names = options.get("code_name")
         candles = self.get_queryset()
-        is_active = options.get("is_active")
         if exchanges:
             candles = candles.filter(symbol__exchange__in=exchanges)
-        if is_active:
-            candles = candles.filter(is_active=is_active)
         if code_names:
             candles = candles.filter(code_name__in=code_names)
         if candles:
