@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+import httpx
 from django.test import TestCase
 from django.urls import reverse
 
@@ -84,6 +85,21 @@ class AggregateTradeViewTest(TestCase):
             exchange=Exchange.COINBASE,
         )
         self.assertEqual(task_state.recent_error_count, 1)
+        self.assertIsNone(task_state.locked_until)
+
+    def test_get_marks_transport_error_without_backoff(self, mock_api):
+        mock_api.side_effect = httpx.RemoteProtocolError("server disconnected")
+
+        with self.assertLogs("django.request", level="ERROR"):
+            with self.assertRaises(httpx.RemoteProtocolError):
+                self.client.get(self.get_url())
+
+        task_state = TaskState.objects.get(
+            task_type=TaskType.AGGREGATE_TRADES,
+            exchange=Exchange.COINBASE,
+        )
+        self.assertEqual(task_state.recent_error_count, 1)
+        self.assertIsNone(task_state.next_fetch_at)
         self.assertIsNone(task_state.locked_until)
 
     def test_get_does_not_mark_error_for_archive_download_failure(self, mock_api):

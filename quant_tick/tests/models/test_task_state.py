@@ -54,6 +54,28 @@ class TaskStateTest(TestCase):
         )
 
     @time_machine.travel(datetime(2024, 1, 1, 12, 0, tzinfo=UTC), tick=False)
+    def test_mark_recent_error_without_backoff_does_not_delay_next_run(self):
+        task_state = TaskState.objects.create(
+            task_type=TaskType.AGGREGATE_TRADES,
+            exchange="coinbase",
+        )
+
+        task_state.mark_recent_error(backoff=False)
+        task_state.refresh_from_db()
+
+        self.assertEqual(task_state.recent_error_count, 1)
+        self.assertIsNone(task_state.next_fetch_at)
+
+        task_state.mark_recent_error(now=datetime(2024, 1, 1, 12, 10, tzinfo=UTC))
+        task_state.refresh_from_db()
+
+        self.assertEqual(task_state.recent_error_count, 1)
+        self.assertEqual(
+            task_state.next_fetch_at,
+            datetime(2024, 1, 1, 12, 20, tzinfo=UTC),
+        )
+
+    @time_machine.travel(datetime(2024, 1, 1, 12, 0, tzinfo=UTC), tick=False)
     def test_acquire_sets_lock_lease(self):
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
