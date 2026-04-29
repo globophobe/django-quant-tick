@@ -27,7 +27,7 @@ class WorkflowTest(SimpleTestCase):
             steps[1]["getTradeData"]["parallel"]["for"]["steps"][0]["tradeData"][
                 "try"
             ]["args"]["url"],
-            "https://test.123/aggregate-trades/${exchange}/?time_ago=7d",
+            "${\"https://test.123/aggregate-trades/\" + exchange + \"/?time_ago=7d\"}",
         )
         self.assertEqual(
             steps[2]["aggregateCandles"]["args"]["url"],
@@ -51,7 +51,7 @@ class WorkflowTest(SimpleTestCase):
             steps[0]["getTradeData"]["parallel"]["for"]["steps"][0]["tradeData"][
                 "try"
             ]["args"]["url"],
-            "https://test.123/aggregate-trades/${exchange}/?time_ago=7d",
+            "${\"https://test.123/aggregate-trades/\" + exchange + \"/?time_ago=7d\"}",
         )
         self.assertEqual(
             steps[1]["aggregateCandles"]["args"]["url"],

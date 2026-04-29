@@ -93,17 +93,20 @@ def docker_secrets() -> str:
 
 def build_quant_tick(ctx: Any) -> str:
     """Build the wheel and return its filename."""
-    dist_dir = Path("dist")
+    repo_root = Path(__file__).resolve().parent.parent
+    dist_dir = repo_root / "dist"
     if dist_dir.exists():
         for wheel in dist_dir.glob("django_quant_tick-*.whl"):
             wheel.unlink()
-    ctx.run("uv build --wheel")
+    with ctx.cd(str(repo_root)):
+        ctx.run("uv build --wheel")
     wheels = sorted(dist_dir.glob("django_quant_tick-*.whl"))
     if len(wheels) != 1:
         raise RuntimeError(f"expected exactly one built wheel, found {len(wheels)}")
     return wheels[0].name
 
 
+@task
 def build_container(
     ctx: Any,
     name: str = "django-quant-tick",
@@ -112,26 +115,25 @@ def build_container(
     wheel = build_quant_tick(ctx)
     repo_root = Path(__file__).resolve().parent.parent
     requirements = repo_root / "requirements.txt"
-    ctx.run(
-        "uv export "
-        "--format requirements.txt "
-        "--group deploy "
-        "--no-dev "
-        "--no-header "
-        "--no-annotate "
-        "--no-editable "
-        "--no-hashes "
-        "--no-emit-project "
-        "--frozen "
-        f"--output-file {requirements}"
-    )
-    # Build
-    build_args = {"WHEEL": wheel}
-    build_args = " ".join(
-        [f'--build-arg {key}="{value}"' for key, value in build_args.items()]
-    )
-    name = get_container_name(ctx, name)
-    with ctx.cd(".."):
+    with ctx.cd(str(repo_root)):
+        ctx.run(
+            "uv export "
+            "--format requirements.txt "
+            "--group deploy "
+            "--no-dev "
+            "--no-header "
+            "--no-annotate "
+            "--no-editable "
+            "--no-hashes "
+            "--no-emit-project "
+            "--frozen "
+            f"--output-file {requirements.name}"
+        )
+        build_args = {"WHEEL": wheel}
+        build_args = " ".join(
+            [f'--build-arg {key}="{value}"' for key, value in build_args.items()]
+        )
+        name = get_container_name(ctx, name)
         cmd = " ".join(
             [
                 "docker build",
@@ -193,7 +195,7 @@ def get_workflow(
                                     "try": {
                                         "call": "http.get",
                                         "args": {
-                                            "url": f"{aggregate_trades}${{exchange}}/?time_ago=7d",
+                                            "url": '${"' + aggregate_trades + '" + exchange + "/?time_ago=7d"}',
                                             "auth": {"type": "OIDC"},
                                         },
                                     },
@@ -258,7 +260,7 @@ def get_workflow(
 def push_workflow(
     ctx: Any, name: str = "django-quant-tick", location: str = "asia-northeast1"
 ) -> None:
-    url = f'https://{os.environ["PRODUCTION_API_URL"]}'
+    url = os.environ["PRODUCTION_API_URL"]
     callback_url = os.environ.get("CALLBACK_URL") or None
     callback_interval_minutes = os.environ.get("CALLBACK_INTERVAL_MINUTES") or None
     if callback_interval_minutes is not None:

@@ -201,3 +201,34 @@ class CandleCacheTest(BaseSymbolTest, TestCase):
         candle_cache = CandleCache.objects.filter(candle=self.candle)
         self.assertFalse(candle_cache.filter(frequency=Frequency.DAY).exists())
         self.assertEqual(candle_cache.filter(frequency=Frequency.HOUR).count(), 1)
+
+    def test_convert_candle_cache_to_daily_with_existing_daily_cache(self):
+        timestamp_to = get_min_time(get_current_time(), value="1d")
+        day_three_from = get_previous_time(timestamp_to, value="3d")
+        day_two_from = get_previous_time(timestamp_to, value="2d")
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=timestamp_to,
+            frequency=Frequency.DAY,
+            json_data={"sample_value": 24},
+        )
+        for day_from in (day_three_from, day_two_from):
+            for hour in range(24):
+                CandleCache.objects.create(
+                    candle=self.candle,
+                    timestamp=day_from + pd.Timedelta(f"{hour}h"),
+                    frequency=Frequency.HOUR,
+                    json_data={"sample_value": hour + 1},
+                )
+
+        convert_candle_cache_to_daily(self.candle)
+
+        candle_cache = CandleCache.objects.filter(candle=self.candle)
+        self.assertEqual(candle_cache.filter(frequency=Frequency.DAY).count(), 3)
+        self.assertFalse(
+            candle_cache.filter(
+                frequency=Frequency.HOUR,
+                timestamp__gte=day_three_from,
+                timestamp__lt=timestamp_to,
+            ).exists()
+        )

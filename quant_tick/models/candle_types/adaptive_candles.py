@@ -2,11 +2,11 @@ from datetime import datetime
 from decimal import Decimal
 
 import pandas as pd
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Sum
 from django.utils.translation import gettext_lazy as _
 
 from quant_tick.constants import Frequency
-from quant_tick.lib import get_existing, get_min_time
+from quant_tick.lib import get_min_time
 
 from ..trades import TradeData
 from .constant_candles import ConstantCandle
@@ -63,15 +63,17 @@ class AdaptiveCandle(ConstantCandle):
         )
         return total / days / self.json_data["target_candles_per_day"]
 
+    def has_moving_average_history(self, timestamp: datetime) -> bool:
+        """Return whether the adaptive threshold has enough daily history."""
+        trade_data = self.get_trade_data_for_moving_average(timestamp)
+        minutes = trade_data.aggregate(minutes=Sum("frequency"))["minutes"] or 0
+        days = self.json_data["moving_average_number_of_days"]
+        return minutes >= Frequency.DAY * days
+
     def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
         """Require enough daily history to compute the adaptive threshold."""
         can_agg = super().can_aggregate(timestamp_from, timestamp_to)
-        if can_agg:
-            trade_data = self.get_trade_data_for_moving_average(timestamp_from)
-            existing = get_existing(trade_data.values("timestamp", "frequency"))
-            days = self.json_data["moving_average_number_of_days"]
-            return len(existing) >= Frequency.DAY * days
-        return False
+        return can_agg and self.has_moving_average_history(timestamp_from)
 
     def should_aggregate_candle(self, data: dict) -> bool:
         return data["sample_value"] >= data["target_value"]

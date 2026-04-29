@@ -113,6 +113,25 @@ class TimeBasedMinuteFrequencyCandleTest(
         self.assertIn("stopped on TradeData gap", logs.output[0])
         self.assertIn(str(self.candle), logs.output[0])
 
+    def test_iter_all_resumes_inside_compacted_trade_data(self, mock_get_current_time):
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.DAY,
+            raw_data=TradeData.prepare_data(
+                self.get_raw(self.timestamp_from + pd.Timedelta("1min"))
+            ),
+            ok=True,
+        )
+        timestamp_from = self.timestamp_from + pd.Timedelta("1min")
+        timestamp_to = self.timestamp_from + pd.Timedelta("3min")
+
+        values = list(self.candle.iter_all(timestamp_from, timestamp_to))
+
+        self.assertEqual(len(values), 1)
+        self.assertEqual(values[0][0], timestamp_from)
+        self.assertEqual(values[0][1], timestamp_to)
+
 
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
 @patch(

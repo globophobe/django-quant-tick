@@ -45,6 +45,34 @@ class AggregateCandleViewTest(TestCase):
         self.assertIsNone(task_state.next_fetch_at)
         self.assertIsNone(task_state.locked_until)
 
+    def test_get_with_exchange_processes_matching_candles(self):
+        coinbase = Candle.objects.create(symbol=self.symbol)
+        binance_symbol = Symbol.objects.create(
+            exchange=Exchange.BINANCE,
+            api_symbol="other-test",
+        )
+        Candle.objects.create(symbol=binance_symbol)
+        order = []
+
+        def on_candles(candle, *_args):
+            order.append(candle.code_name)
+
+        with patch(
+            "quant_tick.models.candles.Candle.candles",
+            autospec=True,
+            side_effect=on_candles,
+        ) as mock_candles:
+            response = self.client.get(self.get_url(), {"exchange": Exchange.COINBASE})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_candles.call_count, 1)
+        self.assertEqual(order, [coinbase.code_name])
+        task_state = TaskState.objects.get(
+            task_type=TaskType.AGGREGATE_CANDLES,
+            exchange=Exchange.COINBASE,
+        )
+        self.assertEqual(task_state.recent_error_count, 0)
+
     def test_get_skips_when_task_is_backed_off(self):
         TaskState.objects.create(
             task_type=TaskType.AGGREGATE_CANDLES,

@@ -124,12 +124,22 @@ class TaskState(models.Model):
         self.locked_until = None
         self.save(update_fields=["locked_until"])
 
-    def mark_recent_error(self, *, now: datetime | None = None) -> None:
-        """Mark a task failure and advance its backoff state."""
+    def mark_recent_error(
+        self, *, now: datetime | None = None, backoff: bool = True
+    ) -> None:
+        """Mark a task failure and optionally advance its backoff state."""
         current_time = now or timezone.now()
         self.recent_error_at = current_time
-        self.recent_error_count += 1
-        self.next_fetch_at = current_time + get_task_backoff(self.recent_error_count)
+        if backoff:
+            self.recent_error_count = (
+                self.recent_error_count + 1 if self.next_fetch_at else 1
+            )
+            self.next_fetch_at = current_time + get_task_backoff(
+                self.recent_error_count
+            )
+        else:
+            self.recent_error_count += 1
+            self.next_fetch_at = None
         self.save(
             update_fields=["recent_error_at", "recent_error_count", "next_fetch_at"]
         )

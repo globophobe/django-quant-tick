@@ -1,5 +1,6 @@
 import os
 import sys
+from urllib.parse import urlparse
 
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
@@ -13,7 +14,15 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 10  # 10MB
 
 ROOT_URLCONF = "demo.urls"
 
-ALLOWED_HOSTS = [os.environ["PRODUCTION_API_URL"]]
+
+def get_allowed_host(value: str) -> str:
+    parsed = urlparse(value.strip())
+    if parsed.hostname:
+        return parsed.hostname
+    raise ValueError(f"invalid PRODUCTION_API_URL: {value}")
+
+
+ALLOWED_HOSTS = [get_allowed_host(os.environ["PRODUCTION_API_URL"])]
 
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
