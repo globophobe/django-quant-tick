@@ -8,6 +8,7 @@ from django.test import TestCase
 
 from quant_tick.constants import Frequency
 from quant_tick.controllers import ExchangeREST, ExchangeS3, TradeDataIterator
+from quant_tick.exchanges.bitmex.base import BitmexS3Mixin
 from quant_tick.models import TradeData
 
 from ..base import BaseSymbolTest
@@ -225,6 +226,14 @@ class DummyExchangeS3(ExchangeS3):
         return pd.DataFrame([])
 
 
+class DummyBitmexExchangeS3(BitmexS3Mixin, DummyExchangeS3):
+    def get_data_frame(self, date: datetime.date) -> pd.DataFrame | None:
+        return DummyExchangeS3.get_data_frame(self, date)
+
+    def get_candles(self, timestamp_from: datetime, timestamp_to: datetime) -> pd.DataFrame:
+        return DummyExchangeS3.get_candles(self, timestamp_from, timestamp_to)
+
+
 @time_machine.travel(datetime(2009, 1, 3), tick=False)
 class ExchangeRESTTest(BaseSymbolTest, TestCase):
     def setUp(self):
@@ -356,6 +365,33 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
             }
         )
 
+    def write_existing_day_with_missing_minute(
+        self, missing_hour: int = 3, missing_minute: int = 14
+    ) -> tuple[datetime, datetime]:
+        for hour in range(24):
+            ts = self.timestamp_from + (self.one_hour * hour)
+            if hour == missing_hour:
+                for minute in range(60):
+                    if minute == missing_minute:
+                        continue
+                    TradeData.objects.create(
+                        symbol=self.symbol,
+                        timestamp=ts + (self.one_minute * minute),
+                        frequency=Frequency.MINUTE,
+                        ok=True,
+                    )
+            else:
+                TradeData.objects.create(
+                    symbol=self.symbol,
+                    timestamp=ts,
+                    frequency=Frequency.HOUR,
+                    ok=True,
+                )
+        expected_from = self.timestamp_from + (self.one_hour * missing_hour) + (
+            self.one_minute * missing_minute
+        )
+        return expected_from, expected_from + self.one_minute
+
     def test_main_writes_whole_day_when_no_existing_coverage(self):
         controller = DummyExchangeS3(
             self.symbol,
@@ -381,27 +417,7 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
     def test_main_writes_only_missing_minute_inside_existing_day(
         self, mock_get_max_timestamp_to
     ):
-        missing_hour = 3
-        missing_minute = 14
-        for hour in range(24):
-            ts = self.timestamp_from + (self.one_hour * hour)
-            if hour == missing_hour:
-                for minute in range(60):
-                    if minute == missing_minute:
-                        continue
-                    TradeData.objects.create(
-                        symbol=self.symbol,
-                        timestamp=ts + (self.one_minute * minute),
-                        frequency=Frequency.MINUTE,
-                        ok=True,
-                    )
-            else:
-                TradeData.objects.create(
-                    symbol=self.symbol,
-                    timestamp=ts,
-                    frequency=Frequency.HOUR,
-                    ok=True,
-                )
+        expected_from, expected_to = self.write_existing_day_with_missing_minute()
         controller = DummyExchangeS3(
             self.symbol,
             timestamp_from=self.timestamp_from,
@@ -413,10 +429,31 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
 
         controller.main()
 
-        expected_from = self.timestamp_from + (self.one_hour * missing_hour) + (
-            self.one_minute * missing_minute
+        self.assertEqual(controller.download_calls, 1)
+        self.assertEqual(len(controller.frames), 1)
+        self.assertEqual(controller.frames[0][0], expected_from)
+        self.assertEqual(controller.frames[0][1], expected_to)
+        self.assertEqual(list(controller.frames[0][2].timestamp), [expected_from])
+
+    @patch(
+        "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+    )
+    def test_bitmex_main_writes_only_missing_minute_inside_existing_day(
+        self, mock_get_max_timestamp_to
+    ):
+        expected_from, expected_to = self.write_existing_day_with_missing_minute()
+        controller = DummyBitmexExchangeS3(
+            self.symbol,
+            timestamp_from=self.timestamp_from,
+            timestamp_to=self.timestamp_from + self.one_day,
+            retry=False,
+            verbose=False,
+            data_frame=self.get_data_frame(),
         )
-        expected_to = expected_from + self.one_minute
+
+        controller.main()
+
         self.assertEqual(controller.download_calls, 1)
         self.assertEqual(len(controller.frames), 1)
         self.assertEqual(controller.frames[0][0], expected_from)
