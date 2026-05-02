@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 
 from django.test import TestCase
 
+from quant_tick.constants import Exchange, SymbolType
 from quant_tick.management.base import BaseTradeDataCommand
 
 from ..base import BaseSymbolTest
@@ -13,6 +14,7 @@ class BaseTradeDataCommandTest(BaseSymbolTest, TestCase):
             "exchange": None,
             "api_symbol": None,
             "code_name": None,
+            "symbol_type": None,
             "date_from": "2013-01-01",
             "time_from": None,
             "date_to": date_to,
@@ -39,3 +41,34 @@ class BaseTradeDataCommandTest(BaseSymbolTest, TestCase):
         jobs = list(BaseTradeDataCommand().handle(**self.get_options("2013-01-19")))
 
         self.assertEqual(jobs, [])
+
+    def test_handle_filters_symbols(self):
+        match = self.get_symbol(
+            exchange=Exchange.BINANCE,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        self.get_symbol(
+            exchange=Exchange.BINANCE,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.SPOT,
+        )
+        self.get_symbol(
+            exchange=Exchange.COINBASE,
+            api_symbol="BTC-USD",
+            symbol_type=SymbolType.SPOT,
+        )
+        options = self.get_options()
+        options.update(
+            {
+                "exchange": [Exchange.BINANCE],
+                "api_symbol": ["BTCUSDT"],
+                "code_name": [match.code_name],
+                "symbol_type": [SymbolType.PERPETUAL],
+            }
+        )
+
+        jobs = list(BaseTradeDataCommand().handle(**options))
+
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["symbol"], match)
