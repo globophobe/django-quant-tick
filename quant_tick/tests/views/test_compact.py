@@ -52,7 +52,7 @@ class CompactViewTest(TestCase):
         mock_compact_candles.assert_called_once_with(self.candle)
 
     def test_get_compacts_back_max_seven_days(self):
-        timestamp_to = datetime(2013, 1, 20, tzinfo=UTC)
+        timestamp_to = datetime(2013, 1, 20, 0, 10, tzinfo=UTC)
         with patch(
             "quant_tick.views.compact.get_request_params",
             return_value=(datetime(2013, 1, 1, tzinfo=UTC), timestamp_to, False),
