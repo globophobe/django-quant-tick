@@ -26,7 +26,7 @@ def get_request_params(request: HttpRequest) -> tuple[pd.Timestamp, pd.Timestamp
     except ValueError as exc:
         raise ValueError(f"Cannot parse {time_ago}.") from exc
     timestamp_to = get_min_time(get_current_time(), "1min")
-    timestamp_from = timestamp_to - delta
+    timestamp_from = get_min_time(timestamp_to - delta, "1d")
     return timestamp_from, timestamp_to, retry
 
 

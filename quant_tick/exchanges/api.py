@@ -85,6 +85,7 @@ def candles_api(
     if resolution is not None:
         kwargs["resolution"] = resolution
     if exchange == Exchange.BINANCE:
+        kwargs["symbol_type"] = symbol.symbol_type
         candles = binance_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BITFINEX:
         candles = bitfinex_candles(api_symbol, **kwargs)

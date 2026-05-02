@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-quant-tick"
-version = "0.1.4"
+version = "0.1.5"
 description = "Django Quant Tick aggregates candlesticks from high frequency tick data from S3 and REST APIs"
 readme = "README.md"
 requires-python = ">=3.11"

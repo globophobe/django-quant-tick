@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class AggregateCandleView(View):
+
     def get_exchange(self) -> str:
         exchange = self.request.GET.get("exchange", "")
         if exchange and exchange not in Exchange.values:
