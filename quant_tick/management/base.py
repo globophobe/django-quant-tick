@@ -32,7 +32,7 @@ class BaseTradeDataCommand(BaseDateTimeCommand):
     """Base command for iterating trade-data jobs."""
 
     def get_queryset(self) -> QuerySet:
-        return Symbol.objects.filter(is_active=True)
+        return Symbol.objects.all()
 
     def add_arguments(self, parser: CommandParser) -> None:
         super().add_arguments(parser)
@@ -102,7 +102,7 @@ class BaseCandleCommand(BaseDateTimeCommand):
     """Base command for iterating candle jobs."""
 
     def get_queryset(self) -> QuerySet:
-        return Candle.objects.filter(is_active=True).select_related("symbol")
+        return Candle.objects.select_related("symbol")
 
     def add_arguments(self, parser: CommandParser) -> None:
         super().add_arguments(parser)
