@@ -8,7 +8,7 @@ import pandas as pd
 from django.core.files.storage import default_storage
 from pandas import DataFrame
 
-from quant_tick.constants import Exchange
+from quant_tick.constants import Exchange, SymbolType
 from quant_tick.lib import (
     aggregate_trades,
     get_current_time,
@@ -109,14 +109,17 @@ class BaseSymbolTest:
 
     def get_symbol(
         self,
+        exchange: str = Exchange.COINBASE,
         api_symbol: str = "test",
         save_raw: bool = True,
         save_aggregated: bool = False,
         significant_trade_filter: int = 0,
+        symbol_type: str = SymbolType.SPOT,
     ) -> Symbol:
         return Symbol.objects.create(
-            exchange=Exchange.COINBASE,
+            exchange=exchange,
             api_symbol=api_symbol,
+            symbol_type=symbol_type,
             save_raw=save_raw,
             save_aggregated=save_aggregated,
             significant_trade_filter=significant_trade_filter,

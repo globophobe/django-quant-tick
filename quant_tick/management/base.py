@@ -3,7 +3,7 @@ import logging
 from django.core.management.base import BaseCommand, CommandParser
 from django.db.models import QuerySet
 
-from quant_tick.constants import Exchange
+from quant_tick.constants import Exchange, SymbolType
 from quant_tick.lib import parse_period_from_to
 from quant_tick.models import Candle, Symbol
 
@@ -50,11 +50,15 @@ class BaseTradeDataCommand(BaseDateTimeCommand):
             choices=queryset.values_list("api_symbol", flat=True),
             nargs="+",
         )
+        parser.add_argument(
+            "--symbol-type", type=SymbolType, choices=SymbolType.values, nargs="+"
+        )
 
     def handle(self, *args, **options) -> dict | None:
         exchanges = options.get("exchange")
         api_symbols = options.get("api_symbol")
         code_names = options.get("code_name")
+        symbol_types = options.get("symbol_type")
         symbols = self.get_queryset()
         if exchanges:
             symbols = symbols.filter(exchange__in=exchanges)
@@ -62,6 +66,8 @@ class BaseTradeDataCommand(BaseDateTimeCommand):
             symbols = symbols.filter(api_symbol__in=api_symbols)
         if code_names:
             symbols = symbols.filter(code_name__in=code_names)
+        if symbol_types:
+            symbols = symbols.filter(symbol_type__in=symbol_types)
         if symbols:
             timestamp_from, timestamp_to = parse_period_from_to(
                 date_from=options["date_from"],
@@ -115,16 +121,22 @@ class BaseCandleCommand(BaseDateTimeCommand):
             choices=self.get_queryset().values_list("code_name", flat=True),
             nargs="+",
         )
+        parser.add_argument(
+            "--symbol-type", type=SymbolType, choices=SymbolType.values, nargs="+"
+        )
         parser.add_argument("--retry", action="store_true")
 
     def handle(self, *args, **options) -> None:
         exchanges = options.get("exchange")
         code_names = options.get("code_name")
+        symbol_types = options.get("symbol_type")
         candles = self.get_queryset()
         if exchanges:
             candles = candles.filter(symbol__exchange__in=exchanges)
         if code_names:
             candles = candles.filter(code_name__in=code_names)
+        if symbol_types:
+            candles = candles.filter(symbol__symbol_type__in=symbol_types)
         if candles:
             timestamp_from, timestamp_to = parse_period_from_to(
                 date_from=options["date_from"],

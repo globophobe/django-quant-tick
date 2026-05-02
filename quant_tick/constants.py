@@ -22,6 +22,13 @@ class Exchange(models.TextChoices):
     COINBASE = "coinbase", "Coinbase"
 
 
+class SymbolType(models.TextChoices):
+    """Supported exchange instrument types."""
+
+    SPOT = "spot", "Spot"
+    PERPETUAL = "perpetual", "Perpetual"
+
+
 class TaskType(models.TextChoices):
     """Kinds of scheduled tasks tracked in TaskState."""
 

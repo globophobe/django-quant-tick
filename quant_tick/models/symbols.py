@@ -3,7 +3,7 @@ from datetime import UTC, datetime, time
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from quant_tick.constants import Exchange, FileData
+from quant_tick.constants import Exchange, FileData, SymbolType
 
 from .base import AbstractCodeName
 
@@ -11,6 +11,12 @@ from .base import AbstractCodeName
 class Symbol(AbstractCodeName):
     exchange = models.CharField(_("exchange"), choices=Exchange.choices, max_length=255)
     api_symbol = models.CharField(_("API symbol"), max_length=255)
+    symbol_type = models.CharField(
+        _("symbol type"),
+        choices=SymbolType.choices,
+        default=SymbolType.SPOT,
+        max_length=32,
+    )
     date_from = models.DateField(_("date from"), null=True)
     save_raw = models.BooleanField(
         _("save raw"),
@@ -39,7 +45,20 @@ class Symbol(AbstractCodeName):
         for char in ("-", "/", "_"):
             symbol = symbol.replace(char, "")
         if self.exchange == Exchange.BITFINEX:
-            return symbol[1:]  # API symbol prepended with t
+            if symbol.startswith("t"):
+                symbol = symbol[1:]  # Trading symbols are prepended with t.
+            base_quote = symbol.split(":")
+            if (
+                len(base_quote) == 2
+                and base_quote[0].endswith("F0")
+                and base_quote[1].endswith("F0")
+            ):
+                base = base_quote[0][:-2]
+                quote = base_quote[1][:-2]
+                if quote == "UST":
+                    quote = "USD"
+                return f"{base}{quote}"
+            return symbol
         return symbol
 
     @property
