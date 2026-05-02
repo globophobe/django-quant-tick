@@ -234,6 +234,14 @@ class DummyBitmexExchangeS3(BitmexS3Mixin, DummyExchangeS3):
         return DummyExchangeS3.get_candles(self, timestamp_from, timestamp_to)
 
 
+class DummyMissingBitmexExchangeS3(DummyBitmexExchangeS3):
+    missing_archive_dates = frozenset({datetime(2009, 1, 3).date()})
+
+    def get_data_frame(self, date: datetime.date) -> pd.DataFrame | None:
+        self.download_calls += 1
+        return None
+
+
 @time_machine.travel(datetime(2009, 1, 3), tick=False)
 class ExchangeRESTTest(BaseSymbolTest, TestCase):
     def setUp(self):
@@ -412,6 +420,48 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 3, 4).replace(tzinfo=UTC),
+    )
+    def test_main_writes_hours_for_partial_range_with_no_existing_coverage(
+        self, mock_get_max_timestamp_to
+    ):
+        timestamp_to = self.timestamp_from + (self.one_hour * 4)
+        controller = DummyExchangeS3(
+            self.symbol,
+            timestamp_from=self.timestamp_from,
+            timestamp_to=timestamp_to,
+            retry=False,
+            verbose=False,
+            data_frame=self.get_data_frame(),
+        )
+
+        controller.main()
+
+        self.assertEqual(controller.download_calls, 1)
+        self.assertEqual(
+            [(frame[0], frame[1]) for frame in controller.frames],
+            [
+                (
+                    self.timestamp_from + (self.one_hour * 3),
+                    self.timestamp_from + (self.one_hour * 4),
+                ),
+                (
+                    self.timestamp_from + (self.one_hour * 2),
+                    self.timestamp_from + (self.one_hour * 3),
+                ),
+                (
+                    self.timestamp_from + self.one_hour,
+                    self.timestamp_from + (self.one_hour * 2),
+                ),
+                (self.timestamp_from, self.timestamp_from + self.one_hour),
+            ],
+        )
+        self.assertTrue(
+            all(len(frame[2]) == Frequency.HOUR for frame in controller.frames)
+        )
+
+    @patch(
+        "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
     def test_main_writes_only_missing_minute_inside_existing_day(
@@ -434,6 +484,21 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
         self.assertEqual(controller.frames[0][0], expected_from)
         self.assertEqual(controller.frames[0][1], expected_to)
         self.assertEqual(list(controller.frames[0][2].timestamp), [expected_from])
+
+    def test_bitmex_main_skips_known_missing_archive_date(self):
+        controller = DummyMissingBitmexExchangeS3(
+            self.symbol,
+            timestamp_from=self.timestamp_from,
+            timestamp_to=self.timestamp_from + self.one_day,
+            retry=False,
+            verbose=False,
+            data_frame=self.get_data_frame(),
+        )
+
+        controller.main()
+
+        self.assertEqual(controller.download_calls, 1)
+        self.assertEqual(controller.frames, [])
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
