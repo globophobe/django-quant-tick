@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class AggregateCandleView(View):
+    queryset = Candle.objects.filter(is_active=True).select_related("symbol")
+
     def get_exchange(self) -> str:
         exchange = self.request.GET.get("exchange", "")
         if exchange and exchange not in Exchange.values:
@@ -26,7 +28,7 @@ class AggregateCandleView(View):
         return task_state
 
     def get_queryset(self) -> QuerySet:
-        queryset = Candle.objects.filter(is_active=True).select_related("symbol")
+        queryset = self.queryset
         exchange = self.get_exchange()
         if exchange:
             queryset = queryset.filter(symbol__exchange=exchange)
