@@ -29,6 +29,8 @@ def use_s3() -> datetime:
 class ExchangeS3(BaseController):
     """Base controller for daily exchange S3 archives."""
 
+    missing_archive_dates = frozenset()
+
     def get_url(self, date: datetime.date) -> str:
         raise NotImplementedError
 
@@ -69,7 +71,11 @@ class ExchangeS3(BaseController):
             date = timestamp_from.date()
             data_frame = self.get_data_frame(date)
             if data_frame is not None:
-                if existing:
+                is_full_day = (
+                    timestamp_from.time() == datetime.time.min
+                    and timestamp_to == timestamp_from + pd.Timedelta("1d")
+                )
+                if existing or not is_full_day:
                     windows = iterator.iter_hours(timestamp_from, timestamp_to, existing)
                 else:
                     windows = ((timestamp_from, timestamp_to),)
@@ -77,6 +83,9 @@ class ExchangeS3(BaseController):
                     df = filter_by_timestamp(data_frame, ts_from, ts_to)
                     candles = self.get_candles(ts_from, ts_to)
                     self.on_data_frame(self.symbol, ts_from, ts_to, df, candles)
+            # No data
+            elif date in self.missing_archive_dates:
+                pass
             # Complete
             else:
                 break
