@@ -45,6 +45,14 @@ class ConstantCandleTest(TestCase):
         )
         self.assertEqual(cache["sample_value"], 0)
 
+    def test_weekly_cache_reset_after_boundary_gap(self):
+        candle = ConstantCandle(json_data={"cache_reset": Frequency.WEEK})
+        cache = candle.get_cache_data(
+            datetime(2026, 1, 6, tzinfo=UTC),
+            {"date": datetime(2026, 1, 4, tzinfo=UTC).date(), "sample_value": 123},
+        )
+        self.assertEqual(cache["sample_value"], 0)
+
     def test_weekly_cache_does_not_reset(self):
         now = get_current_time()
         days = 6 - now.date().weekday() % 7
@@ -54,6 +62,30 @@ class ConstantCandleTest(TestCase):
             next_sunday, {"date": next_sunday.date(), "sample_value": 123}
         )
         self.assertEqual(cache["sample_value"], 123)
+
+    def test_monthly_cache_reset_after_boundary_gap(self):
+        candle = ConstantCandle(json_data={"cache_reset": "month"})
+        cache = candle.get_cache_data(
+            datetime(2026, 2, 2, tzinfo=UTC),
+            {"date": datetime(2026, 1, 31, tzinfo=UTC).date(), "sample_value": 123},
+        )
+        self.assertEqual(cache["sample_value"], 0)
+
+    def test_quarterly_cache_reset_after_boundary_gap(self):
+        candle = ConstantCandle(json_data={"cache_reset": "quarter"})
+        cache = candle.get_cache_data(
+            datetime(2026, 4, 2, tzinfo=UTC),
+            {"date": datetime(2026, 3, 31, tzinfo=UTC).date(), "sample_value": 123},
+        )
+        self.assertEqual(cache["sample_value"], 0)
+
+    def test_yearly_cache_reset_after_boundary_gap(self):
+        candle = ConstantCandle(json_data={"cache_reset": "year"})
+        cache = candle.get_cache_data(
+            datetime(2027, 1, 2, tzinfo=UTC),
+            {"date": datetime(2026, 12, 31, tzinfo=UTC).date(), "sample_value": 123},
+        )
+        self.assertEqual(cache["sample_value"], 0)
 
 
 @time_machine.travel(datetime(2009, 1, 4), tick=False)
