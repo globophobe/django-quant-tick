@@ -82,6 +82,9 @@ def _describe_candle(candle: Candle) -> list[str]:
         moving_average_number_of_days = data.get("moving_average_number_of_days")
         if moving_average_number_of_days is not None:
             parts.append(f"ma{moving_average_number_of_days}d")
+        cache_reset = _cache_reset_token(data.get("cache_reset"))
+        if cache_reset:
+            parts.append(f"{cache_reset}-cache-reset")
         return parts
 
     if isinstance(candle, ConstantCandle):
@@ -114,13 +117,24 @@ def get_output_path(candle: Candle, today: str) -> str:
     return f"{'-'.join(parts)}.parquet"
 
 
+def normalize_export_data_frame(candle: Candle, df: DataFrame) -> DataFrame:
+    if "cache_reset" not in (candle.json_data or {}):
+        return df
+
+    if "incomplete" not in df.columns:
+        df["incomplete"] = False
+    else:
+        df["incomplete"] = df["incomplete"].fillna(False).astype(bool)
+    return df
+
+
 class Command(BaseDateCommand):
     """Export candle data."""
 
     help = "Export candle data."
 
     def get_queryset(self) -> QuerySet:
-        return Candle.objects.filter(is_active=True)
+        return Candle.objects.all()
 
     def add_arguments(self, parser: CommandParser) -> None:
         super().add_arguments(parser)
@@ -189,6 +203,7 @@ class Command(BaseDateCommand):
             df = DataFrame(rows)
             if not df.empty:
                 df = candle.process_data_frame(df)
+                df = normalize_export_data_frame(candle, df)
                 for col in df.columns:
                     if df[col].dtype == object:
                         df[col] = df[col].apply(_convert_decimals)
