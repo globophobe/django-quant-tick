@@ -69,9 +69,7 @@ class FetchExchangeDataView(View):
     queryset = Symbol.objects.filter(is_active=True)
 
     def get_configured_exchanges(self) -> tuple[str, ...]:
-        configured_exchange_candles = Q(exchange_candle_resolution__isnull=False) & ~Q(
-            exchange_candle_resolution=""
-        )
+        configured_exchange_candles = ~Q(exchange_candle_resolution="")
         exchanges = (
             self.queryset.filter(
                 Q(exchange__in=FUNDING_SUPPORTED_EXCHANGES)
@@ -89,7 +87,6 @@ class FetchExchangeDataView(View):
             return queryset.exists()
         return (
             queryset
-            .filter(exchange_candle_resolution__isnull=False)
             .exclude(exchange_candle_resolution="")
             .exists()
         )

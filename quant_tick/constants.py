@@ -20,6 +20,7 @@ class Exchange(models.TextChoices):
     BITFINEX = "bitfinex", "Bitfinex"
     BITMEX = "bitmex", "BitMEX"
     COINBASE = "coinbase", "Coinbase"
+    HYPERLIQUID = "hyperliquid", "Hyperliquid"
 
 
 class SymbolType(models.TextChoices):
@@ -34,6 +35,7 @@ class TaskType(models.TextChoices):
 
     AGGREGATE_TRADES = "aggregate_trades", "Aggregate trades"
     AGGREGATE_CANDLES = "aggregate_candles", "Aggregate candles"
+    FETCH_EXCHANGE_DATA = "fetch_exchange_data", "Fetch exchange data"
 
 
 class SampleType(models.TextChoices):

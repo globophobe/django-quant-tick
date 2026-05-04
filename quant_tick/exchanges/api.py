@@ -145,7 +145,7 @@ def exchange_candles_api(
 ) -> DataFrame:
     """Fetch direct exchange candles without writing trade-derived CandleData."""
     resolution = resolution or symbol.exchange_candle_resolution
-    if resolution is None:
+    if not resolution:
         raise ValueError("Exchange candle resolution is required.")
     timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
     if timestamp_range is None:
@@ -168,7 +168,7 @@ def exchange_candles(
 ) -> None:
     """Fetch direct exchange candles and persist ExchangeCandleData rows."""
     resolution = resolution or symbol.exchange_candle_resolution
-    if resolution is None:
+    if not resolution:
         raise ValueError("Exchange candle resolution is required.")
     frequency = parse_fixed_resolution_minutes(resolution)
     data_frame = exchange_candles_api(
