@@ -18,9 +18,11 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 choices=[
                     ("binance", "Binance"),
+                    ("binance-futures", "Binance Futures"),
                     ("bitfinex", "Bitfinex"),
                     ("bitmex", "BitMEX"),
                     ("coinbase", "Coinbase"),
+                    ("coinbase-advanced", "Coinbase Advanced"),
                     ("hyperliquid", "Hyperliquid"),
                 ],
                 max_length=255,
@@ -34,9 +36,11 @@ class Migration(migrations.Migration):
                 blank=True,
                 choices=[
                     ("binance", "Binance"),
+                    ("binance-futures", "Binance Futures"),
                     ("bitfinex", "Bitfinex"),
                     ("bitmex", "BitMEX"),
                     ("coinbase", "Coinbase"),
+                    ("coinbase-advanced", "Coinbase Advanced"),
                     ("hyperliquid", "Hyperliquid"),
                 ],
                 default="",
