@@ -15,6 +15,16 @@ def to_pydatetime(timestamp: Timestamp) -> datetime:
     return timestamp.replace(nanosecond=0).to_pydatetime().replace(tzinfo=UTC)
 
 
+def to_utc_datetime(value: object) -> datetime:
+    """Normalize pandas/native timestamp values to UTC datetime."""
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize(UTC)
+    else:
+        timestamp = timestamp.tz_convert(UTC)
+    return to_pydatetime(timestamp)
+
+
 def get_current_time(tzinfo: str = UTC) -> datetime:
     return datetime.utcnow().replace(tzinfo=tzinfo)
 

@@ -25,6 +25,7 @@ from .calendar import (
     parse_period_from_to,
     timestamp_to_inclusive,
     to_pydatetime,
+    to_utc_datetime,
 )
 from .candles import (
     aggregate_candle,
@@ -38,8 +39,10 @@ from .dataframe import (
     calculate_notional,
     calculate_tick_rule,
     is_decimal_close,
+    normalize_timestamp_data_frame,
     set_dtypes,
     set_type_decimal,
+    to_decimal_or_none,
 )
 from .download import gzip_downloader, zip_downloader
 
@@ -71,6 +74,7 @@ __all__ = [
     "parse_period_from_to",
     "timestamp_to_inclusive",
     "to_pydatetime",
+    "to_utc_datetime",
     "candles_to_data_frame",
     "resample_candles",
     "validate_aggregated_candles",
@@ -78,8 +82,10 @@ __all__ = [
     "calculate_notional",
     "calculate_tick_rule",
     "is_decimal_close",
+    "normalize_timestamp_data_frame",
     "set_dtypes",
     "set_type_decimal",
+    "to_decimal_or_none",
     "gzip_downloader",
     "zip_downloader",
 ]
