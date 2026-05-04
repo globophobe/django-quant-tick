@@ -93,9 +93,14 @@ class FundingAdapterTest(SimpleTestCase):
         with patch(
             "quant_tick.exchanges.bitmex.funding.get_bitmex_funding_response",
             return_value=data,
-        ):
+        ) as mocked:
             df = bitmex_funding("XBTUSD", timestamp_from, timestamp_to)
 
+        self.assertEqual(
+            mocked.call_args.args[0],
+            "https://www.bitmex.com/api/v1/funding?symbol=XBTUSD&count=500"
+            "&reverse=true&endTime=2026-04-25T16:00:00Z",
+        )
         self.assertEqual(list(df.index), [pd.Timestamp("2026-04-25T12:00:00Z")])
         self.assertEqual(df.iloc[0].funding_rate, Decimal("0.0002"))
         self.assertEqual(df.iloc[0].funding_rate_daily, Decimal("0.0006"))
