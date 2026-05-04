@@ -25,6 +25,8 @@ class FundingDataTest(BaseSymbolTest, TestCase):
                     "timestamp": timestamp_from,
                     "funding_rate": Decimal("0.0001"),
                     "mark_price": Decimal("95000"),
+                    "raw_timestamp": timestamp_from + pd.Timedelta("5ms"),
+                    "timestamp_offset_ms": 5,
                 },
                 {
                     "timestamp": timestamp_from + pd.Timedelta("1h"),
@@ -43,6 +45,11 @@ class FundingDataTest(BaseSymbolTest, TestCase):
         self.assertEqual(rows[0].timestamp, timestamp_from)
         self.assertEqual(rows[0].funding_rate, Decimal("0.0001"))
         self.assertEqual(rows[0].json_data["mark_price"], Decimal("95000"))
+        self.assertEqual(
+            rows[0].json_data["raw_timestamp"],
+            timestamp_from + pd.Timedelta("5ms"),
+        )
+        self.assertEqual(rows[0].json_data["timestamp_offset_ms"], 5)
         self.assertEqual(rows[0].to_row()["mark_price"], Decimal("95000"))
 
     def test_write_rejects_spot_symbol(self):

@@ -27,7 +27,9 @@ class FundingAdapterTest(SimpleTestCase):
         timestamp_to = datetime(2026, 4, 25, 16, tzinfo=UTC)
         data = [
             {
-                "fundingTime": int(timestamp_from.timestamp() * 1000),
+                "fundingTime": int(
+                    (timestamp_from + timedelta(milliseconds=5)).timestamp() * 1000
+                ),
                 "fundingRate": "0.0001",
                 "markPrice": "95000.5",
             },
@@ -55,6 +57,12 @@ class FundingAdapterTest(SimpleTestCase):
         )
         self.assertEqual(df.iloc[0].funding_rate, Decimal("0.0001"))
         self.assertEqual(df.iloc[0].mark_price, Decimal("95000.5"))
+        self.assertEqual(
+            df.iloc[0].raw_timestamp,
+            pd.Timestamp(timestamp_from + timedelta(milliseconds=5)),
+        )
+        self.assertEqual(df.iloc[0].timestamp_offset_ms, 5)
+        self.assertFalse(df.iloc[0].timestamp_anomaly)
         self.assertEqual(df.iloc[1].funding_rate, Decimal("0.0002"))
         self.assertIsNone(df.iloc[1].mark_price)
 
@@ -76,7 +84,7 @@ class FundingAdapterTest(SimpleTestCase):
         timestamp_to = datetime(2026, 4, 25, 16, tzinfo=UTC)
         data = [
             {
-                "timestamp": "2026-04-25T08:00:00.000Z",
+                "timestamp": "2026-04-25T12:00:01.000Z",
                 "fundingRate": "0.0002",
                 "fundingRateDaily": "0.0006",
             }
@@ -88,8 +96,15 @@ class FundingAdapterTest(SimpleTestCase):
         ):
             df = bitmex_funding("XBTUSD", timestamp_from, timestamp_to)
 
+        self.assertEqual(list(df.index), [pd.Timestamp("2026-04-25T12:00:00Z")])
         self.assertEqual(df.iloc[0].funding_rate, Decimal("0.0002"))
         self.assertEqual(df.iloc[0].funding_rate_daily, Decimal("0.0006"))
+        self.assertEqual(
+            df.iloc[0].raw_timestamp,
+            pd.Timestamp("2026-04-25T12:00:01Z"),
+        )
+        self.assertEqual(df.iloc[0].timestamp_offset_ms, 1000)
+        self.assertFalse(df.iloc[0].timestamp_anomaly)
 
     def test_bitmex_funding_response_uses_shared_api_helper(self):
         from quant_tick.exchanges.bitmex.funding import get_bitmex_funding_response
@@ -108,7 +123,9 @@ class FundingAdapterTest(SimpleTestCase):
         timestamp_to = datetime(2026, 4, 25, 2, tzinfo=UTC)
         data = [
             {
-                "time": int(timestamp_from.timestamp() * 1000),
+                "time": int(
+                    (timestamp_from + timedelta(milliseconds=48)).timestamp() * 1000
+                ),
                 "fundingRate": "0.0003",
                 "premium": "0.0001",
             }
@@ -120,8 +137,15 @@ class FundingAdapterTest(SimpleTestCase):
         ):
             df = hyperliquid_funding("BTC", timestamp_from, timestamp_to)
 
+        self.assertEqual(list(df.index), [pd.Timestamp(timestamp_from)])
         self.assertEqual(df.iloc[0].funding_rate, Decimal("0.0003"))
         self.assertEqual(df.iloc[0].premium, Decimal("0.0001"))
+        self.assertEqual(
+            df.iloc[0].raw_timestamp,
+            pd.Timestamp(timestamp_from + timedelta(milliseconds=48)),
+        )
+        self.assertEqual(df.iloc[0].timestamp_offset_ms, 48)
+        self.assertFalse(df.iloc[0].timestamp_anomaly)
 
     def test_hyperliquid_info_uses_elapsed_time_throttle(self):
         response = SimpleNamespace(
@@ -153,9 +177,14 @@ class FundingAdapterTest(SimpleTestCase):
         )
 
     def test_coinbase_advanced_funding_normalizes_rows(self):
-        timestamp_from = datetime(2023, 5, 23, 10, tzinfo=UTC)
+        timestamp_from = datetime(2023, 3, 28, 21, tzinfo=UTC)
         timestamp_to = datetime(2026, 5, 4, 2, tzinfo=UTC)
         data = [
+            {
+                "event_time": "2023-03-28T21:20:25.348Z",
+                "funding_rate": "0.000002",
+                "mark_price": "27000.2",
+            },
             {
                 "event_time": "2023-05-23T10:57:49.383Z",
                 "funding_rate": "0.000001",
@@ -182,14 +211,19 @@ class FundingAdapterTest(SimpleTestCase):
         self.assertEqual(
             list(df.index),
             [
-                pd.Timestamp(datetime(2023, 5, 23, 10, 57, 49, 383000, tzinfo=UTC)),
+                pd.Timestamp(datetime(2023, 3, 28, 21, tzinfo=UTC)),
+                pd.Timestamp(datetime(2023, 5, 23, 11, tzinfo=UTC)),
                 pd.Timestamp(datetime(2026, 5, 4, 1, tzinfo=UTC)),
             ],
         )
-        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.000001"))
-        self.assertEqual(df.iloc[0].mark_price, Decimal("26800.1"))
-        self.assertEqual(df.iloc[1].funding_rate, Decimal("-0.000007"))
-        self.assertEqual(df.iloc[1].mark_price, Decimal("80309"))
+        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.000002"))
+        self.assertEqual(df.iloc[0].mark_price, Decimal("27000.2"))
+        self.assertTrue(df.iloc[0].timestamp_anomaly)
+        self.assertEqual(df.iloc[1].funding_rate, Decimal("0.000001"))
+        self.assertEqual(df.iloc[1].mark_price, Decimal("26800.1"))
+        self.assertFalse(df.iloc[1].timestamp_anomaly)
+        self.assertEqual(df.iloc[2].funding_rate, Decimal("-0.000007"))
+        self.assertEqual(df.iloc[2].mark_price, Decimal("80309"))
 
     def test_funding_api_dispatches_hyperliquid_perpetuals(self):
         symbol = SimpleNamespace(
