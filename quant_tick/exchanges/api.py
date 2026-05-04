@@ -11,6 +11,7 @@ from .binance import binance_candles, binance_funding, binance_trades
 from .bitfinex import bitfinex_candles, bitfinex_trades
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
 from .coinbase import coinbase_candles, coinbase_trades
+from .coinbase_advanced import coinbase_advanced_trades
 from .hyperliquid import hyperliquid_candles, hyperliquid_funding
 
 
@@ -72,6 +73,8 @@ def trades_api(
         bitmex_trades(symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         coinbase_trades(symbol, **kwargs)
+    elif exchange == Exchange.COINBASE_ADVANCED:
+        coinbase_advanced_trades(symbol, **kwargs)
 
 
 def candles_api(
