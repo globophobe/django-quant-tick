@@ -11,8 +11,25 @@ from .binance import binance_candles, binance_funding, binance_trades
 from .bitfinex import bitfinex_candles, bitfinex_trades
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
 from .coinbase import coinbase_candles, coinbase_trades
-from .coinbase_advanced import coinbase_advanced_trades
+from .coinbase_advanced import (
+    coinbase_advanced_candles,
+    coinbase_advanced_funding,
+    coinbase_advanced_trades,
+)
 from .hyperliquid import hyperliquid_candles, hyperliquid_funding
+
+
+def get_binance_symbol_type(symbol: Symbol) -> str:
+    expected = (
+        SymbolType.PERPETUAL
+        if symbol.exchange == Exchange.BINANCE_FUTURES
+        else SymbolType.SPOT
+    )
+    if symbol.symbol_type == expected:
+        return expected
+    if symbol.exchange == Exchange.BINANCE_FUTURES:
+        raise ValueError("binance-futures must be perpetuals.")
+    raise ValueError("binance symbols must be spot.")
 
 
 def api(
@@ -65,7 +82,8 @@ def trades_api(
         "retry": retry,
         "verbose": verbose,
     }
-    if exchange == Exchange.BINANCE:
+    if exchange in (Exchange.BINANCE, Exchange.BINANCE_FUTURES):
+        get_binance_symbol_type(symbol)
         binance_trades(symbol, **kwargs)
     elif exchange == Exchange.BITFINEX:
         bitfinex_trades(symbol, **kwargs)
@@ -89,8 +107,8 @@ def candles_api(
     kwargs = {"timestamp_from": timestamp_from, "timestamp_to": timestamp_to}
     if resolution is not None:
         kwargs["resolution"] = resolution
-    if exchange == Exchange.BINANCE:
-        kwargs["symbol_type"] = symbol.symbol_type
+    if exchange in (Exchange.BINANCE, Exchange.BINANCE_FUTURES):
+        kwargs["symbol_type"] = get_binance_symbol_type(symbol)
         candles = binance_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BITFINEX:
         candles = bitfinex_candles(api_symbol, **kwargs)
@@ -98,6 +116,8 @@ def candles_api(
         candles = bitmex_candles(api_symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         candles = coinbase_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.COINBASE_ADVANCED:
+        candles = coinbase_advanced_candles(api_symbol, **kwargs)
     elif exchange == Exchange.HYPERLIQUID:
         candles = hyperliquid_candles(api_symbol, **kwargs)
     else:
@@ -118,10 +138,16 @@ def funding_api(
         return DataFrame(columns=["timestamp"]).set_index("timestamp")
     timestamp_from, timestamp_to = timestamp_range
     exchange = symbol.exchange
-    if exchange == Exchange.BINANCE:
+    if exchange == Exchange.BINANCE_FUTURES:
         return binance_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.BITMEX:
         return bitmex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
+    if exchange == Exchange.COINBASE_ADVANCED:
+        return coinbase_advanced_funding(
+            symbol.api_symbol,
+            timestamp_from,
+            timestamp_to,
+        )
     if exchange == Exchange.HYPERLIQUID:
         return hyperliquid_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     raise NotImplementedError(f"Funding is not implemented for {exchange}.")

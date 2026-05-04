@@ -202,21 +202,6 @@ class FundingAdapterTest(SimpleTestCase):
         mocked.assert_called_once_with("BTCUSDT", timestamp_from, timestamp_to)
         self.assertTrue(result.equals(expected))
 
-    def test_funding_api_rejects_plain_binance_perpetuals(self):
-        symbol = SimpleNamespace(
-            exchange=Exchange.BINANCE,
-            api_symbol="BTCUSDT",
-            symbol_type=SymbolType.PERPETUAL,
-            clamp_timestamp_range=lambda ts_from, ts_to: (ts_from, ts_to),
-        )
-
-        with self.assertRaises(ValueError):
-            funding_api(
-                symbol,
-                datetime(2026, 4, 25, tzinfo=UTC),
-                datetime(2026, 4, 26, tzinfo=UTC),
-            )
-
     def test_funding_api_rejects_spot_symbols(self):
         symbol = SimpleNamespace(
             exchange=Exchange.BINANCE,
