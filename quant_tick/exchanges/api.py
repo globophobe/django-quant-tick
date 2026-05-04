@@ -4,7 +4,12 @@ from datetime import datetime, timedelta
 from pandas import DataFrame
 
 from quant_tick.constants import Exchange, SymbolType
-from quant_tick.lib import iter_chunks, parse_fixed_resolution_minutes
+from quant_tick.lib import (
+    get_existing,
+    iter_chunks,
+    iter_missing,
+    parse_fixed_resolution_minutes,
+)
 from quant_tick.models import ExchangeCandleData, FundingData, Symbol, TradeData
 
 from .binance import binance_candles, binance_funding, binance_trades
@@ -240,23 +245,35 @@ def exchange_candles(
     if not resolution:
         raise ValueError("Exchange candle resolution is required.")
     frequency = parse_fixed_resolution_minutes(resolution)
-    data_frame = exchange_candles_api(
-        symbol,
-        timestamp_from,
-        timestamp_to,
-        resolution=resolution,
-    )
-    if retry:
-        ExchangeCandleData.objects.in_range(
+    timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
+    if timestamp_range is None:
+        return
+    timestamp_from, timestamp_to = timestamp_range
+    windows = [(timestamp_from, timestamp_to)]
+    if not retry:
+        existing = get_existing(
+            ExchangeCandleData.objects.in_range(
+                symbol,
+                frequency,
+                timestamp_from,
+                timestamp_to,
+            ).values("timestamp", "frequency")
+        )
+        windows = list(
+            iter_missing(timestamp_from, timestamp_to, existing, reverse=True)
+        )
+
+    for ts_from, ts_to in windows:
+        data_frame = exchange_candles_api(
+            symbol,
+            ts_from,
+            ts_to,
+            resolution=resolution,
+        )
+        ExchangeCandleData.write(
             symbol,
             frequency,
-            timestamp_from,
-            timestamp_to,
-        ).delete()
-    ExchangeCandleData.write(
-        symbol,
-        frequency,
-        timestamp_from,
-        timestamp_to,
-        data_frame,
-    )
+            ts_from,
+            ts_to,
+            data_frame,
+        )

@@ -48,25 +48,31 @@ def bitmex_funding(
     if timestamp_to <= timestamp_from:
         return BitmexFunding.empty_frame(["funding_rate"])
 
-    cursor = timestamp_from
+    cursor = timestamp_to
+    from_ts = pd.Timestamp(timestamp_from)
     rows = []
-    while cursor < timestamp_to:
+    while cursor > timestamp_from:
         url = (
             f"{API_URL}/funding"
             f"?symbol={str(api_symbol).strip()}"
             f"&count={BITMEX_FUNDING_MAX_RESULTS}"
-            "&reverse=false"
-            f"&startTime={format_bitmex_funding_timestamp(cursor)}"
-            f"&endTime={format_bitmex_funding_timestamp(timestamp_to)}"
+            "&reverse=true"
+            f"&endTime={format_bitmex_funding_timestamp(cursor)}"
         )
         data = get_bitmex_funding_response(url)
         if not data:
             break
         rows.extend(data)
-        last_time = max(pd.Timestamp(item["timestamp"]).timestamp() for item in data)
-        next_cursor = pd.to_datetime(last_time, unit="s", utc=True)
-        next_cursor = (next_cursor + pd.Timedelta("1ms")).to_pydatetime()
-        if next_cursor <= cursor:
+        timestamps = pd.to_datetime(
+            [item["timestamp"] for item in data],
+            utc=True,
+            format="ISO8601",
+        )
+        oldest = timestamps.min()
+        if oldest <= from_ts:
+            break
+        next_cursor = (oldest - pd.Timedelta("1ms")).to_pydatetime()
+        if next_cursor >= cursor:
             break
         cursor = next_cursor
         if len(data) < BITMEX_FUNDING_MAX_RESULTS:
