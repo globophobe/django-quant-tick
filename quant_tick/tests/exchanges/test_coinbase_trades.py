@@ -7,7 +7,10 @@ import pandas as pd
 from django.test import SimpleTestCase
 
 from quant_tick.exchanges.coinbase.constants import BTCUSD
-from quant_tick.exchanges.coinbase.controllers import CoinbaseTrades
+from quant_tick.exchanges.coinbase.controllers import (
+    CoinbaseTrades,
+    coinbase_trades,
+)
 
 
 class CoinbaseTradesTest(SimpleTestCase):
@@ -50,3 +53,15 @@ class CoinbaseTradesTest(SimpleTestCase):
         message = sentry.capture_message.call_args.args[0]
         self.assertIn(message, logs.output[0])
         self.assertEqual(sentry.capture_message.call_args.kwargs, {"level": "error"})
+
+
+    def test_coinbase_trades_uses_exchange_controller(self):
+        ts_from = datetime(2026, 5, 4, tzinfo=UTC)
+        ts_to = datetime(2026, 5, 5, tzinfo=UTC)
+        symbol = SimpleNamespace()
+
+        with patch("quant_tick.exchanges.coinbase.controllers.CoinbaseTrades") as spot:
+            coinbase_trades(symbol, ts_from, ts_to, on_data_frame=lambda *args: None)
+
+        spot.assert_called_once()
+        spot.return_value.main.assert_called_once()

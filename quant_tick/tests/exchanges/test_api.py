@@ -1,8 +1,9 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
+from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.api import trades_api
 
 from ..base import BaseSymbolTest
@@ -48,3 +49,21 @@ class TradesApiTest(BaseSymbolTest, TestCase):
             )
 
         mock_trades.assert_not_called()
+
+    def test_trades_api_dispatches_coinbase_advanced_exchange(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.COINBASE_ADVANCED,
+            api_symbol="BTC-PERP-INTX",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        ts_to = self.timestamp_from + timedelta(days=1)
+
+        with (
+            patch("quant_tick.exchanges.api.coinbase_advanced_trades") as advanced,
+            patch("quant_tick.exchanges.api.coinbase_trades") as regular,
+        ):
+            trades_api(symbol, self.timestamp_from, ts_to, Mock())
+
+        advanced.assert_called_once()
+        self.assertEqual(advanced.call_args.args[0], symbol)
+        regular.assert_not_called()
