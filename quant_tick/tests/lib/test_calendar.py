@@ -8,6 +8,7 @@ from quant_tick.lib import (
     get_min_time,
     get_next_time,
     get_range,
+    iter_chunks,
     iter_missing,
     iter_timeframe,
     iter_window,
@@ -79,6 +80,39 @@ class IterWindowTest(SimpleTestCase):
         self.assertEqual(len(values), 2)
         self.assertEqual(values[0][1], get_min_time(self.now, value="1d"))
         self.assertEqual(values[1][0], get_min_time(self.two_days_ago, value="1d"))
+
+
+class IterChunksTest(SimpleTestCase):
+    def test_iter_chunks_reverse_keeps_partial_newest_window(self):
+        timestamp_from = datetime(2026, 1, 1, tzinfo=UTC)
+        timestamp_to = datetime(2026, 2, 1, tzinfo=UTC)
+
+        values = list(
+            iter_chunks(
+                timestamp_from,
+                timestamp_to,
+                value="14d",
+                reverse=True,
+            )
+        )
+
+        self.assertEqual(
+            values,
+            [
+                (
+                    datetime(2026, 1, 18, tzinfo=UTC),
+                    datetime(2026, 2, 1, tzinfo=UTC),
+                ),
+                (
+                    datetime(2026, 1, 4, tzinfo=UTC),
+                    datetime(2026, 1, 18, tzinfo=UTC),
+                ),
+                (
+                    datetime(2026, 1, 1, tzinfo=UTC),
+                    datetime(2026, 1, 4, tzinfo=UTC),
+                ),
+            ],
+        )
 
 
 class IterTimeframeTest(SimpleTestCase):
