@@ -3,13 +3,15 @@ from datetime import datetime
 
 from pandas import DataFrame
 
-from quant_tick.constants import Exchange
-from quant_tick.models import Symbol, TradeData
+from quant_tick.constants import Exchange, SymbolType
+from quant_tick.lib import parse_fixed_resolution_minutes
+from quant_tick.models import ExchangeCandleData, FundingData, Symbol, TradeData
 
-from .binance import binance_candles, binance_trades
+from .binance import binance_candles, binance_funding, binance_trades
 from .bitfinex import bitfinex_candles, bitfinex_trades
-from .bitmex import bitmex_candles, bitmex_trades
+from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
 from .coinbase import coinbase_candles, coinbase_trades
+from .hyperliquid import hyperliquid_candles, hyperliquid_funding
 
 
 def api(
@@ -93,6 +95,99 @@ def candles_api(
         candles = bitmex_candles(api_symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         candles = coinbase_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.HYPERLIQUID:
+        candles = hyperliquid_candles(api_symbol, **kwargs)
     else:
         raise NotImplementedError
     return candles
+
+
+def funding_api(
+    symbol: Symbol,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+) -> DataFrame:
+    """Dispatch funding fetching to the exchange-specific adapter."""
+    if symbol.symbol_type != SymbolType.PERPETUAL:
+        raise ValueError("Funding is only available for perpetual symbols.")
+    timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
+    if timestamp_range is None:
+        return DataFrame(columns=["timestamp"]).set_index("timestamp")
+    timestamp_from, timestamp_to = timestamp_range
+    exchange = symbol.exchange
+    if exchange == Exchange.BINANCE:
+        return binance_funding(symbol.api_symbol, timestamp_from, timestamp_to)
+    if exchange == Exchange.BITMEX:
+        return bitmex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
+    if exchange == Exchange.HYPERLIQUID:
+        return hyperliquid_funding(symbol.api_symbol, timestamp_from, timestamp_to)
+    raise NotImplementedError(f"Funding is not implemented for {exchange}.")
+
+
+def funding(
+    symbol: Symbol,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    retry: bool = False,
+) -> None:
+    """Fetch exchange funding and persist FundingData rows."""
+    data_frame = funding_api(symbol, timestamp_from, timestamp_to)
+    if retry:
+        FundingData.objects.in_range(symbol, timestamp_from, timestamp_to).delete()
+    FundingData.write(symbol, timestamp_from, timestamp_to, data_frame)
+
+
+def exchange_candles_api(
+    symbol: Symbol,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    resolution: str | int | None = None,
+) -> DataFrame:
+    """Fetch direct exchange candles without writing trade-derived CandleData."""
+    resolution = resolution or symbol.exchange_candle_resolution
+    if resolution is None:
+        raise ValueError("Exchange candle resolution is required.")
+    timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
+    if timestamp_range is None:
+        return DataFrame(columns=["timestamp"]).set_index("timestamp")
+    timestamp_from, timestamp_to = timestamp_range
+    return candles_api(
+        symbol,
+        timestamp_from,
+        timestamp_to,
+        resolution=resolution,
+    )
+
+
+def exchange_candles(
+    symbol: Symbol,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    resolution: str | int | None = None,
+    retry: bool = False,
+) -> None:
+    """Fetch direct exchange candles and persist ExchangeCandleData rows."""
+    resolution = resolution or symbol.exchange_candle_resolution
+    if resolution is None:
+        raise ValueError("Exchange candle resolution is required.")
+    frequency = parse_fixed_resolution_minutes(resolution)
+    data_frame = exchange_candles_api(
+        symbol,
+        timestamp_from,
+        timestamp_to,
+        resolution=resolution,
+    )
+    if retry:
+        ExchangeCandleData.objects.in_range(
+            symbol,
+            frequency,
+            timestamp_from,
+            timestamp_to,
+        ).delete()
+    ExchangeCandleData.write(
+        symbol,
+        frequency,
+        timestamp_from,
+        timestamp_to,
+        data_frame,
+    )
