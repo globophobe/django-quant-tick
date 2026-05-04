@@ -4,10 +4,17 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.exchanges.funding import ExchangeFunding
+
 from .api import get_binance_api_response
 from .constants import FUTURES_API_URL
 
 BINANCE_FUNDING_MAX_RESULTS = 1000
+
+
+class BinanceFuturesFunding(ExchangeFunding):
+    interval = pd.Timedelta("8h")
+    timestamp_anomaly_tolerance = pd.Timedelta("1min")
 
 
 def parse_optional_decimal(value: object) -> Decimal | None:
@@ -51,8 +58,7 @@ def binance_funding(
 ) -> DataFrame:
     """Fetch Binance USD-M perpetual funding events."""
     if timestamp_to <= timestamp_from:
-        empty = DataFrame(columns=["timestamp", "funding_rate", "mark_price"])
-        return empty.set_index("timestamp")
+        return BinanceFuturesFunding.empty_frame(["funding_rate", "mark_price"])
 
     cursor = timestamp_from
     rows = []
@@ -77,11 +83,8 @@ def binance_funding(
             break
 
     if not rows:
-        empty = DataFrame(columns=["timestamp", "funding_rate", "mark_price"])
-        return empty.set_index("timestamp")
+        return BinanceFuturesFunding.empty_frame(["funding_rate", "mark_price"])
 
-    from_ts = pd.to_datetime(timestamp_from, utc=True)
-    to_ts = pd.to_datetime(timestamp_to, utc=True)
     df = DataFrame(
         {
             "timestamp": pd.to_datetime(
@@ -96,9 +99,4 @@ def binance_funding(
             ],
         }
     )
-    df = (
-        df.sort_values("timestamp", kind="stable")
-        .drop_duplicates(subset=["timestamp"], keep="last")
-        .loc[lambda frame: (frame["timestamp"] >= from_ts) & (frame["timestamp"] < to_ts)]
-    )
-    return df.set_index("timestamp")
+    return BinanceFuturesFunding.normalize_frame(df, timestamp_from, timestamp_to)

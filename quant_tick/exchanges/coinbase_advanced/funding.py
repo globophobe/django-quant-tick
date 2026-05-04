@@ -5,8 +5,15 @@ from urllib.parse import urlencode
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.exchanges.funding import ExchangeFunding
+
 from .api import get_coinbase_advanced_api_response
 from .constants import FUNDING_MAX_RESULTS, INTX_API_URL
+
+
+class CoinbaseAdvancedFunding(ExchangeFunding):
+    interval = pd.Timedelta("1h")
+    timestamp_anomaly_tolerance = pd.Timedelta("5min")
 
 
 def normalize_coinbase_advanced_funding_symbol(api_symbol: str) -> str:
@@ -40,11 +47,9 @@ def coinbase_advanced_funding(
     timestamp_to: datetime,
 ) -> DataFrame:
     if timestamp_to <= timestamp_from:
-        empty = DataFrame(columns=["timestamp", "funding_rate", "mark_price"])
-        return empty.set_index("timestamp")
+        return CoinbaseAdvancedFunding.empty_frame(["funding_rate", "mark_price"])
 
     from_ts = pd.to_datetime(timestamp_from, utc=True)
-    to_ts = pd.to_datetime(timestamp_to, utc=True)
     offset = 0
     rows = []
     while True:
@@ -64,8 +69,7 @@ def coinbase_advanced_funding(
             break
 
     if not rows:
-        empty = DataFrame(columns=["timestamp", "funding_rate", "mark_price"])
-        return empty.set_index("timestamp")
+        return CoinbaseAdvancedFunding.empty_frame(["funding_rate", "mark_price"])
 
     df = DataFrame(
         {
@@ -81,9 +85,4 @@ def coinbase_advanced_funding(
             ],
         }
     )
-    df = (
-        df.sort_values("timestamp", kind="stable")
-        .drop_duplicates(subset=["timestamp"], keep="last")
-        .loc[lambda frame: (frame["timestamp"] >= from_ts) & (frame["timestamp"] < to_ts)]
-    )
-    return df.set_index("timestamp")
+    return CoinbaseAdvancedFunding.normalize_frame(df, timestamp_from, timestamp_to)

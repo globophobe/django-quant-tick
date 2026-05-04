@@ -4,8 +4,15 @@ from decimal import Decimal
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.exchanges.funding import ExchangeFunding
+
 from .api import normalize_coin, post_hyperliquid_info, to_millis
 from .constants import FUNDING_INTERVAL_MS, FUNDING_MAX_RESULTS
+
+
+class HyperliquidFunding(ExchangeFunding):
+    interval = pd.Timedelta("1h")
+    timestamp_anomaly_tolerance = pd.Timedelta("1min")
 
 
 def get_hyperliquid_funding_response(
@@ -31,8 +38,7 @@ def hyperliquid_funding(
     start_ms = to_millis(timestamp_from)
     end_ms = to_millis(timestamp_to)
     if end_ms <= start_ms:
-        empty = DataFrame(columns=["timestamp", "funding_rate", "premium"])
-        return empty.set_index("timestamp")
+        return HyperliquidFunding.empty_frame(["funding_rate", "premium"])
 
     cursor = start_ms
     rows = []
@@ -51,11 +57,8 @@ def hyperliquid_funding(
             break
 
     if not rows:
-        empty = DataFrame(columns=["timestamp", "funding_rate", "premium"])
-        return empty.set_index("timestamp")
+        return HyperliquidFunding.empty_frame(["funding_rate", "premium"])
 
-    from_ts = pd.to_datetime(timestamp_from, utc=True)
-    to_ts = pd.to_datetime(timestamp_to, utc=True)
     df = DataFrame(
         {
             "timestamp": pd.to_datetime(
@@ -67,9 +70,4 @@ def hyperliquid_funding(
             "premium": [Decimal(str(item["premium"])) for item in rows],
         }
     )
-    df = (
-        df.sort_values("timestamp", kind="stable")
-        .drop_duplicates(subset=["timestamp"], keep="last")
-        .loc[lambda frame: (frame["timestamp"] >= from_ts) & (frame["timestamp"] < to_ts)]
-    )
-    return df.set_index("timestamp")
+    return HyperliquidFunding.normalize_frame(df, timestamp_from, timestamp_to)

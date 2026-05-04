@@ -4,10 +4,18 @@ from decimal import Decimal
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.exchanges.funding import ExchangeFunding
+
 from .api import get_bitmex_api_response
 from .constants import API_URL
 
 BITMEX_FUNDING_MAX_RESULTS = 500
+
+
+class BitmexFunding(ExchangeFunding):
+    interval = pd.Timedelta("8h")
+    anchor_offset = pd.Timedelta("4h")
+    timestamp_anomaly_tolerance = pd.Timedelta("1min")
 
 
 def format_bitmex_funding_timestamp(timestamp: datetime) -> str:
@@ -38,8 +46,7 @@ def bitmex_funding(
 ) -> DataFrame:
     """Fetch BitMEX perpetual funding events."""
     if timestamp_to <= timestamp_from:
-        empty = DataFrame(columns=["timestamp", "funding_rate"])
-        return empty.set_index("timestamp")
+        return BitmexFunding.empty_frame(["funding_rate"])
 
     cursor = timestamp_from
     rows = []
@@ -66,11 +73,8 @@ def bitmex_funding(
             break
 
     if not rows:
-        empty = DataFrame(columns=["timestamp", "funding_rate"])
-        return empty.set_index("timestamp")
+        return BitmexFunding.empty_frame(["funding_rate"])
 
-    from_ts = pd.to_datetime(timestamp_from, utc=True)
-    to_ts = pd.to_datetime(timestamp_to, utc=True)
     frame_dict = {
         "timestamp": pd.to_datetime([item["timestamp"] for item in rows], utc=True),
         "funding_rate": [Decimal(str(item["fundingRate"])) for item in rows],
@@ -90,9 +94,4 @@ def bitmex_funding(
             for item in rows
         ]
     df = DataFrame(frame_dict)
-    df = (
-        df.sort_values("timestamp", kind="stable")
-        .drop_duplicates(subset=["timestamp"], keep="last")
-        .loc[lambda frame: (frame["timestamp"] >= from_ts) & (frame["timestamp"] < to_ts)]
-    )
-    return df.set_index("timestamp")
+    return BitmexFunding.normalize_frame(df, timestamp_from, timestamp_to)
