@@ -77,9 +77,7 @@ def binance_funding(
             ),
             "funding_rate": [Decimal(str(item["fundingRate"])) for item in rows],
             "mark_price": [
-                None
-                if item.get("markPrice") in {None, ""}
-                else Decimal(str(item["markPrice"]))
+                Decimal(str(item["markPrice"]))
                 for item in rows
             ],
         }

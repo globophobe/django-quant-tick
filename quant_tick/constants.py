@@ -17,10 +17,11 @@ class Exchange(models.TextChoices):
     """Supported exchange identifiers."""
 
     BINANCE = "binance", "Binance"
+    BINANCE_FUTURES = "binance-futures", "Binance Futures"
     BITFINEX = "bitfinex", "Bitfinex"
     BITMEX = "bitmex", "BitMEX"
     COINBASE = "coinbase", "Coinbase"
-    COINBASE_ADVANCED = "coinbase_advanced", "Coinbase Advanced"
+    COINBASE_ADVANCED = "coinbase-advanced", "Coinbase Advanced"
     HYPERLIQUID = "hyperliquid", "Hyperliquid"
 
 

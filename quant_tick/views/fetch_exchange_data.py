@@ -19,8 +19,9 @@ from quant_tick.views.aggregate_trades import (
 logger = logging.getLogger(__name__)
 
 FUNDING_SUPPORTED_EXCHANGES = (
-    Exchange.BINANCE,
+    Exchange.BINANCE_FUTURES,
     Exchange.BITMEX,
+    Exchange.COINBASE_ADVANCED,
     Exchange.HYPERLIQUID,
 )
 
