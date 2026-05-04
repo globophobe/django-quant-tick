@@ -1,5 +1,5 @@
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import pandas as pd
 from pandas import DataFrame
@@ -8,6 +8,20 @@ from .api import get_binance_api_response
 from .constants import FUTURES_API_URL
 
 BINANCE_FUNDING_MAX_RESULTS = 1000
+
+
+def parse_optional_decimal(value: object) -> Decimal | None:
+    if value in (None, ""):
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return Decimal(str(value))
+    except InvalidOperation:
+        return None
 
 
 def format_binance_funding_timestamp(timestamp: datetime) -> int:
@@ -77,7 +91,7 @@ def binance_funding(
             ),
             "funding_rate": [Decimal(str(item["fundingRate"])) for item in rows],
             "mark_price": [
-                Decimal(str(item["markPrice"]))
+                parse_optional_decimal(item.get("markPrice"))
                 for item in rows
             ],
         }

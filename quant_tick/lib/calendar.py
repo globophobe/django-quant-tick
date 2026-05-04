@@ -238,6 +238,36 @@ def iter_window(
     return iter_timestamps(values, reverse=reverse)
 
 
+def iter_chunks(
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    value: str | pd.Timedelta = "1d",
+    reverse: bool = False,
+) -> Generator[tuple[datetime, datetime], None, None]:
+    """Iterate exact-size time chunks without rounding to interval boundaries."""
+    step = pd.Timedelta(value)
+    if step <= pd.Timedelta(0):
+        raise ValueError("window value must be positive")
+
+    start = pd.Timestamp(timestamp_from)
+    end = pd.Timestamp(timestamp_to)
+    if end <= start:
+        return
+
+    if reverse:
+        cursor = end
+        while start < cursor:
+            next_cursor = max(start, cursor - step)
+            yield to_pydatetime(next_cursor), to_pydatetime(cursor)
+            cursor = next_cursor
+    else:
+        cursor = start
+        while cursor < end:
+            next_cursor = min(end, cursor + step)
+            yield to_pydatetime(cursor), to_pydatetime(next_cursor)
+            cursor = next_cursor
+
+
 def iter_timestamps(
     values: list[datetime], reverse: bool = False
 ) -> Generator[tuple[datetime, datetime], None, None]:

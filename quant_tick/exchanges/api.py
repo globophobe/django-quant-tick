@@ -1,10 +1,10 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from pandas import DataFrame
 
 from quant_tick.constants import Exchange, SymbolType
-from quant_tick.lib import parse_fixed_resolution_minutes
+from quant_tick.lib import iter_chunks, parse_fixed_resolution_minutes
 from quant_tick.models import ExchangeCandleData, FundingData, Symbol, TradeData
 
 from .binance import binance_candles, binance_funding, binance_trades
@@ -17,6 +17,13 @@ from .coinbase_advanced import (
     coinbase_advanced_trades,
 )
 from .hyperliquid import hyperliquid_candles, hyperliquid_funding
+
+FUNDING_FETCH_WINDOW = timedelta(days=90)
+FUNDING_CHUNKED_EXCHANGES = {
+    Exchange.BINANCE_FUTURES,
+    Exchange.BITMEX,
+    Exchange.HYPERLIQUID,
+}
 
 
 def get_binance_symbol_type(symbol: Symbol) -> str:
@@ -153,6 +160,22 @@ def funding_api(
     raise NotImplementedError(f"Funding is not implemented for {exchange}.")
 
 
+def iter_funding_windows(
+    symbol: Symbol,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+):
+    if symbol.exchange not in FUNDING_CHUNKED_EXCHANGES:
+        yield timestamp_from, timestamp_to
+        return
+    yield from iter_chunks(
+        timestamp_from,
+        timestamp_to,
+        value=FUNDING_FETCH_WINDOW,
+        reverse=True,
+    )
+
+
 def funding(
     symbol: Symbol,
     timestamp_from: datetime,
@@ -160,10 +183,27 @@ def funding(
     retry: bool = False,
 ) -> None:
     """Fetch exchange funding and persist FundingData rows."""
-    data_frame = funding_api(symbol, timestamp_from, timestamp_to)
-    if retry:
-        FundingData.objects.in_range(symbol, timestamp_from, timestamp_to).delete()
-    FundingData.write(symbol, timestamp_from, timestamp_to, data_frame)
+    timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
+    if timestamp_range is None:
+        return
+    timestamp_from, timestamp_to = timestamp_range
+    for ts_from, ts_to in iter_funding_windows(symbol, timestamp_from, timestamp_to):
+        fetch_timestamp_from = ts_from
+        if not retry:
+            if FundingData.objects.window_starts_after_range(symbol, ts_from, ts_to):
+                return
+            fetch_timestamp_from = FundingData.objects.next_fetch_timestamp_from(
+                symbol,
+                ts_from,
+                ts_to,
+            )
+            if fetch_timestamp_from >= ts_to:
+                continue
+
+        data_frame = funding_api(symbol, fetch_timestamp_from, ts_to)
+        FundingData.write(symbol, fetch_timestamp_from, ts_to, data_frame)
+        if not retry and data_frame.empty:
+            return
 
 
 def exchange_candles_api(

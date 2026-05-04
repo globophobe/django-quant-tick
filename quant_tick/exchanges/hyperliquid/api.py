@@ -7,7 +7,7 @@ import httpx
 
 from quant_tick.controllers import HTTPX_ERRORS
 
-from .constants import API_URL, INFO_PATH
+from .constants import API_URL, INFO_PATH, MIN_ELAPSED_PER_REQUEST
 
 
 def to_millis(timestamp: datetime) -> int:
@@ -26,6 +26,7 @@ def normalize_coin(api_symbol: str) -> str:
 
 
 def post_hyperliquid_info(payload: dict, retry: int = 30) -> list[dict]:
+    start = time.time()
     try:
         response = httpx.post(
             f"{API_URL}{INFO_PATH}",
@@ -41,3 +42,7 @@ def post_hyperliquid_info(payload: dict, retry: int = 30) -> list[dict]:
             time.sleep(1)
             return post_hyperliquid_info(payload, retry=retry - 1)
         raise
+    finally:
+        elapsed = time.time() - start
+        if elapsed < MIN_ELAPSED_PER_REQUEST:
+            time.sleep(MIN_ELAPSED_PER_REQUEST - elapsed)

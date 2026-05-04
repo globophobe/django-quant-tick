@@ -54,6 +54,7 @@ def coinbase_advanced_funding(
         rows.extend(data)
         timestamps = pd.to_datetime(
             [item["event_time"] for item in data],
+            format="ISO8601",
             utc=True,
         )
         if timestamps.min() < from_ts:
@@ -70,6 +71,7 @@ def coinbase_advanced_funding(
         {
             "timestamp": pd.to_datetime(
                 [item["event_time"] for item in rows],
+                format="ISO8601",
                 utc=True,
             ),
             "funding_rate": [Decimal(str(item["funding_rate"])) for item in rows],

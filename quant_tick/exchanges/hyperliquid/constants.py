@@ -1,5 +1,6 @@
 API_URL = "https://api.hyperliquid.xyz"
 INFO_PATH = "/info"
+MIN_ELAPSED_PER_REQUEST = 0.1
 
 CANDLE_MAX_RESULTS = 5000
 FUNDING_INTERVAL_MS = 3_600_000
