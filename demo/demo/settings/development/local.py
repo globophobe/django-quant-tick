@@ -9,8 +9,6 @@ DEBUG = True
 
 ROOT_URLCONF = "demo.urls"
 
-WSGI_APPLICATION = "demo.wsgi.development.application"
-
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
