@@ -4,6 +4,7 @@ from quant_tick.views import (
     AggregateCandleView,
     AggregateTradeDataView,
     CompactView,
+    FetchExchangeDataView,
 )
 
 urlpatterns = [
@@ -14,6 +15,11 @@ urlpatterns = [
     ),
     path(
         "aggregate-candles/", AggregateCandleView.as_view(), name="aggregate_candles"
+    ),
+    path(
+        "fetch-exchange-data/",
+        FetchExchangeDataView.as_view(),
+        name="fetch_exchange_data",
     ),
     path("compact/", CompactView.as_view(), name="compact"),
 ]
