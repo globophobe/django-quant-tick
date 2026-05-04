@@ -44,7 +44,7 @@ class BaseTradeDataCommandTest(BaseSymbolTest, TestCase):
 
     def test_handle_filters_symbols(self):
         match = self.get_symbol(
-            exchange=Exchange.BINANCE,
+            exchange=Exchange.BINANCE_FUTURES,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
         )
@@ -61,7 +61,7 @@ class BaseTradeDataCommandTest(BaseSymbolTest, TestCase):
         options = self.get_options()
         options.update(
             {
-                "exchange": [Exchange.BINANCE],
+                "exchange": [Exchange.BINANCE_FUTURES],
                 "api_symbol": ["BTCUSDT"],
                 "code_name": [match.code_name],
                 "symbol_type": [SymbolType.PERPETUAL],

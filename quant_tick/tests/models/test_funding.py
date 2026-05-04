@@ -13,7 +13,7 @@ from ..base import BaseSymbolTest
 class FundingDataTest(BaseSymbolTest, TestCase):
     def test_write_replaces_perpetual_funding_rows_in_range(self):
         symbol = self.get_symbol(
-            exchange=Exchange.BINANCE,
+            exchange=Exchange.BINANCE_FUTURES,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
         )

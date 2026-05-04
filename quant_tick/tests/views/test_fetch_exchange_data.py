@@ -35,7 +35,7 @@ class FetchExchangeDataViewTest(TestCase):
             exchange_candle_resolution="1h",
         )
         Symbol.objects.create(
-            exchange=Exchange.BINANCE,
+            exchange=Exchange.BINANCE_FUTURES,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
         )
@@ -44,6 +44,11 @@ class FetchExchangeDataViewTest(TestCase):
             api_symbol="BTC-USD",
             symbol_type=SymbolType.SPOT,
             exchange_candle_resolution="1d",
+        )
+        Symbol.objects.create(
+            exchange=Exchange.COINBASE_ADVANCED,
+            api_symbol="BTC-PERP-INTX",
+            symbol_type=SymbolType.PERPETUAL,
         )
 
     def get_url(self) -> str:
@@ -55,13 +60,13 @@ class FetchExchangeDataViewTest(TestCase):
         response = self.client.get(self.get_url())
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["funding"], 2)
+        self.assertEqual(response.json()["funding"], 3)
         self.assertEqual(response.json()["exchange_candles"], 4)
-        self.assertEqual(mock_funding.call_count, 2)
+        self.assertEqual(mock_funding.call_count, 3)
         funding_symbols = {
             call.args[0].api_symbol for call in mock_funding.call_args_list
         }
-        self.assertEqual(funding_symbols, {"BTC", "BTCUSDT"})
+        self.assertEqual(funding_symbols, {"BTC", "BTC-PERP-INTX", "BTCUSDT"})
         self.assertEqual(mock_candles.call_count, 4)
         candle_symbols = {
             call.args[0].api_symbol for call in mock_candles.call_args_list
@@ -74,9 +79,10 @@ class FetchExchangeDataViewTest(TestCase):
         self.assertEqual(
             set(response.json()["exchanges"]),
             {
-                Exchange.BINANCE,
+                Exchange.BINANCE_FUTURES,
                 Exchange.BITFINEX,
                 Exchange.COINBASE,
+                Exchange.COINBASE_ADVANCED,
                 Exchange.HYPERLIQUID,
             },
         )
@@ -89,8 +95,15 @@ class FetchExchangeDataViewTest(TestCase):
 
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
-    def test_get_fetches_funding_only_for_binance(self, mock_funding, mock_candles):
-        response = self.client.get(self.get_url(), {"exchange": Exchange.BINANCE})
+    def test_get_fetches_funding_only_for_binance_futures(
+        self,
+        mock_funding,
+        mock_candles,
+    ):
+        response = self.client.get(
+            self.get_url(),
+            {"exchange": Exchange.BINANCE_FUTURES},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["funding"], 1)

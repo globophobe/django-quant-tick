@@ -67,3 +67,28 @@ class TradesApiTest(BaseSymbolTest, TestCase):
         advanced.assert_called_once()
         self.assertEqual(advanced.call_args.args[0], symbol)
         regular.assert_not_called()
+
+    def test_trades_api_dispatches_binance_futures_exchange(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        ts_to = self.timestamp_from + timedelta(days=1)
+
+        with patch("quant_tick.exchanges.api.binance_trades") as mocked:
+            trades_api(symbol, self.timestamp_from, ts_to, Mock())
+
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.args[0], symbol)
+
+    def test_trades_api_rejects_binance_perpetual_symbols(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BINANCE,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        ts_to = self.timestamp_from + timedelta(days=1)
+
+        with self.assertRaises(ValueError):
+            trades_api(symbol, self.timestamp_from, ts_to, Mock())
