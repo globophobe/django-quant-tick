@@ -1,16 +1,12 @@
 import logging
-import time
 from datetime import datetime
 from urllib.parse import urlencode
 
-import httpx
-
-from quant_tick.controllers import HTTPX_ERRORS
 from quant_tick.lib import parse_datetime
 
+from .api import get_coinbase_advanced_api_response
 from .constants import (
-    API_URL,
-    MIN_ELAPSED_PER_REQUEST,
+    MARKET_API_URL,
     TRADE_MAX_RESULTS,
 )
 
@@ -42,7 +38,7 @@ def get_coinbase_advanced_trades_url(
             "end": timestamp_to,
         }
     )
-    return f"{API_URL}/products/{symbol}/ticker?{query}"
+    return f"{MARKET_API_URL}/products/{symbol}/ticker?{query}"
 
 
 def fetch_coinbase_advanced_trades(
@@ -51,32 +47,14 @@ def fetch_coinbase_advanced_trades(
     timestamp_to: int,
     retry: int = 30,
 ) -> list[dict]:
-    start = time.time()
-    try:
-        url = get_coinbase_advanced_trades_url(symbol, timestamp_from, timestamp_to)
-        response = httpx.get(url)
-        if response.status_code == 200:
-            trades = response.json().get("trades", [])
-            return sorted(
-                trades,
-                key=get_coinbase_advanced_trades_timestamp,
-                reverse=True,
-            )
-        response.raise_for_status()
-    except HTTPX_ERRORS:
-        if retry > 0:
-            time.sleep(1)
-            return fetch_coinbase_advanced_trades(
-                symbol,
-                timestamp_from,
-                timestamp_to,
-                retry=retry - 1,
-            )
-        raise
-    finally:
-        elapsed = time.time() - start
-        if elapsed < MIN_ELAPSED_PER_REQUEST:
-            time.sleep(MIN_ELAPSED_PER_REQUEST - elapsed)
+    url = get_coinbase_advanced_trades_url(symbol, timestamp_from, timestamp_to)
+    response = get_coinbase_advanced_api_response(url, retry=retry)
+    trades = response.get("trades", [])
+    return sorted(
+        trades,
+        key=get_coinbase_advanced_trades_timestamp,
+        reverse=True,
+    )
 
 
 def get_coinbase_advanced_trades(

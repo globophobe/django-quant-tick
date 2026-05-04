@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from pandas import DataFrame
 
+from .candles import coinbase_advanced_candles
 from .trades import (
     get_coinbase_advanced_trades,
     get_coinbase_advanced_trades_timestamp,
@@ -48,4 +49,9 @@ class CoinbaseAdvancedMixin:
     def get_candles(
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> DataFrame:
-        return DataFrame([])
+        return coinbase_advanced_candles(
+            self.symbol.api_symbol,
+            timestamp_from,
+            timestamp_to,
+            log_format=self.log_format,
+        )
