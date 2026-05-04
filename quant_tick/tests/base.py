@@ -115,6 +115,7 @@ class BaseSymbolTest:
         save_aggregated: bool = False,
         significant_trade_filter: int = 0,
         symbol_type: str = SymbolType.SPOT,
+        exchange_candle_resolution: str = "",
     ) -> Symbol:
         return Symbol.objects.create(
             exchange=exchange,
@@ -123,6 +124,7 @@ class BaseSymbolTest:
             save_raw=save_raw,
             save_aggregated=save_aggregated,
             significant_trade_filter=significant_trade_filter,
+            exchange_candle_resolution=exchange_candle_resolution,
         )
 
 

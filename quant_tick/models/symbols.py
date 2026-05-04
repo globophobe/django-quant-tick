@@ -36,6 +36,12 @@ class Symbol(AbstractCodeName):
         ),
         default=0,
     )
+    exchange_candle_resolution = models.CharField(
+        _("exchange candle resolution"),
+        max_length=16,
+        blank=True,
+        default="",
+    )
     is_active = models.BooleanField(_("active"), default=True)
 
     @property
