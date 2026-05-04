@@ -6,8 +6,8 @@ from unittest.mock import patch
 import pandas as pd
 from django.test import SimpleTestCase
 
-from quant_tick.constants import Exchange
-from quant_tick.exchanges.api import candles_api
+from quant_tick.constants import Exchange, SymbolType
+from quant_tick.exchanges.api import candles_api, exchange_candles_api
 from quant_tick.exchanges.bitfinex.candles import (
     bitfinex_candles,
     get_bitfinex_fetch_time_frame,
@@ -93,5 +93,35 @@ class BitfinexCandleTest(SimpleTestCase):
             timestamp_from=timestamp_from,
             timestamp_to=timestamp_to,
             resolution="2h",
+        )
+        self.assertTrue(result.equals(expected))
+
+    def test_exchange_candles_api_uses_bitfinex_perp_symbol_resolution(self):
+        symbol = SimpleNamespace(
+            exchange=Exchange.BITFINEX,
+            api_symbol="tBTCF0:USTF0",
+            symbol_type=SymbolType.PERPETUAL,
+            exchange_candle_resolution="1h",
+            clamp_timestamp_range=lambda ts_from, ts_to: (ts_from, ts_to),
+        )
+        timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 2, tzinfo=UTC)
+        expected = pd.DataFrame([])
+
+        with patch(
+            "quant_tick.exchanges.api.bitfinex_candles",
+            return_value=expected,
+        ) as mocked:
+            result = exchange_candles_api(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+            )
+
+        mocked.assert_called_once_with(
+            "tBTCF0:USTF0",
+            timestamp_from=timestamp_from,
+            timestamp_to=timestamp_to,
+            resolution="1h",
         )
         self.assertTrue(result.equals(expected))
