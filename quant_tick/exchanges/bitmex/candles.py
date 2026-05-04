@@ -51,6 +51,7 @@ def resample_bitmex_candles(
     timestamp_from: datetime,
     timestamp_to: datetime,
     resolution_minutes: int,
+    source_resolution_minutes: int | None = None,
 ) -> DataFrame:
     """Aggregate BitMEX candles to the requested resolution."""
     return resample_candles(
@@ -58,6 +59,7 @@ def resample_bitmex_candles(
         timestamp_from=timestamp_from,
         timestamp_to=timestamp_to,
         resolution_minutes=resolution_minutes,
+        source_resolution_minutes=source_resolution_minutes,
     )
 
 
@@ -131,6 +133,7 @@ def bitmex_candles(
         timestamp_from=timestamp_from,
         timestamp_to=timestamp_to,
         resolution_minutes=target_minutes,
+        source_resolution_minutes=parse_bitmex_candle_resolution(fetch_bin_size),
     )
 
 

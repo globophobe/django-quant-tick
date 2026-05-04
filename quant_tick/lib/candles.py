@@ -38,13 +38,28 @@ def resample_candles(
     timestamp_from: datetime,
     timestamp_to: datetime,
     resolution_minutes: int,
+    source_resolution_minutes: int | None = None,
 ) -> DataFrame:
     """Aggregate candle to a coarser resolution."""
     if data_frame.empty:
         return data_frame
     frame = data_frame.copy()
+    source_resolution_minutes = source_resolution_minutes or _infer_resolution_minutes(
+        frame.index
+    )
+    if not source_resolution_minutes:
+        return data_frame.iloc[0:0].copy()
+    if resolution_minutes % source_resolution_minutes != 0:
+        raise ValueError("resolution_minutes must be a multiple of source resolution")
+    expected_rows = resolution_minutes // source_resolution_minutes
+    frame["_source_timestamp"] = frame.index
     frame.index = frame.index.floor(f"{resolution_minutes}min")
     frame.index.name = "timestamp"
+    counts = frame.groupby(level=0)["_source_timestamp"].nunique()
+    complete = counts[counts == expected_rows].index
+    frame = frame[frame.index.isin(complete)]
+    if frame.empty:
+        return data_frame.iloc[0:0].copy()
     aggregations = {
         "open": "first",
         "high": "max",
@@ -61,6 +76,18 @@ def resample_candles(
         grouped.to_dict("records"),
         reverse=False,
     )
+
+
+def _infer_resolution_minutes(index: pd.DatetimeIndex) -> int | None:
+    """Infer source candle spacing from timestamps."""
+    timestamps = pd.Series(pd.DatetimeIndex(index).sort_values().unique())
+    if len(timestamps) < 2:
+        return None
+    diff = timestamps.diff().dropna()
+    positive = diff[diff > pd.Timedelta(0)]
+    if positive.empty:
+        return None
+    return int(positive.min().total_seconds() // 60)
 
 
 def aggregate_candles(

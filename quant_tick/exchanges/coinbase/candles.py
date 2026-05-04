@@ -140,4 +140,5 @@ def coinbase_candles(
         timestamp_from=timestamp_from,
         timestamp_to=timestamp_to,
         resolution_minutes=target_minutes,
+        source_resolution_minutes=fetch_granularity // 60,
     )

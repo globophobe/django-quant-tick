@@ -159,4 +159,5 @@ def bitfinex_candles(
         timestamp_from=timestamp_from,
         timestamp_to=timestamp_to,
         resolution_minutes=target_minutes,
+        source_resolution_minutes=parse_fixed_resolution_minutes(fetch_time_frame),
     )
