@@ -38,12 +38,6 @@ def set_symbol_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
 
-    replaces = [
-        ("quant_tick", "0002_symbol_symbol_type"),
-        ("quant_tick", "0003_market_data"),
-        ("quant_tick", "0004_remove_coinbase_advanced"),
-    ]
-
     dependencies = [
         ("quant_tick", "0001_initial_migration"),
     ]

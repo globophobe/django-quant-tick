@@ -7,21 +7,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    replaces = [
-        ('quant_tick', '0001_initial_squashed_0005_remove_signal_close_candle_data_and_more'),
-        ('quant_tick', '0006_fundingrate_renkodata_signal_strategy_and_more'),
-        ('quant_tick', '0007_remove_renkodata_kind_renkodata_parent'),
-        ('quant_tick', '0008_remove_candle_symbols_remove_strategy_symbol_and_more'),
-        ('quant_tick', '0009_add_renkodata_kind_remove_parent'),
-        ('quant_tick', '0010_alter_candle_symbol_alter_tradedata_frequency'),
-        ('quant_tick', '0011_remove_renkodata_candle_data_and_more'),
-        ('quant_tick', '0012_alter_fundingrate_unique_together_and_more'),
-        ('quant_tick', '0013_taskstate'),
-        ('quant_tick', '0014_remove_symbol_metadata'),
-        ('quant_tick', '0015_symbol_date_from'),
-    ]
-
     initial = True
 
     dependencies = [
