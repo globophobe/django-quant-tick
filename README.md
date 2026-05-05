@@ -38,8 +38,6 @@ Supported exchanges
 
 ✅ Coinbase REST API
 
-✅ Coinbase Advanced REST API
-
 Note: Exchanges without paginated REST APIs or an S3 repository, will never be supported.
 
 Installation
