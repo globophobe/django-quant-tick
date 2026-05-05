@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-01T13:42:15.576763525Z"
+exclude-newer = "2026-04-28T07:49:01.466016717Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -440,6 +440,19 @@ wheels = [
 ]
 
 [[package]]
+name = "django-filter"
+version = "25.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django", version = "5.2.12", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "django", version = "6.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2c/e4/465d2699cd388c0005fb8d6ae6709f239917c6d8790ac35719676fffdcf3/django_filter-25.2.tar.gz", hash = "sha256:760e984a931f4468d096f5541787efb8998c61217b73006163bf2f9523fe8f23", size = 143818, upload-time = "2025-10-05T09:51:31.521Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c1/40/6a02495c5658beb1f31eb09952d8aa12ef3c2a66342331ce3a35f7132439/django_filter-25.2-py3-none-any.whl", hash = "sha256:9c0f8609057309bba611062fe1b720b4a873652541192d232dd28970383633e3", size = 94145, upload-time = "2025-10-05T09:51:29.728Z" },
+]
+
+[[package]]
 name = "django-polymorphic"
 version = "4.11.2"
 source = { registry = "https://pypi.org/simple" }
@@ -455,7 +468,7 @@ wheels = [
 
 [[package]]
 name = "django-quant-tick"
-version = "0.1.4"
+version = "0.1.5"
 source = { editable = "." }
 dependencies = [
     { name = "django", version = "5.2.12", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -477,6 +490,9 @@ deploy = [
 ]
 dev = [
     { name = "coverage" },
+    { name = "django-filter" },
+    { name = "django-semantic-admin" },
+    { name = "django-semantic-forms" },
     { name = "django-storages", extra = ["google"] },
     { name = "invoke" },
     { name = "ipython", version = "9.10.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -507,6 +523,9 @@ deploy = [
 ]
 dev = [
     { name = "coverage", specifier = ">=7.11.0" },
+    { name = "django-filter", specifier = ">=25.2" },
+    { name = "django-semantic-admin", specifier = ">=0.6.8" },
+    { name = "django-semantic-forms", specifier = ">=0.1.11" },
     { name = "django-storages", extras = ["google"], specifier = ">=1.14.6" },
     { name = "invoke", specifier = ">=2.2.1" },
     { name = "ipython", specifier = ">=9.6.0" },
@@ -514,6 +533,33 @@ dev = [
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "ruff", specifier = ">=0.15.2" },
     { name = "time-machine", specifier = ">=2.19.0" },
+]
+
+[[package]]
+name = "django-semantic-admin"
+version = "0.6.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django", version = "5.2.12", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "django", version = "6.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "django-semantic-forms" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/71/6a/044b5c1f434f9f89686a110cb506d23eafe98ab2cae74ba9417d92150ebc/django_semantic_admin-0.6.8.tar.gz", hash = "sha256:92b29c399431da0f1cffe66ecaeee6b9d09ab5cf3f36a2996e452e57a34e8098", size = 2586046, upload-time = "2026-04-13T09:43:28.969Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/3d/76bb217b1714ecb089262cce920791b99d5989cfc654fcae5ec4ec06c651/django_semantic_admin-0.6.8-py3-none-any.whl", hash = "sha256:ecaaef0c4a5628b78232cfb3970f46a6d4c8325a715770a4e1018aeb46b65757", size = 88065, upload-time = "2026-04-13T09:43:21.165Z" },
+]
+
+[[package]]
+name = "django-semantic-forms"
+version = "0.1.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django", version = "5.2.12", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "django", version = "6.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7d/44/8975d06b8e1bd64d74e8c864b8b61ea220e4280cf8c7669b71070ff69cea/django_semantic_forms-0.1.11.tar.gz", hash = "sha256:9b58748cfc8f5833f35613077f6c7005f780218ebc8c2230ce1def93fa4bc9c7", size = 50924, upload-time = "2026-04-13T06:29:24.051Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bb/a0/52d31db2ed6d198b1683250ebf6ddc7437d409f67bb9917fc016e7757a01/django_semantic_forms-0.1.11-py3-none-any.whl", hash = "sha256:451ff491b251f1159c16eb919bca339fe495925466283645fd42f19ef6964a70", size = 27900, upload-time = "2026-04-13T06:29:25.278Z" },
 ]
 
 [[package]]
