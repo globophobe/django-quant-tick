@@ -61,8 +61,6 @@ class Symbol(AbstractCodeName):
             ):
                 base = base_quote[0][:-2]
                 quote = base_quote[1][:-2]
-                if quote == "UST":
-                    quote = "USD"
                 return f"{base}{quote}"
             return symbol
         return symbol
