@@ -15,7 +15,7 @@ class FetchExchangeDataViewTest(TestCase):
             exchange=Exchange.HYPERLIQUID,
             api_symbol="BTC",
             symbol_type=SymbolType.PERPETUAL,
-            exchange_candle_resolution="8h",
+            exchange_candle_resolution="4h",
         )
         Symbol.objects.create(
             exchange=Exchange.HYPERLIQUID,
@@ -75,7 +75,7 @@ class FetchExchangeDataViewTest(TestCase):
         candle_resolutions = {
             call.kwargs["resolution"] for call in mock_candles.call_args_list
         }
-        self.assertEqual(candle_resolutions, {"1d", "1h", "8h"})
+        self.assertEqual(candle_resolutions, {"1d", "1h", "4h"})
         self.assertEqual(
             set(response.json()["exchanges"]),
             {

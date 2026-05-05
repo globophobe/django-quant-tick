@@ -270,11 +270,11 @@ class IterMissingTest(SimpleTestCase):
 
     def test_iter_missing_with_custom_timestamps_and_interval(self):
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
-        timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 25, 4, tzinfo=UTC)
         timestamps = [
-            timestamp_from + pd.Timedelta("4h"),
-            timestamp_from + pd.Timedelta("12h"),
-            timestamp_from + pd.Timedelta("20h"),
+            timestamp_from,
+            timestamp_from + pd.Timedelta("1h"),
+            timestamp_from + pd.Timedelta("2h"),
         ]
 
         values = iter_missing(
@@ -282,7 +282,7 @@ class IterMissingTest(SimpleTestCase):
             timestamp_to,
             [timestamps[0], timestamps[2]],
             reverse=True,
-            value=pd.Timedelta("8h"),
+            value=pd.Timedelta("1h"),
             timestamps=timestamps,
         )
 

@@ -19,9 +19,9 @@ from ..base import BaseSymbolTest
 
 
 class HyperliquidCandleTest(SimpleTestCase):
-    def test_get_hyperliquid_interval_supports_8h(self):
-        self.assertEqual(get_hyperliquid_interval("8h"), "8h")
-        self.assertEqual(get_hyperliquid_frequency("8h"), 480)
+    def test_get_hyperliquid_interval_supports_4h(self):
+        self.assertEqual(get_hyperliquid_interval("4h"), "4h")
+        self.assertEqual(get_hyperliquid_frequency("4h"), 240)
 
     def test_hyperliquid_candles_normalizes_base_volume_as_notional(self):
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
@@ -69,14 +69,14 @@ class HyperliquidCandleTest(SimpleTestCase):
                 symbol,
                 timestamp_from,
                 timestamp_to,
-                resolution="8h",
+                resolution="4h",
             )
 
         mocked.assert_called_once_with(
             "BTC",
             timestamp_from=timestamp_from,
             timestamp_to=timestamp_to,
-            resolution="8h",
+            resolution="4h",
         )
         self.assertTrue(result.equals(expected))
 
@@ -85,7 +85,7 @@ class HyperliquidCandleTest(SimpleTestCase):
             exchange=Exchange.HYPERLIQUID,
             api_symbol="BTC",
             symbol_type=SymbolType.PERPETUAL,
-            exchange_candle_resolution="8h",
+            exchange_candle_resolution="4h",
             clamp_timestamp_range=lambda ts_from, ts_to: (ts_from, ts_to),
         )
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
@@ -102,7 +102,7 @@ class HyperliquidCandleTest(SimpleTestCase):
             "BTC",
             timestamp_from=timestamp_from,
             timestamp_to=timestamp_to,
-            resolution="8h",
+            resolution="4h",
         )
         self.assertTrue(result.equals(expected))
 

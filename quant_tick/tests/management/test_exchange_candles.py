@@ -24,17 +24,17 @@ class ExchangeCandlesCommandTest(BaseSymbolTest, TestCase):
 
     @patch("quant_tick.management.commands.exchange_candles.exchange_candles")
     def test_handle_uses_symbol_exchange_candle_resolution(self, mock_exchange_candles):
-        symbol = self.get_symbol(exchange_candle_resolution="8h")
+        symbol = self.get_symbol(exchange_candle_resolution="4h")
 
         Command().handle(**self.get_options())
 
         mock_exchange_candles.assert_called_once()
         self.assertEqual(mock_exchange_candles.call_args.kwargs["symbol"], symbol)
-        self.assertEqual(mock_exchange_candles.call_args.kwargs["resolution"], "8h")
+        self.assertEqual(mock_exchange_candles.call_args.kwargs["resolution"], "4h")
 
     @patch("quant_tick.management.commands.exchange_candles.exchange_candles")
     def test_handle_resolution_overrides_symbol_resolution(self, mock_exchange_candles):
-        self.get_symbol(exchange_candle_resolution="8h")
+        self.get_symbol(exchange_candle_resolution="4h")
 
         Command().handle(**self.get_options(resolution="1h"))
 
