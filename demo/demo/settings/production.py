@@ -54,5 +54,5 @@ GS_BUCKET_NAME = (
 sentry_sdk.init(
     dsn=os.environ["SENTRY_DSN"],
     integrations=[DjangoIntegration()],
-    traces_sample_rate=0.5,
+    traces_sample_rate=1.0,
 )
