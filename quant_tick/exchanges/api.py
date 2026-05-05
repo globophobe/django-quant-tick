@@ -17,12 +17,6 @@ from .bitfinex import bitfinex_candles, bitfinex_trades
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
 from .bitmex.funding import BitmexFunding
 from .coinbase import coinbase_candles, coinbase_trades
-from .coinbase_advanced import (
-    coinbase_advanced_candles,
-    coinbase_advanced_funding,
-    coinbase_advanced_trades,
-)
-from .coinbase_advanced.funding import CoinbaseAdvancedFunding
 from .funding import ExchangeFunding
 from .hyperliquid import hyperliquid_candles, hyperliquid_funding
 from .hyperliquid.funding import HyperliquidFunding
@@ -36,7 +30,6 @@ FUNDING_CHUNKED_EXCHANGES = {
 FUNDING_MODEL = {
     Exchange.BINANCE_FUTURES: BinanceFuturesFunding,
     Exchange.BITMEX: BitmexFunding,
-    Exchange.COINBASE_ADVANCED: CoinbaseAdvancedFunding,
     Exchange.HYPERLIQUID: HyperliquidFunding,
 }
 
@@ -113,8 +106,6 @@ def trades_api(
         bitmex_trades(symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         coinbase_trades(symbol, **kwargs)
-    elif exchange == Exchange.COINBASE_ADVANCED:
-        coinbase_advanced_trades(symbol, **kwargs)
 
 
 def candles_api(
@@ -138,8 +129,6 @@ def candles_api(
         candles = bitmex_candles(api_symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         candles = coinbase_candles(api_symbol, **kwargs)
-    elif exchange == Exchange.COINBASE_ADVANCED:
-        candles = coinbase_advanced_candles(api_symbol, **kwargs)
     elif exchange == Exchange.HYPERLIQUID:
         candles = hyperliquid_candles(api_symbol, **kwargs)
     else:
@@ -164,12 +153,6 @@ def funding_api(
         return binance_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.BITMEX:
         return bitmex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
-    if exchange == Exchange.COINBASE_ADVANCED:
-        return coinbase_advanced_funding(
-            symbol.api_symbol,
-            timestamp_from,
-            timestamp_to,
-        )
     if exchange == Exchange.HYPERLIQUID:
         return hyperliquid_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     raise NotImplementedError(f"Funding is not implemented for {exchange}.")

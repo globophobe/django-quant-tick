@@ -10,10 +10,6 @@ from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.api import FUNDING_FETCH_WINDOW, funding, funding_api
 from quant_tick.exchanges.binance.funding import binance_funding
 from quant_tick.exchanges.bitmex.funding import bitmex_funding
-from quant_tick.exchanges.coinbase_advanced.funding import (
-    coinbase_advanced_funding,
-    get_coinbase_advanced_funding_url,
-)
 from quant_tick.exchanges.hyperliquid.api import post_hyperliquid_info
 from quant_tick.exchanges.hyperliquid.funding import hyperliquid_funding
 from quant_tick.models import FundingData
@@ -172,64 +168,6 @@ class FundingAdapterTest(SimpleTestCase):
         self.assertEqual(result, [])
         mocked_sleep.assert_called_once_with(0.1)
 
-    def test_coinbase_advanced_funding_url_strips_intx_suffix(self):
-        url = get_coinbase_advanced_funding_url("BTC-PERP-INTX", 0)
-
-        self.assertEqual(
-            url,
-            "https://api.international.coinbase.com/api/v1/instruments/"
-            "BTC-PERP/funding?result_limit=100&result_offset=0",
-        )
-
-    def test_coinbase_advanced_funding_normalizes_rows(self):
-        timestamp_from = datetime(2023, 3, 28, 21, tzinfo=UTC)
-        timestamp_to = datetime(2026, 5, 4, 2, tzinfo=UTC)
-        data = [
-            {
-                "event_time": "2023-03-28T21:20:25.348Z",
-                "funding_rate": "0.000002",
-                "mark_price": "27000.2",
-            },
-            {
-                "event_time": "2023-05-23T10:57:49.383Z",
-                "funding_rate": "0.000001",
-                "mark_price": "26800.1",
-            },
-            {
-                "event_time": "2026-05-04T01:00:00Z",
-                "funding_rate": "-0.000007",
-                "mark_price": "80309",
-            }
-        ]
-
-        with patch(
-            "quant_tick.exchanges.coinbase_advanced.funding."
-            "get_coinbase_advanced_funding_response",
-            return_value=data,
-        ):
-            df = coinbase_advanced_funding(
-                "BTC-PERP-INTX",
-                timestamp_from,
-                timestamp_to,
-            )
-
-        self.assertEqual(
-            list(df.index),
-            [
-                pd.Timestamp(datetime(2023, 3, 28, 21, tzinfo=UTC)),
-                pd.Timestamp(datetime(2023, 5, 23, 11, tzinfo=UTC)),
-                pd.Timestamp(datetime(2026, 5, 4, 1, tzinfo=UTC)),
-            ],
-        )
-        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.000002"))
-        self.assertEqual(df.iloc[0].mark_price, Decimal("27000.2"))
-        self.assertTrue(df.iloc[0].timestamp_anomaly)
-        self.assertEqual(df.iloc[1].funding_rate, Decimal("0.000001"))
-        self.assertEqual(df.iloc[1].mark_price, Decimal("26800.1"))
-        self.assertFalse(df.iloc[1].timestamp_anomaly)
-        self.assertEqual(df.iloc[2].funding_rate, Decimal("-0.000007"))
-        self.assertEqual(df.iloc[2].mark_price, Decimal("80309"))
-
     def test_funding_api_dispatches_hyperliquid_perpetuals(self):
         symbol = SimpleNamespace(
             exchange=Exchange.HYPERLIQUID,
@@ -248,26 +186,6 @@ class FundingAdapterTest(SimpleTestCase):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
         mocked.assert_called_once_with("BTC", timestamp_from, timestamp_to)
-        self.assertTrue(result.equals(expected))
-
-    def test_funding_api_dispatches_coinbase_advanced_perpetuals(self):
-        symbol = SimpleNamespace(
-            exchange=Exchange.COINBASE_ADVANCED,
-            api_symbol="BTC-PERP-INTX",
-            symbol_type=SymbolType.PERPETUAL,
-            clamp_timestamp_range=lambda ts_from, ts_to: (ts_from, ts_to),
-        )
-        timestamp_from = datetime(2026, 5, 4, tzinfo=UTC)
-        timestamp_to = datetime(2026, 5, 5, tzinfo=UTC)
-        expected = pd.DataFrame([])
-
-        with patch(
-            "quant_tick.exchanges.api.coinbase_advanced_funding",
-            return_value=expected,
-        ) as mocked:
-            result = funding_api(symbol, timestamp_from, timestamp_to)
-
-        mocked.assert_called_once_with("BTC-PERP-INTX", timestamp_from, timestamp_to)
         self.assertTrue(result.equals(expected))
 
     def test_funding_api_dispatches_binance_futures_perpetuals(self):
@@ -317,13 +235,6 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
         return self.get_symbol(
             exchange=Exchange.BITMEX,
             api_symbol="XBTUSD",
-            symbol_type=SymbolType.PERPETUAL,
-        )
-
-    def get_coinbase_advanced_symbol(self):
-        return self.get_symbol(
-            exchange=Exchange.COINBASE_ADVANCED,
-            api_symbol="BTC-PERP-INTX",
             symbol_type=SymbolType.PERPETUAL,
         )
 
@@ -463,27 +374,6 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
                 timestamp_to,
             ),
         )
-
-    def test_coinbase_advanced_funding_uses_single_offset_pagination_pass(self):
-        symbol = self.get_coinbase_advanced_symbol()
-        timestamp_from = datetime(2025, 1, 1, tzinfo=UTC)
-        timestamp_to = datetime(2026, 2, 1, tzinfo=UTC)
-        data = pd.DataFrame(
-            [
-                {
-                    "timestamp": timestamp_to - timedelta(hours=1),
-                    "funding_rate": Decimal("0.0001"),
-                }
-            ]
-        )
-
-        with patch(
-            "quant_tick.exchanges.api.funding_api",
-            return_value=data,
-        ) as mocked:
-            funding(symbol, timestamp_from, timestamp_to)
-
-        mocked.assert_called_once_with(symbol, timestamp_from, timestamp_to)
 
     def test_retry_refetches_requested_window(self):
         symbol = self.get_binance_futures_symbol()

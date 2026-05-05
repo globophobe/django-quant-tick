@@ -21,7 +21,6 @@ class Exchange(models.TextChoices):
     BITFINEX = "bitfinex", "Bitfinex"
     BITMEX = "bitmex", "BitMEX"
     COINBASE = "coinbase", "Coinbase"
-    COINBASE_ADVANCED = "coinbase-advanced", "Coinbase Advanced"
     HYPERLIQUID = "hyperliquid", "Hyperliquid"
 
 

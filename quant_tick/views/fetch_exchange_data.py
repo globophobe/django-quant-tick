@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 FUNDING_SUPPORTED_EXCHANGES = (
     Exchange.BINANCE_FUTURES,
     Exchange.BITMEX,
-    Exchange.COINBASE_ADVANCED,
     Exchange.HYPERLIQUID,
 )
 

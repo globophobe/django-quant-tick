@@ -45,11 +45,6 @@ class FetchExchangeDataViewTest(TestCase):
             symbol_type=SymbolType.SPOT,
             exchange_candle_resolution="1d",
         )
-        Symbol.objects.create(
-            exchange=Exchange.COINBASE_ADVANCED,
-            api_symbol="BTC-PERP-INTX",
-            symbol_type=SymbolType.PERPETUAL,
-        )
 
     def get_url(self) -> str:
         return reverse("fetch_exchange_data")
@@ -60,13 +55,13 @@ class FetchExchangeDataViewTest(TestCase):
         response = self.client.get(self.get_url())
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["funding"], 3)
+        self.assertEqual(response.json()["funding"], 2)
         self.assertEqual(response.json()["exchange_candles"], 4)
-        self.assertEqual(mock_funding.call_count, 3)
+        self.assertEqual(mock_funding.call_count, 2)
         funding_symbols = {
             call.args[0].api_symbol for call in mock_funding.call_args_list
         }
-        self.assertEqual(funding_symbols, {"BTC", "BTC-PERP-INTX", "BTCUSDT"})
+        self.assertEqual(funding_symbols, {"BTC", "BTCUSDT"})
         self.assertEqual(mock_candles.call_count, 4)
         candle_symbols = {
             call.args[0].api_symbol for call in mock_candles.call_args_list
@@ -82,7 +77,6 @@ class FetchExchangeDataViewTest(TestCase):
                 Exchange.BINANCE_FUTURES,
                 Exchange.BITFINEX,
                 Exchange.COINBASE,
-                Exchange.COINBASE_ADVANCED,
                 Exchange.HYPERLIQUID,
             },
         )
