@@ -5,6 +5,7 @@ from pandas import DataFrame
 
 from quant_tick.constants import Exchange, SymbolType
 from quant_tick.lib import (
+    get_complete_interval_end,
     iter_chunks,
     iter_missing,
     parse_fixed_resolution_minutes,
@@ -275,6 +276,9 @@ def exchange_candles(
     if timestamp_range is None:
         return
     timestamp_from, timestamp_to = timestamp_range
+    timestamp_to = get_complete_interval_end(timestamp_to, frequency)
+    if timestamp_to <= timestamp_from:
+        return
     windows = [(timestamp_from, timestamp_to)]
     if not retry:
         existing = list(

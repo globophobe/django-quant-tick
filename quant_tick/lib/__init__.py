@@ -5,6 +5,7 @@ from .aggregate import (
 )
 from .cache import get_next_cache, merge_cache
 from .calendar import (
+    get_complete_interval_end,
     get_interval_inclusive_end,
     get_interval_limit,
     get_interval_offset,
@@ -53,6 +54,7 @@ __all__ = [
     "aggregate_trades",
     "filter_by_timestamp",
     "volume_filter_with_time_window",
+    "get_complete_interval_end",
     "get_next_cache",
     "merge_cache",
     "get_current_time",

@@ -141,6 +141,12 @@ def get_interval_inclusive_end(
     return ts_to if timestamp_from <= ts_to else timestamp_to
 
 
+def get_complete_interval_end(timestamp_to: datetime, value: str | int) -> datetime:
+    """Floor an end timestamp to the last complete fixed interval boundary."""
+    minutes = parse_fixed_resolution_minutes(value)
+    return to_pydatetime(pd.Timestamp(timestamp_to).floor(f"{minutes}min"))
+
+
 def get_interval_limit(
     timestamp_from: datetime,
     timestamp_to: datetime,

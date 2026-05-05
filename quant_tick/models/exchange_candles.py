@@ -68,10 +68,13 @@ class ExchangeCandleData(models.Model):
     ) -> None:
         """Replace exchange candles for half-open timestamp range."""
         rows = []
+        interval = pd.Timedelta(f"{frequency}min")
         frame = normalize_timestamp_data_frame(data_frame)
         for row in frame.to_dict("records"):
             timestamp = to_utc_datetime(row["timestamp"])
             if not timestamp_from <= timestamp < timestamp_to:
+                continue
+            if timestamp + interval > timestamp_to:
                 continue
             json_data = get_model_json_data(
                 row,
