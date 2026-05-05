@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 FUNDING_SUPPORTED_EXCHANGES = (
     Exchange.BINANCE_FUTURES,
+    Exchange.BITFINEX,
     Exchange.BITMEX,
     Exchange.HYPERLIQUID,
 )
@@ -70,10 +71,13 @@ class FetchExchangeDataView(View):
 
     def get_configured_exchanges(self) -> tuple[str, ...]:
         configured_exchange_candles = ~Q(exchange_candle_resolution="")
+        configured_funding = Q(
+            exchange__in=FUNDING_SUPPORTED_EXCHANGES,
+            symbol_type=SymbolType.PERPETUAL,
+        )
         exchanges = (
             self.queryset.filter(
-                Q(exchange__in=FUNDING_SUPPORTED_EXCHANGES)
-                | configured_exchange_candles
+                configured_funding | configured_exchange_candles
             )
             .order_by("exchange")
             .values_list("exchange", flat=True)
@@ -83,13 +87,12 @@ class FetchExchangeDataView(View):
 
     def has_exchange_data(self, exchange: str) -> bool:
         queryset = self.queryset.filter(exchange=exchange)
+        configured_exchange_candles = ~Q(exchange_candle_resolution="")
         if exchange in FUNDING_SUPPORTED_EXCHANGES:
-            return queryset.exists()
-        return (
-            queryset
-            .exclude(exchange_candle_resolution="")
-            .exists()
-        )
+            return queryset.filter(
+                Q(symbol_type=SymbolType.PERPETUAL) | configured_exchange_candles
+            ).exists()
+        return queryset.exclude(exchange_candle_resolution="").exists()
 
     def get_exchanges(self, request: HttpRequest) -> tuple[str, ...]:
         exchange = request.GET.get("exchange")

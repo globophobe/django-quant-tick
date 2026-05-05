@@ -13,7 +13,8 @@ from quant_tick.models import ExchangeCandleData, FundingData, Symbol, TradeData
 
 from .binance import binance_candles, binance_funding, binance_trades
 from .binance.funding import BinanceFuturesFunding
-from .bitfinex import bitfinex_candles, bitfinex_trades
+from .bitfinex import bitfinex_candles, bitfinex_funding, bitfinex_trades
+from .bitfinex.funding import BitfinexFunding
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
 from .bitmex.funding import BitmexFunding
 from .coinbase import coinbase_candles, coinbase_trades
@@ -24,11 +25,13 @@ from .hyperliquid.funding import HyperliquidFunding
 FUNDING_FETCH_WINDOW = timedelta(days=90)
 FUNDING_CHUNKED_EXCHANGES = {
     Exchange.BINANCE_FUTURES,
+    Exchange.BITFINEX,
     Exchange.BITMEX,
     Exchange.HYPERLIQUID,
 }
 FUNDING_MODEL = {
     Exchange.BINANCE_FUTURES: BinanceFuturesFunding,
+    Exchange.BITFINEX: BitfinexFunding,
     Exchange.BITMEX: BitmexFunding,
     Exchange.HYPERLIQUID: HyperliquidFunding,
 }
@@ -151,6 +154,8 @@ def funding_api(
     exchange = symbol.exchange
     if exchange == Exchange.BINANCE_FUTURES:
         return binance_funding(symbol.api_symbol, timestamp_from, timestamp_to)
+    if exchange == Exchange.BITFINEX:
+        return bitfinex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.BITMEX:
         return bitmex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.HYPERLIQUID:

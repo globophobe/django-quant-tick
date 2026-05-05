@@ -9,7 +9,7 @@ from .api import (
     get_bitfinex_api_timestamp,
     get_bitfinex_api_url,
 )
-from .constants import API_URL, MAX_RESULTS, MIN_ELAPSED_PER_REQUEST
+from .constants import API_URL, MIN_ELAPSED_PER_REQUEST, TRADE_MAX_RESULTS
 
 
 def get_trades(
@@ -19,14 +19,14 @@ def get_trades(
     log_format: str | None = None,
 ) -> list[dict]:
     # No start query param
-    # Specifying start, end returns MAX_RESULTS
-    url = f"{API_URL}/trades/{symbol}/hist?limit={MAX_RESULTS}"
+    # Specifying start, end returns TRADE_MAX_RESULTS
+    url = f"{API_URL}/trades/{symbol}/hist?limit={TRADE_MAX_RESULTS}"
     return iter_api(
         url,
         get_bitfinex_api_pagination_id,
         get_bitfinex_api_timestamp,
         partial(get_bitfinex_api_response, get_bitfinex_api_url),
-        MAX_RESULTS,
+        TRADE_MAX_RESULTS,
         MIN_ELAPSED_PER_REQUEST,
         timestamp_from=timestamp_from,
         pagination_id=pagination_id,
