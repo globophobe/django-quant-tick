@@ -4,6 +4,7 @@ import pandas as pd
 from django.test import SimpleTestCase
 
 from quant_tick.lib import (
+    get_complete_interval_end,
     get_current_time,
     get_min_time,
     get_next_time,
@@ -34,6 +35,15 @@ class GetNexttimeTest(SimpleTestCase):
             tomorrow,
             datetime.combine(tomorrow.date(), time.min).replace(tzinfo=UTC),
         )
+
+
+class GetCompleteIntervalEndTest(SimpleTestCase):
+    def test_get_complete_interval_end_uses_full_interval(self):
+        timestamp = datetime(2026, 4, 25, 10, 53, tzinfo=UTC)
+
+        result = get_complete_interval_end(timestamp, "90m")
+
+        self.assertEqual(result, datetime(2026, 4, 25, 10, 30, tzinfo=UTC))
 
 
 class GetRangeTest(SimpleTestCase):

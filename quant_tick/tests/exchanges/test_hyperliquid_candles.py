@@ -163,7 +163,7 @@ class ExchangeCandleFetchTest(BaseSymbolTest, TestCase):
     def test_exchange_candles_fetches_missing_tail_without_retry(self):
         symbol = self.get_hyperliquid_symbol()
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
-        timestamp_to = datetime(2026, 4, 25, 3, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 25, 3, 30, tzinfo=UTC)
         ExchangeCandleData.write(
             symbol,
             60,
@@ -185,7 +185,7 @@ class ExchangeCandleFetchTest(BaseSymbolTest, TestCase):
         mocked.assert_called_once_with(
             symbol,
             timestamp_from + pd.Timedelta("1h"),
-            timestamp_to,
+            datetime(2026, 4, 25, 3, tzinfo=UTC),
             resolution="1h",
         )
         timestamps = list(
