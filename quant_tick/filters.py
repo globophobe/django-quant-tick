@@ -1,6 +1,7 @@
+from importlib.util import find_spec
+
+from django.conf import settings
 from django.utils.translation import gettext_lazy as _
-from django_filters.constants import EMPTY_VALUES
-from django_filters.filters import AllValuesFilter
 
 from quant_tick.constants import Exchange, Frequency, SymbolType, TaskType
 from quant_tick.models import (
@@ -14,15 +15,21 @@ from quant_tick.models import (
     TradeData,
 )
 
-try:
+HAS_SEMANTIC_FILTERS = (
+    "semantic_forms" in settings.INSTALLED_APPS
+    and find_spec("django_filters") is not None
+)
+
+if HAS_SEMANTIC_FILTERS:
+    from django_filters.constants import EMPTY_VALUES
+    from django_filters.filters import AllValuesFilter
     from semantic_forms.fields import SemanticChoiceField
     from semantic_forms.filters import (
         SemanticChoiceFilter,
         SemanticFilterSet,
         SemanticModelChoiceFilter,
     )
-except ImportError:
-    HAS_SEMANTIC_FILTERS = False
+else:
     SymbolFilter = None
     CandleFilter = None
     TaskStateFilter = None
@@ -31,8 +38,8 @@ except ImportError:
     CandleCacheFilter = None
     ExchangeCandleDataFilter = None
     FundingDataFilter = None
-else:
-    HAS_SEMANTIC_FILTERS = True
+
+if HAS_SEMANTIC_FILTERS:
     BLANK_CHOICE = (("", ""),)
     BOOLEAN_CHOICES = (("true", _("Yes")), ("false", _("No")))
 
