@@ -55,13 +55,13 @@ class FetchExchangeDataViewTest(TestCase):
         response = self.client.get(self.get_url())
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["funding"], 2)
+        self.assertEqual(response.json()["funding"], 3)
         self.assertEqual(response.json()["exchange_candles"], 4)
-        self.assertEqual(mock_funding.call_count, 2)
+        self.assertEqual(mock_funding.call_count, 3)
         funding_symbols = {
             call.args[0].api_symbol for call in mock_funding.call_args_list
         }
-        self.assertEqual(funding_symbols, {"BTC", "BTCUSDT"})
+        self.assertEqual(funding_symbols, {"BTC", "BTCUSDT", "tBTCF0:USTF0"})
         self.assertEqual(mock_candles.call_count, 4)
         candle_symbols = {
             call.args[0].api_symbol for call in mock_candles.call_args_list
@@ -107,7 +107,7 @@ class FetchExchangeDataViewTest(TestCase):
 
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
-    def test_get_fetches_bitfinex_perp_exchange_candles(
+    def test_get_fetches_bitfinex_perp_funding_and_exchange_candles(
         self,
         mock_funding,
         mock_candles,
@@ -115,9 +115,10 @@ class FetchExchangeDataViewTest(TestCase):
         response = self.client.get(self.get_url(), {"exchange": Exchange.BITFINEX})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["funding"], 0)
+        self.assertEqual(response.json()["funding"], 1)
         self.assertEqual(response.json()["exchange_candles"], 1)
-        mock_funding.assert_not_called()
+        mock_funding.assert_called_once()
+        self.assertEqual(mock_funding.call_args.args[0].api_symbol, "tBTCF0:USTF0")
         mock_candles.assert_called_once()
         self.assertEqual(mock_candles.call_args.args[0].api_symbol, "tBTCF0:USTF0")
         self.assertEqual(mock_candles.call_args.kwargs["resolution"], "1h")

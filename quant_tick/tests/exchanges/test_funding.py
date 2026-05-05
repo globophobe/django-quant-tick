@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, TestCase
 from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.api import FUNDING_FETCH_WINDOW, funding, funding_api
 from quant_tick.exchanges.binance.funding import binance_funding
+from quant_tick.exchanges.bitfinex.funding import bitfinex_funding
 from quant_tick.exchanges.bitmex.funding import bitmex_funding
 from quant_tick.exchanges.hyperliquid.api import post_hyperliquid_info
 from quant_tick.exchanges.hyperliquid.funding import hyperliquid_funding
@@ -119,6 +120,68 @@ class FundingAdapterTest(SimpleTestCase):
         self.assertEqual(result, [])
         self.assertEqual(mocked.call_args.args[1], "https://example.test/funding")
 
+    def test_bitfinex_funding_uses_latest_status_before_event(self):
+        timestamp_from = datetime(2026, 5, 5, tzinfo=UTC)
+        timestamp_to = datetime(2026, 5, 5, 8, tzinfo=UTC)
+
+        def status_row(
+            status_timestamp,
+            event_timestamp,
+            accrued,
+            current_funding="0.00001",
+        ):
+            row = [None] * 23
+            row[0] = int(status_timestamp.timestamp() * 1000)
+            row[7] = int(event_timestamp.timestamp() * 1000)
+            row[8] = accrued
+            row[9] = 9234
+            row[11] = current_funding
+            row[14] = "79846.619"
+            row[17] = "8687.0615269"
+            row[21] = "-0.0005"
+            row[22] = "0.0025"
+            return row
+
+        data = [
+            status_row(
+                timestamp_from + timedelta(minutes=1),
+                timestamp_to,
+                "0.000001",
+                current_funding="0",
+            ),
+            status_row(
+                timestamp_from - timedelta(seconds=2),
+                timestamp_from,
+                "0.00044342",
+            ),
+            status_row(
+                timestamp_from - timedelta(minutes=2),
+                timestamp_from,
+                "0.00044063",
+            ),
+        ]
+
+        with patch(
+            "quant_tick.exchanges.bitfinex.funding.get_bitfinex_funding_response",
+            return_value=data,
+        ) as mocked:
+            df = bitfinex_funding("tBTCF0:USTF0", timestamp_from, timestamp_to)
+
+        self.assertIn(
+            "/status/deriv/tBTCF0:USTF0/hist",
+            mocked.call_args.args[0],
+        )
+        self.assertIn("limit=5000", mocked.call_args.args[0])
+        self.assertEqual(list(df.index), [pd.Timestamp(timestamp_from)])
+        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.00044342"))
+        self.assertEqual(
+            df.iloc[0].status_timestamp,
+            pd.Timestamp(timestamp_from - timedelta(seconds=2)),
+        )
+        self.assertEqual(df.iloc[0].current_funding, Decimal("0.00001"))
+        self.assertEqual(df.iloc[0].mark_price, Decimal("79846.619"))
+        self.assertIsNone(df.iloc[0].raw_timestamp)
+
     def test_hyperliquid_funding_normalizes_rows(self):
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 25, 2, tzinfo=UTC)
@@ -206,6 +269,26 @@ class FundingAdapterTest(SimpleTestCase):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
         mocked.assert_called_once_with("BTCUSDT", timestamp_from, timestamp_to)
+        self.assertTrue(result.equals(expected))
+
+    def test_funding_api_dispatches_bitfinex_perpetuals(self):
+        symbol = SimpleNamespace(
+            exchange=Exchange.BITFINEX,
+            api_symbol="tBTCF0:USTF0",
+            symbol_type=SymbolType.PERPETUAL,
+            clamp_timestamp_range=lambda ts_from, ts_to: (ts_from, ts_to),
+        )
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
+        expected = pd.DataFrame([])
+
+        with patch(
+            "quant_tick.exchanges.api.bitfinex_funding",
+            return_value=expected,
+        ) as mocked:
+            result = funding_api(symbol, timestamp_from, timestamp_to)
+
+        mocked.assert_called_once_with("tBTCF0:USTF0", timestamp_from, timestamp_to)
         self.assertTrue(result.equals(expected))
 
     def test_funding_api_rejects_spot_symbols(self):
