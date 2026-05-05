@@ -1,10 +1,7 @@
 import os
-import sys
 
-from ..base import *  # noqa
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+# ruff: noqa: F403, F405
+from .base import *  # noqa
 
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
@@ -21,20 +18,6 @@ DATABASES = {
     },
 }
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-        },
-    },
-    "root": {
-        "handlers": ["console"],
-        "level": "INFO",
-    },
-}
-
 # GCP
 CREDENTIALS = (
     BASE_DIR.parent.parent.parent / "keys" / os.environ["GOOGLE_APPLICATION_CREDENTIALS"]  # noqa: F405
@@ -45,10 +28,13 @@ STORAGES = {
     "default": {
         "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
     },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
 }
 
 GS_BUCKET_NAME = (
     f'test-{os.environ["GCS_BUCKET_NAME"]}'
-    if "test" in sys.argv
+    if TEST
     else os.environ["GCS_BUCKET_NAME"]
 )

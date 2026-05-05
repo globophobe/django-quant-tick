@@ -1,13 +1,8 @@
 # ruff: noqa: F403, F405
-from ..base import *
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+from .base import *
 
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
-
-ROOT_URLCONF = "demo.urls"
 
 DATABASES = {
     "default": {
@@ -15,18 +10,3 @@ DATABASES = {
         "NAME": BASE_DIR.parent.parent / "db.sqlite3",
     }
 }
-
-if not TEST:
-    LOGGING = {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-            },
-        },
-        "root": {
-            "handlers": ["console"],
-            "level": "INFO",
-        },
-    }

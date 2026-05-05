@@ -12,7 +12,7 @@ DEBUG = False
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 10  # 10MB
 
-ROOT_URLCONF = "demo.urls"
+ROOT_URLCONF = "demo.urls.production"
 
 
 def get_allowed_host(value: str) -> str:
