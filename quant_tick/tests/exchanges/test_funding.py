@@ -306,7 +306,14 @@ class FundingAdapterTest(SimpleTestCase):
 
 
 class FundingFetchTest(BaseSymbolTest, TestCase):
-    def get_perpetual_symbol(self):
+    def get_binance_futures_symbol(self):
+        return self.get_symbol(
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+
+    def get_bitmex_symbol(self):
         return self.get_symbol(
             exchange=Exchange.BITMEX,
             api_symbol="XBTUSD",
@@ -320,27 +327,27 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
             symbol_type=SymbolType.PERPETUAL,
         )
 
-    def write_existing_rows(self, symbol, timestamp_from):
+    def write_existing_rows(self, symbol, *timestamps):
         FundingData.objects.bulk_create(
             [
                 FundingData(
                     symbol=symbol,
-                    timestamp=timestamp_from,
-                    funding_rate=Decimal("0.0001"),
-                ),
-                FundingData(
-                    symbol=symbol,
-                    timestamp=timestamp_from + timedelta(hours=8),
-                    funding_rate=Decimal("0.0002"),
-                ),
+                    timestamp=timestamp,
+                    funding_rate=Decimal(f"0.000{index + 1}"),
+                )
+                for index, timestamp in enumerate(timestamps)
             ]
         )
 
-    def test_funding_skips_fetch_when_latest_row_covers_requested_window(self):
-        symbol = self.get_perpetual_symbol()
+    def test_funding_skips_fetch_when_requested_window_is_covered(self):
+        symbol = self.get_binance_futures_symbol()
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
-        timestamp_to = datetime(2026, 4, 25, 12, tzinfo=UTC)
-        self.write_existing_rows(symbol, timestamp_from)
+        timestamp_to = datetime(2026, 4, 25, 16, tzinfo=UTC)
+        self.write_existing_rows(
+            symbol,
+            timestamp_from,
+            timestamp_from + timedelta(hours=8),
+        )
 
         with patch("quant_tick.exchanges.api.funding_api") as mocked:
             funding(symbol, timestamp_from, timestamp_to)
@@ -348,11 +355,15 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
         mocked.assert_not_called()
         self.assertEqual(FundingData.objects.filter(symbol=symbol).count(), 2)
 
-    def test_funding_fetches_only_after_latest_row_when_next_event_is_due(self):
-        symbol = self.get_perpetual_symbol()
+    def test_funding_fetches_missing_tail_without_retry(self):
+        symbol = self.get_binance_futures_symbol()
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
-        timestamp_to = datetime(2026, 4, 25, 17, tzinfo=UTC)
-        self.write_existing_rows(symbol, timestamp_from)
+        timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
+        self.write_existing_rows(
+            symbol,
+            timestamp_from,
+            timestamp_from + timedelta(hours=8),
+        )
         data = pd.DataFrame(
             [
                 {
@@ -370,7 +381,7 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
 
         mocked.assert_called_once_with(
             symbol,
-            timestamp_from + timedelta(hours=8, microseconds=1),
+            timestamp_from + timedelta(hours=16),
             timestamp_to,
         )
         rows = list(FundingData.objects.filter(symbol=symbol))
@@ -383,8 +394,47 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
             ],
         )
 
+    def test_funding_fetches_missing_middle_window_without_retry(self):
+        symbol = self.get_bitmex_symbol()
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
+        self.write_existing_rows(
+            symbol,
+            timestamp_from + timedelta(hours=4),
+            timestamp_from + timedelta(hours=20),
+        )
+        data = pd.DataFrame(
+            [
+                {
+                    "timestamp": timestamp_from + timedelta(hours=12),
+                    "funding_rate": Decimal("0.0003"),
+                }
+            ]
+        )
+
+        with patch(
+            "quant_tick.exchanges.api.funding_api",
+            return_value=data,
+        ) as mocked:
+            funding(symbol, timestamp_from, timestamp_to)
+
+        mocked.assert_called_once_with(
+            symbol,
+            timestamp_from + timedelta(hours=12),
+            timestamp_from + timedelta(hours=20),
+        )
+        rows = list(FundingData.objects.filter(symbol=symbol))
+        self.assertEqual(
+            [row.timestamp for row in rows],
+            [
+                timestamp_from + timedelta(hours=4),
+                timestamp_from + timedelta(hours=12),
+                timestamp_from + timedelta(hours=20),
+            ],
+        )
+
     def test_funding_empty_history_backfills_newest_window_first(self):
-        symbol = self.get_perpetual_symbol()
+        symbol = self.get_binance_futures_symbol()
         timestamp_from = datetime(2025, 1, 1, tzinfo=UTC)
         timestamp_to = datetime(2026, 2, 1, tzinfo=UTC)
 
@@ -436,10 +486,14 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
         mocked.assert_called_once_with(symbol, timestamp_from, timestamp_to)
 
     def test_retry_refetches_requested_window(self):
-        symbol = self.get_perpetual_symbol()
+        symbol = self.get_binance_futures_symbol()
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 25, 16, tzinfo=UTC)
-        self.write_existing_rows(symbol, timestamp_from)
+        self.write_existing_rows(
+            symbol,
+            timestamp_from,
+            timestamp_from + timedelta(hours=8),
+        )
         data = pd.DataFrame(
             [
                 {

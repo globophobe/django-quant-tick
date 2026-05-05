@@ -65,10 +65,10 @@ class CoinbaseAdvancedCandleTest(SimpleTestCase):
 
         self.assertEqual(url, expected)
 
-    def test_get_coinbase_advanced_fetch_granularity_resamples_4h_from_2h(self):
+    def test_get_coinbase_advanced_fetch_granularity_supports_4h(self):
         self.assertEqual(
             get_coinbase_advanced_fetch_granularity("4h"),
-            (240, 120, "TWO_HOUR"),
+            (240, 240, "FOUR_HOUR"),
         )
 
     def test_exchange_candles_api_dispatches_coinbase_advanced(self):

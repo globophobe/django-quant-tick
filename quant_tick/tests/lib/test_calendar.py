@@ -267,3 +267,23 @@ class IterMissingTest(SimpleTestCase):
         self.assertEqual(len(values), 1)
         self.assertEqual(values[0][0], self.timestamp_from)
         self.assertEqual(values[0][1], self.timestamp_to)
+
+    def test_iter_missing_with_custom_timestamps_and_interval(self):
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
+        timestamps = [
+            timestamp_from + pd.Timedelta("4h"),
+            timestamp_from + pd.Timedelta("12h"),
+            timestamp_from + pd.Timedelta("20h"),
+        ]
+
+        values = iter_missing(
+            timestamp_from,
+            timestamp_to,
+            [timestamps[0], timestamps[2]],
+            reverse=True,
+            value=pd.Timedelta("8h"),
+            timestamps=timestamps,
+        )
+
+        self.assertEqual(values, [(timestamps[1], timestamps[2])])
