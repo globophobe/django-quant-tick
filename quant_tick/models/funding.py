@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from django.db import models, transaction
 from django.db.models import QuerySet
@@ -34,45 +34,6 @@ class FundingDataQuerySet(QuerySet):
             timestamp__gte=timestamp_from,
             timestamp__lt=timestamp_to,
         )
-
-    def next_fetch_timestamp_from(
-        self,
-        symbol: Symbol,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-    ) -> datetime:
-        timestamps = list(
-            self.in_range(symbol, timestamp_from, timestamp_to)
-            .order_by("-timestamp")
-            .values_list("timestamp", flat=True)[:2]
-        )
-        if not timestamps:
-            return timestamp_from
-
-        latest = timestamps[0]
-        if len(timestamps) > 1:
-            interval = latest - timestamps[1]
-            if interval > timedelta(0) and timestamp_to <= latest + interval:
-                return timestamp_to
-        return min(timestamp_to, latest + timedelta(microseconds=1))
-
-    def window_starts_after_range(
-        self,
-        symbol: Symbol,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-    ) -> bool:
-        timestamps = list(
-            self.in_range(symbol, timestamp_from, timestamp_to)
-            .order_by("timestamp")
-            .values_list("timestamp", flat=True)[:2]
-        )
-        if len(timestamps) < 2:
-            return False
-
-        first, second = timestamps
-        interval = second - first
-        return interval > timedelta(0) and first > timestamp_from + interval * 2
 
 
 class FundingData(models.Model):

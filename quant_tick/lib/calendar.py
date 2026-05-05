@@ -343,40 +343,39 @@ def iter_missing(
     timestamp_to: datetime,
     existing: list[datetime],
     reverse: bool = False,
+    value: str | pd.Timedelta = "1min",
+    timestamps: list[datetime] | None = None,
 ) -> Generator[tuple[datetime, datetime], None, None]:
-    """Iter missing, by 1 minute intervals."""
+    """Iter missing windows for the requested interval."""
+    step = pd.Timedelta(value)
     existing = set(existing)
-    values = []
-    for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, reverse=reverse):
-        if ts_from not in existing:
-            values.append((ts_from, ts_to))
+    if timestamps is None:
+        if isinstance(value, str):
+            timestamps = get_range(timestamp_from, timestamp_to, value)
+        else:
+            timestamps = [
+                to_pydatetime(timestamp)
+                for timestamp in pd.date_range(timestamp_from, timestamp_to, freq=step)
+            ]
+    timestamps = sorted(
+        timestamp
+        for timestamp in timestamps
+        if timestamp_from <= timestamp < timestamp_to
+    )
+    values = [
+        (
+            timestamp,
+            min(timestamp_to, to_pydatetime(pd.Timestamp(timestamp) + step)),
+        )
+        for timestamp in timestamps
+        if timestamp not in existing
+    ]
+    merged = []
+    for ts_from, ts_to in values:
+        if merged and merged[-1][1] == ts_from:
+            merged[-1] = merged[-1][0], ts_to
+        else:
+            merged.append((ts_from, ts_to))
     if reverse:
-        values.reverse()
-    if len(values):
-        index = 0
-        next_index = index + 1
-        counter = 0
-        one_minute = pd.Timedelta("1min")
-        start = values[0][0]
-        stop = None
-        while next_index < len(values):
-            next_start = values[next_index][0]
-            total_minutes = one_minute * (counter + 1)
-            if next_start == start + total_minutes:
-                # Don't increment next_index, as value will be deleted.
-                stop = values[next_index][1]
-                del values[next_index]
-                counter += 1
-            else:
-                if stop:
-                    values[index] = start, stop
-                    index = next_index
-                    stop = None
-                start = next_start
-                counter = 0
-                next_index += 1
-        if stop:
-            values[-1] = values[-1][0], stop
-    if reverse:
-        values.reverse()
-    return values
+        merged.reverse()
+    return merged

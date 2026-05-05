@@ -3,13 +3,66 @@ from datetime import UTC, datetime
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.lib import iter_missing
+
 
 class ExchangeFunding:
-    """Normalize exchange funding rows after adapter-specific parsing."""
-
     interval: pd.Timedelta | None = None
     anchor_offset = pd.Timedelta(0)
     timestamp_anomaly_tolerance = pd.Timedelta(0)
+
+    @classmethod
+    def expected_timestamps(
+        cls,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+    ) -> list[datetime]:
+        """Return expected normalized funding timestamps in a half-open range."""
+        if cls.interval is None:
+            return []
+
+        from_ts = pd.to_datetime(timestamp_from, utc=True)
+        to_ts = pd.to_datetime(timestamp_to, utc=True)
+        if to_ts <= from_ts:
+            return []
+
+        anchor = cls.get_anchor()
+        interval_ns = cls.interval.value
+        start_step = -((anchor.value - from_ts.value) // interval_ns)
+        timestamp = anchor + start_step * cls.interval
+        timestamps = []
+        while timestamp < to_ts:
+            dt = timestamp.to_pydatetime()
+            if not cls.is_known_missing_timestamp(dt):
+                timestamps.append(dt)
+            timestamp += cls.interval
+        return timestamps
+
+    @classmethod
+    def missing_windows(
+        cls,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        existing: set[datetime],
+    ) -> list[tuple[datetime, datetime]]:
+        if cls.interval is None:
+            return []
+        return iter_missing(
+            timestamp_from,
+            timestamp_to,
+            existing,
+            reverse=True,
+            value=cls.interval,
+            timestamps=cls.expected_timestamps(timestamp_from, timestamp_to),
+        )
+
+    @classmethod
+    def get_anchor(cls) -> pd.Timestamp:
+        return pd.Timestamp("1970-01-01T00:00:00Z") + cls.anchor_offset
+
+    @classmethod
+    def is_known_missing_timestamp(cls, timestamp: datetime) -> bool:
+        return False
 
     @classmethod
     def empty_frame(cls, columns: list[str] | tuple[str, ...]) -> DataFrame:
@@ -67,7 +120,7 @@ class ExchangeFunding:
             timestamp = raw_timestamp.to_pydatetime()
             return timestamp, None
 
-        anchor = pd.Timestamp("1970-01-01T00:00:00Z") + cls.anchor_offset
+        anchor = cls.get_anchor()
         interval_ns = cls.interval.value
         offset_ns = raw_timestamp.value - anchor.value
         bucket_ns = anchor.value + ((offset_ns + interval_ns // 2) // interval_ns) * interval_ns

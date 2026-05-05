@@ -5,7 +5,6 @@ from pandas import DataFrame
 
 from quant_tick.constants import Exchange, SymbolType
 from quant_tick.lib import (
-    get_existing,
     iter_chunks,
     iter_missing,
     parse_fixed_resolution_minutes,
@@ -13,21 +12,32 @@ from quant_tick.lib import (
 from quant_tick.models import ExchangeCandleData, FundingData, Symbol, TradeData
 
 from .binance import binance_candles, binance_funding, binance_trades
+from .binance.funding import BinanceFuturesFunding
 from .bitfinex import bitfinex_candles, bitfinex_trades
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
+from .bitmex.funding import BitmexFunding
 from .coinbase import coinbase_candles, coinbase_trades
 from .coinbase_advanced import (
     coinbase_advanced_candles,
     coinbase_advanced_funding,
     coinbase_advanced_trades,
 )
+from .coinbase_advanced.funding import CoinbaseAdvancedFunding
+from .funding import ExchangeFunding
 from .hyperliquid import hyperliquid_candles, hyperliquid_funding
+from .hyperliquid.funding import HyperliquidFunding
 
 FUNDING_FETCH_WINDOW = timedelta(days=90)
 FUNDING_CHUNKED_EXCHANGES = {
     Exchange.BINANCE_FUTURES,
     Exchange.BITMEX,
     Exchange.HYPERLIQUID,
+}
+FUNDING_MODEL = {
+    Exchange.BINANCE_FUTURES: BinanceFuturesFunding,
+    Exchange.BITMEX: BitmexFunding,
+    Exchange.COINBASE_ADVANCED: CoinbaseAdvancedFunding,
+    Exchange.HYPERLIQUID: HyperliquidFunding,
 }
 
 
@@ -165,6 +175,15 @@ def funding_api(
     raise NotImplementedError(f"Funding is not implemented for {exchange}.")
 
 
+def get_funding_model(symbol: Symbol) -> type[ExchangeFunding]:
+    try:
+        return FUNDING_MODEL[symbol.exchange]
+    except KeyError as exc:
+        raise NotImplementedError(
+            f"Funding is not implemented for {symbol.exchange}."
+        ) from exc
+
+
 def iter_funding_windows(
     symbol: Symbol,
     timestamp_from: datetime,
@@ -181,6 +200,22 @@ def iter_funding_windows(
     )
 
 
+def get_missing_funding_windows(
+    symbol: Symbol,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+) -> tuple[list[tuple[datetime, datetime]], bool]:
+    funding_model = get_funding_model(symbol)
+    existing = set(
+        FundingData.objects.in_range(symbol, timestamp_from, timestamp_to)
+        .order_by("timestamp")
+        .values_list("timestamp", flat=True)
+    )
+    has_existing = bool(existing)
+    windows = funding_model.missing_windows(timestamp_from, timestamp_to, existing)
+    return windows, has_existing
+
+
 def funding(
     symbol: Symbol,
     timestamp_from: datetime,
@@ -193,22 +228,25 @@ def funding(
         return
     timestamp_from, timestamp_to = timestamp_range
     for ts_from, ts_to in iter_funding_windows(symbol, timestamp_from, timestamp_to):
-        fetch_timestamp_from = ts_from
+        windows = [(ts_from, ts_to)]
+        has_existing = False
         if not retry:
-            if FundingData.objects.window_starts_after_range(symbol, ts_from, ts_to):
-                return
-            fetch_timestamp_from = FundingData.objects.next_fetch_timestamp_from(
+            windows, has_existing = get_missing_funding_windows(
                 symbol,
                 ts_from,
                 ts_to,
             )
-            if fetch_timestamp_from >= ts_to:
-                continue
 
-        data_frame = funding_api(symbol, fetch_timestamp_from, ts_to)
-        FundingData.write(symbol, fetch_timestamp_from, ts_to, data_frame)
-        if not retry and data_frame.empty:
-            return
+        for fetch_timestamp_from, fetch_timestamp_to in windows:
+            data_frame = funding_api(symbol, fetch_timestamp_from, fetch_timestamp_to)
+            FundingData.write(
+                symbol,
+                fetch_timestamp_from,
+                fetch_timestamp_to,
+                data_frame,
+            )
+            if not retry and data_frame.empty and not has_existing:
+                return
 
 
 def exchange_candles_api(
@@ -251,16 +289,22 @@ def exchange_candles(
     timestamp_from, timestamp_to = timestamp_range
     windows = [(timestamp_from, timestamp_to)]
     if not retry:
-        existing = get_existing(
+        existing = list(
             ExchangeCandleData.objects.in_range(
                 symbol,
                 frequency,
                 timestamp_from,
                 timestamp_to,
-            ).values("timestamp", "frequency")
+            ).values_list("timestamp", flat=True)
         )
         windows = list(
-            iter_missing(timestamp_from, timestamp_to, existing, reverse=True)
+            iter_missing(
+                timestamp_from,
+                timestamp_to,
+                existing,
+                reverse=True,
+                value=f"{frequency}min",
+            )
         )
 
     for ts_from, ts_to in windows:
