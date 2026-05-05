@@ -5,9 +5,6 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.controllers import TradeDataIterator
-from quant_tick.lib import filter_by_timestamp
-
 from .api import format_bitmex_api_timestamp, get_bitmex_api_timestamp
 from .candles import bitmex_candles
 from .constants import S3_URL
@@ -71,35 +68,17 @@ class BitmexRESTMixin(BitmexMixin):
 class BitmexS3Mixin(BitmexMixin):
     """Bitmex S3 mixin."""
 
-    def get_url(self, date: datetime.date) -> str:
-        date_string = date.strftime("%Y%m%d")
-        return f"{S3_URL}{date_string}.csv.gz"
-
-    def main(self) -> None:
-        """Fetch daily BitMEX S3 files and persist matching partitions."""
-        iterator = TradeDataIterator(self.symbol)
-        exclude = [
+    missing_archive_dates = frozenset(
+        {
             datetime.date(2025, 3, 26),
             datetime.date(2025, 4, 11),
             datetime.date(2025, 4, 12),
-        ]
-        for timestamp_from, timestamp_to, existing in iterator.iter_days(
-            self.timestamp_from,
-            self.timestamp_to,
-            retry=self.retry,
-        ):
-            date = timestamp_from.date()
-            data_frame = self.get_data_frame(date)
-            if data_frame is not None:
-                df = filter_by_timestamp(data_frame, timestamp_from, timestamp_to)
-                candles = self.get_candles(timestamp_from, timestamp_to)
-                self.on_data_frame(self.symbol, timestamp_from, timestamp_to, df, candles)
-            # No data
-            elif date in exclude:
-                pass
-            # Complete
-            else:
-                break
+        }
+    )
+
+    def get_url(self, date: datetime.date) -> str:
+        date_string = date.strftime("%Y%m%d")
+        return f"{S3_URL}{date_string}.csv.gz"
 
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
         """Parse BitMEX S3 columns into the canonical trade schema.

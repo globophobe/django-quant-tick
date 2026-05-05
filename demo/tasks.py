@@ -167,6 +167,7 @@ def get_workflow(
     """Build the Cloud Workflow definition for REST aggregation."""
     aggregate_trades = urljoin(url, "aggregate-trades/")
     aggregate_candles = urljoin(url, "aggregate-candles/")
+    fetch_exchange_data_url = urljoin(url, "fetch-exchange-data/")
     compact = urljoin(url, "compact/")
     steps = []
     if callback_url and callback_interval_minutes:
@@ -205,6 +206,20 @@ def get_workflow(
                         ],
                     }
                 }
+            }
+        },
+    ]
+    steps += [
+        {
+            "fetchExchangeData": {
+                "try": {
+                    "call": "http.get",
+                    "args": {
+                        "url": f"{fetch_exchange_data_url}?time_ago=7d",
+                        "auth": {"type": "OIDC"},
+                    },
+                },
+                "except": {"as": "e", "steps": []},
             }
         },
         {

@@ -51,6 +51,7 @@ def resample_bitmex_candles(
     timestamp_from: datetime,
     timestamp_to: datetime,
     resolution_minutes: int,
+    source_resolution_minutes: int | None = None,
 ) -> DataFrame:
     """Aggregate BitMEX candles to the requested resolution."""
     return resample_candles(
@@ -58,6 +59,7 @@ def resample_bitmex_candles(
         timestamp_from=timestamp_from,
         timestamp_to=timestamp_to,
         resolution_minutes=resolution_minutes,
+        source_resolution_minutes=source_resolution_minutes,
     )
 
 
@@ -72,9 +74,8 @@ def fetch_bitmex_candles(
     """Fetch BitMEX candles."""
     fetch_minutes = parse_bitmex_candle_resolution(bin_size)
     # BitMEX bucket timestamps are candle close timestamps.
-    ts_from = timestamp_from + pd.Timedelta(f"{fetch_minutes}min")
-    start_time = format_bitmex_api_timestamp(ts_from)
-    params = f"symbol={api_symbol}&startTime={start_time}&binSize={bin_size}"
+    stop_time = timestamp_from + pd.Timedelta(f"{fetch_minutes}min")
+    params = f"symbol={api_symbol}&binSize={bin_size}"
     url = f"{API_URL}/trade/bucketed?{params}"
     candles, _, _ = iter_api(
         url,
@@ -83,7 +84,7 @@ def fetch_bitmex_candles(
         partial(get_bitmex_api_response, get_bitmex_api_url),
         MAX_RESULTS,
         MIN_ELAPSED_PER_REQUEST,
-        timestamp_from=timestamp_from,
+        timestamp_from=stop_time,
         pagination_id=format_bitmex_api_timestamp(timestamp_to),
         log_format=log_format,
     )
@@ -131,6 +132,7 @@ def bitmex_candles(
         timestamp_from=timestamp_from,
         timestamp_to=timestamp_to,
         resolution_minutes=target_minutes,
+        source_resolution_minutes=parse_bitmex_candle_resolution(fetch_bin_size),
     )
 
 

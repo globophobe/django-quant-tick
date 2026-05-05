@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 from django.test import SimpleTestCase
 
-from quant_tick.constants import Exchange
+from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.api import candles_api
 from quant_tick.exchanges.binance.candles import (
     binance_candles,
@@ -64,6 +64,7 @@ class BinanceCandleTest(SimpleTestCase):
             timestamp_from,
             timestamp_to,
             interval="2h",
+            symbol_type=SymbolType.SPOT,
             limit=1000,
             log_format=None,
         )
@@ -132,8 +133,31 @@ class BinanceCandleTest(SimpleTestCase):
             ],
         )
 
+    def test_fetch_binance_candles_uses_futures_api_for_perpetual(self):
+        timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 1, 1, tzinfo=UTC)
+
+        with patch(
+            "quant_tick.exchanges.binance.candles.iter_api",
+            return_value=([], False, None),
+        ) as mocked:
+            fetch_binance_candles(
+                "BTCUSDT",
+                timestamp_from,
+                timestamp_to,
+                interval="1h",
+                symbol_type=SymbolType.PERPETUAL,
+            )
+
+        url = mocked.call_args.args[0]
+        self.assertTrue(url.startswith("https://fapi.binance.com/fapi/v1/klines?"))
+
     def test_candles_api_passes_resolution_to_binance(self):
-        symbol = SimpleNamespace(exchange=Exchange.BINANCE, api_symbol="BTCUSDT")
+        symbol = SimpleNamespace(
+            exchange=Exchange.BINANCE,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.SPOT,
+        )
         timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 2, tzinfo=UTC)
         expected = pd.DataFrame([])
@@ -154,5 +178,50 @@ class BinanceCandleTest(SimpleTestCase):
             timestamp_from=timestamp_from,
             timestamp_to=timestamp_to,
             resolution="2h",
+            symbol_type=SymbolType.SPOT,
         )
         self.assertTrue(result.equals(expected))
+
+    def test_candles_api_uses_binance_futures_for_perpetual(self):
+        symbol = SimpleNamespace(
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 2, tzinfo=UTC)
+        expected = pd.DataFrame([])
+
+        with patch(
+            "quant_tick.exchanges.api.binance_candles",
+            return_value=expected,
+        ) as mocked:
+            result = candles_api(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                resolution="2h",
+            )
+
+        mocked.assert_called_once_with(
+            "BTCUSDT",
+            timestamp_from=timestamp_from,
+            timestamp_to=timestamp_to,
+            resolution="2h",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        self.assertTrue(result.equals(expected))
+
+    def test_candles_api_rejects_binance_perpetual_symbols(self):
+        symbol = SimpleNamespace(
+            exchange=Exchange.BINANCE,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+
+        with self.assertRaises(ValueError):
+            candles_api(
+                symbol,
+                datetime(2026, 4, 1, tzinfo=UTC),
+                datetime(2026, 4, 2, tzinfo=UTC),
+            )

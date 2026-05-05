@@ -4,6 +4,7 @@ from functools import partial
 
 from pandas import DataFrame
 
+from quant_tick.constants import SymbolType
 from quant_tick.controllers import iter_api
 from quant_tick.lib import (
     candles_to_data_frame,
@@ -13,7 +14,12 @@ from quant_tick.lib import (
 )
 
 from .api import format_binance_api_timestamp, get_binance_api_response
-from .constants import CANDLE_MAX_RESULTS, MIN_ELAPSED_PER_REQUEST, SPOT_API_URL
+from .constants import (
+    CANDLE_MAX_RESULTS,
+    FUTURES_API_URL,
+    MIN_ELAPSED_PER_REQUEST,
+    SPOT_API_URL,
+)
 
 BINANCE_INTERVALS_BY_MINUTES = {
     1: "1m",
@@ -76,17 +82,25 @@ def get_binance_candle_timestamp(candle: list) -> datetime:
     return parse_datetime(candle[0], unit="ms")
 
 
+def get_binance_candle_api_url(symbol_type: str) -> str:
+    if symbol_type == SymbolType.PERPETUAL:
+        return FUTURES_API_URL
+    return SPOT_API_URL
+
+
 def fetch_binance_candles(
     api_symbol: str,
     timestamp_from: datetime,
     timestamp_to: datetime,
     *,
     interval: str,
+    symbol_type: str = SymbolType.SPOT,
     limit: int = CANDLE_MAX_RESULTS,
     log_format: str | None = None,
 ) -> DataFrame:
     """Fetch Binance candles."""
-    url = f"{SPOT_API_URL}/klines?symbol={api_symbol}&interval={interval}&limit={limit}"
+    api_url = get_binance_candle_api_url(symbol_type)
+    url = f"{api_url}/klines?symbol={api_symbol}&interval={interval}&limit={limit}"
     ts_to = get_interval_inclusive_end(timestamp_from, timestamp_to, interval)
     results, _, _ = iter_api(
         url,
@@ -122,6 +136,7 @@ def binance_candles(
     timestamp_to: datetime,
     interval: str = "1m",
     resolution: str | int | None = None,
+    symbol_type: str = SymbolType.SPOT,
     limit: int | None = None,
     log_format: str | None = None,
 ) -> DataFrame:
@@ -131,6 +146,7 @@ def binance_candles(
         timestamp_from,
         timestamp_to,
         interval=interval,
+        symbol_type=symbol_type,
         limit=int(limit or CANDLE_MAX_RESULTS),
         log_format=log_format,
     )

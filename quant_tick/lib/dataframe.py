@@ -2,6 +2,7 @@ from collections.abc import Iterable
 from decimal import Decimal
 
 import numpy as np
+import pandas as pd
 from pandas import DataFrame
 
 
@@ -30,6 +31,23 @@ def set_type_decimal(data_frame: DataFrame, column: str) -> DataFrame:
     """Set type decimal."""
     data_frame[column] = data_frame[column].map(Decimal)
     return data_frame
+
+
+def to_decimal_or_none(value: object) -> Decimal | None:
+    """Normalize nullable numeric DataFrame values to Decimal."""
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def normalize_timestamp_data_frame(data_frame: DataFrame) -> DataFrame:
+    """Return a DataFrame with timestamp as a regular column."""
+    frame = data_frame.reset_index()
+    if "timestamp" not in frame.columns:
+        frame = frame.rename(columns={frame.columns[0]: "timestamp"})
+    return frame
 
 
 def assert_type_decimal(data_frame: DataFrame, columns: Iterable[str]) -> None:

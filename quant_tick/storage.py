@@ -151,7 +151,17 @@ def convert_trade_data_to_daily(
                 timestamp__lt=daily_ts_to,
                 frequency=Frequency.HOUR,
             )
-            if hourly_trade_data.count() == Frequency.DAY // Frequency.HOUR:
+            is_complete_day = (
+                daily_ts_from == get_min_time(daily_ts_from, "1d")
+                and daily_ts_to == daily_ts_from + pd.Timedelta("1d")
+            )
+            hourly_values = list(hourly_trade_data.values("timestamp", "frequency"))
+            hourly_existing = get_existing(hourly_values)
+            if (
+                is_complete_day
+                and len(hourly_values) == Frequency.DAY // Frequency.HOUR
+                and has_timestamps(daily_ts_from, daily_ts_to, hourly_existing)
+            ):
                 convert_trade_data(symbol, hourly_trade_data, daily_ts_from, daily_ts_to)
     logger.info("{symbol}: done".format(symbol=str(symbol)))
 

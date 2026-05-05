@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 from django.utils.translation import gettext_lazy as _
@@ -16,8 +16,8 @@ class ConstantCandle(Candle):
     `target_value`. Example: a volume candle with `target_value=10_000`
     closes each time 10,000 units trade.
 
-    Optional `cache_reset` settings restart the running total on day or week
-    boundaries.
+    Optional `cache_reset` settings restart the running total on calendar
+    day, week, month, quarter, or year boundaries.
     """
 
     def get_initial_cache(self, timestamp: datetime) -> dict:
@@ -27,24 +27,52 @@ class ConstantCandle(Candle):
         cache["sample_value"] = 0
         return cache
 
+    @classmethod
+    def get_cache_reset_period(cls, timestamp: date, cache_reset: object) -> object:
+        if cache_reset in (Frequency.DAY, Frequency.DAY.value):
+            return timestamp
+        if cache_reset in (Frequency.WEEK, Frequency.WEEK.value):
+            iso = timestamp.isocalendar()
+            return iso.year, iso.week
+
+        token = str(cache_reset).strip().lower().replace("_", "-")
+        if token in ("day", "daily", "1d"):
+            return timestamp
+        if token in ("week", "weekly", "1w"):
+            iso = timestamp.isocalendar()
+            return iso.year, iso.week
+        if token in ("month", "monthly", "1mo"):
+            return timestamp.year, timestamp.month
+        if token in ("quarter", "quarterly", "1q"):
+            quarter = ((timestamp.month - 1) // 3) + 1
+            return timestamp.year, quarter
+        if token in ("year", "yearly", "annual", "annually", "1y"):
+            return timestamp.year
+        return None
+
+    @staticmethod
+    def get_cache_date(value: object) -> date | None:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        return None
+
     def get_cache_data(self, timestamp: datetime, data: dict) -> dict:
-        """Reset cache at configured day/week boundaries."""
+        """Reset cache at configured calendar boundaries."""
         if self.should_reset_cache(timestamp, data):
             data = self.get_initial_cache(timestamp)
         return data
 
     def should_reset_cache(self, timestamp: datetime, data: dict) -> bool:
         """Whether cache_reset requires a new running total."""
-        date = timestamp.date()
-        cache_date = data.get("date")
         cache_reset = self.json_data.get("cache_reset")
-        is_daily_reset = cache_reset == Frequency.DAY
-        is_weekly_reset = cache_reset == Frequency.WEEK and date.weekday() == 0
-        if cache_date:
-            is_same_day = cache_date == date
-            if not is_same_day and (is_daily_reset or is_weekly_reset):
-                return True
-        return False
+        cache_date = self.get_cache_date(data.get("date"))
+        if cache_date is None:
+            return False
+        current_period = self.get_cache_reset_period(timestamp.date(), cache_reset)
+        cache_period = self.get_cache_reset_period(cache_date, cache_reset)
+        return current_period is not None and current_period != cache_period
 
     def aggregate(
         self,

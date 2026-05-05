@@ -1,4 +1,5 @@
 import decimal
+from collections.abc import Iterable
 from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
@@ -15,7 +16,7 @@ from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
 from quant_tick.constants import NUMERIC_PRECISION, NUMERIC_SCALE
-from quant_tick.lib import to_pydatetime
+from quant_tick.lib import to_utc_datetime
 
 
 class QuantTickEncoder(DjangoJSONEncoder):
@@ -50,7 +51,7 @@ def quant_tick_json_decoder(data: dict) -> dict:
                 pass
         if isinstance(data[key], str):
             try:
-                data[key] = to_pydatetime(pd.to_datetime(value))
+                data[key] = to_utc_datetime(pd.to_datetime(value))
             except (TypeError, ValueError):
                 pass
     return data
@@ -82,6 +83,34 @@ def BigDecimalField(name: str, **kwargs) -> models.DecimalField:  # noqa: N802
     if "decimal_places" not in kwargs:
         kwargs["decimal_places"] = NUMERIC_SCALE
     return models.DecimalField(name, **kwargs)
+
+
+def to_model_json_value(value: Any) -> Any:
+    """Normalize nullable DataFrame values for JSONField storage."""
+    if value is None:
+        return None
+    try:
+        is_empty = pd.isna(value)
+    except (TypeError, ValueError):
+        is_empty = False
+    if isinstance(is_empty, bool) and is_empty:
+        return None
+    if isinstance(value, pd.Timestamp):
+        return to_utc_datetime(value)
+    return value
+
+
+def get_model_json_data(row: dict, excluded: Iterable[str]) -> dict:
+    """Return non-empty row fields not stored as first-class model columns."""
+    excluded = set(excluded)
+    data = {}
+    for key, value in row.items():
+        if key in excluded:
+            continue
+        value = to_model_json_value(value)
+        if value is not None:
+            data[key] = value
+    return data
 
 
 class AbstractCodeName(models.Model):

@@ -5,7 +5,7 @@ import pandas as pd
 from django.test import SimpleTestCase
 
 from quant_tick.lib import merge_cache
-from quant_tick.lib.candles import aggregate_candle
+from quant_tick.lib.candles import aggregate_candle, resample_candles
 
 
 class CandleTest(SimpleTestCase):
@@ -144,6 +144,79 @@ class CandleTest(SimpleTestCase):
 
         self.assertNotIn("roundVolume", result)
         self.assertNotIn("roundNotional", result)
+
+
+class ResampleCandleTest(SimpleTestCase):
+
+    def get_hourly_candles(
+        self,
+        timestamp_from: datetime,
+        hours: list[int],
+    ) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "timestamp": timestamp_from + pd.Timedelta(f"{hour}h"),
+                    "open": Decimal(str(hour + 1)),
+                    "high": Decimal(str(hour + 11)),
+                    "low": Decimal(str(hour)),
+                    "close": Decimal(str(hour + 2)),
+                    "notional": Decimal("10"),
+                }
+                for hour in hours
+            ]
+        ).set_index("timestamp")
+
+    def test_resample_candles_aggregates_complete_source_window(self):
+        timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 1, 8, tzinfo=UTC)
+        data_frame = self.get_hourly_candles(timestamp_from, list(range(8)))
+
+        result = resample_candles(
+            data_frame,
+            timestamp_from=timestamp_from,
+            timestamp_to=timestamp_to,
+            resolution_minutes=480,
+            source_resolution_minutes=60,
+        )
+
+        self.assertEqual(list(result.index), [timestamp_from])
+        candle = result.iloc[0]
+        self.assertEqual(candle.open, Decimal("1"))
+        self.assertEqual(candle.high, Decimal("18"))
+        self.assertEqual(candle.low, Decimal("0"))
+        self.assertEqual(candle.close, Decimal("9"))
+        self.assertEqual(candle.notional, Decimal("80"))
+
+    def test_resample_candles_skips_incomplete_source_window(self):
+        timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 1, 8, tzinfo=UTC)
+        data_frame = self.get_hourly_candles(timestamp_from, [0, 1, 2, 4, 5, 6, 7])
+
+        result = resample_candles(
+            data_frame,
+            timestamp_from=timestamp_from,
+            timestamp_to=timestamp_to,
+            resolution_minutes=480,
+            source_resolution_minutes=60,
+        )
+
+        self.assertTrue(result.empty)
+
+    def test_resample_candles_keeps_complete_windows_and_skips_partial_tail(self):
+        timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 1, 16, tzinfo=UTC)
+        data_frame = self.get_hourly_candles(timestamp_from, list(range(8)) + [8, 9])
+
+        result = resample_candles(
+            data_frame,
+            timestamp_from=timestamp_from,
+            timestamp_to=timestamp_to,
+            resolution_minutes=480,
+            source_resolution_minutes=60,
+        )
+
+        self.assertEqual(list(result.index), [timestamp_from])
 
 
 class MergeCacheTest(SimpleTestCase):

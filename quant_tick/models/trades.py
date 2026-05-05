@@ -295,13 +295,7 @@ class TradeData(AbstractDataStorage):
             assert is_decimal_close(
                 aggregated_candles.notional.sum(), trades.notional.sum()
             )
-            json_data = {
-                "candle": aggregate_candle(
-                    validation,
-                    min_volume_exponent=1,
-                    min_notional_exponent=1,
-                )
-            }
+            json_data = {"candle": aggregate_candle(validation)}
 
         ok = validate_aggregated_candles(aggregated_candles, candles)
         with transaction.atomic():

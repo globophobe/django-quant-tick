@@ -17,9 +17,18 @@ class Exchange(models.TextChoices):
     """Supported exchange identifiers."""
 
     BINANCE = "binance", "Binance"
+    BINANCE_FUTURES = "binance-futures", "Binance Futures"
     BITFINEX = "bitfinex", "Bitfinex"
     BITMEX = "bitmex", "BitMEX"
     COINBASE = "coinbase", "Coinbase"
+    HYPERLIQUID = "hyperliquid", "Hyperliquid"
+
+
+class SymbolType(models.TextChoices):
+    """Supported exchange instrument types."""
+
+    SPOT = "spot", "Spot"
+    PERPETUAL = "perpetual", "Perpetual"
 
 
 class TaskType(models.TextChoices):
@@ -27,6 +36,7 @@ class TaskType(models.TextChoices):
 
     AGGREGATE_TRADES = "aggregate_trades", "Aggregate trades"
     AGGREGATE_CANDLES = "aggregate_candles", "Aggregate candles"
+    FETCH_EXCHANGE_DATA = "fetch_exchange_data", "Fetch exchange data"
 
 
 class SampleType(models.TextChoices):

@@ -17,6 +17,7 @@ class WorkflowTest(SimpleTestCase):
             [
                 "getRunTime",
                 "getTradeData",
+                "fetchExchangeData",
                 "aggregateCandles",
                 "maybeCallback",
                 "callback",
@@ -30,13 +31,18 @@ class WorkflowTest(SimpleTestCase):
             "${\"https://test.123/aggregate-trades/\" + exchange + \"/?time_ago=7d\"}",
         )
         self.assertEqual(
-            steps[2]["aggregateCandles"]["args"]["url"],
+            steps[2]["fetchExchangeData"]["try"]["args"]["url"],
+            "https://test.123/fetch-exchange-data/?time_ago=7d",
+        )
+        self.assertEqual(steps[2]["fetchExchangeData"]["except"]["steps"], [])
+        self.assertEqual(
+            steps[3]["aggregateCandles"]["args"]["url"],
             "https://test.123/aggregate-candles/?time_ago=7d",
         )
-        self.assertEqual(steps[3]["maybeCallback"]["next"], "compact")
-        self.assertEqual(steps[4]["callback"]["next"], "compact")
+        self.assertEqual(steps[4]["maybeCallback"]["next"], "compact")
+        self.assertEqual(steps[5]["callback"]["next"], "compact")
         self.assertEqual(
-            steps[5]["compact"]["args"]["url"],
+            steps[6]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
         )
 
@@ -45,7 +51,7 @@ class WorkflowTest(SimpleTestCase):
         steps = workflow["main"]["steps"]
         self.assertEqual(
             [next(iter(step)) for step in steps],
-            ["getTradeData", "aggregateCandles", "compact"],
+            ["getTradeData", "fetchExchangeData", "aggregateCandles", "compact"],
         )
         self.assertEqual(
             steps[0]["getTradeData"]["parallel"]["for"]["steps"][0]["tradeData"][
@@ -54,10 +60,15 @@ class WorkflowTest(SimpleTestCase):
             "${\"https://test.123/aggregate-trades/\" + exchange + \"/?time_ago=7d\"}",
         )
         self.assertEqual(
-            steps[1]["aggregateCandles"]["args"]["url"],
+            steps[1]["fetchExchangeData"]["try"]["args"]["url"],
+            "https://test.123/fetch-exchange-data/?time_ago=7d",
+        )
+        self.assertEqual(steps[1]["fetchExchangeData"]["except"]["steps"], [])
+        self.assertEqual(
+            steps[2]["aggregateCandles"]["args"]["url"],
             "https://test.123/aggregate-candles/?time_ago=7d",
         )
         self.assertEqual(
-            steps[2]["compact"]["args"]["url"],
+            steps[3]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
         )

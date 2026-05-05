@@ -1,13 +1,16 @@
 import datetime
+import os
 from collections.abc import Callable
 
 from pandas import DataFrame
 
+from quant_tick.constants import SymbolType
 from quant_tick.controllers import ExchangeREST, ExchangeS3, use_s3
 from quant_tick.lib import zip_downloader
 from quant_tick.models import Symbol
 
 from .base import BinanceMixin, BinanceS3Mixin
+from .constants import BINANCE_API_KEY
 
 
 def binance_trades(
@@ -19,6 +22,10 @@ def binance_trades(
     verbose: bool = False,
 ) -> None:
     """Get Binance trades."""
+    if symbol.symbol_type == SymbolType.PERPETUAL and not os.environ.get(
+        BINANCE_API_KEY
+    ):
+        return
     if timestamp_to > use_s3():
         BinanceTradesREST(
             symbol,

@@ -19,9 +19,9 @@ from .constants import (
     API_URL,
     BITFINEX_MAX_REQUESTS_RESET,
     BITFINEX_TOTAL_REQUESTS,
+    CANDLE_MAX_RESULTS,
     MAX_REQUESTS,
     MAX_REQUESTS_RESET,
-    MAX_RESULTS,
     MIN_ELAPSED_PER_REQUEST,
 )
 
@@ -96,7 +96,12 @@ def fetch_bitfinex_candles(
 ) -> DataFrame:
     """Fetch Bitfinex candles."""
     ts_to = get_interval_inclusive_end(timestamp_from, timestamp_to, time_frame)
-    max_results = get_interval_limit(timestamp_from, ts_to, time_frame, MAX_RESULTS)
+    max_results = get_interval_limit(
+        timestamp_from,
+        ts_to,
+        time_frame,
+        CANDLE_MAX_RESULTS,
+    )
     throttle_api_requests(
         BITFINEX_MAX_REQUESTS_RESET,
         BITFINEX_TOTAL_REQUESTS,
@@ -159,4 +164,5 @@ def bitfinex_candles(
         timestamp_from=timestamp_from,
         timestamp_to=timestamp_to,
         resolution_minutes=target_minutes,
+        source_resolution_minutes=parse_fixed_resolution_minutes(fetch_time_frame),
     )

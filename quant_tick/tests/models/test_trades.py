@@ -216,7 +216,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(rows[0].timestamp, hour_from)
         self.assertEqual(rows[0].frequency, Frequency.HOUR)
 
-    def test_convert_trade_data_to_daily(self):
+    def test_convert_trade_data_to_daily_compacts_complete_hour(self):
         symbol = self.get_symbol()
         timestamp_from = get_min_time(self.timestamp_from, "1h")
 
@@ -242,6 +242,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
 
         raw = pd.concat(data_frames).drop(columns=["uid"]).reset_index(drop=True)
         data = trades[0]
+        self.assertEqual(data.frequency, Frequency.HOUR)
         self.assertEqual(data.uid, first.uid)
         self.assertTrue(data.get_data_frame(FileData.RAW).equals(raw))
         candle = data.json_data["candle"]
@@ -256,6 +257,52 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(candle["buyNotional"], candles.buyNotional.sum())
         self.assertEqual(candle["ticks"], candles.ticks.sum())
         self.assertEqual(candle["buyTicks"], candles.buyTicks.sum())
+
+    def test_convert_trade_data_to_daily_compacts_complete_day(self):
+        symbol = self.get_symbol(save_raw=False)
+        day_from = get_min_time(self.timestamp_from, "1d")
+
+        for hour in range(24):
+            TradeData.objects.create(
+                symbol=symbol,
+                timestamp=day_from + pd.Timedelta(f"{hour}h"),
+                frequency=Frequency.HOUR,
+                ok=True,
+            )
+
+        convert_trade_data_to_daily(symbol, day_from, day_from + pd.Timedelta("1d"))
+
+        trades = list(TradeData.objects.filter(symbol=symbol))
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0].timestamp, day_from)
+        self.assertEqual(trades[0].frequency, Frequency.DAY)
+
+    def test_convert_trade_data_to_daily_does_not_compact_incomplete_day(self):
+        symbol = self.get_symbol(save_raw=False)
+        day_from = get_min_time(self.timestamp_from, "1d")
+
+        for hour in range(4):
+            TradeData.objects.create(
+                symbol=symbol,
+                timestamp=day_from
+                + pd.Timedelta(f"{hour}h")
+                + pd.Timedelta("30min"),
+                frequency=Frequency.HOUR,
+                ok=True,
+            )
+        for hour in range(4, 24):
+            TradeData.objects.create(
+                symbol=symbol,
+                timestamp=day_from + pd.Timedelta(f"{hour}h"),
+                frequency=Frequency.HOUR,
+                ok=True,
+            )
+
+        convert_trade_data_to_daily(symbol, day_from, day_from + pd.Timedelta("1d"))
+
+        trades = TradeData.objects.filter(symbol=symbol)
+        self.assertFalse(trades.filter(frequency=Frequency.DAY).exists())
+        self.assertEqual(trades.filter(frequency=Frequency.HOUR).count(), 24)
 
     def test_convert_trade_data_deletes_source_rows_before_write(self):
         symbol = self.get_symbol()

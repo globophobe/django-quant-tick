@@ -9,6 +9,13 @@
   - `cd demo && invoke migrate`
   - `cd demo && invoke format`
 
+## Testing Policy
+
+- Prefer strengthening or correcting existing tests over adding new ones.
+- Do not preserve misleading legacy tests; rename, rewrite, or remove them.
+- Focus tests on production paths, domain invariants, and specific regressions.
+- Avoid broad, redundant, or low-value coverage.
+
 ## Project Structure
 
 - `demo/` is the thin Django project and deployment harness.

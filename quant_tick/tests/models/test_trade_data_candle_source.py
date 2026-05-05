@@ -19,12 +19,19 @@ from quant_tick.storage import convert_trade_data_to_daily
 from ..base import BaseWriteTradeDataTest
 
 
+def normalize_json_candle(data: dict) -> dict:
+    """Match JSONField decoding for expected lightweight check candles."""
+    result = dict(data)
+    result["timestamp"] = pd.Timestamp(result["timestamp"]).to_pydatetime()
+    return result
+
+
 class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
     def setUp(self) -> None:
         super().setUp()
         self.timestamp_to = self.timestamp_from + pd.Timedelta("1min")
 
-    def test_write_trade_candle_uses_aggregated_dataset_when_available(self):
+    def test_write_check_candle_uses_aggregated_dataset_when_available(self):
         symbol = self.get_symbol(save_raw=True, save_aggregated=True)
         raw = pd.DataFrame(
             [
@@ -51,16 +58,10 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
 
         trade_data = TradeData.objects.get()
         aggregated = aggregate_trades(raw)
-        self.assertEqual(
-            trade_data.json_data["candle"],
-            aggregate_candle(
-                aggregated,
-                min_volume_exponent=1,
-                min_notional_exponent=1,
-            ),
-        )
+        check_candle = trade_data.json_data["candle"]
+        self.assertEqual(check_candle, normalize_json_candle(aggregate_candle(aggregated)))
 
-    def test_write_trade_candle_uses_filtered_dataset_when_available(self):
+    def test_write_check_candle_uses_filtered_dataset_when_available(self):
         symbol = self.get_symbol(
             save_raw=True,
             save_aggregated=True,
@@ -94,14 +95,8 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
             aggregate_trades(raw),
             min_volume=symbol.significant_trade_filter,
         )
-        self.assertEqual(
-            trade_data.json_data["candle"],
-            aggregate_candle(
-                filtered,
-                min_volume_exponent=1,
-                min_notional_exponent=1,
-            ),
-        )
+        check_candle = trade_data.json_data["candle"]
+        self.assertEqual(check_candle, normalize_json_candle(aggregate_candle(filtered)))
 
     def test_convert_trade_data_to_daily_preserves_full_candle_payload(self):
         symbol = self.get_symbol(

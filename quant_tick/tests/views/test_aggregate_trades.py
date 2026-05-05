@@ -47,6 +47,21 @@ class AggregateTradeViewTest(TestCase):
         self.assertIsNone(task_state.next_fetch_at)
         self.assertIsNone(task_state.locked_until)
 
+    def test_get_floors_time_ago_start_to_day_boundary(self, mock_api):
+        now = datetime(2026, 5, 2, 0, 10, 42, tzinfo=UTC)
+        with patch("quant_tick.views.aggregate_trades.get_current_time", return_value=now):
+            response = self.client.get(
+                self.get_url(),
+                {"time_ago": "7d", "api_symbol": "test-1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_api.assert_called_once()
+        _symbol, timestamp_from, timestamp_to, retry = mock_api.call_args.args
+        self.assertEqual(timestamp_from, datetime(2026, 4, 25, tzinfo=UTC))
+        self.assertEqual(timestamp_to, datetime(2026, 5, 2, 0, 10, tzinfo=UTC))
+        self.assertFalse(retry)
+
     def test_get_skips_when_task_is_backed_off(self, mock_api):
         TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,

@@ -30,13 +30,13 @@ Candles are aggregated at 1 minute intervals, and validated with the exchange's 
 Supported exchanges
 -------------------
 
-:white_check_mark: Binance REST API, and [Binance Market Data](https://data.binance.vision/)
+✅ Binance REST API, and [Binance Market Data](https://data.binance.vision/)
 
-:white_check_mark: Bitfinex REST API
+✅ Bitfinex REST API
 
-:white_check_mark: BitMEX REST API, and [S3](https://public.bitmex.com/) repository
+✅ BitMEX REST API, and [S3](https://public.bitmex.com/) repository
 
-:white_check_mark: Coinbase Pro REST API
+✅ Coinbase REST API
 
 Note: Exchanges without paginated REST APIs or an S3 repository, will never be supported.
 

@@ -4,10 +4,12 @@ import pandas as pd
 from django.test import SimpleTestCase
 
 from quant_tick.lib import (
+    get_complete_interval_end,
     get_current_time,
     get_min_time,
     get_next_time,
     get_range,
+    iter_chunks,
     iter_missing,
     iter_timeframe,
     iter_window,
@@ -33,6 +35,15 @@ class GetNexttimeTest(SimpleTestCase):
             tomorrow,
             datetime.combine(tomorrow.date(), time.min).replace(tzinfo=UTC),
         )
+
+
+class GetCompleteIntervalEndTest(SimpleTestCase):
+    def test_get_complete_interval_end_uses_full_interval(self):
+        timestamp = datetime(2026, 4, 25, 10, 53, tzinfo=UTC)
+
+        result = get_complete_interval_end(timestamp, "90m")
+
+        self.assertEqual(result, datetime(2026, 4, 25, 10, 30, tzinfo=UTC))
 
 
 class GetRangeTest(SimpleTestCase):
@@ -79,6 +90,39 @@ class IterWindowTest(SimpleTestCase):
         self.assertEqual(len(values), 2)
         self.assertEqual(values[0][1], get_min_time(self.now, value="1d"))
         self.assertEqual(values[1][0], get_min_time(self.two_days_ago, value="1d"))
+
+
+class IterChunksTest(SimpleTestCase):
+    def test_iter_chunks_reverse_keeps_partial_newest_window(self):
+        timestamp_from = datetime(2026, 1, 1, tzinfo=UTC)
+        timestamp_to = datetime(2026, 2, 1, tzinfo=UTC)
+
+        values = list(
+            iter_chunks(
+                timestamp_from,
+                timestamp_to,
+                value="14d",
+                reverse=True,
+            )
+        )
+
+        self.assertEqual(
+            values,
+            [
+                (
+                    datetime(2026, 1, 18, tzinfo=UTC),
+                    datetime(2026, 2, 1, tzinfo=UTC),
+                ),
+                (
+                    datetime(2026, 1, 4, tzinfo=UTC),
+                    datetime(2026, 1, 18, tzinfo=UTC),
+                ),
+                (
+                    datetime(2026, 1, 1, tzinfo=UTC),
+                    datetime(2026, 1, 4, tzinfo=UTC),
+                ),
+            ],
+        )
 
 
 class IterTimeframeTest(SimpleTestCase):
@@ -233,3 +277,23 @@ class IterMissingTest(SimpleTestCase):
         self.assertEqual(len(values), 1)
         self.assertEqual(values[0][0], self.timestamp_from)
         self.assertEqual(values[0][1], self.timestamp_to)
+
+    def test_iter_missing_with_custom_timestamps_and_interval(self):
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 25, 4, tzinfo=UTC)
+        timestamps = [
+            timestamp_from,
+            timestamp_from + pd.Timedelta("1h"),
+            timestamp_from + pd.Timedelta("2h"),
+        ]
+
+        values = iter_missing(
+            timestamp_from,
+            timestamp_to,
+            [timestamps[0], timestamps[2]],
+            reverse=True,
+            value=pd.Timedelta("1h"),
+            timestamps=timestamps,
+        )
+
+        self.assertEqual(values, [(timestamps[1], timestamps[2])])

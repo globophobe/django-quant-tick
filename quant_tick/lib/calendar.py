@@ -15,6 +15,16 @@ def to_pydatetime(timestamp: Timestamp) -> datetime:
     return timestamp.replace(nanosecond=0).to_pydatetime().replace(tzinfo=UTC)
 
 
+def to_utc_datetime(value: object) -> datetime:
+    """Normalize pandas/native timestamp values to UTC datetime."""
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize(UTC)
+    else:
+        timestamp = timestamp.tz_convert(UTC)
+    return to_pydatetime(timestamp)
+
+
 def get_current_time(tzinfo: str = UTC) -> datetime:
     return datetime.utcnow().replace(tzinfo=tzinfo)
 
@@ -131,6 +141,12 @@ def get_interval_inclusive_end(
     return ts_to if timestamp_from <= ts_to else timestamp_to
 
 
+def get_complete_interval_end(timestamp_to: datetime, value: str | int) -> datetime:
+    """Floor an end timestamp to the last complete fixed interval boundary."""
+    minutes = parse_fixed_resolution_minutes(value)
+    return to_pydatetime(pd.Timestamp(timestamp_to).floor(f"{minutes}min"))
+
+
 def get_interval_limit(
     timestamp_from: datetime,
     timestamp_to: datetime,
@@ -228,6 +244,36 @@ def iter_window(
     return iter_timestamps(values, reverse=reverse)
 
 
+def iter_chunks(
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    value: str | pd.Timedelta = "1d",
+    reverse: bool = False,
+) -> Generator[tuple[datetime, datetime], None, None]:
+    """Iterate exact-size time chunks without rounding to interval boundaries."""
+    step = pd.Timedelta(value)
+    if step <= pd.Timedelta(0):
+        raise ValueError("window value must be positive")
+
+    start = pd.Timestamp(timestamp_from)
+    end = pd.Timestamp(timestamp_to)
+    if end <= start:
+        return
+
+    if reverse:
+        cursor = end
+        while start < cursor:
+            next_cursor = max(start, cursor - step)
+            yield to_pydatetime(next_cursor), to_pydatetime(cursor)
+            cursor = next_cursor
+    else:
+        cursor = start
+        while cursor < end:
+            next_cursor = min(end, cursor + step)
+            yield to_pydatetime(cursor), to_pydatetime(next_cursor)
+            cursor = next_cursor
+
+
 def iter_timestamps(
     values: list[datetime], reverse: bool = False
 ) -> Generator[tuple[datetime, datetime], None, None]:
@@ -303,40 +349,39 @@ def iter_missing(
     timestamp_to: datetime,
     existing: list[datetime],
     reverse: bool = False,
+    value: str | pd.Timedelta = "1min",
+    timestamps: list[datetime] | None = None,
 ) -> Generator[tuple[datetime, datetime], None, None]:
-    """Iter missing, by 1 minute intervals."""
+    """Iter missing windows for the requested interval."""
+    step = pd.Timedelta(value)
     existing = set(existing)
-    values = []
-    for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, reverse=reverse):
-        if ts_from not in existing:
-            values.append((ts_from, ts_to))
+    if timestamps is None:
+        if isinstance(value, str):
+            timestamps = get_range(timestamp_from, timestamp_to, value)
+        else:
+            timestamps = [
+                to_pydatetime(timestamp)
+                for timestamp in pd.date_range(timestamp_from, timestamp_to, freq=step)
+            ]
+    timestamps = sorted(
+        timestamp
+        for timestamp in timestamps
+        if timestamp_from <= timestamp < timestamp_to
+    )
+    values = [
+        (
+            timestamp,
+            min(timestamp_to, to_pydatetime(pd.Timestamp(timestamp) + step)),
+        )
+        for timestamp in timestamps
+        if timestamp not in existing
+    ]
+    merged = []
+    for ts_from, ts_to in values:
+        if merged and merged[-1][1] == ts_from:
+            merged[-1] = merged[-1][0], ts_to
+        else:
+            merged.append((ts_from, ts_to))
     if reverse:
-        values.reverse()
-    if len(values):
-        index = 0
-        next_index = index + 1
-        counter = 0
-        one_minute = pd.Timedelta("1min")
-        start = values[0][0]
-        stop = None
-        while next_index < len(values):
-            next_start = values[next_index][0]
-            total_minutes = one_minute * (counter + 1)
-            if next_start == start + total_minutes:
-                # Don't increment next_index, as value will be deleted.
-                stop = values[next_index][1]
-                del values[next_index]
-                counter += 1
-            else:
-                if stop:
-                    values[index] = start, stop
-                    index = next_index
-                    stop = None
-                start = next_start
-                counter = 0
-                next_index += 1
-        if stop:
-            values[-1] = values[-1][0], stop
-    if reverse:
-        values.reverse()
-    return values
+        merged.reverse()
+    return merged

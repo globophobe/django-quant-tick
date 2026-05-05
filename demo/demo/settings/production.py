@@ -12,7 +12,7 @@ DEBUG = False
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 10  # 10MB
 
-ROOT_URLCONF = "demo.urls"
+ROOT_URLCONF = "demo.urls.production"
 
 
 def get_allowed_host(value: str) -> str:
@@ -54,5 +54,5 @@ GS_BUCKET_NAME = (
 sentry_sdk.init(
     dsn=os.environ["SENTRY_DSN"],
     integrations=[DjangoIntegration()],
-    traces_sample_rate=0.5,
+    traces_sample_rate=1.0,
 )

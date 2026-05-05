@@ -19,7 +19,7 @@ from .constants import (
     BITFINEX_TOTAL_REQUESTS,
     MAX_REQUESTS,
     MAX_REQUESTS_RESET,
-    MAX_RESULTS,
+    TRADE_MAX_RESULTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ def get_bitfinex_api_pagination_id(
         last_trade = data[-1]
         last_id = last_trade[1]
         # Is data fetched same as previous?
-        if len(data) == MAX_RESULTS and last_data and last_id == last_data[-1][1]:
+        if len(data) == TRADE_MAX_RESULTS and last_data and last_id == last_data[-1][1]:
             return None
         if len(data):
             return last_id
