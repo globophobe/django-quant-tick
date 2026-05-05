@@ -30,6 +30,8 @@ class ExportCandlesFilenameTest(SimpleTestCase):
                 "sample_type": "notional",
                 "target_candles_per_day": 50,
                 "moving_average_number_of_days": 50,
+                "min_volume_exponent": 1,
+                "min_notional_exponent": 1,
                 "cache_reset": Frequency.WEEK,
             },
         )
@@ -38,7 +40,7 @@ class ExportCandlesFilenameTest(SimpleTestCase):
 
         self.assertEqual(
             output_path,
-            "binance-btcusdt-adaptive-filtered-notional-50cpd-ma50d-weekly-cache-reset-candles-20260421.parquet",
+            "binance-btcusdt-adaptive-filtered-notional-50cpd-ma50d-round-weekly-cache-reset-candles-20260421.parquet",
         )
 
     def test_get_output_path_for_adaptive_candle_with_calendar_cache_reset(self) -> None:
