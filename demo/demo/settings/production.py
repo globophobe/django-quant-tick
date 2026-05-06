@@ -51,8 +51,40 @@ GS_BUCKET_NAME = (
     else os.environ["GCS_BUCKET_NAME"]
 )
 
+
+def scrub_sentry_event(event, _hint):
+    sensitive_fragments = (
+        "authorization",
+        "api_key",
+        "apikey",
+        "database_password",
+        "password",
+        "secret",
+        "token",
+    )
+
+    def scrub(value):
+        if isinstance(value, dict):
+            return {
+                key: (
+                    "[Filtered]"
+                    if any(fragment in str(key).lower() for fragment in sensitive_fragments)
+                    else scrub(item)
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [scrub(item) for item in value]
+        return value
+
+    return scrub(event)
+
+
 sentry_sdk.init(
     dsn=os.environ["SENTRY_DSN"],
     integrations=[DjangoIntegration()],
+    before_send=scrub_sentry_event,
+    include_local_variables=False,
+    send_default_pii=False,
     traces_sample_rate=1.0,
 )
