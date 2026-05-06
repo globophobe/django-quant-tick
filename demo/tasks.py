@@ -57,8 +57,10 @@ def migrate(ctx: Any) -> None:
 def start_proxy(ctx: Any) -> None:
     host = os.environ["PRODUCTION_DATABASE_HOST"]
     port = os.environ["PROXY_DATABASE_PORT"]
-    credentials = Path(__file__).parent.parent.parent.joinpath("keys", os.environ["GOOGLE_APPLICATION_CREDENTIALS"]).resolve()
-    ctx.run(f"cloud-tools/cloud-sql-proxy -c {credentials} {host} -p {port}")
+    home = Path.home()
+    credentials = home.joinpath("keys", os.environ["GOOGLE_APPLICATION_CREDENTIALS"]).resolve()
+    proxy = home.joinpath("cloud-tools", "cloud-sql-proxy").resolve()
+    ctx.run(f"{proxy} -c {credentials} {host} -p {port}")
 
 
 @task
