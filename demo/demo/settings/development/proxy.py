@@ -1,5 +1,7 @@
 import os
 
+from quant_tick.testing import is_test
+
 # ruff: noqa: F403, F405
 from .base import *  # noqa
 
@@ -35,6 +37,6 @@ STORAGES = {
 
 GS_BUCKET_NAME = (
     f'test-{os.environ["GCS_BUCKET_NAME"]}'
-    if TEST
+    if is_test()
     else os.environ["GCS_BUCKET_NAME"]
 )

@@ -2,13 +2,13 @@ import datetime
 from pathlib import Path
 
 import pandas as pd
-from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
 from quant_tick.constants import FileData, Frequency
+from quant_tick.testing import is_test
 from quant_tick.lib import (
     aggregate_candle,
     aggregate_candles,
@@ -151,7 +151,7 @@ class TradeData(AbstractDataStorage):
         Example:
         trades / coinbase / BTCUSD / blaring-crocodile / raw / 2022-01-01 / 0000.parquet
         """
-        path = ["test-trades"] if settings.TEST else ["trades"]
+        path = ["test-trades"] if is_test() else ["trades"]
         path += self.symbol.upload_path + [directory, self.timestamp.date().isoformat()]
         fname = self.timestamp.time().strftime("%H%M")
         ext = Path(filename).suffix

@@ -1,9 +1,10 @@
 import os
-import sys
 from urllib.parse import urlparse
 
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
+
+from quant_tick.testing import is_test
 
 from .base import *  # noqa
 
@@ -47,7 +48,7 @@ STORAGES = {
 
 GS_BUCKET_NAME = (
     f'test-{os.environ["GCS_BUCKET_NAME"]}'
-    if "test" in sys.argv
+    if is_test()
     else os.environ["GCS_BUCKET_NAME"]
 )
 
