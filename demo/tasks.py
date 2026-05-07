@@ -253,7 +253,7 @@ def get_workflow(
                     "args": {
                         "url": callback_url,
                         "auth": {"type": "OIDC"},
-                        "body": {"timestamp": "${runTime}"},
+                        "body": {"as_of": "${runTime}"},
                     },
                     "next": "compact",
                 }
