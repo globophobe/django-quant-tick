@@ -41,6 +41,7 @@ class WorkflowTest(SimpleTestCase):
         )
         self.assertEqual(steps[4]["maybeCallback"]["next"], "compact")
         self.assertEqual(steps[5]["callback"]["next"], "compact")
+        self.assertEqual(steps[5]["callback"]["args"]["body"], {"as_of": "${runTime}"})
         self.assertEqual(
             steps[6]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
