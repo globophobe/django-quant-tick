@@ -68,8 +68,10 @@ class TaskState(models.Model):
         _("exchange"),
         choices=Exchange.choices,
         max_length=255,
-        blank=True,
-        default="",
+    )
+    api_symbol = models.CharField(
+        _("API symbol"),
+        max_length=255,
     )
     task_type = models.CharField(
         _("task type"),
@@ -163,10 +165,10 @@ class TaskState(models.Model):
         db_table = "quant_tick_task_state"
         constraints = [
             models.UniqueConstraint(
-                fields=("task_type", "exchange"),
+                fields=("task_type", "exchange", "api_symbol"),
                 name="quant_tick_task_state_unique",
             )
         ]
-        ordering = ("task_type", "exchange")
+        ordering = ("task_type", "exchange", "api_symbol")
         verbose_name = _("task state")
         verbose_name_plural = _("task states")
