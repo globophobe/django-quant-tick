@@ -159,12 +159,13 @@ class TaskStateAdmin(NoCreateAdmin):
     list_display = (
         "task_type",
         "exchange",
+        "api_symbol",
         "recent_error_count",
         "recent_error_at",
         "next_fetch_at",
         "locked_until",
     )
-    list_filter = get_list_filter("exchange", "task_type")
+    list_filter = get_list_filter("exchange", "api_symbol", "task_type")
 
 
 class TradeDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
