@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -293,10 +294,9 @@ def push_workflow(
     ctx: Any,
     name: str = "django-quant-tick",
     location: str = "asia-northeast1",
-    proxy: bool = True,
 ) -> None:
     """Push workflow."""
-    django_settings(ctx, proxy=proxy)
+    django_settings(ctx, proxy=True)
     from quant_tick.models import Symbol
 
     symbols = list(
@@ -330,3 +330,51 @@ def push_workflow(
             f"gcloud workflows deploy {name} "
             f"--source={f.name} --location={location}"
         )
+
+
+@task
+def sync_pubsub_subscriptions(
+    ctx: Any,
+    expiration_period: str = "never",
+) -> None:
+    """Sync trade pub/sub subscriptions."""
+    django_settings(ctx, proxy=True)
+    from quant_tick.models import Symbol
+    from quant_tick.pubsub import (
+        TRADE_STREAMS,
+        get_trade_subscription_filter,
+        get_trade_subscription_id,
+        symbol_supports_trade_stream,
+    )
+
+    symbols = Symbol.objects.filter(is_active=True).order_by("exchange", "api_symbol")
+    if not symbols:
+        print("No active symbols.")
+        return
+
+    created = 0
+    for symbol in symbols:
+        for stream in TRADE_STREAMS:
+            if not symbol_supports_trade_stream(symbol, stream):
+                continue
+            subscription = get_trade_subscription_id(stream, symbol)
+            filter_expr = get_trade_subscription_filter(stream, symbol)
+            create_cmd = (
+                "gcloud pubsub subscriptions create "
+                f"{shlex.quote(subscription)} "
+                f"--topic={shlex.quote(stream)} "
+                f"--message-filter={shlex.quote(filter_expr)} "
+                f"--expiration-period={shlex.quote(expiration_period)}"
+            )
+            describe_cmd = (
+                "gcloud pubsub subscriptions describe "
+                f"{shlex.quote(subscription)}"
+            )
+            result = ctx.run(describe_cmd, warn=True, hide=True)
+            if result.ok:
+                print(f"{subscription}: exists")
+                continue
+            ctx.run(create_cmd)
+            created += 1
+    if created == 0:
+        print("No matching trade pub/sub subscriptions.")
