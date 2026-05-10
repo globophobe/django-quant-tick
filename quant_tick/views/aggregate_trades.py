@@ -8,7 +8,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
-from quant_tick.constants import Exchange, TaskType
+from quant_tick.constants import TaskType
 from quant_tick.exchanges import api
 from quant_tick.lib import get_current_time, get_min_time
 from quant_tick.lib.download import ArchiveDownloadError
@@ -17,26 +17,30 @@ from quant_tick.pubsub import (
     get_trade_pubsub_config,
     ingest_trades_from_pubsub,
 )
+from quant_tick.forms import (
+    AggregateTradeRequestForm,
+    TimeRangeRequestForm,
+    format_form_errors,
+    parse_time_delta,
+)
 
 logger = logging.getLogger(__name__)
 
 TRANSIENT_COLLECTION_ERRORS = (httpx.TransportError,)
 
 
-def parse_time_delta(value: str) -> pd.Timedelta:
-    try:
-        return pd.Timedelta(value)
-    except ValueError as exc:
-        raise ValueError(f"Cannot parse {value}.") from exc
+def get_timestamp_range(delta: pd.Timedelta) -> tuple[pd.Timestamp, pd.Timestamp]:
+    timestamp_to = get_min_time(get_current_time(), "1min")
+    timestamp_from = get_min_time(timestamp_to - delta, "1d")
+    return timestamp_from, timestamp_to
 
 
 def get_request_params(request: HttpRequest) -> tuple[pd.Timestamp, pd.Timestamp]:
     """Parse aggregate request params."""
-    time_ago = request.GET.get("time_ago", "1d")
-    delta = parse_time_delta(time_ago)
-    timestamp_to = get_min_time(get_current_time(), "1min")
-    timestamp_from = get_min_time(timestamp_to - delta, "1d")
-    return timestamp_from, timestamp_to
+    form = TimeRangeRequestForm(request.GET)
+    if not form.is_valid():
+        raise ValueError(format_form_errors(form))
+    return get_timestamp_range(form.cleaned_data["time_ago"])
 
 
 def serialize_timestamp(timestamp: datetime) -> str:
@@ -51,18 +55,20 @@ def get_candle_repair_timestamp(timestamp: datetime) -> datetime:
 class AggregateTradeDataView(View):
     queryset = Symbol.objects.filter(is_active=True)
 
-    def get_queryset(self) -> QuerySet:
-        queryset = self.queryset.filter(exchange=self.get_exchange())
-        api_symbol = self.request.GET.get("api_symbol")
+    def get_query_form(self, request: HttpRequest) -> AggregateTradeRequestForm:
+        data = request.GET.copy()
+        data["exchange"] = self.kwargs.get("exchange")
+        form = AggregateTradeRequestForm(data)
+        if not form.is_valid():
+            raise ValueError(format_form_errors(form))
+        return form
+
+    def get_queryset(self, params: dict) -> QuerySet:
+        queryset = self.queryset.filter(exchange=params["exchange"])
+        api_symbol = params["api_symbol"]
         if api_symbol:
             queryset = queryset.filter(api_symbol=api_symbol)
         return queryset
-
-    def get_exchange(self) -> str:
-        exchange = self.kwargs.get("exchange")
-        if exchange not in Exchange.values:
-            raise ValueError("Invalid exchange.")
-        return exchange
 
     def get_task_state(self, symbol: Symbol) -> TaskState:
         task_state, _ = TaskState.objects.get_or_create(
@@ -87,8 +93,11 @@ class AggregateTradeDataView(View):
         return tasks, skipped
 
     def get_params(self, request: HttpRequest) -> list[tuple]:
-        timestamp_from, timestamp_to = get_request_params(request)
-        queryset = self.get_queryset()
+        form = self.get_query_form(request)
+        timestamp_from, timestamp_to = get_timestamp_range(
+            form.cleaned_data["time_ago"]
+        )
+        queryset = self.get_queryset(form.cleaned_data)
         return [
             (
                 symbol,

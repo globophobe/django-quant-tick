@@ -20,7 +20,7 @@ class CompactView(View):
 
     def get(self, request: HttpRequest, *args, **kwargs) -> JsonResponse:
         try:
-            timestamp_from, timestamp_to, _retry = get_request_params(request)
+            timestamp_from, timestamp_to = get_request_params(request)
             min_timestamp_from = get_min_time(timestamp_to - pd.Timedelta("7d"), "1d")
             timestamp_from = max(timestamp_from, min_timestamp_from)
         except ValueError as exc:
