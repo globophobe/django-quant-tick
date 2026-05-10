@@ -81,14 +81,12 @@ def docker_secrets() -> str:
         f'{secret}="{os.environ[secret]}"'
         for secret in (
             "SECRET_KEY",
-            "SENTRY_DSN",
             "DATABASE_NAME",
             "DATABASE_USER",
             "DATABASE_PASSWORD",
             "PRODUCTION_DATABASE_HOST",
             "DATABASE_PORT",
             "GCS_BUCKET_NAME",
-            "PRODUCTION_API_URL",
         )
     ]
     return " ".join([f"--build-arg {build_arg}" for build_arg in build_args])
