@@ -120,7 +120,7 @@ def get_trade_subscription_id(stream: str, symbol: Symbol) -> str:
         raise ValueError(f"Unsupported trade Pub/Sub stream: {stream}.")
     subscription_id = (
         f"{pubsub_name_part(symbol.exchange)}-"
-        f"{pubsub_name_part(symbol.api_symbol)}-{stream}"
+        f"{pubsub_name_part(symbol.symbol)}-{stream}"
     )
     if stream == SIGNIFICANT_TRADES:
         subscription_id += f"-{symbol.significant_trade_filter}"
