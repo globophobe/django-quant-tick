@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --group dev --locked
+
+      - name: Ruff
+        run: uv run ruff check .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --group dev --locked
+
+      - name: Run tests
+        working-directory: demo
+        run: uv run python manage.py test quant_tick --verbosity 1
