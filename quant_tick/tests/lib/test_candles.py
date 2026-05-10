@@ -50,6 +50,13 @@ class CandleTest(SimpleTestCase):
         self.assertEqual(result["volume"], Decimal("15"))
         self.assertEqual(result["notional"], Decimal("1500"))
 
+    def test_volume_aggregation_rejects_partial_totalized_schema(self):
+        df = self.get_data_frame(prices=[100])
+        df["totalVolume"] = Decimal("1")
+
+        with self.assertRaisesRegex(ValueError, "totalNotional"):
+            aggregate_candle(df)
+
     def test_buy_volume_aggregation(self):
         df = self.get_data_frame(
             prices=[100, 100, 100],

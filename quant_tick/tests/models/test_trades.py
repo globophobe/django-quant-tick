@@ -79,13 +79,13 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             ),
             (
                 "aggregated",
-                {"save_aggregated": True},
+                {"save_aggregated": False},
                 {
                     "aggregated_trades": self.get_aggregated_validation_data(
                         "aggregated-1"
                     )
                 },
-                FileData.AGGREGATED,
+                None,
             ),
             (
                 "significant",
@@ -160,6 +160,119 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
 
                 self.assertEqual(len(rows), 1)
                 self.assertFalse(TradeData.objects.get(symbol=symbol).ok)
+
+    def test_write_trade_data_uses_provided_frames_without_reaggregating(self):
+        symbol = self.get_symbol(
+            save_raw=True,
+            save_aggregated=True,
+            significant_trade_filter=1000,
+        )
+        raw = self.get_raw_validation_data("raw-1")
+        aggregated = self.get_aggregated_validation_data("aggregated-1")
+        filtered = self.get_aggregated_validation_data("filtered-1")
+
+        with patch("quant_tick.models.trades.aggregate_trades") as aggregate_mock:
+            with patch(
+                "quant_tick.models.trades.volume_filter_with_time_window"
+            ) as filter_mock:
+                rows = TradeData.write(
+                    symbol,
+                    self.timestamp_from,
+                    self.timestamp_to,
+                    self.get_exchange_candles("10"),
+                    raw_trades=raw,
+                    aggregated_trades=aggregated,
+                    filtered_trades=filtered,
+                )
+
+        aggregate_mock.assert_not_called()
+        filter_mock.assert_not_called()
+        self.assertEqual(len(rows), 1)
+        trade_data = TradeData.objects.get(symbol=symbol)
+        self.assertTrue(trade_data.ok)
+        self.assertEqual(trade_data.uid, "raw-1")
+        self.assertTrue(trade_data.has_data_frame(FileData.RAW))
+        self.assertTrue(trade_data.has_data_frame(FileData.AGGREGATED))
+        self.assertTrue(trade_data.has_data_frame(FileData.FILTERED))
+
+    def test_write_trade_data_does_not_save_unconfigured_provided_frames(self):
+        symbol = self.get_symbol(
+            save_raw=False,
+            save_aggregated=False,
+            significant_trade_filter=0,
+        )
+
+        rows = TradeData.write(
+            symbol,
+            self.timestamp_from,
+            self.timestamp_to,
+            self.get_exchange_candles("10"),
+            raw_trades=self.get_raw_validation_data("raw-1"),
+            aggregated_trades=self.get_aggregated_validation_data("aggregated-1"),
+            filtered_trades=self.get_aggregated_validation_data("filtered-1"),
+        )
+
+        self.assertEqual(len(rows), 1)
+        trade_data = TradeData.objects.get(symbol=symbol)
+        self.assertTrue(trade_data.ok)
+        self.assertEqual(trade_data.uid, "raw-1")
+        for file_data in FileData:
+            self.assertFalse(trade_data.has_data_frame(file_data))
+
+    def test_write_trade_data_rejects_mismatched_frame_totals(self):
+        cases = (
+            (
+                "aggregated-volume",
+                "aggregated_trades",
+                "totalVolume",
+                Decimal("999"),
+                "aggregated_trades volume",
+            ),
+            (
+                "filtered-notional",
+                "filtered_trades",
+                "totalNotional",
+                Decimal("11"),
+                "filtered_trades notional",
+            ),
+        )
+
+        for api_symbol, frame_name, field, value, message in cases:
+            with self.subTest(frame_name=frame_name, field=field):
+                symbol = self.get_symbol(
+                    api_symbol=api_symbol,
+                    save_raw=True,
+                    save_aggregated=True,
+                    significant_trade_filter=1000,
+                )
+                existing = TradeData.objects.create(
+                    symbol=symbol,
+                    timestamp=self.timestamp_from,
+                    frequency=Frequency.MINUTE,
+                    ok=True,
+                )
+                raw = self.get_raw_validation_data("raw-1")
+                aggregated = self.get_aggregated_validation_data("aggregated-1")
+                filtered = self.get_aggregated_validation_data("filtered-1")
+                frames = {
+                    "raw_trades": raw,
+                    "aggregated_trades": aggregated,
+                    "filtered_trades": filtered,
+                }
+                frames[frame_name].loc[0, field] = value
+
+                with self.assertRaisesRegex(ValueError, message):
+                    TradeData.write(
+                        symbol,
+                        self.timestamp_from,
+                        self.timestamp_to,
+                        self.get_exchange_candles("10"),
+                        **frames,
+                    )
+
+                rows = list(TradeData.objects.filter(symbol=symbol))
+                self.assertEqual(rows, [existing])
+                self.assertTrue(rows[0].ok)
 
     def test_retry_raw_trade(self):
         symbol = self.get_symbol(save_raw=True)
