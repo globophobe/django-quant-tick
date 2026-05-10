@@ -40,11 +40,14 @@ from .dataframe import (
     assert_type_decimal,
     calculate_notional,
     calculate_tick_rule,
+    get_frame_totals,
+    has_column_group,
     is_decimal_close,
     normalize_timestamp_data_frame,
     set_dtypes,
     set_type_decimal,
     to_decimal_or_none,
+    validate_totals,
 )
 from .download import gzip_downloader, zip_downloader
 
@@ -85,11 +88,14 @@ __all__ = [
     "assert_type_decimal",
     "calculate_notional",
     "calculate_tick_rule",
+    "get_frame_totals",
+    "has_column_group",
     "is_decimal_close",
     "normalize_timestamp_data_frame",
     "set_dtypes",
     "set_type_decimal",
     "to_decimal_or_none",
+    "validate_totals",
     "gzip_downloader",
     "zip_downloader",
 ]

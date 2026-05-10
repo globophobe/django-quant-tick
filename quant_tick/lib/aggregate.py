@@ -6,7 +6,7 @@ from pandas import DataFrame
 from quant_tick.constants import ZERO
 
 from .calendar import iter_once, iter_window
-from .dataframe import is_decimal_close
+from .dataframe import has_column_group, is_decimal_close
 
 
 def aggregate_trades(data_frame: DataFrame) -> DataFrame:
@@ -182,7 +182,17 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
                 "ticks": None,
             }
         )
-    has_totals = "totalVolume" in df.columns
+    has_totals = has_column_group(
+        df,
+        (
+            "totalBuyVolume",
+            "totalVolume",
+            "totalBuyNotional",
+            "totalNotional",
+            "totalBuyTicks",
+            "totalTicks",
+        ),
+    )
     if has_totals:
         data.update(
             {

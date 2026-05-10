@@ -7,7 +7,7 @@ from pandas import DataFrame
 
 from .aggregate import filter_by_timestamp
 from .calendar import iter_window
-from .dataframe import is_decimal_close
+from .dataframe import has_column_group, is_decimal_close
 
 ZERO = Decimal("0")
 
@@ -178,7 +178,17 @@ def _aggregate_totals(
 ) -> dict:
     """Aggregate volume, notional, ticks, and round fields."""
     data = {}
-    has_totals = "totalVolume" in df.columns
+    has_totals = has_column_group(
+        df,
+        (
+            "totalBuyVolume",
+            "totalVolume",
+            "totalBuyNotional",
+            "totalNotional",
+            "totalBuyTicks",
+            "totalTicks",
+        ),
+    )
 
     if has_totals:
         data["volume"] = df.totalVolume.sum()
