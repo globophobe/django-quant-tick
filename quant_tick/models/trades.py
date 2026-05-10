@@ -17,9 +17,9 @@ from quant_tick.lib import (
     get_existing,
     get_min_time,
     has_timestamps,
-    is_decimal_close,
     iter_window,
     validate_aggregated_candles,
+    validate_totals,
     volume_filter_with_time_window,
 )
 
@@ -233,7 +233,7 @@ class TradeData(AbstractDataStorage):
         frequency = cls._get_write_frequency(timestamp_from, timestamp_to)
         if frequency in (Frequency.DAY, Frequency.HOUR):
             return [
-                cls._write_slice(
+                cls._write_partition(
                     symbol,
                     timestamp_from,
                     timestamp_to,
@@ -245,7 +245,7 @@ class TradeData(AbstractDataStorage):
                 )
             ]
         return [
-            cls._write_slice(
+            cls._write_partition(
                 symbol,
                 ts_from,
                 ts_to,
@@ -263,7 +263,7 @@ class TradeData(AbstractDataStorage):
         ]
 
     @classmethod
-    def _write_slice(
+    def _write_partition(
         cls,
         symbol: Symbol,
         timestamp_from: datetime.datetime,
@@ -275,6 +275,29 @@ class TradeData(AbstractDataStorage):
         aggregated_trades: DataFrame | None = None,
         filtered_trades: DataFrame | None = None,
     ) -> "TradeData":
+        raw_trades = cls._filter_frame(raw_trades, timestamp_from, timestamp_to)
+        aggregated_trades = cls._filter_frame(
+            aggregated_trades,
+            timestamp_from,
+            timestamp_to,
+        )
+        filtered_trades = cls._filter_frame(
+            filtered_trades,
+            timestamp_from,
+            timestamp_to,
+        )
+        raw_trades, aggregated_trades, filtered_trades = cls._prepare_trade_data(
+            symbol,
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+        validate_totals(
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+
         cls.objects.cleanup(
             symbol,
             timestamp_from,
@@ -282,20 +305,12 @@ class TradeData(AbstractDataStorage):
             (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
         )
         obj = TradeData(symbol=symbol, timestamp=timestamp_from, frequency=frequency)
-        return cls.write_data_frame(
+        return cls._save_trade_data(
             obj,
             filter_by_timestamp(candles, timestamp_from, timestamp_to),
-            raw_trades=cls._filter_frame(raw_trades, timestamp_from, timestamp_to),
-            aggregated_trades=cls._filter_frame(
-                aggregated_trades,
-                timestamp_from,
-                timestamp_to,
-            ),
-            filtered_trades=cls._filter_frame(
-                filtered_trades,
-                timestamp_from,
-                timestamp_to,
-            ),
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
         )
 
     @staticmethod
@@ -309,7 +324,37 @@ class TradeData(AbstractDataStorage):
         return filter_by_timestamp(data, timestamp_from, timestamp_to)
 
     @classmethod
-    def write_data_frame(
+    def _prepare_trade_data(
+        cls,
+        symbol: Symbol,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> tuple[DataFrame | None, DataFrame | None, DataFrame | None]:
+        if raw_trades is not None and len(raw_trades):
+            if (
+                aggregated_trades is None
+                and (symbol.save_aggregated or symbol.significant_trade_filter)
+            ):
+                aggregated_trades = aggregate_trades(raw_trades)
+            if symbol.significant_trade_filter and filtered_trades is None:
+                filtered_trades = volume_filter_with_time_window(
+                    aggregated_trades,
+                    min_volume=symbol.significant_trade_filter,
+                )
+
+        if aggregated_trades is not None and len(aggregated_trades):
+            if symbol.significant_trade_filter and filtered_trades is None:
+                filtered_trades = volume_filter_with_time_window(
+                    aggregated_trades,
+                    min_volume=symbol.significant_trade_filter,
+                )
+
+        return raw_trades, aggregated_trades, filtered_trades
+
+    @classmethod
+    def _save_trade_data(
         cls,
         obj: "TradeData",
         candles: DataFrame,
@@ -318,46 +363,29 @@ class TradeData(AbstractDataStorage):
         aggregated_trades: DataFrame | None = None,
         filtered_trades: DataFrame | None = None,
     ) -> "TradeData":
-        """Write data frame."""
+        """Populate and save one TradeData row."""
         uid = ""
         json_data = None
         raw_data = None
         aggregated_data = None
         filtered_data = None
-        provided_aggregated = aggregated_trades is not None
-        derived_aggregated = False
 
         if raw_trades is not None and len(raw_trades):
             uid = raw_trades.iloc[0].uid
             if obj.symbol.save_raw:
                 raw_data = cls.prepare_data(raw_trades)
-            if (
-                aggregated_trades is None
-                and (obj.symbol.save_aggregated or obj.symbol.significant_trade_filter)
-            ):
-                aggregated_trades = aggregate_trades(raw_trades)
-                derived_aggregated = True
-            if obj.symbol.significant_trade_filter and filtered_trades is None:
-                filtered_trades = volume_filter_with_time_window(
-                    aggregated_trades,
-                    min_volume=obj.symbol.significant_trade_filter,
-                )
 
         if aggregated_trades is not None and len(aggregated_trades):
             if not uid:
                 uid = aggregated_trades.iloc[0].uid
-            if provided_aggregated or obj.symbol.save_aggregated:
+            if obj.symbol.save_aggregated:
                 aggregated_data = cls.prepare_data(aggregated_trades)
-            if obj.symbol.significant_trade_filter and filtered_trades is None:
-                filtered_trades = volume_filter_with_time_window(
-                    aggregated_trades,
-                    min_volume=obj.symbol.significant_trade_filter,
-                )
 
         if filtered_trades is not None and len(filtered_trades):
             if not uid:
                 uid = filtered_trades.iloc[0].uid
-            filtered_data = cls.prepare_data(filtered_trades)
+            if obj.symbol.significant_trade_filter:
+                filtered_data = cls.prepare_data(filtered_trades)
 
         if filtered_trades is not None:
             validation = filtered_trades
@@ -374,11 +402,6 @@ class TradeData(AbstractDataStorage):
                 obj.timestamp,
                 timestamp_to,
             )
-            if validation is aggregated_trades and derived_aggregated:
-                assert is_decimal_close(
-                    aggregated_candles.notional.sum(),
-                    raw_trades.notional.sum(),
-                )
             json_data = {"candle": aggregate_candle(validation)}
 
         ok = validate_aggregated_candles(aggregated_candles, candles)
