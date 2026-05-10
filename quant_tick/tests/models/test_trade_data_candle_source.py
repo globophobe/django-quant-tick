@@ -53,7 +53,11 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
         )
 
         TradeData.write(
-            symbol, self.timestamp_from, self.timestamp_to, raw, pd.DataFrame([])
+            symbol,
+            self.timestamp_from,
+            self.timestamp_to,
+            pd.DataFrame([]),
+            raw_trades=raw,
         )
 
         trade_data = TradeData.objects.get()
@@ -87,7 +91,11 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
         )
 
         TradeData.write(
-            symbol, self.timestamp_from, self.timestamp_to, raw, pd.DataFrame([])
+            symbol,
+            self.timestamp_from,
+            self.timestamp_to,
+            pd.DataFrame([]),
+            raw_trades=raw,
         )
 
         trade_data = TradeData.objects.get()
@@ -120,7 +128,7 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
                     )
                 ]
             )
-            TradeData.write(symbol, ts_from, ts_to, raw, pd.DataFrame([]))
+            TradeData.write(symbol, ts_from, ts_to, pd.DataFrame([]), raw_trades=raw)
 
         candles = [
             dict(item["json_data"]["candle"])

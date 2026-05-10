@@ -27,7 +27,11 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         symbol = self.get_symbol()
         raw = self.get_raw(self.timestamp_from)
         TradeData.write(
-            symbol, self.timestamp_from, self.timestamp_to, raw, pd.DataFrame([])
+            symbol,
+            self.timestamp_from,
+            self.timestamp_to,
+            pd.DataFrame([]),
+            raw_trades=raw,
         )
         row = raw.iloc[0]
         trade_data = TradeData.objects.all()
@@ -46,8 +50,8 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                 symbol,
                 self.timestamp_from,
                 self.timestamp_to,
-                raw,
                 pd.DataFrame([]),
+                raw_trades=raw,
             )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 1)
@@ -76,8 +80,8 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                 symbol,
                 self.timestamp_from,
                 self.timestamp_to,
-                aggregated,
                 pd.DataFrame([]),
+                aggregated_trades=aggregated,
             )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 1)
@@ -116,8 +120,8 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             symbol,
             day_from,
             day_from + pd.Timedelta("1d"),
-            self.get_raw(day_from),
             pd.DataFrame([]),
+            raw_trades=self.get_raw(day_from),
         )
 
         rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
@@ -144,14 +148,34 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             symbol,
             hour_from,
             hour_from + pd.Timedelta("1h"),
-            self.get_raw(hour_from),
             pd.DataFrame([]),
+            raw_trades=self.get_raw(hour_from),
         )
 
         rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, hour_from)
         self.assertEqual(rows[0].frequency, Frequency.HOUR)
+
+    def test_write_rejects_unaligned_timestamp_ranges(self):
+        symbol = self.get_symbol()
+        day_from = get_min_time(self.timestamp_from, "1d")
+        cases = (
+            (day_from + pd.Timedelta("30s"), pd.Timedelta("1d")),
+            (day_from + pd.Timedelta("3h30s"), pd.Timedelta("1h")),
+            (day_from + pd.Timedelta("3h30s"), pd.Timedelta("1min")),
+        )
+
+        for timestamp_from, delta in cases:
+            with self.subTest(timestamp_from=timestamp_from, delta=delta):
+                with self.assertRaises(ValueError):
+                    TradeData.write(
+                        symbol,
+                        timestamp_from,
+                        timestamp_from + delta,
+                        pd.DataFrame([]),
+                        raw_trades=self.get_raw(timestamp_from),
+                    )
 
     def test_clean_trade_data_overlaps_deletes_hourly_and_minute_rows(self):
         symbol = self.get_symbol()
@@ -225,7 +249,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             ts_from = timestamp_from + pd.Timedelta(f"{minute}min")
             ts_to = ts_from + pd.Timedelta("1min")
             df = self.get_raw(ts_from)
-            TradeData.write(symbol, ts_from, ts_to, df, pd.DataFrame([]))
+            TradeData.write(symbol, ts_from, ts_to, pd.DataFrame([]), raw_trades=df)
             data_frames.append(df)
 
         trades = TradeData.objects.all()
@@ -312,7 +336,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             ts_from = timestamp_from + pd.Timedelta(f"{minute}min")
             ts_to = ts_from + pd.Timedelta("1min")
             df = self.get_raw(ts_from)
-            TradeData.write(symbol, ts_from, ts_to, df, pd.DataFrame([]))
+            TradeData.write(symbol, ts_from, ts_to, pd.DataFrame([]), raw_trades=df)
 
         queryset = TradeData.objects.filter(
             symbol=symbol,
