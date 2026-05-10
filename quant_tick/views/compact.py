@@ -11,6 +11,8 @@ from quant_tick.views.aggregate_trades import get_request_params
 
 logger = logging.getLogger(__name__)
 
+COMPACT_RECENT_DELAY = pd.Timedelta("2h")
+
 
 class CompactView(View):
     """Compact trade data and candle cache."""
@@ -23,6 +25,7 @@ class CompactView(View):
             timestamp_from, timestamp_to = get_request_params(request)
             min_timestamp_from = get_min_time(timestamp_to - pd.Timedelta("7d"), "1d")
             timestamp_from = max(timestamp_from, min_timestamp_from)
+            timestamp_to = get_min_time(timestamp_to - COMPACT_RECENT_DELAY, "1h")
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
 

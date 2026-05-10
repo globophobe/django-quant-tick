@@ -14,7 +14,7 @@ from quant_tick.lib import get_current_time, get_min_time
 from quant_tick.lib.download import ArchiveDownloadError
 from quant_tick.models import Symbol, TaskState, TradeData
 from quant_tick.pubsub import (
-    get_trade_pubsub_config,
+    get_trade_pubsub_configs,
     ingest_trades_from_pubsub,
 )
 from quant_tick.forms import (
@@ -48,8 +48,12 @@ def serialize_timestamp(timestamp: datetime) -> str:
     return value.removesuffix("+00:00") + "Z" if value.endswith("+00:00") else value
 
 
-def get_candle_repair_timestamp(timestamp: datetime) -> datetime:
-    return get_min_time(timestamp, "1h")
+def get_candle_retry_min_timestamp_from(timestamp: datetime) -> datetime:
+    timestamp_from = get_min_time(timestamp, "1h")
+    midpoint = timestamp_from + pd.Timedelta("30min")
+    if timestamp >= midpoint:
+        return midpoint
+    return timestamp_from
 
 
 class AggregateTradeDataView(View):
@@ -144,7 +148,7 @@ class AggregateTradeDataView(View):
             return None
         return retry_from, timestamp_to
 
-    def get_trade_repair_timestamp_from(
+    def get_candle_retry_timestamp_from(
         self,
         symbol: Symbol,
         timestamp_from,
@@ -166,15 +170,15 @@ class AggregateTradeDataView(View):
     def get_candle_request(
         self,
         symbol: Symbol,
-        timestamp_from=None,
+        retry_from=None,
     ) -> dict:
         data = {
             "exchange": symbol.exchange,
             "api_symbol": symbol.api_symbol,
         }
-        if timestamp_from is not None:
+        if retry_from is not None:
             data["timestamp_from"] = serialize_timestamp(
-                get_candle_repair_timestamp(timestamp_from)
+                get_candle_retry_min_timestamp_from(retry_from)
             )
         return data
 
@@ -184,29 +188,25 @@ class AggregateTradeDataView(View):
         timestamp_from,
         timestamp_to,
     ):
-        config = get_trade_pubsub_config()
-        if config is None:
+        configs = get_trade_pubsub_configs(symbol)
+        if not configs:
             return None
-        stream, subscription = config
         try:
             result = ingest_trades_from_pubsub(
-                stream=stream,
-                subscription=subscription,
-                exchange=symbol.exchange,
+                symbol=symbol,
                 timestamp_from=timestamp_from,
                 timestamp_to=timestamp_to,
-                api_symbol=symbol.api_symbol,
-                max_messages=getattr(settings, "QUANT_TICK_PUBSUB_PULL_LIMIT", 1000),
-                timeout=getattr(settings, "QUANT_TICK_PUBSUB_PULL_TIMEOUT", 5),
+                configs=configs,
             )
         except Exception:
-            logger.exception("%s: %s Pub/Sub ingest failed", symbol, stream)
+            logger.exception("%s: pub/sub ingest failed", symbol)
             return None
+        streams = ",".join(stream for stream, _subscription in configs)
         logger.info(
-            "%s: %s Pub/Sub ingest pulled=%s processed=%s ok=%s "
+            "%s: %s pub/sub ingest pulled=%s processed=%s ok=%s "
             "failed=%s pending=%s ignored=%s",
             symbol,
-            stream,
+            streams,
             result.pulled,
             result.processed,
             result.ok,
@@ -239,20 +239,20 @@ class AggregateTradeDataView(View):
                     )
                     if pubsub_window is not None:
                         self.ingest_pubsub_trades(symbol, *pubsub_window)
-                    repair_timestamp_from = None
+                    candle_retry_from = None
                     retry_window = self.get_recent_retry_window(
                         timestamp_from,
                         timestamp_to,
                     )
                     if retry_window is not None:
-                        repair_timestamp_from = self.get_trade_repair_timestamp_from(
+                        candle_retry_from = self.get_candle_retry_timestamp_from(
                             symbol,
                             *retry_window,
                         )
                         api(symbol, *retry_window, True)
                     api(symbol, timestamp_from, timestamp_to, False)
                     candle_requests.append(
-                        self.get_candle_request(symbol, repair_timestamp_from)
+                        self.get_candle_request(symbol, candle_retry_from)
                     )
                 except ArchiveDownloadError:
                     raise

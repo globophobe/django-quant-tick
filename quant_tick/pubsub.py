@@ -22,6 +22,8 @@ AGGREGATED_TRADES = "aggregated-trades"
 SIGNIFICANT_TRADES = "significant-trades"
 SIGNIFICANT_TRADE_FILTER_ATTR = "significant_trade_filter"
 TRADE_STREAMS = (RAW_TRADES, AGGREGATED_TRADES, SIGNIFICANT_TRADES)
+PUBSUB_PULL_BATCH_SIZE = 1000
+PUBSUB_PULL_TIMEOUT = 1
 DECIMAL_FIELDS = (
     "price",
     "volume",
@@ -205,8 +207,8 @@ def ingest_trades_from_pubsub(
     timestamp_from: datetime,
     timestamp_to: datetime,
     configs: list[tuple[str, str]] | None = None,
-    max_messages: int = 1000,
-    timeout: float = 5,
+    batch_size: int = PUBSUB_PULL_BATCH_SIZE,
+    timeout: float = PUBSUB_PULL_TIMEOUT,
     subscriber=None,
     candle_fetcher=candles_api,
 ) -> PubSubIngestionResult:
@@ -226,44 +228,49 @@ def ingest_trades_from_pubsub(
     ignored = 0
 
     for stream, subscription in configs:
-        response = subscriber.pull(
-            subscription=subscription,
-            max_messages=max_messages,
-            timeout=timeout,
-        )
-        received = list(response.received_messages)
-        pulled += len(received)
-        for received_message in received:
-            message = received_message.message
-            attrs = dict(message.attributes)
-            if (
-                attrs.get("exchange") != symbol.exchange
-                or attrs.get("symbol") != symbol.api_symbol
-            ):
-                release_ack_ids_by_subscription[subscription].append(
-                    received_message.ack_id
-                )
-                continue
+        while True:
+            response = subscriber.pull(
+                subscription=subscription,
+                max_messages=batch_size,
+                timeout=timeout,
+            )
+            received = list(response.received_messages)
+            if not received:
+                break
+            pulled += len(received)
+            for received_message in received:
+                message = received_message.message
+                attrs = dict(message.attributes)
+                if (
+                    attrs.get("exchange") != symbol.exchange
+                    or attrs.get("symbol") != symbol.api_symbol
+                ):
+                    release_ack_ids_by_subscription[subscription].append(
+                        received_message.ack_id
+                    )
+                    continue
 
-            if stream == SIGNIFICANT_TRADES and not matches_significant_trade_filter(
-                message,
-                symbol,
-            ):
-                ignored += 1
-                ack_ids_by_subscription[subscription].append(received_message.ack_id)
-                continue
+                if stream == SIGNIFICANT_TRADES and not matches_significant_trade_filter(
+                    message,
+                    symbol,
+                ):
+                    ignored += 1
+                    ack_ids_by_subscription[subscription].append(received_message.ack_id)
+                    continue
 
-            row = parse_trade_data(message.data)
-            if row["timestamp"] < timestamp_from:
-                ignored += 1
-                ack_ids_by_subscription[subscription].append(received_message.ack_id)
-                continue
-            if row["timestamp"] >= timestamp_to:
-                release_ack_ids_by_subscription[subscription].append(
-                    received_message.ack_id
+                row = parse_trade_data(message.data)
+                if row["timestamp"] < timestamp_from:
+                    ignored += 1
+                    ack_ids_by_subscription[subscription].append(received_message.ack_id)
+                    continue
+                if row["timestamp"] >= timestamp_to:
+                    release_ack_ids_by_subscription[subscription].append(
+                        received_message.ack_id
+                    )
+                    continue
+                rows_by_stream[stream].append(
+                    (received_message.ack_id, row, subscription)
                 )
-                continue
-            rows_by_stream[stream].append((received_message.ack_id, row, subscription))
 
     raw_trades = trades_to_data_frame(
         [row for _ack_id, row, _subscription in rows_by_stream.get(RAW_TRADES, [])]
