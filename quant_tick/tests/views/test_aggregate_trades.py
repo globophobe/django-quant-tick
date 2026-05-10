@@ -195,7 +195,7 @@ class AggregateTradeViewTest(TestCase):
                 (
                     "significant-trades",
                     "projects/test/subscriptions/"
-                    "coinbase-test-1-significant-trades-1000",
+                    "coinbase-test1-significant-trades-1000",
                 )
             ],
         )
@@ -239,15 +239,15 @@ class AggregateTradeViewTest(TestCase):
         self.assertEqual(
             mock_ingest.call_args.kwargs["configs"],
             [
-                ("raw-trades", "projects/test/subscriptions/coinbase-test-1-raw-trades"),
+                ("raw-trades", "projects/test/subscriptions/coinbase-test1-raw-trades"),
                 (
                     "aggregated-trades",
-                    "projects/test/subscriptions/coinbase-test-1-aggregated-trades",
+                    "projects/test/subscriptions/coinbase-test1-aggregated-trades",
                 ),
                 (
                     "significant-trades",
                     "projects/test/subscriptions/"
-                    "coinbase-test-1-significant-trades-1000",
+                    "coinbase-test1-significant-trades-1000",
                 ),
             ],
         )

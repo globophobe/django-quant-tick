@@ -79,7 +79,7 @@ class PubSubIngestionTests(BaseWriteTradeDataTest, TestCase):
 
         self.assertEqual(
             get_trade_subscription_id(RAW_TRADES, symbol),
-            "bitfinex-tbtcf0-ustf0-raw-trades",
+            "bitfinex-btcust-raw-trades",
         )
         self.assertEqual(
             get_trade_subscription_filter(RAW_TRADES, symbol),
@@ -88,11 +88,11 @@ class PubSubIngestionTests(BaseWriteTradeDataTest, TestCase):
         )
         self.assertEqual(
             get_trade_subscription_id(AGGREGATED_TRADES, symbol),
-            "bitfinex-tbtcf0-ustf0-aggregated-trades",
+            "bitfinex-btcust-aggregated-trades",
         )
         self.assertEqual(
             get_trade_subscription_id(SIGNIFICANT_TRADES, symbol),
-            "bitfinex-tbtcf0-ustf0-significant-trades-1000",
+            "bitfinex-btcust-significant-trades-1000",
         )
         self.assertEqual(
             get_trade_subscription_filter(SIGNIFICANT_TRADES, symbol),
@@ -116,17 +116,17 @@ class PubSubIngestionTests(BaseWriteTradeDataTest, TestCase):
                 [
                     (
                         RAW_TRADES,
-                        "projects/test/subscriptions/coinbase-btc-usd-raw-trades",
+                        "projects/test/subscriptions/coinbase-btcusd-raw-trades",
                     ),
                     (
                         AGGREGATED_TRADES,
                         "projects/test/subscriptions/"
-                        "coinbase-btc-usd-aggregated-trades",
+                        "coinbase-btcusd-aggregated-trades",
                     ),
                     (
                         SIGNIFICANT_TRADES,
                         "projects/test/subscriptions/"
-                        "coinbase-btc-usd-significant-trades-1000",
+                        "coinbase-btcusd-significant-trades-1000",
                     ),
                 ],
             )
@@ -136,7 +136,7 @@ class PubSubIngestionTests(BaseWriteTradeDataTest, TestCase):
                     (
                         AGGREGATED_TRADES,
                         "projects/test/subscriptions/"
-                        "coinbase-btc-usd-aggregated-trades",
+                        "coinbase-btcusd-aggregated-trades",
                     )
                 ],
             )
