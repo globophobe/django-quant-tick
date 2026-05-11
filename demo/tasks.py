@@ -1,6 +1,5 @@
 import json
 import os
-import shlex
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -168,7 +167,6 @@ def get_workflow(
 ) -> dict:
     """Get workflow."""
     aggregate_trades = urljoin(url, "aggregate-trades/")
-    aggregate_candles = urljoin(url, "aggregate-candles/")
     fetch_exchange_data_url = urljoin(url, "fetch-exchange-data/")
     compact = urljoin(url, "compact/")
     steps = []
@@ -203,30 +201,13 @@ def get_workflow(
                         ],
                         "steps": [
                             {
-                                "tradeAndCandleData": {
+                                "tradeData": {
                                     "try": {
-                                        "steps": [
-                                            {
-                                                "tradeData": {
-                                                    "call": "http.get",
-                                                    "args": {
-                                                        "url": "${item.url}",
-                                                        "auth": {"type": "OIDC"},
-                                                    },
-                                                    "result": "tradeResponse",
-                                                }
-                                            },
-                                            {
-                                                "candleData": {
-                                                    "call": "http.post",
-                                                    "args": {
-                                                        "url": aggregate_candles,
-                                                        "auth": {"type": "OIDC"},
-                                                        "body": "${tradeResponse.body}",
-                                                    },
-                                                }
-                                            },
-                                        ],
+                                        "call": "http.get",
+                                        "args": {
+                                            "url": "${item.url}",
+                                            "auth": {"type": "OIDC"},
+                                        },
                                     },
                                     "except": {"as": "e", "steps": []},
                                 }
@@ -289,6 +270,7 @@ def get_workflow(
     ]
     return {"main": {"steps": steps}}
 
+
 @task
 def push_workflow(
     ctx: Any,
@@ -330,51 +312,3 @@ def push_workflow(
             f"gcloud workflows deploy {name} "
             f"--source={f.name} --location={location}"
         )
-
-
-@task
-def sync_pubsub_subscriptions(
-    ctx: Any,
-    expiration_period: str = "never",
-) -> None:
-    """Sync trade pub/sub subscriptions."""
-    django_settings(ctx, proxy=True)
-    from quant_tick.models import Symbol
-    from quant_tick.pubsub import (
-        TRADE_STREAMS,
-        get_trade_subscription_filter,
-        get_trade_subscription_id,
-        symbol_supports_trade_stream,
-    )
-
-    symbols = Symbol.objects.filter(is_active=True).order_by("exchange", "api_symbol")
-    if not symbols:
-        print("No active symbols.")
-        return
-
-    created = 0
-    for symbol in symbols:
-        for stream in TRADE_STREAMS:
-            if not symbol_supports_trade_stream(symbol, stream):
-                continue
-            subscription = get_trade_subscription_id(stream, symbol)
-            filter_expr = get_trade_subscription_filter(stream, symbol)
-            create_cmd = (
-                "gcloud pubsub subscriptions create "
-                f"{shlex.quote(subscription)} "
-                f"--topic={shlex.quote(stream)} "
-                f"--message-filter={shlex.quote(filter_expr)} "
-                f"--expiration-period={shlex.quote(expiration_period)}"
-            )
-            describe_cmd = (
-                "gcloud pubsub subscriptions describe "
-                f"{shlex.quote(subscription)}"
-            )
-            result = ctx.run(describe_cmd, warn=True, hide=True)
-            if result.ok:
-                print(f"{subscription}: exists")
-                continue
-            ctx.run(create_cmd)
-            created += 1
-    if created == 0:
-        print("No matching trade pub/sub subscriptions.")
