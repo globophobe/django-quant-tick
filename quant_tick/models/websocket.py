@@ -49,7 +49,7 @@ def parse_trade_row(row: dict) -> dict:
     return data
 
 
-class TradeStagingQuerySet(QuerySet):
+class WebSocketDataQuerySet(QuerySet):
     def for_symbol(self, symbol: Symbol) -> QuerySet:
         return self.filter(
             exchange=symbol.exchange,
@@ -58,8 +58,8 @@ class TradeStagingQuerySet(QuerySet):
         )
 
 
-class TradeStaging(models.Model):
-    """Trade bucket data written by go-quant-tick collectors."""
+class WebSocketData(models.Model):
+    """WebSocket bucket data written by go-quant-tick collectors."""
 
     exchange = models.CharField(_("exchange"), choices=Exchange.choices, max_length=255)
     api_symbol = models.CharField(_("API symbol"), max_length=255)
@@ -72,7 +72,7 @@ class TradeStaging(models.Model):
     aggregated_trades = JSONField(_("aggregated trades"), default=list, blank=True)
     filtered_trades = JSONField(_("filtered trades"), default=list, blank=True)
 
-    objects = TradeStagingQuerySet.as_manager()
+    objects = WebSocketDataQuerySet.as_manager()
 
     @staticmethod
     def get_trades(value: list[dict]) -> list[dict]:
@@ -90,12 +90,7 @@ class TradeStaging(models.Model):
         if not trades:
             return None
         data = DataFrame(parse_trade_row(row) for row in trades)
-        sort_columns = [
-            column for column in ("timestamp", "nanoseconds") if column in data.columns
-        ]
-        if not sort_columns:
-            return data.reset_index(drop=True)
-        return data.sort_values(sort_columns, kind="stable").reset_index(drop=True)
+        return data.reset_index(drop=True)
 
     def get_data_frames(
         self,
@@ -113,9 +108,9 @@ class TradeStaging(models.Model):
         return raw_trades, aggregated_trades, filtered_trades
 
     class Meta:
-        db_table = "quant_tick_trade_staging"
+        db_table = "quant_tick_websocket_data"
         ordering = ("timestamp", "exchange", "api_symbol")
-        verbose_name = verbose_name_plural = _("trade staging")
+        verbose_name = verbose_name_plural = _("websocket data")
         constraints = [
             models.UniqueConstraint(
                 fields=(
@@ -124,6 +119,6 @@ class TradeStaging(models.Model):
                     "significant_trade_filter",
                     "timestamp",
                 ),
-                name="quant_tick_trade_staging_unique",
+                name="quant_tick_websocket_data_unique",
             ),
         ]
