@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from quant_tick.testing import is_test
 
@@ -21,10 +22,10 @@ DATABASES = {
 }
 
 # GCP
-CREDENTIALS = (
-    BASE_DIR.parent.parent.parent / "keys" / os.environ["GOOGLE_APPLICATION_CREDENTIALS"]  # noqa: F405
-)
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(CREDENTIALS.resolve())
+credentials = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+if credentials and not Path(credentials).is_absolute():
+    credentials = Path.home() / "keys" / credentials
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credentials.resolve())
 
 STORAGES = {
     "default": {
