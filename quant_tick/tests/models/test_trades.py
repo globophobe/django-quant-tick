@@ -161,6 +161,20 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                 self.assertEqual(len(rows), 1)
                 self.assertFalse(TradeData.objects.get(symbol=symbol).ok)
 
+    def test_validate_trade_data_does_not_write(self):
+        symbol = self.get_symbol(save_raw=True)
+
+        ok = TradeData.validate(
+            symbol,
+            self.timestamp_from,
+            self.timestamp_to,
+            self.get_exchange_candles("10"),
+            raw_trades=self.get_raw_validation_data("raw-1"),
+        )
+
+        self.assertTrue(ok)
+        self.assertFalse(TradeData.objects.filter(symbol=symbol).exists())
+
     def test_write_trade_data_uses_provided_frames_without_reaggregating(self):
         symbol = self.get_symbol(
             save_raw=True,

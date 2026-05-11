@@ -23,22 +23,11 @@ class WorkflowTest(SimpleTestCase):
                 "compact",
             ],
         )
-        trade_steps = steps[1]["getTradeData"]["parallel"]["for"]["steps"][0][
-            "tradeAndCandleData"
-        ]["try"]["steps"]
-        self.assertEqual(
-            trade_steps[0]["tradeData"]["args"]["url"],
-            "${item.url}",
-        )
-        self.assertEqual(trade_steps[0]["tradeData"]["result"], "tradeResponse")
-        self.assertEqual(
-            trade_steps[1]["candleData"]["args"]["url"],
-            "https://test.123/aggregate-candles/",
-        )
-        self.assertEqual(
-            trade_steps[1]["candleData"]["args"]["body"],
-            "${tradeResponse.body}",
-        )
+        trade_step = steps[1]["getTradeData"]["parallel"]["for"]["steps"][0][
+            "tradeData"
+        ]["try"]
+        self.assertEqual(trade_step["call"], "http.get")
+        self.assertEqual(trade_step["args"]["url"], "${item.url}")
         self.assertEqual(
             steps[2]["fetchExchangeData"]["try"]["args"]["url"],
             "https://test.123/fetch-exchange-data/?time_ago=7d",
@@ -46,13 +35,14 @@ class WorkflowTest(SimpleTestCase):
         self.assertEqual(steps[2]["fetchExchangeData"]["except"]["steps"], [])
         self.assertEqual(steps[3]["maybeCallback"]["next"], "compact")
         self.assertEqual(steps[4]["callback"]["next"], "compact")
+        self.assertEqual(steps[4]["callback"]["args"]["url"], "https://test.456/callback/")
         self.assertEqual(steps[4]["callback"]["args"]["body"], {"as_of": "${runTime}"})
         self.assertEqual(
             steps[5]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
         )
 
-    def test_workflow_compacts_without_callback(self):
+    def test_workflow_collects_trades(self):
         workflow = get_workflow(
             "https://test.123/",
             [{"exchange": "coinbase", "api_symbol": "BTC-USD"}],
@@ -62,25 +52,17 @@ class WorkflowTest(SimpleTestCase):
             [next(iter(step)) for step in steps],
             ["getTradeData", "fetchExchangeData", "compact"],
         )
-        trade_steps = steps[0]["getTradeData"]["parallel"]["for"]["steps"][0][
-            "tradeAndCandleData"
-        ]["try"]["steps"]
+        trade_step = steps[0]["getTradeData"]["parallel"]["for"]["steps"][0][
+            "tradeData"
+        ]["try"]
         self.assertEqual(
-            trade_steps[0]["tradeData"]["args"]["url"],
+            trade_step["args"]["url"],
             "${item.url}",
         )
-        self.assertEqual(trade_steps[0]["tradeData"]["result"], "tradeResponse")
+        self.assertEqual(trade_step["call"], "http.get")
         self.assertEqual(
-            trade_steps[1]["candleData"]["call"],
-            "http.post",
-        )
-        self.assertEqual(
-            trade_steps[1]["candleData"]["args"],
-            {
-                "url": "https://test.123/aggregate-candles/",
-                "auth": {"type": "OIDC"},
-                "body": "${tradeResponse.body}",
-            },
+            trade_step["args"]["auth"],
+            {"type": "OIDC"},
         )
         self.assertEqual(
             steps[1]["fetchExchangeData"]["try"]["args"]["url"],

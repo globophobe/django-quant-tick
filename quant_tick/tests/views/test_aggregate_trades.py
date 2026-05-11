@@ -1,14 +1,15 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import patch
 
 import httpx
+import pandas as pd
 from django.test import TestCase
 from django.urls import reverse
 
 from quant_tick.constants import Exchange, Frequency, TaskType
 from quant_tick.lib.download import ArchiveDownloadError
-from quant_tick.models import Symbol, TaskState, TradeData
-from quant_tick.pubsub import PubSubIngestionResult
+from quant_tick.models import Symbol, TaskState, TradeData, WebSocketData
 
 
 @patch("quant_tick.views.aggregate_trades.api")
@@ -42,6 +43,26 @@ class AggregateTradeViewTest(TestCase):
             frequency=frequency,
             ok=ok,
         )
+
+    def get_websocket_trade(self) -> dict:
+        return {
+            "uid": "ws-1",
+            "timestamp": "2026-05-01T23:55:10Z",
+            "nanoseconds": 0,
+            "price": "100",
+            "volume": "1000",
+            "notional": "10",
+            "tickRule": 1,
+            "ticks": 1,
+            "high": "100",
+            "low": "100",
+            "totalBuyVolume": "1000",
+            "totalVolume": "1000",
+            "totalBuyNotional": "10",
+            "totalNotional": "10",
+            "totalBuyTicks": 1,
+            "totalTicks": 1,
+        }
 
     def test_get_with_exchange_processes_all_symbols(self, mock_api):
         response = self.client.get(self.get_url())
@@ -95,14 +116,7 @@ class AggregateTradeViewTest(TestCase):
         self.assertEqual(timestamp_from, datetime(2026, 4, 25, tzinfo=UTC))
         self.assertEqual(timestamp_to, datetime(2026, 5, 2, 0, 10, tzinfo=UTC))
         self.assertFalse(retry)
-        self.assertEqual(
-            response.json(),
-            {
-                "ok": True,
-                "exchange": Exchange.COINBASE,
-                "api_symbol": "test-1",
-            },
-        )
+        self.assertTrue(response.json()["ok"])
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange=Exchange.COINBASE,
@@ -128,14 +142,7 @@ class AggregateTradeViewTest(TestCase):
         self.assertEqual(timestamp_from, datetime(2026, 4, 25, tzinfo=UTC))
         self.assertEqual(timestamp_to, datetime(2026, 5, 2, 0, 10, tzinfo=UTC))
         self.assertFalse(retry)
-        self.assertEqual(
-            response.json(),
-            {
-                "ok": True,
-                "exchange": Exchange.COINBASE,
-                "api_symbol": "test-1",
-            },
-        )
+        self.assertTrue(response.json()["ok"])
 
     def test_get_returns_candle_retry_request_for_recent_bad_trade_data(self, mock_api):
         now = datetime(2026, 5, 2, 0, 10, 42, tzinfo=UTC)
@@ -144,7 +151,88 @@ class AggregateTradeViewTest(TestCase):
             ok=False,
         )
 
-        with patch("quant_tick.views.aggregate_trades.get_current_time", return_value=now):
+        with (
+            patch("quant_tick.views.aggregate_trades.get_current_time", return_value=now),
+            patch(
+                "quant_tick.views.aggregate_trades.aggregate_candle_data",
+                return_value={"ok": True, "processed": 0},
+            ) as mock_aggregate_candles,
+        ):
+            response = self.client.get(
+                self.get_url(),
+                {"time_ago": "7d", "api_symbol": "test-1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_aggregate_candles.assert_called_once_with(
+            [
+                {
+                    "exchange": Exchange.COINBASE,
+                    "api_symbol": "test-1",
+                    "timestamp_from": datetime(2026, 5, 1, 23, 30, tzinfo=UTC),
+                }
+            ]
+        )
+
+    def test_get_validates_websocket_data_without_writing(self, mock_api):
+        symbol = self.symbols["test-1"]
+        symbol.save_raw = False
+        symbol.significant_trade_filter = 1000
+        symbol.save()
+        self.create_trade_data(
+            timestamp=datetime(2026, 5, 1, 23, 54, tzinfo=UTC),
+            ok=True,
+        )
+        WebSocketData.objects.create(
+            exchange=Exchange.COINBASE,
+            api_symbol="test-1",
+            significant_trade_filter=1000,
+            timestamp=datetime(2026, 5, 1, 23, 55, tzinfo=UTC),
+            filtered_trades=[self.get_websocket_trade()],
+        )
+        now = datetime(2026, 5, 2, 0, 10, 42, tzinfo=UTC)
+        events = []
+
+        def api_side_effect(*args):
+            events.append(("api", args[3]))
+
+        def candles_side_effect(*args, **kwargs):
+            events.append("candles")
+            return pd.DataFrame(
+                [
+                    {
+                        "timestamp": datetime(2026, 5, 1, 23, 55, tzinfo=UTC),
+                        "notional": Decimal("10"),
+                    }
+                ]
+            ).set_index("timestamp")
+
+        def validate_side_effect(*args, **kwargs):
+            events.append("validate")
+            return True
+
+        def rest_filtered_side_effect(*args, **kwargs):
+            events.append("rest")
+            return WebSocketData.get_data_frame([self.get_websocket_trade()])
+
+        mock_api.side_effect = api_side_effect
+        with (
+            patch("quant_tick.views.aggregate_trades.candles_api") as mock_candles,
+            patch("quant_tick.views.aggregate_trades.TradeData.validate") as mock_validate,
+            patch("quant_tick.views.aggregate_trades.TradeData.write") as mock_write,
+            patch(
+                "quant_tick.views.aggregate_trades."
+                "AggregateTradeDataView.get_rest_filtered_trades",
+            ) as mock_rest_filtered,
+            patch(
+                "quant_tick.views.aggregate_trades.get_current_time",
+                return_value=now,
+            ),
+        ):
+            mock_candles.side_effect = candles_side_effect
+            mock_validate.side_effect = validate_side_effect
+            mock_rest_filtered.side_effect = rest_filtered_side_effect
+
             response = self.client.get(
                 self.get_url(),
                 {"time_ago": "7d", "api_symbol": "test-1"},
@@ -152,133 +240,96 @@ class AggregateTradeViewTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json(),
-            {
-                "ok": True,
-                "exchange": Exchange.COINBASE,
-                "api_symbol": "test-1",
-                "timestamp_from": "2026-05-01T23:30:00Z",
-            },
+            events,
+            [("api", True), ("api", False), "candles", "validate", "rest"],
         )
+        self.assertEqual(response.json(), {"ok": True})
+        mock_write.assert_not_called()
+        frame = mock_validate.call_args.kwargs["filtered_trades"]
+        self.assertEqual(frame.iloc[0].totalVolume, Decimal("1000"))
 
-    @patch("quant_tick.views.aggregate_trades.ingest_trades_from_pubsub")
-    def test_get_skips_pubsub_when_symbol_has_no_trade_data(
-        self,
-        mock_ingest,
-        mock_api,
-    ):
-        self.symbols["test-1"].significant_trade_filter = 1000
-        self.symbols["test-1"].save()
-
-        with patch("quant_tick.pubsub.get_default_project_id", return_value="test"):
-            response = self.client.get(self.get_url(), {"api_symbol": "test-1"})
-
-        self.assertEqual(response.status_code, 200)
-        mock_ingest.assert_not_called()
-        self.assertEqual(mock_api.call_count, 2)
-
-    @patch("quant_tick.views.aggregate_trades.ingest_trades_from_pubsub")
-    def test_get_ingests_pubsub_before_rest(self, mock_ingest, mock_api):
-        self.symbols["test-1"].significant_trade_filter = 1000
-        self.symbols["test-1"].save()
-        self.create_trade_data()
-        mock_ingest.return_value = PubSubIngestionResult(pulled=1, processed=1, ok=1)
-
-        with patch("quant_tick.pubsub.get_default_project_id", return_value="test"):
-            response = self.client.get(self.get_url(), {"api_symbol": "test-1"})
-
-        self.assertEqual(response.status_code, 200)
-        mock_ingest.assert_called_once()
-        self.assertEqual(
-            mock_ingest.call_args.kwargs["configs"],
-            [
-                (
-                    "significant-trades",
-                    "projects/test/subscriptions/"
-                    "coinbase-test1-significant-trades-1000",
-                )
-            ],
-        )
-        self.assertEqual(mock_ingest.call_args.kwargs["symbol"], self.symbols["test-1"])
-        self.assertEqual(mock_api.call_count, 2)
-        self.assertTrue(mock_api.call_args_list[0].args[3])
-        self.assertFalse(mock_api.call_args_list[1].args[3])
-
-    @patch("quant_tick.views.aggregate_trades.ingest_trades_from_pubsub")
-    def test_get_skips_pubsub_when_symbol_has_no_trade_streams(
-        self,
-        mock_ingest,
-        mock_api,
-    ):
-        self.create_trade_data()
-        mock_ingest.return_value = PubSubIngestionResult(pulled=1, processed=1, ok=1)
-
-        with patch("quant_tick.pubsub.get_default_project_id", return_value="test"):
-            response = self.client.get(self.get_url(), {"api_symbol": "test-1"})
-
-        self.assertEqual(response.status_code, 200)
-        mock_ingest.assert_not_called()
-
-    @patch("quant_tick.views.aggregate_trades.ingest_trades_from_pubsub")
-    def test_get_uses_all_symbol_pubsub_subscription_contracts(
-        self,
-        mock_ingest,
-        mock_api,
-    ):
-        self.symbols["test-1"].save_raw = True
-        self.symbols["test-1"].save_aggregated = True
-        self.symbols["test-1"].significant_trade_filter = 1000
-        self.symbols["test-1"].save()
-        self.create_trade_data()
-        mock_ingest.return_value = PubSubIngestionResult(pulled=1, processed=1, ok=1)
-
-        with patch("quant_tick.pubsub.get_default_project_id", return_value="test"):
-            response = self.client.get(self.get_url(), {"api_symbol": "test-1"})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            mock_ingest.call_args.kwargs["configs"],
-            [
-                ("raw-trades", "projects/test/subscriptions/coinbase-test1-raw-trades"),
-                (
-                    "aggregated-trades",
-                    "projects/test/subscriptions/coinbase-test1-aggregated-trades",
-                ),
-                (
-                    "significant-trades",
-                    "projects/test/subscriptions/"
-                    "coinbase-test1-significant-trades-1000",
-                ),
-            ],
-        )
-
-    @patch("quant_tick.views.aggregate_trades.ingest_trades_from_pubsub")
-    def test_get_scopes_pubsub_to_forward_tail(self, mock_ingest, mock_api):
-        now = datetime(2026, 5, 2, 0, 10, 42, tzinfo=UTC)
-        self.symbols["test-1"].significant_trade_filter = 1000
-        self.symbols["test-1"].save()
+    def test_get_fails_websocket_data_when_rest_filtered_trades_differ(self, mock_api):
+        symbol = self.symbols["test-1"]
+        symbol.significant_trade_filter = 1000
+        symbol.save()
         self.create_trade_data(
-            timestamp=datetime(2026, 5, 2, 0, 8, tzinfo=UTC),
-            frequency=Frequency.MINUTE,
+            timestamp=datetime(2026, 5, 1, 23, 54, tzinfo=UTC),
+            ok=True,
         )
-        mock_ingest.return_value = PubSubIngestionResult(pulled=1, processed=1, ok=1)
+        WebSocketData.objects.create(
+            exchange=Exchange.COINBASE,
+            api_symbol="test-1",
+            significant_trade_filter=1000,
+            timestamp=datetime(2026, 5, 1, 23, 55, tzinfo=UTC),
+            filtered_trades=[self.get_websocket_trade()],
+        )
+        rest_trade = self.get_websocket_trade()
+        rest_trade["totalVolume"] = "1001"
+        now = datetime(2026, 5, 2, 0, 10, 42, tzinfo=UTC)
+        mock_api.return_value = None
 
-        with patch("quant_tick.views.aggregate_trades.get_current_time", return_value=now):
-            with patch("quant_tick.pubsub.get_default_project_id", return_value="test"):
-                response = self.client.get(
-                    self.get_url(),
-                    {"time_ago": "7d", "api_symbol": "test-1"},
-                )
+        with (
+            patch("quant_tick.views.aggregate_trades.candles_api") as mock_candles,
+            patch("quant_tick.views.aggregate_trades.TradeData.validate") as mock_validate,
+            patch(
+                "quant_tick.views.aggregate_trades."
+                "AggregateTradeDataView.get_rest_filtered_trades",
+                return_value=WebSocketData.get_data_frame([rest_trade]),
+            ),
+            patch(
+                "quant_tick.views.aggregate_trades.get_current_time",
+                return_value=now,
+            ),
+        ):
+            mock_candles.return_value = pd.DataFrame(
+                [
+                    {
+                        "timestamp": datetime(2026, 5, 1, 23, 55, tzinfo=UTC),
+                        "notional": Decimal("10"),
+                    }
+                ]
+            ).set_index("timestamp")
+            mock_validate.return_value = True
+
+            response = self.client.get(
+                self.get_url(),
+                {"time_ago": "7d", "api_symbol": "test-1"},
+            )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            mock_ingest.call_args.kwargs["timestamp_from"],
-            datetime(2026, 5, 2, 0, 9, tzinfo=UTC),
+        self.assertEqual(response.json(), {"ok": True})
+
+    def test_get_skips_websocket_data_until_symbol_has_trade_data(self, mock_api):
+        symbol = self.symbols["test-1"]
+        symbol.save_raw = False
+        symbol.significant_trade_filter = 1000
+        symbol.save()
+        WebSocketData.objects.create(
+            exchange=Exchange.COINBASE,
+            api_symbol="test-1",
+            significant_trade_filter=1000,
+            timestamp=datetime(2026, 5, 1, 23, 55, tzinfo=UTC),
+            filtered_trades=[self.get_websocket_trade()],
         )
-        self.assertEqual(
-            mock_ingest.call_args.kwargs["timestamp_to"],
-            datetime(2026, 5, 2, 0, 10, tzinfo=UTC),
-        )
+        now = datetime(2026, 5, 2, 0, 10, 42, tzinfo=UTC)
+
+        with (
+            patch("quant_tick.views.aggregate_trades.candles_api") as mock_candles,
+            patch("quant_tick.views.aggregate_trades.TradeData.validate") as mock_validate,
+            patch(
+                "quant_tick.views.aggregate_trades.get_current_time",
+                return_value=now,
+            ),
+        ):
+            response = self.client.get(
+                self.get_url(),
+                {"time_ago": "7d", "api_symbol": "test-1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_candles.assert_not_called()
+        mock_validate.assert_not_called()
+        self.assertEqual(mock_api.call_count, 2)
 
     def test_get_skips_when_task_is_backed_off(self, mock_api):
         TaskState.objects.create(
