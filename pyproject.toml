@@ -35,11 +35,6 @@ dependencies = [
     "randomname>=0.2.1",
 ]
 
-[project.optional-dependencies]
-pubsub = [
-    "google-cloud-pubsub>=2.32.0",
-]
-
 [project.urls]
 Homepage = "https://github.com/globophobe/django-quant-tick"
 Repository = "https://github.com/globophobe/django-quant-tick"
@@ -50,7 +45,6 @@ packages = ["quant_tick"]
 [dependency-groups]
 deploy = [
     "django-storages[google]>=1.14.6",
-    "google-cloud-pubsub>=2.32.0",
     "gunicorn>=23.0.0",
     "python-dotenv>=1.1.1",
     "psycopg2-binary>=2.9.10",
