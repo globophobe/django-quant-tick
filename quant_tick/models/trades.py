@@ -180,12 +180,49 @@ class TradeData(AbstractDataStorage):
     ) -> list["TradeData"]:
         """Write trades and validate them against exchange candles."""
         if raw_trades is None and aggregated_trades is None and filtered_trades is None:
-            raise ValueError("Either raw_trades, aggregated_trades, or filtered_trades is required.")
+            raise ValueError(
+                "Either raw_trades, aggregated_trades, or filtered_trades is required."
+            )
         return cls._write_range(
             symbol,
             timestamp_from,
             timestamp_to,
             candles,
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+
+    @classmethod
+    def validate(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        candles: DataFrame,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> bool | None:
+        """Validate trades against exchange candles without writing TradeData."""
+        if raw_trades is None and aggregated_trades is None and filtered_trades is None:
+            raise ValueError(
+                "Either raw_trades, aggregated_trades, or filtered_trades is required."
+            )
+        cls._get_write_frequency(timestamp_from, timestamp_to)
+        raw_trades, aggregated_trades, filtered_trades = cls._prepare_partition_data(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+        return cls._validate_trade_data(
+            timestamp_from,
+            timestamp_to,
+            filter_by_timestamp(candles, timestamp_from, timestamp_to),
             raw_trades=raw_trades,
             aggregated_trades=aggregated_trades,
             filtered_trades=filtered_trades,
@@ -275,6 +312,41 @@ class TradeData(AbstractDataStorage):
         aggregated_trades: DataFrame | None = None,
         filtered_trades: DataFrame | None = None,
     ) -> "TradeData":
+        raw_trades, aggregated_trades, filtered_trades = cls._prepare_partition_data(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+
+        cls.objects.cleanup(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
+        )
+        obj = TradeData(symbol=symbol, timestamp=timestamp_from, frequency=frequency)
+        return cls._save_trade_data(
+            obj,
+            filter_by_timestamp(candles, timestamp_from, timestamp_to),
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+
+    @classmethod
+    def _prepare_partition_data(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> tuple[DataFrame | None, DataFrame | None, DataFrame | None]:
         raw_trades = cls._filter_frame(raw_trades, timestamp_from, timestamp_to)
         aggregated_trades = cls._filter_frame(
             aggregated_trades,
@@ -297,21 +369,7 @@ class TradeData(AbstractDataStorage):
             aggregated_trades=aggregated_trades,
             filtered_trades=filtered_trades,
         )
-
-        cls.objects.cleanup(
-            symbol,
-            timestamp_from,
-            timestamp_to,
-            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
-        )
-        obj = TradeData(symbol=symbol, timestamp=timestamp_from, frequency=frequency)
-        return cls._save_trade_data(
-            obj,
-            filter_by_timestamp(candles, timestamp_from, timestamp_to),
-            raw_trades=raw_trades,
-            aggregated_trades=aggregated_trades,
-            filtered_trades=filtered_trades,
-        )
+        return raw_trades, aggregated_trades, filtered_trades
 
     @staticmethod
     def _filter_frame(
@@ -387,12 +445,11 @@ class TradeData(AbstractDataStorage):
             if obj.symbol.significant_trade_filter:
                 filtered_data = cls.prepare_data(filtered_trades)
 
-        if filtered_trades is not None:
-            validation = filtered_trades
-        elif aggregated_trades is not None:
-            validation = aggregated_trades
-        else:
-            validation = raw_trades
+        validation = cls._get_validation_frame(
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
 
         aggregated_candles = pd.DataFrame([])
         if validation is not None and len(validation):
@@ -414,6 +471,44 @@ class TradeData(AbstractDataStorage):
             obj.ok = ok
             obj.save()
         return obj
+
+    @staticmethod
+    def _get_validation_frame(
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> DataFrame | None:
+        if filtered_trades is not None:
+            return filtered_trades
+        if aggregated_trades is not None:
+            return aggregated_trades
+        return raw_trades
+
+    @classmethod
+    def _validate_trade_data(
+        cls,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        candles: DataFrame,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> bool | None:
+        validation = cls._get_validation_frame(
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+        aggregated_candles = pd.DataFrame([])
+        if validation is not None and len(validation):
+            aggregated_candles = aggregate_candles(
+                validation,
+                timestamp_from,
+                timestamp_to,
+            )
+        return validate_aggregated_candles(aggregated_candles, candles)
 
     class Meta:
         db_table = "quant_tick_trade_data"
