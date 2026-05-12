@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urljoin
 
+from django.db.models import Q
 from dotenv import load_dotenv
 from invoke import task
 
@@ -283,6 +284,11 @@ def push_workflow(
 
     symbols = list(
         Symbol.objects.filter(is_active=True)
+        .filter(
+            Q(save_raw=True)
+            | Q(save_aggregated=True)
+            | Q(significant_trade_filter__gt=0)
+        )
         .order_by("exchange", "api_symbol")
         .values("exchange", "api_symbol")
     )
