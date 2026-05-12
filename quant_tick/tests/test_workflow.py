@@ -1,6 +1,12 @@
-from django.test import SimpleTestCase
+import os
+from unittest.mock import Mock, patch
 
-from tasks import get_workflow
+from django.test import SimpleTestCase, TestCase
+
+from quant_tick.constants import Exchange
+from quant_tick.models import Symbol
+
+from tasks import get_workflow, push_workflow
 
 
 class WorkflowTest(SimpleTestCase):
@@ -95,5 +101,64 @@ class WorkflowTest(SimpleTestCase):
                 {
                     "url": "https://test.123/aggregate-trades/binance-futures/?time_ago=7d&api_symbol=BTC%2FUSDT"
                 },
+            ],
+        )
+
+
+class WorkflowDeployTest(TestCase):
+    @patch.dict(
+        os.environ,
+        {
+            "PRODUCTION_API_URL": "https://test.123/",
+            "CALLBACK_URL": "",
+            "CALLBACK_INTERVAL_MINUTES": "",
+        },
+    )
+    @patch("tasks.django_settings")
+    @patch("tasks.get_workflow", return_value={"main": {"steps": []}})
+    def test_push_workflow_only_fans_out_trade_data_symbols(
+        self,
+        mock_get_workflow,
+        _mock_django_settings,
+    ):
+        raw = Symbol.objects.create(
+            exchange=Exchange.COINBASE,
+            api_symbol="BTC-USD",
+            save_raw=True,
+        )
+        aggregated = Symbol.objects.create(
+            exchange=Exchange.BITFINEX,
+            api_symbol="tBTCUSD",
+            save_aggregated=True,
+        )
+        filtered = Symbol.objects.create(
+            exchange=Exchange.BITMEX,
+            api_symbol="XBTUSD",
+            significant_trade_filter=1000,
+        )
+        Symbol.objects.create(
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+            exchange_candle_resolution="1h",
+        )
+        Symbol.objects.create(
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="BTC",
+        )
+        Symbol.objects.create(
+            exchange=Exchange.BINANCE,
+            api_symbol="BTCUSDT",
+            save_raw=True,
+            is_active=False,
+        )
+
+        push_workflow.body(Mock())
+
+        self.assertEqual(
+            mock_get_workflow.call_args.args[1],
+            [
+                {"exchange": aggregated.exchange, "api_symbol": aggregated.api_symbol},
+                {"exchange": filtered.exchange, "api_symbol": filtered.api_symbol},
+                {"exchange": raw.exchange, "api_symbol": raw.api_symbol},
             ],
         )
