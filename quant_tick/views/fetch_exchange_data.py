@@ -13,6 +13,7 @@ from quant_tick.models import Symbol, TaskState
 from quant_tick.views.aggregate_trades import (
     TRANSIENT_COLLECTION_ERRORS,
     get_timestamp_range,
+    is_soft_collection_error,
 )
 from quant_tick.forms import (
     FetchExchangeDataRequestForm,
@@ -144,10 +145,13 @@ class FetchExchangeDataView(View):
                 counts["failed"] += 1
                 task_state.mark_recent_error(backoff=False)
                 logger.exception("%s: fetch exchange data failed", symbol)
-            except Exception:
+            except Exception as exc:
                 counts["failed"] += 1
-                task_state.mark_recent_error()
-                logger.exception("%s: fetch exchange data failed", symbol)
+                if is_soft_collection_error(exc):
+                    logger.warning("%s: fetch exchange data skipped: %s", symbol, exc)
+                else:
+                    task_state.mark_recent_error()
+                    logger.exception("%s: fetch exchange data failed", symbol)
             else:
                 counts["funding"] += symbol_counts["funding"]
                 counts["exchange_candles"] += symbol_counts["exchange_candles"]

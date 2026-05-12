@@ -22,6 +22,7 @@ from quant_tick.forms import (
 
 logger = logging.getLogger(__name__)
 
+SOFT_COLLECTION_STATUS_CODES = {530}
 TRANSIENT_COLLECTION_ERRORS = (httpx.TransportError,)
 TRADE_COMPARE_COLUMNS = (
     "timestamp",
@@ -40,6 +41,13 @@ TRADE_COMPARE_COLUMNS = (
     "totalBuyTicks",
     "totalTicks",
 )
+
+
+def is_soft_collection_error(exc: Exception) -> bool:
+    return (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code in SOFT_COLLECTION_STATUS_CODES
+    )
 
 
 def get_timestamp_range(delta: pd.Timedelta) -> tuple[pd.Timestamp, pd.Timestamp]:
@@ -343,15 +351,26 @@ class AggregateTradeDataView(View):
                         timestamp_to,
                         websocket_rows,
                     )
-                    logger.info(
-                        "%s: websocket data validation %s",
-                        symbol,
-                        websocket_result,
-                    )
+                    if any(websocket_result.values()):
+                        logger.warning(
+                            "%s: websocket data validation "
+                            "validated=%s failed=%s unknown=%s skipped=%s",
+                            symbol,
+                            websocket_result["validated"],
+                            websocket_result["failed"],
+                            websocket_result["unknown"],
+                            websocket_result["skipped"],
+                        )
                     candle_payloads.append(
                         self.get_candle_payload(symbol, candle_retry_from)
                     )
                 except ArchiveDownloadError:
+                    raise
+                except httpx.HTTPStatusError as exc:
+                    if is_soft_collection_error(exc):
+                        logger.warning("%s: collection skipped: %s", symbol, exc)
+                        continue
+                    task_state.mark_recent_error()
                     raise
                 except TRANSIENT_COLLECTION_ERRORS:
                     task_state.mark_recent_error(backoff=False)
