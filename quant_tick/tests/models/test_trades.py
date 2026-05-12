@@ -556,7 +556,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                 symbol=symbol,
                 timestamp=day_from
                 + pd.Timedelta(f"{hour}h")
-                + pd.Timedelta("30min"),
+                + pd.Timedelta("1min"),
                 frequency=Frequency.HOUR,
                 ok=True,
             )

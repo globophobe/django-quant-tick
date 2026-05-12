@@ -44,10 +44,14 @@ class AggregateTradeViewTest(TestCase):
             ok=ok,
         )
 
-    def get_websocket_trade(self) -> dict:
+    def get_websocket_trade(
+        self,
+        timestamp: str = "2026-05-01T23:55:10Z",
+        uid: str = "ws-1",
+    ) -> dict:
         return {
-            "uid": "ws-1",
-            "timestamp": "2026-05-01T23:55:10Z",
+            "uid": uid,
+            "timestamp": timestamp,
             "nanoseconds": 0,
             "price": "100",
             "volume": "1000",
@@ -169,7 +173,7 @@ class AggregateTradeViewTest(TestCase):
                 {
                     "exchange": Exchange.COINBASE,
                     "api_symbol": "test-1",
-                    "timestamp_from": datetime(2026, 5, 1, 23, 30, tzinfo=UTC),
+                    "timestamp_from": datetime(2026, 5, 1, 23, 0, tzinfo=UTC),
                 }
             ]
         )
@@ -188,7 +192,36 @@ class AggregateTradeViewTest(TestCase):
             api_symbol="test-1",
             significant_trade_filter=1000,
             timestamp=datetime(2026, 5, 1, 23, 55, tzinfo=UTC),
-            filtered_trades=[self.get_websocket_trade()],
+            filtered_trades=[
+                self.get_websocket_trade(
+                    "2026-05-01T23:55:10Z",
+                    "ws-2355",
+                )
+            ],
+        )
+        WebSocketData.objects.create(
+            exchange=Exchange.COINBASE,
+            api_symbol="test-1",
+            significant_trade_filter=1000,
+            timestamp=datetime(2026, 5, 1, 22, 55, tzinfo=UTC),
+            filtered_trades=[
+                self.get_websocket_trade(
+                    "2026-05-01T22:55:10Z",
+                    "ws-2255",
+                )
+            ],
+        )
+        WebSocketData.objects.create(
+            exchange=Exchange.COINBASE,
+            api_symbol="test-1",
+            significant_trade_filter=1000,
+            timestamp=datetime(2026, 5, 1, 23, 54, tzinfo=UTC),
+            filtered_trades=[
+                self.get_websocket_trade(
+                    "2026-05-01T23:54:10Z",
+                    "ws-2354",
+                )
+            ],
         )
         now = datetime(2026, 5, 2, 0, 10, 42, tzinfo=UTC)
         events = []
@@ -198,10 +231,11 @@ class AggregateTradeViewTest(TestCase):
 
         def candles_side_effect(*args, **kwargs):
             events.append("candles")
+            timestamp_from = args[1]
             return pd.DataFrame(
                 [
                     {
-                        "timestamp": datetime(2026, 5, 1, 23, 55, tzinfo=UTC),
+                        "timestamp": timestamp_from,
                         "notional": Decimal("10"),
                     }
                 ]
@@ -213,7 +247,10 @@ class AggregateTradeViewTest(TestCase):
 
         def rest_filtered_side_effect(*args, **kwargs):
             events.append("rest")
-            return WebSocketData.get_data_frame([self.get_websocket_trade()])
+            timestamp = args[1] + pd.Timedelta("10s")
+            timestamp_text = timestamp.isoformat().replace("+00:00", "Z")
+            trade = self.get_websocket_trade(timestamp_text, "rest")
+            return WebSocketData.get_data_frame([trade])
 
         mock_api.side_effect = api_side_effect
         with (
@@ -241,10 +278,27 @@ class AggregateTradeViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             events,
-            [("api", True), ("api", False), "candles", "validate", "rest"],
+            [
+                ("api", True),
+                ("api", False),
+                "candles",
+                "validate",
+                "rest",
+                "candles",
+                "validate",
+                "rest",
+            ],
         )
         self.assertEqual(response.json(), {"ok": True})
         mock_write.assert_not_called()
+        self.assertEqual(mock_validate.call_count, 2)
+        self.assertEqual(
+            [call.args[1] for call in mock_validate.call_args_list],
+            [
+                datetime(2026, 5, 1, 22, 55, tzinfo=UTC),
+                datetime(2026, 5, 1, 23, 55, tzinfo=UTC),
+            ],
+        )
         frame = mock_validate.call_args.kwargs["filtered_trades"]
         self.assertEqual(frame.iloc[0].totalVolume, Decimal("1000"))
 

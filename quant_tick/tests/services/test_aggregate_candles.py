@@ -133,14 +133,14 @@ class AggregateCandleServiceTest(TestCase):
                         {
                             "exchange": Exchange.COINBASE,
                             "api_symbol": "test",
-                            "timestamp_from": datetime(2026, 5, 9, 11, 30, tzinfo=UTC),
+                            "timestamp_from": datetime(2026, 5, 9, 11, 42, tzinfo=UTC),
                         }
                     ]
                 )
 
         self.assertEqual(response, {"ok": True, "processed": 1})
         timestamp_from, timestamp_to, retry = mock_candles.call_args.args
-        self.assertEqual(timestamp_from, datetime(2026, 5, 9, 11, 30, tzinfo=UTC))
+        self.assertEqual(timestamp_from, datetime(2026, 5, 9, 11, 0, tzinfo=UTC))
         self.assertEqual(timestamp_to, datetime(2026, 5, 9, 12, 30, tzinfo=UTC))
         self.assertTrue(retry)
 
