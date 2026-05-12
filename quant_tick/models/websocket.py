@@ -59,7 +59,7 @@ class WebSocketDataQuerySet(QuerySet):
 
 
 class WebSocketData(models.Model):
-    """WebSocket bucket data written by go-quant-tick collectors."""
+    """Trade data from websockets."""
 
     exchange = models.CharField(_("exchange"), choices=Exchange.choices, max_length=255)
     api_symbol = models.CharField(_("API symbol"), max_length=255)
