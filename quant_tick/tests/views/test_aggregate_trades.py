@@ -270,12 +270,20 @@ class AggregateTradeViewTest(TestCase):
             mock_validate.side_effect = validate_side_effect
             mock_rest_filtered.side_effect = rest_filtered_side_effect
 
-            response = self.client.get(
-                self.get_url(),
-                {"time_ago": "7d", "api_symbol": "test-1"},
-            )
+            with self.assertLogs(
+                "quant_tick.views.aggregate_trades",
+                level="WARNING",
+            ) as logs:
+                response = self.client.get(
+                    self.get_url(),
+                    {"time_ago": "7d", "api_symbol": "test-1"},
+                )
 
         self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "websocket data validation validated=2 failed=0 unknown=0 skipped=0",
+            logs.output[0],
+        )
         self.assertEqual(
             events,
             [
@@ -345,12 +353,20 @@ class AggregateTradeViewTest(TestCase):
             ).set_index("timestamp")
             mock_validate.return_value = True
 
-            response = self.client.get(
-                self.get_url(),
-                {"time_ago": "7d", "api_symbol": "test-1"},
-            )
+            with self.assertLogs(
+                "quant_tick.views.aggregate_trades",
+                level="WARNING",
+            ) as logs:
+                response = self.client.get(
+                    self.get_url(),
+                    {"time_ago": "7d", "api_symbol": "test-1"},
+                )
 
         self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "websocket data validation validated=0 failed=1 unknown=0 skipped=0",
+            logs.output[0],
+        )
         self.assertEqual(response.json(), {"ok": True})
 
     def test_get_skips_websocket_data_until_symbol_has_trade_data(self, mock_api):
@@ -455,6 +471,33 @@ class AggregateTradeViewTest(TestCase):
             api_symbol="test-1",
         )
         self.assertEqual(task_state.recent_error_count, 1)
+        self.assertIsNone(task_state.next_fetch_at)
+        self.assertIsNone(task_state.locked_until)
+
+    def test_get_skips_http_530_without_backoff(self, mock_api):
+        request = httpx.Request("GET", "https://www.bitmex.com/api/v1/trade")
+        response = httpx.Response(530, request=request)
+        mock_api.side_effect = httpx.HTTPStatusError(
+            "Server error",
+            request=request,
+            response=response,
+        )
+
+        with self.assertLogs("quant_tick.views.aggregate_trades", level="WARNING"):
+            view_response = self.client.get(
+                self.get_url(),
+                {"api_symbol": "test-1"},
+            )
+
+        self.assertEqual(view_response.status_code, 200)
+        self.assertEqual(view_response.json(), {"ok": True})
+        self.assertEqual(mock_api.call_count, 1)
+        task_state = TaskState.objects.get(
+            task_type=TaskType.AGGREGATE_TRADES,
+            exchange=Exchange.COINBASE,
+            api_symbol="test-1",
+        )
+        self.assertEqual(task_state.recent_error_count, 0)
         self.assertIsNone(task_state.next_fetch_at)
         self.assertIsNone(task_state.locked_until)
 

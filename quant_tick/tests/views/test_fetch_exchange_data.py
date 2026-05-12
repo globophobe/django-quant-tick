@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+import httpx
 from django.test import TestCase
 from django.urls import reverse
 
@@ -208,3 +209,36 @@ class FetchExchangeDataViewTest(TestCase):
                 api_symbol="BTC-USD",
             ).exists()
         )
+
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
+    def test_get_skips_http_530_without_backoff(
+        self,
+        mock_funding,
+        mock_candles,
+    ):
+        request = httpx.Request("GET", "https://www.bitmex.com/api/v1/trade")
+        response = httpx.Response(530, request=request)
+        mock_funding.side_effect = httpx.HTTPStatusError(
+            "Server error",
+            request=request,
+            response=response,
+        )
+
+        with self.assertLogs("quant_tick.views.fetch_exchange_data", level="WARNING"):
+            response = self.client.get(
+                self.get_url(),
+                {"exchange": Exchange.BINANCE_FUTURES},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["ok"])
+        self.assertEqual(response.json()["failed"], 1)
+        task_state = TaskState.objects.get(
+            task_type=TaskType.FETCH_EXCHANGE_DATA,
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+        )
+        self.assertEqual(task_state.recent_error_count, 0)
+        self.assertIsNone(task_state.next_fetch_at)
+        self.assertIsNone(task_state.locked_until)
