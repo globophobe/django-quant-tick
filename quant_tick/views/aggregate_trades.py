@@ -3,12 +3,12 @@ from datetime import datetime
 
 import httpx
 import pandas as pd
-from django.conf import settings
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
 from quant_tick.constants import FileData, Frequency, TaskType
+from quant_tick.controllers import TradeDataIterator
 from quant_tick.exchanges import api, candles_api
 from quant_tick.lib import get_current_time, get_min_time
 from quant_tick.lib.download import ArchiveDownloadError
@@ -18,7 +18,6 @@ from quant_tick.forms import (
     AggregateTradeRequestForm,
     TimeRangeRequestForm,
     format_form_errors,
-    parse_time_delta,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,11 +57,7 @@ def get_request_params(request: HttpRequest) -> tuple[pd.Timestamp, pd.Timestamp
 
 
 def get_candle_retry_min_timestamp_from(timestamp: datetime) -> datetime:
-    timestamp_from = get_min_time(timestamp, "1h")
-    midpoint = timestamp_from + pd.Timedelta("30min")
-    if timestamp >= midpoint:
-        return midpoint
-    return timestamp_from
+    return get_min_time(timestamp, "1h")
 
 
 class AggregateTradeDataView(View):
@@ -125,10 +120,7 @@ class AggregateTradeDataView(View):
         timestamp_from,
         timestamp_to,
     ) -> tuple[pd.Timestamp, pd.Timestamp] | None:
-        time_ago = getattr(settings, "QUANT_TICK_TRADE_RECENT_RETRY_TIME_AGO", "1h")
-        if not time_ago:
-            return None
-        retry_from = get_min_time(timestamp_to - parse_time_delta(time_ago), "1min")
+        retry_from = get_min_time(timestamp_to - pd.Timedelta("1h"), "1min")
         retry_from = max(timestamp_from, retry_from)
         if retry_from >= timestamp_to:
             return None
@@ -174,13 +166,17 @@ class AggregateTradeDataView(View):
     ) -> list[WebSocketData]:
         if not TradeData.objects.filter(symbol=symbol).exists():
             return []
-
-        queryset = (
-            WebSocketData.objects.for_symbol(symbol)
-            .filter(timestamp__gte=timestamp_from, timestamp__lt=timestamp_to)
-            .order_by("timestamp")
-        )
-        return list(queryset)
+        rows = []
+        for ts_from, ts_to in TradeDataIterator(symbol).iter_all(
+            timestamp_from,
+            timestamp_to,
+        ):
+            rows += list(
+                WebSocketData.objects.for_symbol(symbol)
+                .filter(timestamp__gte=ts_from, timestamp__lt=ts_to)
+                .order_by("timestamp")
+            )
+        return sorted(rows, key=lambda row: row.timestamp)
 
     def get_rest_filtered_trades(
         self,

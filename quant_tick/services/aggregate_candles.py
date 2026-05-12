@@ -36,7 +36,7 @@ class AggregateCandleService:
     def get_request_params(self, payload: dict) -> tuple[datetime, datetime, bool]:
         timestamp_to = get_min_time(get_current_time(), "1min")
         if payload.get("timestamp_from"):
-            timestamp_from = payload["timestamp_from"]
+            timestamp_from = get_min_time(payload["timestamp_from"], "1h")
             retry = True
         elif payload.get("time_ago"):
             timestamp_from = get_min_time(timestamp_to - payload["time_ago"], "1d")
