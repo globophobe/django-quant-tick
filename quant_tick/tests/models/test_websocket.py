@@ -60,16 +60,19 @@ class WebSocketDataTest(TestCase):
             api_symbol="BTC-USD",
             significant_trade_filter=1000,
         )
-        data = WebSocketData(
+        data = WebSocketData.objects.create(
             exchange=Exchange.COINBASE,
             api_symbol="BTC-USD",
             significant_trade_filter=1000,
             timestamp=datetime(2026, 5, 10, 10, tzinfo=UTC),
-            filtered_trades=[self.get_trade()],
+            filtered_trades=[self.get_trade("6291886372")],
         )
+        data.refresh_from_db()
 
         _raw_trades, _aggregated_trades, filtered_trades = data.get_data_frames(symbol)
 
+        self.assertEqual(data.filtered_trades[0]["uid"], "6291886372")
+        self.assertEqual(filtered_trades.iloc[0].uid, "6291886372")
         self.assertEqual(
             filtered_trades.iloc[0].timestamp.to_pydatetime(),
             datetime(2026, 5, 10, 10, 0, 10, tzinfo=UTC),

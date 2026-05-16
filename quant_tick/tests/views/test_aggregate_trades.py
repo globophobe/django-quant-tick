@@ -1,15 +1,13 @@
 from datetime import UTC, datetime
-from decimal import Decimal
 from unittest.mock import patch
 
 import httpx
-import pandas as pd
 from django.test import TestCase
 from django.urls import reverse
 
 from quant_tick.constants import Exchange, Frequency, TaskType
 from quant_tick.lib.download import ArchiveDownloadError
-from quant_tick.models import Symbol, TaskState, TradeData, WebSocketData
+from quant_tick.models import Symbol, TaskState, TradeData
 
 
 @patch("quant_tick.views.aggregate_trades.api")
@@ -43,30 +41,6 @@ class AggregateTradeViewTest(TestCase):
             frequency=frequency,
             ok=ok,
         )
-
-    def get_websocket_trade(
-        self,
-        timestamp: str = "2026-05-01T23:55:10Z",
-        uid: str = "ws-1",
-    ) -> dict:
-        return {
-            "uid": uid,
-            "timestamp": timestamp,
-            "nanoseconds": 0,
-            "price": "100",
-            "volume": "1000",
-            "notional": "10",
-            "tickRule": 1,
-            "ticks": 1,
-            "high": "100",
-            "low": "100",
-            "totalBuyVolume": "1000",
-            "totalVolume": "1000",
-            "totalBuyNotional": "10",
-            "totalNotional": "10",
-            "totalBuyTicks": 1,
-            "totalTicks": 1,
-        }
 
     def test_get_with_exchange_processes_all_symbols(self, mock_api):
         response = self.client.get(self.get_url())
