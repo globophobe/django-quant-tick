@@ -9,7 +9,7 @@ from django.test import TestCase
 from quant_tick.constants import Frequency
 from quant_tick.controllers import ExchangeREST, ExchangeS3, TradeDataIterator
 from quant_tick.exchanges.bitmex.base import BitmexS3Mixin
-from quant_tick.models import TradeData
+from quant_tick.models import TradeData, WebSocketData
 
 from ..base import BaseSymbolTest
 
@@ -179,13 +179,30 @@ class DummyExchangeREST(ExchangeREST):
         **kwargs,
     ) -> None:
         self.frames = []
+        self.candle_calls = []
         self.api_results = api_results
         self.api_calls = 0
         self.pagination_ids = []
         super().__init__(*args, on_data_frame=self.capture_frame, **kwargs)
 
-    def capture_frame(self, symbol, timestamp_from, timestamp_to, data_frame, candles):
-        self.frames.append((timestamp_from, timestamp_to, data_frame.copy()))
+    def capture_frame(
+        self,
+        symbol,
+        timestamp_from,
+        timestamp_to,
+        data_frame,
+        candles,
+        **kwargs,
+    ):
+        self.frames.append(
+            (
+                timestamp_from,
+                timestamp_to,
+                data_frame.copy(),
+                candles,
+                kwargs,
+            )
+        )
 
     def get_pagination_id(self, timestamp_to: datetime) -> str:
         return timestamp_to.isoformat()
@@ -200,6 +217,7 @@ class DummyExchangeREST(ExchangeREST):
         return data
 
     def get_candles(self, timestamp_from: datetime, timestamp_to: datetime) -> pd.DataFrame:
+        self.candle_calls.append((timestamp_from, timestamp_to))
         return pd.DataFrame([])
 
 
@@ -261,6 +279,15 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
             "index": uid,
         }
 
+    def create_websocket_data(self, uid: int, minute: int) -> WebSocketData:
+        return WebSocketData.objects.create(
+            exchange=self.symbol.exchange,
+            api_symbol=self.symbol.api_symbol,
+            significant_trade_filter=self.symbol.significant_trade_filter or 0,
+            timestamp=self.timestamp_from + (self.one_minute * minute),
+            raw_trades=[self.get_trade(uid, minute)],
+        )
+
     def test_main_reuses_next_partition_buffer(self):
         ts0 = self.timestamp_from
         partitions = [
@@ -306,6 +333,117 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
             list(second.timestamp),
             [ts0 + (self.one_minute * 3), ts0 + (self.one_minute * 4)],
         )
+
+    def test_main_fetches_candles_for_iterator_window(self):
+        ts0 = self.timestamp_from
+        controller = DummyExchangeREST(
+            self.symbol,
+            timestamp_from=ts0,
+            timestamp_to=ts0 + self.one_minute,
+            retry=False,
+            verbose=False,
+            api_results=[([self.get_trade(0, 0)], True, None)],
+        )
+
+        with patch(
+            "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+            return_value=[(ts0, ts0 + self.one_minute)],
+        ):
+            controller.main()
+
+        self.assertEqual(controller.candle_calls, [(ts0, ts0 + self.one_minute)])
+
+    def test_main_logs_valid_websocket_partition_before_rest_backfill(self):
+        ts0 = self.timestamp_from
+        self.create_websocket_data(1, 1)
+        controller = DummyExchangeREST(
+            self.symbol,
+            timestamp_from=ts0,
+            timestamp_to=ts0 + (self.one_minute * 3),
+            retry=False,
+            verbose=False,
+            api_results=[([self.get_trade(2, 2)], True, None)],
+        )
+
+        with (
+            patch(
+                "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+                return_value=[(ts0, ts0 + (self.one_minute * 3))],
+            ),
+            patch(
+                "quant_tick.controllers.rest.TradeData.validate",
+                return_value=True,
+            ) as mock_validate,
+        ):
+            controller.main()
+
+        self.assertEqual(mock_validate.call_count, 1)
+        self.assertEqual(controller.api_calls, 1)
+        self.assertEqual(
+            [(frame[0], frame[1]) for frame in controller.frames],
+            [(ts0, ts0 + (self.one_minute * 3))],
+        )
+        self.assertEqual(list(controller.frames[0][2].uid), ["2"])
+        self.assertEqual(controller.frames[0][4], {})
+
+    def test_main_fetches_rest_when_websocket_partition_is_not_valid(self):
+        ts0 = self.timestamp_from
+        self.create_websocket_data(1, 1)
+        controller = DummyExchangeREST(
+            self.symbol,
+            timestamp_from=ts0 + self.one_minute,
+            timestamp_to=ts0 + (self.one_minute * 2),
+            retry=False,
+            verbose=False,
+            api_results=[([self.get_trade(1, 1)], True, None)],
+        )
+
+        with (
+            patch(
+                "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+                return_value=[(ts0 + self.one_minute, ts0 + (self.one_minute * 2))],
+            ),
+            patch(
+                "quant_tick.controllers.rest.TradeData.validate",
+                return_value=False,
+            ),
+        ):
+            controller.main()
+
+        self.assertEqual(controller.api_calls, 1)
+        self.assertEqual(len(controller.frames), 1)
+        self.assertEqual(controller.frames[0][0], ts0 + self.one_minute)
+        self.assertEqual(controller.frames[0][1], ts0 + (self.one_minute * 2))
+        self.assertEqual(controller.frames[0][4], {})
+
+    def test_main_skips_websocket_lookup_before_retention_window(self):
+        ts0 = self.timestamp_from
+        controller = DummyExchangeREST(
+            self.symbol,
+            timestamp_from=ts0,
+            timestamp_to=ts0 + (self.one_minute * 2),
+            retry=False,
+            verbose=False,
+            api_results=[([self.get_trade(1, 1), self.get_trade(0, 0)], True, None)],
+        )
+
+        with (
+            patch(
+                "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+                return_value=[(ts0, ts0 + (self.one_minute * 2))],
+            ),
+            patch(
+                "quant_tick.controllers.rest.get_current_time",
+                return_value=ts0 + pd.Timedelta("2h"),
+            ),
+            patch(
+                "quant_tick.controllers.rest.WebSocketData.objects.for_symbol",
+            ) as mock_for_symbol,
+        ):
+            controller.main()
+
+        mock_for_symbol.assert_not_called()
+        self.assertEqual(controller.api_calls, 1)
 
     def test_main_resets_pagination_across_partition_gaps(self):
         ts0 = self.timestamp_from
