@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.lib import calculate_notional, set_dtypes
+
 from .api import format_bitmex_api_timestamp, get_bitmex_api_timestamp
 from .candles import bitmex_candles
 from .constants import S3_URL
@@ -100,4 +102,7 @@ class BitmexS3Mixin(BitmexMixin):
             dt + "." + micro, format="%Y-%m-%dD%H:%M:%S.%f", utc=True
         )
         df = df.rename(columns={"trdMatchID": "uid", "foreignNotional": "volume"})
-        return super().parse_dtypes_and_strip_columns(df)
+        df = set_dtypes(df)
+        df = calculate_notional(df)
+        df["tickRule"] = np.where(df["side"] == "Buy", 1, -1)
+        return df[self.columns]
