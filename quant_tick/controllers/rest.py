@@ -7,13 +7,18 @@ from datetime import datetime
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.lib import assert_type_decimal
-from quant_tick.models import Symbol, TradeData
+from quant_tick.lib import (
+    assert_type_decimal,
+    get_current_time,
+    get_min_time,
+)
+from quant_tick.models import Symbol, TradeData, WebSocketData
 
 from .base import BaseController
 from .iterators import TradeDataIterator
 
 logger = logging.getLogger(__name__)
+WEBSOCKET_DATA_LOOKBACK = pd.Timedelta("1h")
 
 
 def iter_api(
@@ -149,6 +154,12 @@ class ExchangeREST(BaseController):
             self.timestamp_to,
             retry=self.retry,
         ):
+            candles = self.get_candles(timestamp_from, timestamp_to)
+            self.validate_websocket_partitions(
+                timestamp_from,
+                timestamp_to,
+                candles,
+            )
             if previous_timestamp_from == timestamp_to:
                 buffered_trades = [
                     trade
@@ -178,10 +189,12 @@ class ExchangeREST(BaseController):
                 buffered_trades,
             )
             data_frame = self.get_data_frame(valid_trades)
-            candles = self.get_candles(timestamp_from, timestamp_to)
             if len(data_frame):
                 self.assert_data_frame(
-                    timestamp_from, timestamp_to, data_frame, valid_trades
+                    timestamp_from,
+                    timestamp_to,
+                    data_frame,
+                    valid_trades,
                 )
             self.on_data_frame(
                 self.symbol, timestamp_from, timestamp_to, data_frame, candles
@@ -190,6 +203,61 @@ class ExchangeREST(BaseController):
             # Complete
             if is_last_iteration and not buffered_trades:
                 break
+
+    def validate_websocket_partitions(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        candles: DataFrame,
+    ) -> None:
+        timestamp_from = max(timestamp_from, self.get_websocket_timestamp_from())
+        if timestamp_from >= timestamp_to:
+            return
+
+        rows = (
+            WebSocketData.objects.for_symbol(self.symbol)
+            .filter(timestamp__gte=timestamp_from, timestamp__lt=timestamp_to)
+            .order_by("-timestamp")
+        )
+        for row in rows:
+            bucket_to = row.timestamp + pd.Timedelta("1min")
+            if bucket_to > timestamp_to:
+                continue
+            self.validate_websocket_partition(row, bucket_to, candles)
+
+    @staticmethod
+    def get_websocket_timestamp_from() -> datetime:
+        return get_min_time(get_current_time() - WEBSOCKET_DATA_LOOKBACK, "1min")
+
+    def validate_websocket_partition(
+        self,
+        row: WebSocketData,
+        timestamp_to: datetime,
+        candles: DataFrame,
+    ) -> bool:
+        raw_trades, aggregated_trades, filtered_trades = row.get_data_frames(self.symbol)
+        if raw_trades is None and aggregated_trades is None and filtered_trades is None:
+            return False
+        try:
+            ok = TradeData.validate(
+                self.symbol,
+                row.timestamp,
+                timestamp_to,
+                candles,
+                raw_trades=raw_trades,
+                aggregated_trades=aggregated_trades,
+                filtered_trades=filtered_trades,
+            )
+        except Exception:
+            logger.exception("%s: websocket data validation failed", self.symbol)
+            return False
+        logger.info(
+            "%s: websocket data validation ok=%s timestamp=%s",
+            self.symbol,
+            ok,
+            row.timestamp.isoformat(),
+        )
+        return ok is True
 
     def get_oldest_timestamp(self, trades: list[dict]) -> datetime | None:
         if trades:
