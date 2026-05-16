@@ -7,12 +7,11 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
-from quant_tick.constants import FileData, Frequency, TaskType
-from quant_tick.controllers import TradeDataIterator
-from quant_tick.exchanges import api, candles_api
+from quant_tick.constants import TaskType
+from quant_tick.exchanges import api
 from quant_tick.lib import get_current_time, get_min_time
 from quant_tick.lib.download import ArchiveDownloadError
-from quant_tick.models import Symbol, TaskState, TradeData, WebSocketData
+from quant_tick.models import Symbol, TaskState, TradeData
 from quant_tick.services.aggregate_candles import aggregate_candle_data
 from quant_tick.forms import (
     AggregateTradeRequestForm,
@@ -24,23 +23,6 @@ logger = logging.getLogger(__name__)
 
 SOFT_COLLECTION_STATUS_CODES = {530}
 TRANSIENT_COLLECTION_ERRORS = (httpx.TransportError,)
-TRADE_COMPARE_COLUMNS = (
-    "timestamp",
-    "nanoseconds",
-    "price",
-    "volume",
-    "notional",
-    "tickRule",
-    "ticks",
-    "high",
-    "low",
-    "totalBuyVolume",
-    "totalVolume",
-    "totalBuyNotional",
-    "totalNotional",
-    "totalBuyTicks",
-    "totalTicks",
-)
 
 
 def is_soft_collection_error(exc: Exception) -> bool:
@@ -153,7 +135,7 @@ class AggregateTradeDataView(View):
         )
         return trade_data.timestamp if trade_data else None
 
-    def get_candle_payload(
+    def get_aggregate_candle_params(
         self,
         symbol: Symbol,
         retry_from=None,
@@ -166,152 +148,6 @@ class AggregateTradeDataView(View):
             data["timestamp_from"] = get_candle_retry_min_timestamp_from(retry_from)
         return data
 
-    def get_websocket_data_rows(
-        self,
-        symbol: Symbol,
-        timestamp_from,
-        timestamp_to,
-    ) -> list[WebSocketData]:
-        if not TradeData.objects.filter(symbol=symbol).exists():
-            return []
-        rows = []
-        for ts_from, ts_to in TradeDataIterator(symbol).iter_all(
-            timestamp_from,
-            timestamp_to,
-        ):
-            rows += list(
-                WebSocketData.objects.for_symbol(symbol)
-                .filter(timestamp__gte=ts_from, timestamp__lt=ts_to)
-                .order_by("timestamp")
-            )
-        return sorted(rows, key=lambda row: row.timestamp)
-
-    def get_rest_filtered_trades(
-        self,
-        symbol: Symbol,
-        timestamp_from,
-        timestamp_to,
-    ) -> pd.DataFrame | None:
-        trade_data = (
-            TradeData.objects.overlapping(
-                symbol,
-                timestamp_from,
-                timestamp_to,
-                (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
-            )
-            .order_by("frequency", "timestamp")
-            .first()
-        )
-        if trade_data is None or not trade_data.has_data_frame(FileData.FILTERED):
-            return None
-        return TradeData._filter_frame(
-            trade_data.get_data_frame(FileData.FILTERED),
-            timestamp_from,
-            timestamp_to,
-        )
-
-    @staticmethod
-    def get_trade_compare_frame(data_frame: pd.DataFrame) -> pd.DataFrame:
-        missing = set(TRADE_COMPARE_COLUMNS) - set(data_frame.columns)
-        if missing:
-            names = ", ".join(sorted(missing))
-            raise ValueError(f"Missing trade comparison columns: {names}.")
-
-        frame = data_frame.loc[:, TRADE_COMPARE_COLUMNS].copy()
-        frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
-        return frame.reset_index(drop=True)
-
-    @classmethod
-    def filtered_trade_frames_match(
-        cls,
-        websocket_trades: pd.DataFrame,
-        rest_trades: pd.DataFrame,
-    ) -> bool:
-        websocket_frame = cls.get_trade_compare_frame(websocket_trades)
-        rest_frame = cls.get_trade_compare_frame(rest_trades)
-        try:
-            pd.testing.assert_frame_equal(
-                websocket_frame,
-                rest_frame,
-                check_dtype=False,
-            )
-        except AssertionError:
-            return False
-        return True
-
-    def filtered_trades_match_rest(
-        self,
-        symbol: Symbol,
-        timestamp_from,
-        timestamp_to,
-        filtered_trades: pd.DataFrame,
-    ) -> bool | None:
-        rest_filtered = self.get_rest_filtered_trades(
-            symbol,
-            timestamp_from,
-            timestamp_to,
-        )
-        if rest_filtered is None:
-            return None
-        return self.filtered_trade_frames_match(filtered_trades, rest_filtered)
-
-    def validate_websocket_data(self, symbol: Symbol, data: WebSocketData) -> str:
-        timestamp_from = data.timestamp
-        timestamp_to = timestamp_from + pd.Timedelta("1min")
-
-        raw_trades, aggregated_trades, filtered_trades = data.get_data_frames(symbol)
-        if (
-            raw_trades is None
-            and aggregated_trades is None
-            and filtered_trades is None
-        ):
-            return "skipped"
-
-        candles = candles_api(symbol, timestamp_from, timestamp_to, resolution="1m")
-        ok = TradeData.validate(
-            symbol,
-            timestamp_from,
-            timestamp_to,
-            candles,
-            raw_trades=raw_trades,
-            aggregated_trades=aggregated_trades,
-            filtered_trades=filtered_trades,
-        )
-        if ok is False:
-            return "failed"
-        rest_match = self.filtered_trades_match_rest(
-            symbol,
-            timestamp_from,
-            timestamp_to,
-            filtered_trades,
-        )
-        if rest_match is False:
-            return "failed"
-        if ok is True and rest_match is True:
-            return "validated"
-        return "unknown"
-
-    def validate_websocket_data_rows(
-        self,
-        symbol: Symbol,
-        timestamp_to,
-        rows: list[WebSocketData],
-    ) -> dict[str, int]:
-        result = {"validated": 0, "failed": 0, "unknown": 0, "skipped": 0}
-        for data in rows:
-            bucket_to = data.timestamp + pd.Timedelta("1min")
-            if bucket_to > timestamp_to:
-                result["skipped"] += 1
-                continue
-            try:
-                status = self.validate_websocket_data(symbol, data)
-            except Exception:
-                result["failed"] += 1
-                logger.exception("%s: websocket data validation failed", symbol)
-                continue
-            result[status] += 1
-        return result
-
     def get(self, request: HttpRequest, *args, **kwargs) -> JsonResponse:
         try:
             params = self.get_params(request)
@@ -322,17 +158,12 @@ class AggregateTradeDataView(View):
             skipped_reason = "backoff" if skipped["backoff"] else "locked"
             return JsonResponse({"ok": True, "skipped": skipped_reason})
         try:
-            candle_payloads = []
+            aggregate_candle_params = []
             released = set()
             for task_state, symbol, timestamp_from, timestamp_to in tasks:
                 try:
                     logger.info(
                         "{symbol}: starting...".format(**{"symbol": str(symbol)})
-                    )
-                    websocket_rows = self.get_websocket_data_rows(
-                        symbol,
-                        timestamp_from,
-                        timestamp_to,
                     )
                     candle_retry_from = None
                     retry_window = self.get_recent_retry_window(
@@ -344,25 +175,19 @@ class AggregateTradeDataView(View):
                             symbol,
                             *retry_window,
                         )
-                        api(symbol, *retry_window, True)
-                    api(symbol, timestamp_from, timestamp_to, False)
-                    websocket_result = self.validate_websocket_data_rows(
-                        symbol,
-                        timestamp_to,
-                        websocket_rows,
-                    )
-                    if any(websocket_result.values()):
-                        logger.warning(
-                            "%s: websocket data validation "
-                            "validated=%s failed=%s unknown=%s skipped=%s",
+                        api(
                             symbol,
-                            websocket_result["validated"],
-                            websocket_result["failed"],
-                            websocket_result["unknown"],
-                            websocket_result["skipped"],
+                            *retry_window,
+                            True,
                         )
-                    candle_payloads.append(
-                        self.get_candle_payload(symbol, candle_retry_from)
+                    api(
+                        symbol,
+                        timestamp_from,
+                        timestamp_to,
+                        False,
+                    )
+                    aggregate_candle_params.append(
+                        self.get_aggregate_candle_params(symbol, candle_retry_from)
                     )
                 except ArchiveDownloadError:
                     raise
@@ -389,6 +214,6 @@ class AggregateTradeDataView(View):
             for task_state, *_rest in tasks:
                 if task_state.pk not in locals().get("released", set()):
                     task_state.release()
-        if candle_payloads:
-            aggregate_candle_data(candle_payloads)
+        if aggregate_candle_params:
+            aggregate_candle_data(aggregate_candle_params)
         return JsonResponse({"ok": True})
