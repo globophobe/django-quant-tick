@@ -9,9 +9,9 @@ from pandas import DataFrame
 
 from quant_tick.lib import (
     assert_type_decimal,
-    filter_by_timestamp,
     get_current_time,
     get_min_time,
+    has_zero_trade_candle as has_zero_trade_candle_for_exchange,
     iter_window,
 )
 from quant_tick.models import Symbol, TradeData, WebSocketData
@@ -407,7 +407,8 @@ class ExchangeREST(BaseController):
             frames = websocket_partitions.get(ts_from)
             if frames is None:
                 # Match REST validation semantics: an empty trade minute is valid
-                # when the exchange candle has zero volume/notional.
+                # when the exchange candle has zero volume/notional. Bitfinex omits
+                # no-trade candles entirely, so a missing candle row is also empty.
                 if self.has_zero_trade_candle(candles, ts_from, ts_to):
                     continue
                 append_rest_range(ts_from, ts_to, rest_data_frame)
@@ -467,32 +468,27 @@ class ExchangeREST(BaseController):
             ranges.append((range_from, range_to))
         return ranges
 
-    @staticmethod
     def has_zero_trade_candle(
+        self,
         candles: DataFrame,
         timestamp_from: datetime,
         timestamp_to: datetime,
     ) -> bool:
-        if not len(candles):
-            return False
-        if "notional" in candles.columns:
-            key = "notional"
-        elif "volume" in candles.columns:
-            key = "volume"
-        else:
-            return False
-        candle = filter_by_timestamp(candles, timestamp_from, timestamp_to)
-        return len(candle) > 0 and candle[key].sum() == 0
+        return has_zero_trade_candle_for_exchange(
+            self.symbol.exchange,
+            candles,
+            timestamp_from,
+            timestamp_to,
+        )
 
-    @classmethod
     def has_zero_trade_candles(
-        cls,
+        self,
         candles: DataFrame,
         timestamp_from: datetime,
         timestamp_to: datetime,
     ) -> bool:
         for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value="1min"):
-            if not cls.has_zero_trade_candle(candles, ts_from, ts_to):
+            if not self.has_zero_trade_candle(candles, ts_from, ts_to):
                 return False
         return True
 

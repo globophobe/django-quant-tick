@@ -33,6 +33,8 @@ from .candles import (
     aggregate_candle,
     aggregate_candles,
     candles_to_data_frame,
+    exchange_omits_zero_trade_candles,
+    has_zero_trade_candle,
     resample_candles,
     validate_aggregated_candles,
 )
@@ -83,6 +85,8 @@ __all__ = [
     "to_pydatetime",
     "to_utc_datetime",
     "candles_to_data_frame",
+    "exchange_omits_zero_trade_candles",
+    "has_zero_trade_candle",
     "resample_candles",
     "validate_aggregated_candles",
     "assert_type_decimal",

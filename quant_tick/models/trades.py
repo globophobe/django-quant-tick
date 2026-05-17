@@ -13,6 +13,7 @@ from quant_tick.lib import (
     aggregate_candle,
     aggregate_candles,
     aggregate_trades,
+    exchange_omits_zero_trade_candles,
     filter_by_timestamp,
     get_existing,
     get_min_time,
@@ -220,6 +221,7 @@ class TradeData(AbstractDataStorage):
             filtered_trades=filtered_trades,
         )
         return cls._validate_trade_data(
+            symbol,
             timestamp_from,
             timestamp_to,
             filter_by_timestamp(candles, timestamp_from, timestamp_to),
@@ -461,7 +463,7 @@ class TradeData(AbstractDataStorage):
             )
             json_data = {"candle": aggregate_candle(validation)}
 
-        ok = validate_aggregated_candles(aggregated_candles, candles)
+        ok = cls._validate_candles(obj.symbol, aggregated_candles, candles)
         with transaction.atomic():
             obj.uid = uid
             obj.json_data = json_data
@@ -488,6 +490,7 @@ class TradeData(AbstractDataStorage):
     @classmethod
     def _validate_trade_data(
         cls,
+        symbol: Symbol,
         timestamp_from: datetime.datetime,
         timestamp_to: datetime.datetime,
         candles: DataFrame,
@@ -508,7 +511,21 @@ class TradeData(AbstractDataStorage):
                 timestamp_from,
                 timestamp_to,
             )
-        return validate_aggregated_candles(aggregated_candles, candles)
+        return cls._validate_candles(symbol, aggregated_candles, candles)
+
+    @staticmethod
+    def _validate_candles(
+        symbol: Symbol,
+        aggregated_candles: DataFrame,
+        exchange_candles: DataFrame,
+    ) -> bool | None:
+        return validate_aggregated_candles(
+            aggregated_candles,
+            exchange_candles,
+            missing_candles_are_zero=exchange_omits_zero_trade_candles(
+                symbol.exchange
+            ),
+        )
 
     class Meta:
         db_table = "quant_tick_trade_data"
