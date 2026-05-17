@@ -6,7 +6,7 @@ import pandas as pd
 import time_machine
 from django.test import TestCase
 
-from quant_tick.constants import Frequency
+from quant_tick.constants import Exchange, Frequency
 from quant_tick.controllers import ExchangeREST, ExchangeS3, TradeDataIterator
 from quant_tick.exchanges.bitmex.base import BitmexS3Mixin
 from quant_tick.models import TradeData, WebSocketData
