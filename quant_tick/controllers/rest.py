@@ -11,7 +11,7 @@ from quant_tick.lib import (
     assert_type_decimal,
     get_current_time,
     get_min_time,
-    has_zero_trade_candle as has_zero_trade_candle_for_exchange,
+    has_zero_trade_candle,
     iter_window,
 )
 from quant_tick.models import Symbol, TradeData, WebSocketData
@@ -21,12 +21,9 @@ from .iterators import TradeDataIterator
 
 logger = logging.getLogger(__name__)
 WEBSOCKET_DATA_LOOKBACK = pd.Timedelta("30min")
-# Default ingestion normally uses 10-minute partitions. For that path, more than one invalid
-# websocket range is noisy enough that a full REST fetch is simpler. Longer/manual
-# partitions may tolerate two invalid ranges before falling back to REST-only.
-WEBSOCKET_REST_BACKFILL_SHORT_PARTITION_MAX_RANGES = 1
-WEBSOCKET_REST_BACKFILL_LONG_PARTITION_MAX_RANGES = 2
-WEBSOCKET_REST_BACKFILL_SHORT_PARTITION = pd.Timedelta("10min")
+# Use only recent websocket buckets; older ranges go through REST to avoid
+# retention-edge races while long reports or ingestion jobs are running.
+WEBSOCKET_REST_BACKFILL_MAX_INVALID_RANGES = 2
 
 
 def iter_api(
@@ -378,11 +375,7 @@ class ExchangeREST(BaseController):
             websocket_partitions,
             candles,
         )
-        if self.should_fetch_rest_only_for_websocket_ranges(
-            websocket_timestamp_from,
-            timestamp_to,
-            invalid_ranges,
-        ):
+        if self.should_fetch_rest_only_for_websocket_ranges(invalid_ranges):
             self.on_rest_data_frame(timestamp_from, timestamp_to, candles)
             return
 
@@ -407,9 +400,8 @@ class ExchangeREST(BaseController):
             frames = websocket_partitions.get(ts_from)
             if frames is None:
                 # Match REST validation semantics: an empty trade minute is valid
-                # when the exchange candle has zero volume/notional. Bitfinex omits
-                # no-trade candles entirely, so a missing candle row is also empty.
-                if self.has_zero_trade_candle(candles, ts_from, ts_to):
+                # when the exchange candle has zero volume/notional.
+                if has_zero_trade_candle(self.symbol.exchange, candles, ts_from, ts_to):
                     continue
                 append_rest_range(ts_from, ts_to, rest_data_frame)
                 continue
@@ -451,7 +443,8 @@ class ExchangeREST(BaseController):
         range_from = None
         range_to = None
         for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value="1min"):
-            if ts_from in websocket_partitions or self.has_zero_trade_candle(
+            if ts_from in websocket_partitions or has_zero_trade_candle(
+                self.symbol.exchange,
                 candles,
                 ts_from,
                 ts_to,
@@ -468,19 +461,6 @@ class ExchangeREST(BaseController):
             ranges.append((range_from, range_to))
         return ranges
 
-    def has_zero_trade_candle(
-        self,
-        candles: DataFrame,
-        timestamp_from: datetime,
-        timestamp_to: datetime,
-    ) -> bool:
-        return has_zero_trade_candle_for_exchange(
-            self.symbol.exchange,
-            candles,
-            timestamp_from,
-            timestamp_to,
-        )
-
     def has_zero_trade_candles(
         self,
         candles: DataFrame,
@@ -488,22 +468,20 @@ class ExchangeREST(BaseController):
         timestamp_to: datetime,
     ) -> bool:
         for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value="1min"):
-            if not self.has_zero_trade_candle(candles, ts_from, ts_to):
+            if not has_zero_trade_candle(
+                self.symbol.exchange,
+                candles,
+                ts_from,
+                ts_to,
+            ):
                 return False
         return True
 
     @staticmethod
     def should_fetch_rest_only_for_websocket_ranges(
-        timestamp_from: datetime,
-        timestamp_to: datetime,
         invalid_ranges: list[tuple[datetime, datetime]],
     ) -> bool:
-        max_ranges = (
-            WEBSOCKET_REST_BACKFILL_SHORT_PARTITION_MAX_RANGES
-            if timestamp_to - timestamp_from <= WEBSOCKET_REST_BACKFILL_SHORT_PARTITION
-            else WEBSOCKET_REST_BACKFILL_LONG_PARTITION_MAX_RANGES
-        )
-        return len(invalid_ranges) > max_ranges
+        return len(invalid_ranges) > WEBSOCKET_REST_BACKFILL_MAX_INVALID_RANGES
 
     def on_rest_data_frame(
         self,

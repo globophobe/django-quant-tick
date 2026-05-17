@@ -7,13 +7,12 @@ from django.db.models import Q, QuerySet
 from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
-from quant_tick.constants import FileData, Frequency
+from quant_tick.constants import Exchange, FileData, Frequency
 from quant_tick.testing import is_test
 from quant_tick.lib import (
     aggregate_candle,
     aggregate_candles,
     aggregate_trades,
-    exchange_omits_zero_trade_candles,
     filter_by_timestamp,
     get_existing,
     get_min_time,
@@ -522,9 +521,7 @@ class TradeData(AbstractDataStorage):
         return validate_aggregated_candles(
             aggregated_candles,
             exchange_candles,
-            missing_candles_are_zero=exchange_omits_zero_trade_candles(
-                symbol.exchange
-            ),
+            missing_candles_are_zero=symbol.exchange == Exchange.BITFINEX,
         )
 
     class Meta:

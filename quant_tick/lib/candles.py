@@ -283,18 +283,15 @@ def _aggregate_realized_variance(df: DataFrame) -> dict:
     return {"realizedVariance": ZERO}
 
 
-def exchange_omits_zero_trade_candles(exchange: str) -> bool:
-    return exchange == Exchange.BITFINEX
-
-
 def has_zero_trade_candle(
     exchange: str,
     candles: DataFrame,
     timestamp_from: datetime,
     timestamp_to: datetime,
 ) -> bool:
+    missing_candle_is_zero = exchange == Exchange.BITFINEX
     if not len(candles):
-        return exchange_omits_zero_trade_candles(exchange)
+        return missing_candle_is_zero
     if "notional" in candles.columns:
         key = "notional"
     elif "volume" in candles.columns:
@@ -303,7 +300,7 @@ def has_zero_trade_candle(
         return False
     candle = filter_by_timestamp(candles, timestamp_from, timestamp_to)
     if not len(candle):
-        return exchange_omits_zero_trade_candles(exchange)
+        return missing_candle_is_zero
     return candle[key].sum() == 0
 
 
