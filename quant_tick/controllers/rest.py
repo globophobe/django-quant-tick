@@ -9,8 +9,10 @@ from pandas import DataFrame
 
 from quant_tick.lib import (
     assert_type_decimal,
+    filter_by_timestamp,
     get_current_time,
     get_min_time,
+    iter_window,
 )
 from quant_tick.models import Symbol, TradeData, WebSocketData
 
@@ -18,7 +20,13 @@ from .base import BaseController
 from .iterators import TradeDataIterator
 
 logger = logging.getLogger(__name__)
-WEBSOCKET_DATA_LOOKBACK = pd.Timedelta("1h")
+WEBSOCKET_DATA_LOOKBACK = pd.Timedelta("30min")
+# Default ingestion normally uses 10-minute partitions. For that path, more than one invalid
+# websocket range is noisy enough that a full REST fetch is simpler. Longer/manual
+# partitions may tolerate two invalid ranges before falling back to REST-only.
+WEBSOCKET_REST_BACKFILL_SHORT_PARTITION_MAX_RANGES = 1
+WEBSOCKET_REST_BACKFILL_LONG_PARTITION_MAX_RANGES = 2
+WEBSOCKET_REST_BACKFILL_SHORT_PARTITION = pd.Timedelta("10min")
 
 
 def iter_api(
@@ -155,11 +163,40 @@ class ExchangeREST(BaseController):
             retry=self.retry,
         ):
             candles = self.get_candles(timestamp_from, timestamp_to)
-            self.validate_websocket_partitions(
-                timestamp_from,
-                timestamp_to,
-                candles,
+            websocket_partitions = (
+                {}
+                if self.retry
+                else self.validate_websocket_partitions(
+                    timestamp_from,
+                    timestamp_to,
+                    candles,
+                )
             )
+            websocket_timestamp_from = max(
+                timestamp_from,
+                self.get_websocket_timestamp_from(),
+            )
+            has_zero_websocket_range = (
+                not self.retry
+                and websocket_timestamp_from < timestamp_to
+                and self.has_zero_trade_candles(
+                    candles,
+                    websocket_timestamp_from,
+                    timestamp_to,
+                )
+            )
+            if websocket_partitions or has_zero_websocket_range:
+                self.on_websocket_partitions(
+                    timestamp_from,
+                    timestamp_to,
+                    candles,
+                    websocket_partitions,
+                )
+                buffered_trades = []
+                pagination_id = None
+                is_last_iteration = False
+                previous_timestamp_from = None
+                continue
             if previous_timestamp_from == timestamp_to:
                 buffered_trades = [
                     trade
@@ -173,9 +210,8 @@ class ExchangeREST(BaseController):
                 pagination_id = self.get_pagination_id(timestamp_to)
                 is_last_iteration = False
             oldest_timestamp = self.get_oldest_timestamp(buffered_trades)
-            while (
-                not is_last_iteration
-                and (oldest_timestamp is None or oldest_timestamp > timestamp_from)
+            while not is_last_iteration and (
+                oldest_timestamp is None or oldest_timestamp > timestamp_from
             ):
                 trade_data, is_last_iteration, pagination_id = self.iter_api(
                     timestamp_from,
@@ -209,21 +245,25 @@ class ExchangeREST(BaseController):
         timestamp_from: datetime,
         timestamp_to: datetime,
         candles: DataFrame,
-    ) -> None:
+    ) -> dict[datetime, tuple[DataFrame | None, DataFrame | None, DataFrame | None]]:
         timestamp_from = max(timestamp_from, self.get_websocket_timestamp_from())
         if timestamp_from >= timestamp_to:
-            return
+            return {}
 
         rows = (
             WebSocketData.objects.for_symbol(self.symbol)
             .filter(timestamp__gte=timestamp_from, timestamp__lt=timestamp_to)
-            .order_by("-timestamp")
+            .order_by("timestamp")
         )
+        partitions = {}
         for row in rows:
             bucket_to = row.timestamp + pd.Timedelta("1min")
             if bucket_to > timestamp_to:
                 continue
-            self.validate_websocket_partition(row, bucket_to, candles)
+            frames = self.validate_websocket_partition(row, bucket_to, candles)
+            if frames is not None:
+                partitions[row.timestamp] = frames
+        return partitions
 
     @staticmethod
     def get_websocket_timestamp_from() -> datetime:
@@ -234,10 +274,12 @@ class ExchangeREST(BaseController):
         row: WebSocketData,
         timestamp_to: datetime,
         candles: DataFrame,
-    ) -> bool:
-        raw_trades, aggregated_trades, filtered_trades = row.get_data_frames(self.symbol)
+    ) -> tuple[DataFrame | None, DataFrame | None, DataFrame | None] | None:
+        raw_trades, aggregated_trades, filtered_trades = row.get_data_frames(
+            self.symbol
+        )
         if raw_trades is None and aggregated_trades is None and filtered_trades is None:
-            return False
+            return None
         try:
             ok = TradeData.validate(
                 self.symbol,
@@ -248,16 +290,307 @@ class ExchangeREST(BaseController):
                 aggregated_trades=aggregated_trades,
                 filtered_trades=filtered_trades,
             )
+            if ok is not True:
+                return None
+            raw_trades, aggregated_trades, filtered_trades = (
+                TradeData._prepare_partition_data(
+                    self.symbol,
+                    row.timestamp,
+                    timestamp_to,
+                    raw_trades=raw_trades,
+                    aggregated_trades=aggregated_trades,
+                    filtered_trades=filtered_trades,
+                )
+            )
         except Exception:
             logger.exception("%s: websocket data validation failed", self.symbol)
-            return False
+            return None
         logger.info(
             "%s: websocket data validation ok=%s timestamp=%s",
             self.symbol,
             ok,
             row.timestamp.isoformat(),
         )
-        return ok is True
+        return self.get_enabled_trade_frames(
+            raw_trades,
+            aggregated_trades,
+            filtered_trades,
+        )
+
+    def on_websocket_partitions(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        candles: DataFrame,
+        websocket_partitions: dict[
+            datetime, tuple[DataFrame | None, DataFrame | None, DataFrame | None]
+        ],
+    ) -> None:
+        raw_frames: list[DataFrame] = []
+        aggregated_frames: list[DataFrame] = []
+        filtered_frames: list[DataFrame] = []
+
+        def append_frames(
+            raw_trades: DataFrame | None,
+            aggregated_trades: DataFrame | None,
+            filtered_trades: DataFrame | None,
+        ) -> None:
+            if raw_trades is not None:
+                raw_frames.append(raw_trades)
+            if aggregated_trades is not None:
+                aggregated_frames.append(aggregated_trades)
+            if filtered_trades is not None:
+                filtered_frames.append(filtered_trades)
+
+        def append_rest_range(
+            ts_from: datetime,
+            ts_to: datetime,
+            data_frame: DataFrame | None = None,
+        ) -> None:
+            data_frame = (
+                self.fetch_rest_data_frame(ts_from, ts_to)
+                if data_frame is None
+                else data_frame
+            )
+            raw_trades, aggregated_trades, filtered_trades = (
+                TradeData._prepare_partition_data(
+                    self.symbol,
+                    ts_from,
+                    ts_to,
+                    raw_trades=data_frame,
+                )
+            )
+            append_frames(
+                *self.get_enabled_trade_frames(
+                    raw_trades,
+                    aggregated_trades,
+                    filtered_trades,
+                )
+            )
+
+        websocket_timestamp_from = max(
+            timestamp_from,
+            self.get_websocket_timestamp_from(),
+        )
+        invalid_ranges = self.get_invalid_websocket_ranges(
+            websocket_timestamp_from,
+            timestamp_to,
+            websocket_partitions,
+            candles,
+        )
+        if self.should_fetch_rest_only_for_websocket_ranges(
+            websocket_timestamp_from,
+            timestamp_to,
+            invalid_ranges,
+        ):
+            self.on_rest_data_frame(timestamp_from, timestamp_to, candles)
+            return
+
+        if timestamp_from < websocket_timestamp_from:
+            append_rest_range(timestamp_from, websocket_timestamp_from)
+
+        rest_data_frame = None
+        if invalid_ranges:
+            # Fetch one REST span that covers all invalid ranges, then slice each
+            # missing minute from that frame below. This avoids one REST request per
+            # bad minute while still preserving valid websocket minutes.
+            rest_data_frame = self.fetch_rest_data_frame(
+                invalid_ranges[0][0],
+                invalid_ranges[-1][1],
+            )
+
+        for ts_from, ts_to in iter_window(
+            websocket_timestamp_from,
+            timestamp_to,
+            value="1min",
+        ):
+            frames = websocket_partitions.get(ts_from)
+            if frames is None:
+                # Match REST validation semantics: an empty trade minute is valid
+                # when the exchange candle has zero volume/notional.
+                if self.has_zero_trade_candle(candles, ts_from, ts_to):
+                    continue
+                append_rest_range(ts_from, ts_to, rest_data_frame)
+                continue
+            append_frames(*frames)
+
+        raw_trades = self.concat_trade_frames(raw_frames)
+        aggregated_trades = self.concat_trade_frames(aggregated_frames)
+        filtered_trades = self.concat_trade_frames(filtered_frames)
+        data_frame = TradeData._get_validation_frame(
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+        if data_frame is None:
+            data_frame = pd.DataFrame([])
+        self.on_data_frame(
+            self.symbol,
+            timestamp_from,
+            timestamp_to,
+            data_frame,
+            candles,
+            **self.get_data_frame_kwargs(
+                raw_trades,
+                aggregated_trades,
+                filtered_trades,
+            ),
+        )
+
+    def get_invalid_websocket_ranges(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        websocket_partitions: dict[
+            datetime, tuple[DataFrame | None, DataFrame | None, DataFrame | None]
+        ],
+        candles: DataFrame,
+    ) -> list[tuple[datetime, datetime]]:
+        ranges = []
+        range_from = None
+        range_to = None
+        for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value="1min"):
+            if ts_from in websocket_partitions or self.has_zero_trade_candle(
+                candles,
+                ts_from,
+                ts_to,
+            ):
+                if range_from is not None:
+                    ranges.append((range_from, range_to))
+                    range_from = None
+                    range_to = None
+                continue
+            if range_from is None:
+                range_from = ts_from
+            range_to = ts_to
+        if range_from is not None:
+            ranges.append((range_from, range_to))
+        return ranges
+
+    @staticmethod
+    def has_zero_trade_candle(
+        candles: DataFrame,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+    ) -> bool:
+        if not len(candles):
+            return False
+        if "notional" in candles.columns:
+            key = "notional"
+        elif "volume" in candles.columns:
+            key = "volume"
+        else:
+            return False
+        candle = filter_by_timestamp(candles, timestamp_from, timestamp_to)
+        return len(candle) > 0 and candle[key].sum() == 0
+
+    @classmethod
+    def has_zero_trade_candles(
+        cls,
+        candles: DataFrame,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+    ) -> bool:
+        for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value="1min"):
+            if not cls.has_zero_trade_candle(candles, ts_from, ts_to):
+                return False
+        return True
+
+    @staticmethod
+    def should_fetch_rest_only_for_websocket_ranges(
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        invalid_ranges: list[tuple[datetime, datetime]],
+    ) -> bool:
+        max_ranges = (
+            WEBSOCKET_REST_BACKFILL_SHORT_PARTITION_MAX_RANGES
+            if timestamp_to - timestamp_from <= WEBSOCKET_REST_BACKFILL_SHORT_PARTITION
+            else WEBSOCKET_REST_BACKFILL_LONG_PARTITION_MAX_RANGES
+        )
+        return len(invalid_ranges) > max_ranges
+
+    def on_rest_data_frame(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        candles: DataFrame,
+    ) -> None:
+        data_frame = self.fetch_rest_data_frame(timestamp_from, timestamp_to)
+        self.on_data_frame(
+            self.symbol,
+            timestamp_from,
+            timestamp_to,
+            data_frame,
+            candles,
+        )
+
+    def fetch_rest_data_frame(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+    ) -> DataFrame:
+        buffered_trades = []
+        pagination_id = self.get_pagination_id(timestamp_to)
+        is_last_iteration = False
+        oldest_timestamp = self.get_oldest_timestamp(buffered_trades)
+        while not is_last_iteration and (
+            oldest_timestamp is None or oldest_timestamp > timestamp_from
+        ):
+            trade_data, is_last_iteration, pagination_id = self.iter_api(
+                timestamp_from,
+                pagination_id,
+            )
+            buffered_trades += self.parse_data(trade_data)
+            oldest_timestamp = self.get_oldest_timestamp(buffered_trades)
+        valid_trades, _ = self.split_trades(
+            timestamp_from,
+            timestamp_to,
+            buffered_trades,
+        )
+        data_frame = self.get_data_frame(valid_trades)
+        if len(data_frame):
+            self.assert_data_frame(
+                timestamp_from,
+                timestamp_to,
+                data_frame,
+                valid_trades,
+            )
+        return data_frame
+
+    def get_enabled_trade_frames(
+        self,
+        raw_trades: DataFrame | None,
+        aggregated_trades: DataFrame | None,
+        filtered_trades: DataFrame | None,
+    ) -> tuple[DataFrame | None, DataFrame | None, DataFrame | None]:
+        if not self.symbol.save_raw:
+            raw_trades = None
+        if not self.symbol.save_aggregated:
+            aggregated_trades = None
+        if not self.symbol.significant_trade_filter:
+            filtered_trades = None
+        return raw_trades, aggregated_trades, filtered_trades
+
+    @staticmethod
+    def concat_trade_frames(frames: list[DataFrame]) -> DataFrame | None:
+        if not frames:
+            return None
+        return pd.concat(frames, ignore_index=True)
+
+    @staticmethod
+    def get_data_frame_kwargs(
+        raw_trades: DataFrame | None,
+        aggregated_trades: DataFrame | None,
+        filtered_trades: DataFrame | None,
+    ) -> dict[str, DataFrame]:
+        kwargs = {}
+        if raw_trades is not None:
+            kwargs["raw_trades"] = raw_trades
+        if aggregated_trades is not None:
+            kwargs["aggregated_trades"] = aggregated_trades
+        if filtered_trades is not None:
+            kwargs["filtered_trades"] = filtered_trades
+        return kwargs
 
     def get_oldest_timestamp(self, trades: list[dict]) -> datetime | None:
         if trades:
