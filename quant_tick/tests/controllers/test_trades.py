@@ -471,6 +471,78 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
         self.assertEqual(len(frame), 0)
         self.assertEqual(kwargs, {})
 
+    def test_main_accepts_missing_bitfinex_websocket_minutes_when_candles_are_omitted(
+        self,
+    ):
+        ts0 = self.timestamp_from
+        self.symbol = self.get_symbol(
+            exchange=Exchange.BITFINEX,
+            api_symbol="tBTCF0:USTF0",
+        )
+        for minute in (0, 2):
+            self.create_websocket_data(1000 + minute, minute)
+
+        controller = DummyExchangeREST(
+            self.symbol,
+            timestamp_from=ts0,
+            timestamp_to=ts0 + (self.one_minute * 4),
+            retry=False,
+            verbose=False,
+            api_results=[],
+        )
+        candles = self.get_candles({0: Decimal("1"), 2: Decimal("1")})
+
+        with (
+            patch(
+                "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+                return_value=[(ts0, ts0 + (self.one_minute * 4))],
+            ),
+            patch.object(controller, "get_candles", return_value=candles),
+        ):
+            controller.main()
+
+        self.assertEqual(controller.api_calls, 0)
+        self.assertEqual(len(controller.frames), 1)
+        timestamp_from, timestamp_to, frame, _candles, kwargs = controller.frames[0]
+        self.assertEqual(timestamp_from, ts0)
+        self.assertEqual(timestamp_to, ts0 + (self.one_minute * 4))
+        self.assertEqual(list(frame.uid), ["1000", "1002"])
+        self.assertIn("raw_trades", kwargs)
+
+    def test_main_accepts_empty_bitfinex_websocket_window_when_candles_are_omitted(
+        self,
+    ):
+        ts0 = self.timestamp_from
+        self.symbol = self.get_symbol(
+            exchange=Exchange.BITFINEX,
+            api_symbol="tBTCF0:USTF0",
+        )
+        controller = DummyExchangeREST(
+            self.symbol,
+            timestamp_from=ts0,
+            timestamp_to=ts0 + (self.one_minute * 3),
+            retry=False,
+            verbose=False,
+            api_results=[],
+        )
+
+        with (
+            patch(
+                "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+                return_value=[(ts0, ts0 + (self.one_minute * 3))],
+            ),
+            patch.object(controller, "get_candles", return_value=pd.DataFrame([])),
+        ):
+            controller.main()
+
+        self.assertEqual(controller.api_calls, 0)
+        self.assertEqual(len(controller.frames), 1)
+        timestamp_from, timestamp_to, frame, _candles, kwargs = controller.frames[0]
+        self.assertEqual(timestamp_from, ts0)
+        self.assertEqual(timestamp_to, ts0 + (self.one_minute * 3))
+        self.assertEqual(len(frame), 0)
+        self.assertEqual(kwargs, {})
+
     def test_main_backfills_only_invalid_websocket_minutes_in_hour_partition(self):
         ts0 = self.timestamp_from
         invalid_minute = 42

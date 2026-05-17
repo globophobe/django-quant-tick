@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pandas as pd
 from django.test import TestCase
 
-from quant_tick.constants import FileData, Frequency
+from quant_tick.constants import Exchange, FileData, Frequency
 from quant_tick.lib import get_min_time, get_next_time
 from quant_tick.models import TradeData
 from quant_tick.storage import (
@@ -170,6 +170,36 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             self.timestamp_to,
             self.get_exchange_candles("10"),
             raw_trades=self.get_raw_validation_data("raw-1"),
+        )
+
+        self.assertTrue(ok)
+        self.assertFalse(TradeData.objects.filter(symbol=symbol).exists())
+
+    def test_write_trade_data_marks_bitfinex_omitted_candle_no_trade_ok(self):
+        symbol = self.get_symbol(exchange=Exchange.BITFINEX, api_symbol="tBTCF0:USTF0")
+        empty_raw = self.get_raw_validation_data("raw-1").iloc[0:0]
+
+        rows = TradeData.write(
+            symbol,
+            self.timestamp_from,
+            self.timestamp_to,
+            pd.DataFrame([]),
+            raw_trades=empty_raw,
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(TradeData.objects.get(symbol=symbol).ok)
+
+    def test_validate_trade_data_marks_bitfinex_omitted_candle_no_trade_ok(self):
+        symbol = self.get_symbol(exchange=Exchange.BITFINEX, api_symbol="tBTCF0:USTF0")
+        empty_raw = self.get_raw_validation_data("raw-1").iloc[0:0]
+
+        ok = TradeData.validate(
+            symbol,
+            self.timestamp_from,
+            self.timestamp_to,
+            pd.DataFrame([]),
+            raw_trades=empty_raw,
         )
 
         self.assertTrue(ok)
