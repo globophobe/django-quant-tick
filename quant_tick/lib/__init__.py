@@ -33,6 +33,7 @@ from .candles import (
     aggregate_candle,
     aggregate_candles,
     candles_to_data_frame,
+    has_zero_trade_candle,
     resample_candles,
     validate_aggregated_candles,
 )
@@ -40,11 +41,14 @@ from .dataframe import (
     assert_type_decimal,
     calculate_notional,
     calculate_tick_rule,
+    get_frame_totals,
+    has_column_group,
     is_decimal_close,
     normalize_timestamp_data_frame,
     set_dtypes,
     set_type_decimal,
     to_decimal_or_none,
+    validate_totals,
 )
 from .download import gzip_downloader, zip_downloader
 
@@ -80,16 +84,20 @@ __all__ = [
     "to_pydatetime",
     "to_utc_datetime",
     "candles_to_data_frame",
+    "has_zero_trade_candle",
     "resample_candles",
     "validate_aggregated_candles",
     "assert_type_decimal",
     "calculate_notional",
     "calculate_tick_rule",
+    "get_frame_totals",
+    "has_column_group",
     "is_decimal_close",
     "normalize_timestamp_data_frame",
     "set_dtypes",
     "set_type_decimal",
     "to_decimal_or_none",
+    "validate_totals",
     "gzip_downloader",
     "zip_downloader",
 ]

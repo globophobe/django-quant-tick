@@ -23,13 +23,13 @@ class CandleDataFrameTest(BaseWriteTradeDataTest, TestCase):
         )
 
     def test_get_data_frame(self):
-        filtered = self.get_filtered(self.timestamp_from)
+        raw = self.get_raw(self.timestamp_from)
         TradeData.write(
             self.symbol,
             self.timestamp_from,
             self.timestamp_to,
-            filtered,
             pd.DataFrame([]),
+            raw_trades=raw,
         )
         trade_data = TradeData.objects.all()
         self.assertEqual(trade_data.count(), 1)

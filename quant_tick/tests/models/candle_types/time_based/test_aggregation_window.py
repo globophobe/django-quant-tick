@@ -169,6 +169,64 @@ class TimeBasedHourFrequencyCandleTest(
         self.assertEqual(candle_data.count(), 1)
         self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
 
+    def test_retry_initialize_uses_cache_ending_before_retry_start(
+        self, mock_get_current_time
+    ):
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.DAY,
+            ok=True,
+        )
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.HOUR,
+            json_data={"cache": "before"},
+        )
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.one_hour_from_now,
+            frequency=Frequency.HOUR,
+            json_data={"cache": "stale"},
+        )
+        retry_from = self.one_hour_from_now + pd.Timedelta("42min")
+
+        timestamp_from, timestamp_to, data = self.candle.initialize(
+            retry_from,
+            self.three_hours_from_now,
+            retry=True,
+        )
+
+        self.assertEqual(timestamp_from, retry_from)
+        self.assertEqual(timestamp_to, self.three_hours_from_now)
+        self.assertEqual(data, {"cache": "before"})
+
+    def test_retry_deletes_overlapping_cache(self, mock_get_current_time):
+        cache_before = CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.HOUR,
+            json_data={"cache": "before"},
+        )
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.one_hour_from_now,
+            frequency=Frequency.HOUR,
+            json_data={"cache": "overlapping"},
+        )
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.two_hours_from_now,
+            frequency=Frequency.HOUR,
+            json_data={"cache": "future"},
+        )
+        retry_from = self.one_hour_from_now + pd.Timedelta("42min")
+
+        self.candle.on_retry(retry_from, self.three_hours_from_now)
+
+        self.assertEqual(list(CandleCache.objects.all()), [cache_before])
+
     def test_two_candles_from_trades_in_the_first_and_second_hour(
         self, mock_get_current_time
     ):

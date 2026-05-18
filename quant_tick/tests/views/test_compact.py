@@ -51,11 +51,11 @@ class CompactViewTest(TestCase):
         mock_compact_trades.assert_called_once()
         mock_compact_candles.assert_called_once_with(self.candle)
 
-    def test_get_compacts_back_max_seven_days(self):
+    def test_get_compacts_back_max_seven_days_and_skips_recent_two_hours(self):
         timestamp_to = datetime(2013, 1, 20, 0, 10, tzinfo=UTC)
         with patch(
             "quant_tick.views.compact.get_request_params",
-            return_value=(datetime(2013, 1, 1, tzinfo=UTC), timestamp_to, False),
+            return_value=(datetime(2013, 1, 1, tzinfo=UTC), timestamp_to),
         ):
             with patch(
                 "quant_tick.views.compact.convert_trade_data_to_daily"
@@ -68,4 +68,7 @@ class CompactViewTest(TestCase):
             mock_compact_trades.call_args.args[1],
             datetime(2013, 1, 13, tzinfo=UTC),
         )
-        self.assertEqual(mock_compact_trades.call_args.args[2], timestamp_to)
+        self.assertEqual(
+            mock_compact_trades.call_args.args[2],
+            datetime(2013, 1, 19, 22, tzinfo=UTC),
+        )

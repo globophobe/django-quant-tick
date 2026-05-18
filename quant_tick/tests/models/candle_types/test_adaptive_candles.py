@@ -19,6 +19,8 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
         now = get_current_time()
         one_day_ago = now - pd.Timedelta("1d")
         yesterday = one_day_ago.date()
+        timestamp_from = get_min_time(one_day_ago, "1d")
+        timestamp_to = timestamp_from + pd.Timedelta("1d")
         symbol = self.get_symbol()
         candle = AdaptiveCandle.objects.create(
             symbol=symbol,
@@ -30,15 +32,18 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
                 "cache_reset": Frequency.DAY,
             },
         )
-        filtered = self.get_filtered(
-            one_day_ago,
+        raw = self.get_raw(
+            timestamp_from,
             price=Decimal("1"),
             notional=Decimal("123"),
         )
-        trade_data = TradeData.objects.create(
-            symbol=symbol, timestamp=one_day_ago, frequency=Frequency.DAY
+        TradeData.write(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            pd.DataFrame([]),
+            raw_trades=raw,
         )
-        TradeData.write_data_frame(trade_data, filtered, pd.DataFrame([]))
         cache = candle.get_cache_data(now, {"date": yesterday, "target_value": 0})
         self.assertEqual(cache["target_value"], 123)
 

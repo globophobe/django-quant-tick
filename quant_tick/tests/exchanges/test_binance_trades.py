@@ -2,6 +2,8 @@ from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pandas as pd
+
 from django.test import SimpleTestCase
 
 from quant_tick.constants import SymbolType
@@ -52,6 +54,71 @@ class BinanceTradesTest(SimpleTestCase):
             "https://data.binance.vision/data/futures/um/daily/trades/"
             "BTCUSDT/BTCUSDT-trades-2026-04-01.zip",
         )
+
+    def test_s3_tick_rule_maps_is_buyer_maker_values(self):
+        controller = BinanceTradesS3.__new__(BinanceTradesS3)
+        data = pd.DataFrame(
+            [
+                {
+                    "id": "id",
+                    "price": "price",
+                    "qty": "qty",
+                    "quoteQty": "quote_qty",
+                    "time": "time",
+                    "isBuyerMaker": "is_buyer_maker",
+                    "isBestMatch": None,
+                },
+                {
+                    "id": "1",
+                    "price": "100",
+                    "qty": "2",
+                    "quoteQty": "200",
+                    "time": "1775606400000",
+                    "isBuyerMaker": True,
+                    "isBestMatch": True,
+                },
+                {
+                    "id": "2",
+                    "price": "101",
+                    "qty": "3",
+                    "quoteQty": "303",
+                    "time": "1775606401000",
+                    "isBuyerMaker": "True",
+                    "isBestMatch": True,
+                },
+                {
+                    "id": "3",
+                    "price": "102",
+                    "qty": "4",
+                    "quoteQty": "408",
+                    "time": "1775606402000",
+                    "isBuyerMaker": False,
+                    "isBestMatch": True,
+                },
+                {
+                    "id": "4",
+                    "price": "103",
+                    "qty": "5",
+                    "quoteQty": "515",
+                    "time": "1775606403000",
+                    "isBuyerMaker": "False",
+                    "isBestMatch": True,
+                },
+                {
+                    "id": "5",
+                    "price": "104",
+                    "qty": "6",
+                    "quoteQty": "624",
+                    "time": "1775606404000",
+                    "isBuyerMaker": "true",
+                    "isBestMatch": True,
+                },
+            ]
+        )
+
+        parsed = controller.parse_dtypes_and_strip_columns(data)
+
+        self.assertEqual(parsed["tickRule"].tolist(), [-1, -1, 1, 1, -1])
 
     def test_binance_futures_trades_skip_without_api_key(self):
         symbol = SimpleNamespace(api_symbol="BTCUSDT", symbol_type=SymbolType.PERPETUAL)

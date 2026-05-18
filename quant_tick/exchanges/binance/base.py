@@ -112,6 +112,9 @@ class BinanceS3Mixin(BinanceMixin):
 
     def parse_dtypes_and_strip_columns(self, df: DataFrame) -> DataFrame:
         """Parse Binance S3 columns into the canonical trade schema."""
+        header_rows = df["id"].astype(str).str.lower() == "id"
+        if header_rows.any():
+            df = df.loc[~header_rows].copy()
         df = set_type_decimal(df, "price")
         df = set_type_decimal(df, "qty")
         # S3 files are daily, so first timestamp
@@ -126,5 +129,6 @@ class BinanceS3Mixin(BinanceMixin):
         df = df.rename(columns={"id": "uid", "qty": "notional"})
         df["volume"] = df["price"] * df["notional"]
         df["tickRule"] = 1
-        df.loc[df["isBuyerMaker"] == "True", "tickRule"] = -1
+        is_buyer_maker = df["isBuyerMaker"].astype(str).str.lower() == "true"
+        df.loc[is_buyer_maker, "tickRule"] = -1
         return df[self.columns]

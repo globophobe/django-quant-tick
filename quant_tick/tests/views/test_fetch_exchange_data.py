@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+import httpx
 from django.test import TestCase
 from django.urls import reverse
 
@@ -80,12 +81,28 @@ class FetchExchangeDataViewTest(TestCase):
                 Exchange.HYPERLIQUID,
             },
         )
-        task_state = TaskState.objects.get(
+        task_states = TaskState.objects.filter(
             task_type=TaskType.FETCH_EXCHANGE_DATA,
-            exchange="",
+        ).order_by("exchange", "api_symbol")
+        self.assertEqual(
+            [(task_state.exchange, task_state.api_symbol) for task_state in task_states],
+            [
+                (Exchange.BINANCE_FUTURES, "BTCUSDT"),
+                (Exchange.BITFINEX, "tBTCF0:USTF0"),
+                (Exchange.COINBASE, "BTC-USD"),
+                (Exchange.HYPERLIQUID, "BTC"),
+                (Exchange.HYPERLIQUID, "SOL"),
+            ],
         )
-        self.assertEqual(task_state.recent_error_count, 0)
-        self.assertIsNone(task_state.locked_until)
+        for task_state in task_states:
+            self.assertEqual(task_state.recent_error_count, 0)
+            self.assertIsNone(task_state.locked_until)
+        self.assertFalse(
+            TaskState.objects.filter(
+                task_type=TaskType.FETCH_EXCHANGE_DATA,
+                exchange="",
+            ).exists()
+        )
 
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
@@ -136,15 +153,92 @@ class FetchExchangeDataViewTest(TestCase):
         self.assertEqual(mock_candles.call_args.args[0].api_symbol, "BTC-USD")
         self.assertEqual(mock_candles.call_args.kwargs["resolution"], "1d")
 
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
-    def test_get_skips_when_task_is_backed_off(self, mock_funding):
+    def test_get_skips_backed_off_symbol_only(self, mock_funding, mock_candles):
         TaskState.objects.create(
             task_type=TaskType.FETCH_EXCHANGE_DATA,
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
             next_fetch_at=datetime(2099, 1, 1, tzinfo=UTC),
         )
 
         response = self.client.get(self.get_url())
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["skipped"], "backoff")
-        mock_funding.assert_not_called()
+        self.assertEqual(response.json()["skipped"], 1)
+        self.assertEqual(response.json()["funding"], 2)
+        funding_symbols = {
+            call.args[0].api_symbol for call in mock_funding.call_args_list
+        }
+        self.assertEqual(funding_symbols, {"BTC", "tBTCF0:USTF0"})
+        self.assertEqual(mock_candles.call_count, 4)
+
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
+    def test_get_marks_failed_symbol_without_stopping_others(
+        self,
+        mock_funding,
+        mock_candles,
+    ):
+        def funding_side_effect(symbol, *_args):
+            if symbol.api_symbol == "BTC":
+                raise RuntimeError("boom")
+
+        mock_funding.side_effect = funding_side_effect
+
+        with self.assertLogs("quant_tick.views.fetch_exchange_data", level="ERROR"):
+            response = self.client.get(self.get_url())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["ok"])
+        self.assertEqual(response.json()["failed"], 1)
+        self.assertEqual(response.json()["funding"], 2)
+        self.assertEqual(response.json()["exchange_candles"], 3)
+        failed_task = TaskState.objects.get(
+            task_type=TaskType.FETCH_EXCHANGE_DATA,
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="BTC",
+        )
+        self.assertEqual(failed_task.recent_error_count, 1)
+        self.assertIsNone(failed_task.locked_until)
+        self.assertTrue(
+            TaskState.objects.filter(
+                task_type=TaskType.FETCH_EXCHANGE_DATA,
+                exchange=Exchange.COINBASE,
+                api_symbol="BTC-USD",
+            ).exists()
+        )
+
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
+    def test_get_skips_http_530_without_backoff(
+        self,
+        mock_funding,
+        mock_candles,
+    ):
+        request = httpx.Request("GET", "https://www.bitmex.com/api/v1/trade")
+        response = httpx.Response(530, request=request)
+        mock_funding.side_effect = httpx.HTTPStatusError(
+            "Server error",
+            request=request,
+            response=response,
+        )
+
+        with self.assertLogs("quant_tick.views.fetch_exchange_data", level="WARNING"):
+            response = self.client.get(
+                self.get_url(),
+                {"exchange": Exchange.BINANCE_FUTURES},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["ok"])
+        self.assertEqual(response.json()["failed"], 1)
+        task_state = TaskState.objects.get(
+            task_type=TaskType.FETCH_EXCHANGE_DATA,
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+        )
+        self.assertEqual(task_state.recent_error_count, 0)
+        self.assertIsNone(task_state.next_fetch_at)
+        self.assertIsNone(task_state.locked_until)

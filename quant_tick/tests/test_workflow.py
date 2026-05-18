@@ -1,13 +1,19 @@
-from django.test import SimpleTestCase
+import os
+from unittest.mock import Mock, patch
 
-from tasks import get_workflow
+from django.test import SimpleTestCase, TestCase
+
+from quant_tick.constants import Exchange
+from quant_tick.models import Symbol
+
+from tasks import get_workflow, push_workflow
 
 
 class WorkflowTest(SimpleTestCase):
     def test_workflow_calls_callback_before_compaction(self):
         workflow = get_workflow(
             "https://test.123/",
-            ["coinbase"],
+            [{"exchange": "coinbase", "api_symbol": "BTC-USD"}],
             callback_url="https://test.456/callback/",
             callback_interval_minutes=15,
         )
@@ -18,46 +24,51 @@ class WorkflowTest(SimpleTestCase):
                 "getRunTime",
                 "getTradeData",
                 "fetchExchangeData",
-                "aggregateCandles",
                 "maybeCallback",
                 "callback",
                 "compact",
             ],
         )
-        self.assertEqual(
-            steps[1]["getTradeData"]["parallel"]["for"]["steps"][0]["tradeData"][
-                "try"
-            ]["args"]["url"],
-            "${\"https://test.123/aggregate-trades/\" + exchange + \"/?time_ago=7d\"}",
-        )
+        trade_step = steps[1]["getTradeData"]["parallel"]["for"]["steps"][0][
+            "tradeData"
+        ]["try"]
+        self.assertEqual(trade_step["call"], "http.get")
+        self.assertEqual(trade_step["args"]["url"], "${item.url}")
         self.assertEqual(
             steps[2]["fetchExchangeData"]["try"]["args"]["url"],
             "https://test.123/fetch-exchange-data/?time_ago=7d",
         )
         self.assertEqual(steps[2]["fetchExchangeData"]["except"]["steps"], [])
+        self.assertEqual(steps[3]["maybeCallback"]["next"], "compact")
+        self.assertEqual(steps[4]["callback"]["next"], "compact")
+        self.assertEqual(steps[4]["callback"]["args"]["url"], "https://test.456/callback/")
+        self.assertEqual(steps[4]["callback"]["args"]["body"], {"as_of": "${runTime}"})
         self.assertEqual(
-            steps[3]["aggregateCandles"]["args"]["url"],
-            "https://test.123/aggregate-candles/?time_ago=7d",
-        )
-        self.assertEqual(steps[4]["maybeCallback"]["next"], "compact")
-        self.assertEqual(steps[5]["callback"]["next"], "compact")
-        self.assertEqual(
-            steps[6]["compact"]["args"]["url"],
+            steps[5]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
         )
 
-    def test_workflow_compacts_without_callback(self):
-        workflow = get_workflow("https://test.123/", ["coinbase"])
+    def test_workflow_collects_trades(self):
+        workflow = get_workflow(
+            "https://test.123/",
+            [{"exchange": "coinbase", "api_symbol": "BTC-USD"}],
+        )
         steps = workflow["main"]["steps"]
         self.assertEqual(
             [next(iter(step)) for step in steps],
-            ["getTradeData", "fetchExchangeData", "aggregateCandles", "compact"],
+            ["getTradeData", "fetchExchangeData", "compact"],
         )
+        trade_step = steps[0]["getTradeData"]["parallel"]["for"]["steps"][0][
+            "tradeData"
+        ]["try"]
         self.assertEqual(
-            steps[0]["getTradeData"]["parallel"]["for"]["steps"][0]["tradeData"][
-                "try"
-            ]["args"]["url"],
-            "${\"https://test.123/aggregate-trades/\" + exchange + \"/?time_ago=7d\"}",
+            trade_step["args"]["url"],
+            "${item.url}",
+        )
+        self.assertEqual(trade_step["call"], "http.get")
+        self.assertEqual(
+            trade_step["args"]["auth"],
+            {"type": "OIDC"},
         )
         self.assertEqual(
             steps[1]["fetchExchangeData"]["try"]["args"]["url"],
@@ -65,10 +76,89 @@ class WorkflowTest(SimpleTestCase):
         )
         self.assertEqual(steps[1]["fetchExchangeData"]["except"]["steps"], [])
         self.assertEqual(
-            steps[2]["aggregateCandles"]["args"]["url"],
-            "https://test.123/aggregate-candles/?time_ago=7d",
-        )
-        self.assertEqual(
-            steps[3]["compact"]["args"]["url"],
+            steps[2]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
+        )
+
+    def test_workflow_fanout_is_symbol_scoped(self):
+        workflow = get_workflow(
+            "https://test.123/",
+            [
+                {"exchange": "coinbase", "api_symbol": "BTC-USD"},
+                {"exchange": "binance-futures", "api_symbol": "BTC/USDT"},
+            ],
+        )
+        requests = workflow["main"]["steps"][0]["getTradeData"]["parallel"]["for"][
+            "in"
+        ]
+
+        self.assertEqual(
+            requests,
+            [
+                {
+                    "url": "https://test.123/aggregate-trades/coinbase/?time_ago=7d&api_symbol=BTC-USD"
+                },
+                {
+                    "url": "https://test.123/aggregate-trades/binance-futures/?time_ago=7d&api_symbol=BTC%2FUSDT"
+                },
+            ],
+        )
+
+
+class WorkflowDeployTest(TestCase):
+    @patch.dict(
+        os.environ,
+        {
+            "PRODUCTION_API_URL": "https://test.123/",
+            "CALLBACK_URL": "",
+            "CALLBACK_INTERVAL_MINUTES": "",
+        },
+    )
+    @patch("tasks.django_settings")
+    @patch("tasks.get_workflow", return_value={"main": {"steps": []}})
+    def test_push_workflow_only_fans_out_trade_data_symbols(
+        self,
+        mock_get_workflow,
+        _mock_django_settings,
+    ):
+        raw = Symbol.objects.create(
+            exchange=Exchange.COINBASE,
+            api_symbol="BTC-USD",
+            save_raw=True,
+        )
+        aggregated = Symbol.objects.create(
+            exchange=Exchange.BITFINEX,
+            api_symbol="tBTCUSD",
+            save_aggregated=True,
+        )
+        filtered = Symbol.objects.create(
+            exchange=Exchange.BITMEX,
+            api_symbol="XBTUSD",
+            significant_trade_filter=1000,
+        )
+        Symbol.objects.create(
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+            exchange_candle_resolution="1h",
+        )
+        Symbol.objects.create(
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="BTC",
+        )
+        Symbol.objects.create(
+            exchange=Exchange.BINANCE,
+            api_symbol="BTCUSDT",
+            save_raw=True,
+            is_active=False,
+        )
+
+        push_workflow.body(Mock())
+
+        self.assertEqual(
+            mock_get_workflow.call_args.args[1],
+            [
+                {"exchange": aggregated.exchange, "api_symbol": aggregated.api_symbol},
+                {"exchange": filtered.exchange, "api_symbol": filtered.api_symbol},
+                {"exchange": raw.exchange, "api_symbol": raw.api_symbol},
+            ],
         )

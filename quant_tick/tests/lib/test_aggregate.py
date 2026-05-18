@@ -128,6 +128,24 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
         self.assert_min_volume(filtered.iloc[0])
         self.assert_not_min_volume(filtered.iloc[0], buy=2, total=4)
 
+    def test_volume_filter_rejects_partial_totalized_schema(self):
+        now = get_current_time()
+        trades = [
+            {
+                **self.get_random_trade(
+                    timestamp=now,
+                    price=1,
+                    notional=1,
+                    tick_rule=1,
+                ),
+                "totalVolume": 1,
+            }
+        ]
+        data_frame = pd.DataFrame(trades)
+
+        with self.assertRaisesRegex(ValueError, "totalNotional"):
+            volume_filter_with_time_window(data_frame, min_volume=2, window=None)
+
     def test_volume_filter_with_8_trades(self):
         now = get_current_time()
         kwargs = {"price": 1, "notional": 1}

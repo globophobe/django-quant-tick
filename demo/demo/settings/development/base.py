@@ -1,5 +1,6 @@
 # ruff: noqa: F403, F405
 from ..base import *
+from quant_tick.testing import is_test
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -45,7 +46,7 @@ STATIC_URL = "static/"
 
 ROOT_URLCONF = "demo.urls.development"
 
-if not TEST:
+if not is_test():
     LOGGING = {
         "version": 1,
         "disable_existing_loggers": False,

@@ -39,21 +39,22 @@ class QuantTickEncoder(DjangoJSONEncoder):
 def quant_tick_json_decoder(data: dict) -> dict:
     """Decode Decimal, date, and datetime strings from JSON payloads."""
     for key, value in data.items():
-        if isinstance(data[key], str):
-            try:
-                data[key] = Decimal(value)
-            except decimal.InvalidOperation:
-                pass
-        if isinstance(data[key], str):
-            try:
-                data[key] = date.fromisoformat(value)
-            except (TypeError, ValueError):
-                pass
-        if isinstance(data[key], str):
-            try:
-                data[key] = to_utc_datetime(pd.to_datetime(value))
-            except (TypeError, ValueError):
-                pass
+        if key not in {"uid"}:
+            if isinstance(data[key], str):
+                try:
+                    data[key] = Decimal(value)
+                except decimal.InvalidOperation:
+                    pass
+            if isinstance(data[key], str):
+                try:
+                    data[key] = date.fromisoformat(value)
+                except (TypeError, ValueError):
+                    pass
+            if isinstance(data[key], str):
+                try:
+                    data[key] = to_utc_datetime(pd.to_datetime(value))
+                except (TypeError, ValueError):
+                    pass
     return data
 
 

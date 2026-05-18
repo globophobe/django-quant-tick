@@ -3,8 +3,9 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
+from django.db.models import Q
 from dotenv import load_dotenv
 from invoke import task
 
@@ -13,8 +14,9 @@ load_dotenv(Path(__file__).resolve().with_name(".env"))
 
 @task
 def django_settings(ctx: Any, proxy: bool = False) -> Any:
-    name = "proxy" if proxy else "development"
-    os.environ["DJANGO_SETTINGS_MODULE"] = f"demo.settings.{name}"
+    os.environ["DJANGO_SETTINGS_MODULE"] = (
+        "demo.settings.development.proxy" if proxy else "demo.settings.development.local"
+    )
     import django
 
     django.setup()
@@ -57,8 +59,10 @@ def migrate(ctx: Any) -> None:
 def start_proxy(ctx: Any) -> None:
     host = os.environ["PRODUCTION_DATABASE_HOST"]
     port = os.environ["PROXY_DATABASE_PORT"]
-    credentials = Path(__file__).parent.parent.parent.joinpath("keys", os.environ["GOOGLE_APPLICATION_CREDENTIALS"]).resolve()
-    ctx.run(f"cloud-tools/cloud-sql-proxy -c {credentials} {host} -p {port}")
+    home = Path.home()
+    credentials = home.joinpath("keys", os.environ["GOOGLE_APPLICATION_CREDENTIALS"]).resolve()
+    proxy = home.joinpath("cloud-tools", "cloud-sql-proxy").resolve()
+    ctx.run(f"{proxy} -c {credentials} {host} -p {port}")
 
 
 @task
@@ -78,14 +82,12 @@ def docker_secrets() -> str:
         f'{secret}="{os.environ[secret]}"'
         for secret in (
             "SECRET_KEY",
-            "SENTRY_DSN",
             "DATABASE_NAME",
             "DATABASE_USER",
             "DATABASE_PASSWORD",
             "PRODUCTION_DATABASE_HOST",
             "DATABASE_PORT",
             "GCS_BUCKET_NAME",
-            "PRODUCTION_API_URL",
         )
     ]
     return " ".join([f"--build-arg {build_arg}" for build_arg in build_args])
@@ -160,13 +162,12 @@ def push_container(
 
 def get_workflow(
     url: str,
-    exchanges: list[str],
+    symbols: list[dict[str, str]],
     callback_url: str | None = None,
     callback_interval_minutes: int | None = None,
 ) -> dict:
-    """Build the Cloud Workflow definition for REST aggregation."""
+    """Get workflow."""
     aggregate_trades = urljoin(url, "aggregate-trades/")
-    aggregate_candles = urljoin(url, "aggregate-candles/")
     fetch_exchange_data_url = urljoin(url, "fetch-exchange-data/")
     compact = urljoin(url, "compact/")
     steps = []
@@ -188,15 +189,24 @@ def get_workflow(
             "getTradeData": {
                 "parallel": {
                     "for": {
-                        "value": "exchange",
-                        "in": exchanges,
+                        "value": "item",
+                        "in": [
+                            {
+                                "url": (
+                                    f"{aggregate_trades}{item['exchange']}/"
+                                    f"?time_ago=7d&api_symbol="
+                                    f"{quote(item['api_symbol'], safe='')}"
+                                )
+                            }
+                            for item in symbols
+                        ],
                         "steps": [
                             {
                                 "tradeData": {
                                     "try": {
                                         "call": "http.get",
                                         "args": {
-                                            "url": '${"' + aggregate_trades + '" + exchange + "/?time_ago=7d"}',
+                                            "url": "${item.url}",
                                             "auth": {"type": "OIDC"},
                                         },
                                     },
@@ -222,15 +232,6 @@ def get_workflow(
                 "except": {"as": "e", "steps": []},
             }
         },
-        {
-            "aggregateCandles": {
-                "call": "http.get",
-                "args": {
-                    "url": f"{aggregate_candles}?time_ago=7d",
-                    "auth": {"type": "OIDC"},
-                },
-            }
-        },
     ]
     if callback_url and callback_interval_minutes:
         steps += [
@@ -251,7 +252,7 @@ def get_workflow(
                     "args": {
                         "url": callback_url,
                         "auth": {"type": "OIDC"},
-                        "body": {"timestamp": "${runTime}"},
+                        "body": {"as_of": "${runTime}"},
                     },
                     "next": "compact",
                 }
@@ -273,8 +274,27 @@ def get_workflow(
 
 @task
 def push_workflow(
-    ctx: Any, name: str = "django-quant-tick", location: str = "asia-northeast1"
+    ctx: Any,
+    name: str = "django-quant-tick",
+    location: str = "asia-northeast1",
 ) -> None:
+    """Push workflow."""
+    django_settings(ctx, proxy=True)
+    from quant_tick.models import Symbol
+
+    symbols = list(
+        Symbol.objects.filter(is_active=True)
+        .filter(
+            Q(save_raw=True)
+            | Q(save_aggregated=True)
+            | Q(significant_trade_filter__gt=0)
+        )
+        .order_by("exchange", "api_symbol")
+        .values("exchange", "api_symbol")
+    )
+    if not symbols:
+        raise RuntimeError("No active symbols.")
+
     url = os.environ["PRODUCTION_API_URL"]
     callback_url = os.environ.get("CALLBACK_URL") or None
     callback_interval_minutes = os.environ.get("CALLBACK_INTERVAL_MINUTES") or None
@@ -284,10 +304,10 @@ def push_workflow(
             raise ValueError("CALLBACK_INTERVAL_MINUTES must be positive.")
     if callback_url and callback_interval_minutes is None:
         raise ValueError("CALLBACK_INTERVAL_MINUTES is required when CALLBACK_URL is set.")
-    exchanges = ["binance", "bitfinex", "bitmex", "coinbase"]
+
     workflow = get_workflow(
         url,
-        exchanges,
+        symbols,
         callback_url=callback_url,
         callback_interval_minutes=callback_interval_minutes,
     )

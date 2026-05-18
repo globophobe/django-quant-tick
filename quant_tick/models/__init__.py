@@ -5,6 +5,7 @@ from .funding import FundingData
 from .symbols import Symbol
 from .task_state import TaskState
 from .trades import TradeData
+from .websocket import WebSocketData
 
 __all__ = [
     "AdaptiveCandle",
@@ -18,4 +19,5 @@ __all__ = [
     "Symbol",
     "TaskState",
     "TradeData",
+    "WebSocketData",
 ]

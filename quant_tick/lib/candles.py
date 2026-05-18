@@ -5,9 +5,11 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.constants import Exchange
+
 from .aggregate import filter_by_timestamp
 from .calendar import iter_window
-from .dataframe import is_decimal_close
+from .dataframe import has_column_group, is_decimal_close
 
 ZERO = Decimal("0")
 
@@ -178,7 +180,17 @@ def _aggregate_totals(
 ) -> dict:
     """Aggregate volume, notional, ticks, and round fields."""
     data = {}
-    has_totals = "totalVolume" in df.columns
+    has_totals = has_column_group(
+        df,
+        (
+            "totalBuyVolume",
+            "totalVolume",
+            "totalBuyNotional",
+            "totalNotional",
+            "totalBuyTicks",
+            "totalTicks",
+        ),
+    )
 
     if has_totals:
         data["volume"] = df.totalVolume.sum()
@@ -271,11 +283,37 @@ def _aggregate_realized_variance(df: DataFrame) -> dict:
     return {"realizedVariance": ZERO}
 
 
+def has_zero_trade_candle(
+    exchange: str,
+    candles: DataFrame,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+) -> bool:
+    missing_candle_is_zero = exchange == Exchange.BITFINEX
+    if not len(candles):
+        return missing_candle_is_zero
+    if "notional" in candles.columns:
+        key = "notional"
+    elif "volume" in candles.columns:
+        key = "volume"
+    else:
+        return False
+    candle = filter_by_timestamp(candles, timestamp_from, timestamp_to)
+    if not len(candle):
+        return missing_candle_is_zero
+    return candle[key].sum() == 0
+
+
 def validate_aggregated_candles(
-    aggregated_candles: DataFrame, exchange_candles: DataFrame
+    aggregated_candles: DataFrame,
+    exchange_candles: DataFrame,
+    *,
+    missing_candles_are_zero: bool = False,
 ) -> bool | None:
     """Validate data_frame with candles from Exchange API."""
     if not len(exchange_candles):
+        if missing_candles_are_zero and not len(aggregated_candles):
+            return True
         return None
 
     if "notional" in exchange_candles.columns:

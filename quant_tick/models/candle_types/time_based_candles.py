@@ -8,7 +8,7 @@ from pandas import DataFrame
 from quant_tick.constants import Frequency
 from quant_tick.lib import filter_by_timestamp, get_min_time, iter_window
 
-from ..candles import Candle, CandleCache, CandleData
+from ..candles import Candle, CandleData
 
 
 class TimeBasedCandle(Candle):
@@ -121,9 +121,7 @@ class TimeBasedCandle(Candle):
     @transaction.atomic
     def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
         """Delete cached and stored rows inside the retry window."""
-        CandleCache.objects.filter(
-            candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
-        ).delete()
+        self.delete_overlapping_cache(timestamp_from, timestamp_to)
         CandleData.objects.filter(
             candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
         ).delete()

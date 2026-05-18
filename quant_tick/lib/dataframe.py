@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.constants import ZERO
+
 
 def calculate_notional(data_frame: DataFrame) -> DataFrame:
     """Calculate notional."""
@@ -59,3 +61,47 @@ def assert_type_decimal(data_frame: DataFrame, columns: Iterable[str]) -> None:
 def is_decimal_close(d1: Decimal, d2: Decimal) -> bool:
     """Is decimal one close to decimal two?"""
     return np.isclose(float(d1), float(d2))
+
+
+def has_column_group(data_frame: DataFrame, columns: Iterable[str]) -> bool:
+    """Return whether a related column group is present, rejecting partial groups."""
+    required = set(columns)
+    available = set(data_frame.columns)
+    if not required & available:
+        return False
+
+    missing = required - available
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise ValueError(f"Missing required columns: {names}.")
+    return True
+
+
+def get_frame_totals(data_frame: DataFrame | None) -> tuple[Decimal, Decimal]:
+    """Return volume and notional totals for raw or totalized trade frames."""
+    if data_frame is None or data_frame.empty:
+        return ZERO, ZERO
+    if has_column_group(data_frame, ("totalVolume", "totalNotional")):
+        return (
+            data_frame.totalVolume.sum() or ZERO,
+            data_frame.totalNotional.sum() or ZERO,
+        )
+    return data_frame.volume.sum() or ZERO, data_frame.notional.sum() or ZERO
+
+
+def validate_totals(**frames: DataFrame | None) -> None:
+    """Validate that non-null frames carry equal volume and notional totals."""
+    totals = [
+        (name, get_frame_totals(data_frame))
+        for name, data_frame in frames.items()
+        if data_frame is not None
+    ]
+    if len(totals) < 2:
+        return
+
+    base_name, (base_volume, base_notional) = totals[0]
+    for name, (volume, notional) in totals[1:]:
+        if not is_decimal_close(volume, base_volume):
+            raise ValueError(f"{name} volume does not match {base_name}.")
+        if not is_decimal_close(notional, base_notional):
+            raise ValueError(f"{name} notional does not match {base_name}.")

@@ -58,7 +58,7 @@ def api(
     retry: bool = False,
     verbose: bool = False,
 ) -> None:
-    """Fetch exchange trades and persist TradeData rows."""
+    """Fetch exchange trades and persist them."""
 
     def on_data_frame(
         symbol: Symbol,
@@ -66,9 +66,23 @@ def api(
         timestamp_to: datetime,
         trades: DataFrame,
         candles: DataFrame,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
     ) -> DataFrame:
-        """Write one fetched trade slice."""
-        TradeData.write(symbol, timestamp_from, timestamp_to, trades, candles)
+        """Write one trade slice."""
+        if raw_trades is None and aggregated_trades is None and filtered_trades is None:
+            raw_trades = trades
+        TradeData.write(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            candles,
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
 
     trades_api(
         symbol=symbol,

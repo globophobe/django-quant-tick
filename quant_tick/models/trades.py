@@ -2,23 +2,24 @@ import datetime
 from pathlib import Path
 
 import pandas as pd
-from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
-from quant_tick.constants import FileData, Frequency
+from quant_tick.constants import Exchange, FileData, Frequency
+from quant_tick.testing import is_test
 from quant_tick.lib import (
     aggregate_candle,
     aggregate_candles,
     aggregate_trades,
     filter_by_timestamp,
     get_existing,
+    get_min_time,
     has_timestamps,
-    is_decimal_close,
     iter_window,
     validate_aggregated_candles,
+    validate_totals,
     volume_filter_with_time_window,
 )
 
@@ -122,7 +123,7 @@ class TradeDataQuerySet(QuerySet):
 
 
 class TradeData(AbstractDataStorage):
-    """Stored trade-data slice and derived parquet artifacts."""
+    """Trade data."""
 
     symbol = models.ForeignKey(
         "quant_tick.Symbol", related_name="trade_data", on_delete=models.CASCADE
@@ -146,12 +147,12 @@ class TradeData(AbstractDataStorage):
     objects = TradeDataQuerySet.as_manager()
 
     def upload_path(self, directory: str, filename: str) -> str:
-        """Build a deterministic storage path for a file field.
+        """Upload path.
 
         Example:
         trades / coinbase / BTCUSD / blaring-crocodile / raw / 2022-01-01 / 0000.parquet
         """
-        path = ["test-trades"] if settings.TEST else ["trades"]
+        path = ["test-trades"] if is_test() else ["trades"]
         path += self.symbol.upload_path + [directory, self.timestamp.date().isoformat()]
         fname = self.timestamp.time().strftime("%H%M")
         ext = Path(filename).suffix
@@ -171,133 +172,297 @@ class TradeData(AbstractDataStorage):
         symbol: Symbol,
         timestamp_from: datetime.datetime,
         timestamp_to: datetime.datetime,
-        trades: DataFrame,
         candles: DataFrame,
-    ) -> None:
-        """Dispatch writes by slice frequency."""
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> list["TradeData"]:
+        """Write trades and validate them against exchange candles."""
+        if raw_trades is None and aggregated_trades is None and filtered_trades is None:
+            raise ValueError(
+                "Either raw_trades, aggregated_trades, or filtered_trades is required."
+            )
+        return cls._write_range(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            candles,
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+
+    @classmethod
+    def validate(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        candles: DataFrame,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> bool | None:
+        """Validate trades against exchange candles without writing TradeData."""
+        if raw_trades is None and aggregated_trades is None and filtered_trades is None:
+            raise ValueError(
+                "Either raw_trades, aggregated_trades, or filtered_trades is required."
+            )
+        cls._get_write_frequency(timestamp_from, timestamp_to)
+        raw_trades, aggregated_trades, filtered_trades = cls._prepare_partition_data(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+        return cls._validate_trade_data(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            filter_by_timestamp(candles, timestamp_from, timestamp_to),
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+
+    @classmethod
+    def _get_write_frequency(
+        cls,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+    ) -> Frequency:
         delta = timestamp_to - timestamp_from
+        if delta <= pd.Timedelta(0):
+            raise ValueError("timestamp_to must be after timestamp_from.")
         frequency = delta.total_seconds() / 60
         assert frequency <= Frequency.DAY
-        is_first_hour = timestamp_from.time() == datetime.time.min
-        is_daily = timestamp_from == timestamp_to - pd.Timedelta("1d")
-        is_first_minute = timestamp_from.time().minute == 0
-        is_hourly = timestamp_from == timestamp_to - pd.Timedelta("1h")
-        if is_first_hour and is_daily:
-            cls.write_day(symbol, timestamp_from, timestamp_to, trades, candles)
-        elif is_first_minute and is_hourly:
-            cls.write_hour(symbol, timestamp_from, timestamp_to, trades, candles)
-        else:
-            cls.write_minutes(symbol, timestamp_from, timestamp_to, trades, candles)
+        if (
+            timestamp_from == get_min_time(timestamp_from, "1d")
+            and timestamp_from == timestamp_to - pd.Timedelta("1d")
+        ):
+            return Frequency.DAY
+        if (
+            timestamp_from == get_min_time(timestamp_from, "1h")
+            and timestamp_from == timestamp_to - pd.Timedelta("1h")
+        ):
+            return Frequency.HOUR
+        if timestamp_from != get_min_time(timestamp_from, "1min") or (
+            timestamp_to != get_min_time(timestamp_to, "1min")
+        ):
+            raise ValueError("minimum timestamp boundary is 1 minute.")
+        return Frequency.MINUTE
 
     @classmethod
-    def write_day(
+    def _write_range(
         cls,
         symbol: Symbol,
         timestamp_from: datetime.datetime,
         timestamp_to: datetime.datetime,
-        trades: DataFrame,
         candles: DataFrame,
-    ) -> None:
-        """Rewrite the daily TradeData row for the range."""
-        cls.objects.cleanup(
-            symbol,
-            timestamp_from,
-            timestamp_to,
-            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
-        )
-        cls.write_data_frame(
-            TradeData(symbol=symbol, timestamp=timestamp_from, frequency=Frequency.DAY),
-            trades,
-            candles,
-        )
-
-    @classmethod
-    def write_hour(
-        cls,
-        symbol: Symbol,
-        timestamp_from: datetime.datetime,
-        timestamp_to: datetime.datetime,
-        trades: DataFrame,
-        candles: DataFrame,
-    ) -> None:
-        """Rewrite the hourly TradeData row for the range."""
-        cls.objects.cleanup(
-            symbol,
-            timestamp_from,
-            timestamp_to,
-            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
-        )
-        cls.write_data_frame(
-            TradeData(symbol=symbol, timestamp=timestamp_from, frequency=Frequency.HOUR),
-            trades,
-            candles,
-        )
-
-    @classmethod
-    def write_minutes(
-        cls,
-        symbol: Symbol,
-        timestamp_from: datetime.datetime,
-        timestamp_to: datetime.datetime,
-        trades: DataFrame,
-        candles: DataFrame,
-    ) -> None:
-        """Rewrite minute TradeData rows for each minute in the range."""
-        for ts_from, ts_to in iter_window(timestamp_from, timestamp_to, value="1min"):
-            cls.objects.cleanup(
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> list["TradeData"]:
+        frequency = cls._get_write_frequency(timestamp_from, timestamp_to)
+        if frequency in (Frequency.DAY, Frequency.HOUR):
+            return [
+                cls._write_partition(
+                    symbol,
+                    timestamp_from,
+                    timestamp_to,
+                    frequency,
+                    candles,
+                    raw_trades=raw_trades,
+                    aggregated_trades=aggregated_trades,
+                    filtered_trades=filtered_trades,
+                )
+            ]
+        return [
+            cls._write_partition(
                 symbol,
                 ts_from,
                 ts_to,
-                (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
+                Frequency.MINUTE,
+                candles,
+                raw_trades=raw_trades,
+                aggregated_trades=aggregated_trades,
+                filtered_trades=filtered_trades,
             )
-            cls.write_data_frame(
-                TradeData(symbol=symbol, timestamp=ts_from, frequency=Frequency.MINUTE),
-                filter_by_timestamp(trades, ts_from, ts_to),
-                filter_by_timestamp(candles, ts_from, ts_to),
+            for ts_from, ts_to in iter_window(
+                timestamp_from,
+                timestamp_to,
+                value="1min",
             )
+        ]
 
     @classmethod
-    def write_data_frame(
-        cls, obj: "TradeData", trades: DataFrame, candles: DataFrame
-    ) -> None:
-        """Serialize and persist one TradeData row and its derived artifacts."""
+    def _write_partition(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        frequency: Frequency,
+        candles: DataFrame,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> "TradeData":
+        raw_trades, aggregated_trades, filtered_trades = cls._prepare_partition_data(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+
+        cls.objects.cleanup(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
+        )
+        obj = TradeData(symbol=symbol, timestamp=timestamp_from, frequency=frequency)
+        return cls._save_trade_data(
+            obj,
+            filter_by_timestamp(candles, timestamp_from, timestamp_to),
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+
+    @classmethod
+    def _prepare_partition_data(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> tuple[DataFrame | None, DataFrame | None, DataFrame | None]:
+        raw_trades = cls._filter_frame(raw_trades, timestamp_from, timestamp_to)
+        aggregated_trades = cls._filter_frame(
+            aggregated_trades,
+            timestamp_from,
+            timestamp_to,
+        )
+        filtered_trades = cls._filter_frame(
+            filtered_trades,
+            timestamp_from,
+            timestamp_to,
+        )
+        raw_trades, aggregated_trades, filtered_trades = cls._prepare_trade_data(
+            symbol,
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+        validate_totals(
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+        return raw_trades, aggregated_trades, filtered_trades
+
+    @staticmethod
+    def _filter_frame(
+        data: DataFrame | None,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+    ) -> DataFrame | None:
+        if data is None:
+            return None
+        return filter_by_timestamp(data, timestamp_from, timestamp_to)
+
+    @classmethod
+    def _prepare_trade_data(
+        cls,
+        symbol: Symbol,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> tuple[DataFrame | None, DataFrame | None, DataFrame | None]:
+        if raw_trades is not None and len(raw_trades):
+            if (
+                aggregated_trades is None
+                and (symbol.save_aggregated or symbol.significant_trade_filter)
+            ):
+                aggregated_trades = aggregate_trades(raw_trades)
+            if symbol.significant_trade_filter and filtered_trades is None:
+                filtered_trades = volume_filter_with_time_window(
+                    aggregated_trades,
+                    min_volume=symbol.significant_trade_filter,
+                )
+
+        if aggregated_trades is not None and len(aggregated_trades):
+            if symbol.significant_trade_filter and filtered_trades is None:
+                filtered_trades = volume_filter_with_time_window(
+                    aggregated_trades,
+                    min_volume=symbol.significant_trade_filter,
+                )
+
+        return raw_trades, aggregated_trades, filtered_trades
+
+    @classmethod
+    def _save_trade_data(
+        cls,
+        obj: "TradeData",
+        candles: DataFrame,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> "TradeData":
+        """Populate and save one TradeData row."""
         uid = ""
         json_data = None
         raw_data = None
         aggregated_data = None
         filtered_data = None
-        # Are there any trades?
+
+        if raw_trades is not None and len(raw_trades):
+            uid = raw_trades.iloc[0].uid
+            if obj.symbol.save_raw:
+                raw_data = cls.prepare_data(raw_trades)
+
+        if aggregated_trades is not None and len(aggregated_trades):
+            if not uid:
+                uid = aggregated_trades.iloc[0].uid
+            if obj.symbol.save_aggregated:
+                aggregated_data = cls.prepare_data(aggregated_trades)
+
+        if filtered_trades is not None and len(filtered_trades):
+            if not uid:
+                uid = filtered_trades.iloc[0].uid
+            if obj.symbol.significant_trade_filter:
+                filtered_data = cls.prepare_data(filtered_trades)
+
+        validation = cls._get_validation_frame(
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+
         aggregated_candles = pd.DataFrame([])
-        if len(trades):
-            # Set TradeData.uid as first uid.
-            uid = trades.iloc[0].uid
-            symbol = obj.symbol
-            validation = trades
-            if symbol.save_raw:
-                raw_data = cls.prepare_data(trades)
-            if symbol.save_aggregated or symbol.significant_trade_filter:
-                aggregated = aggregate_trades(trades)
-                validation = aggregated
-                if symbol.significant_trade_filter:
-                    filtered = volume_filter_with_time_window(
-                        aggregated,
-                        min_volume=symbol.significant_trade_filter,
-                    )
-                    validation = filtered
-                    filtered_data = cls.prepare_data(filtered)
-                if symbol.save_aggregated:
-                    aggregated_data = cls.prepare_data(aggregated)
+        if validation is not None and len(validation):
+            timestamp_to = obj.timestamp + pd.Timedelta(f"{obj.frequency}min")
             aggregated_candles = aggregate_candles(
                 validation,
                 obj.timestamp,
-                obj.timestamp + pd.Timedelta(f"{obj.frequency}min"),
-            )
-            assert is_decimal_close(
-                aggregated_candles.notional.sum(), trades.notional.sum()
+                timestamp_to,
             )
             json_data = {"candle": aggregate_candle(validation)}
 
-        ok = validate_aggregated_candles(aggregated_candles, candles)
+        ok = cls._validate_candles(obj.symbol, aggregated_candles, candles)
         with transaction.atomic():
             obj.uid = uid
             obj.json_data = json_data
@@ -306,6 +471,58 @@ class TradeData(AbstractDataStorage):
             obj.filtered_data = filtered_data
             obj.ok = ok
             obj.save()
+        return obj
+
+    @staticmethod
+    def _get_validation_frame(
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> DataFrame | None:
+        if filtered_trades is not None:
+            return filtered_trades
+        if aggregated_trades is not None:
+            return aggregated_trades
+        return raw_trades
+
+    @classmethod
+    def _validate_trade_data(
+        cls,
+        symbol: Symbol,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        candles: DataFrame,
+        *,
+        raw_trades: DataFrame | None = None,
+        aggregated_trades: DataFrame | None = None,
+        filtered_trades: DataFrame | None = None,
+    ) -> bool | None:
+        validation = cls._get_validation_frame(
+            raw_trades=raw_trades,
+            aggregated_trades=aggregated_trades,
+            filtered_trades=filtered_trades,
+        )
+        aggregated_candles = pd.DataFrame([])
+        if validation is not None and len(validation):
+            aggregated_candles = aggregate_candles(
+                validation,
+                timestamp_from,
+                timestamp_to,
+            )
+        return cls._validate_candles(symbol, aggregated_candles, candles)
+
+    @staticmethod
+    def _validate_candles(
+        symbol: Symbol,
+        aggregated_candles: DataFrame,
+        exchange_candles: DataFrame,
+    ) -> bool | None:
+        return validate_aggregated_candles(
+            aggregated_candles,
+            exchange_candles,
+            missing_candles_are_zero=symbol.exchange == Exchange.BITFINEX,
+        )
 
     class Meta:
         db_table = "quant_tick_trade_data"

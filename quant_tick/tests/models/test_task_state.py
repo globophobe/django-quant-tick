@@ -19,6 +19,7 @@ class TaskStateTest(TestCase):
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",
+            api_symbol="BTC-USD",
         )
 
         task_state.mark_recent_error()
@@ -39,6 +40,7 @@ class TaskStateTest(TestCase):
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",
+            api_symbol="BTC-USD",
             recent_error_at=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
             recent_error_count=1,
             next_fetch_at=datetime(2024, 1, 1, 12, 10, tzinfo=UTC),
@@ -58,6 +60,7 @@ class TaskStateTest(TestCase):
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",
+            api_symbol="BTC-USD",
         )
 
         task_state.mark_recent_error(backoff=False)
@@ -80,6 +83,7 @@ class TaskStateTest(TestCase):
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",
+            api_symbol="BTC-USD",
         )
 
         acquired = task_state.acquire()
@@ -96,6 +100,7 @@ class TaskStateTest(TestCase):
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",
+            api_symbol="BTC-USD",
             locked_until=datetime(2024, 1, 1, 12, 10, tzinfo=UTC),
         )
 
@@ -105,6 +110,7 @@ class TaskStateTest(TestCase):
         task_state = TaskState.objects.create(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange="coinbase",
+            api_symbol="BTC-USD",
             recent_error_at=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
             recent_error_count=3,
             next_fetch_at=datetime(2024, 1, 1, 12, 20, tzinfo=UTC),

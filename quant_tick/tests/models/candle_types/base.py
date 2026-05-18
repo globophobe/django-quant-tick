@@ -53,5 +53,9 @@ class BaseTradeDataCandleTest(BaseWriteTradeDataTest, BaseCandleCacheIteratorTes
         self, timestamp_from: datetime, timestamp_to: datetime, data_frame: DataFrame
     ) -> None:
         TradeData.write(
-            self.symbol, timestamp_from, timestamp_to, data_frame, pd.DataFrame([])
+            self.symbol,
+            timestamp_from,
+            timestamp_to,
+            pd.DataFrame([]),
+            raw_trades=data_frame,
         )

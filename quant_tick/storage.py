@@ -29,6 +29,12 @@ from quant_tick.models.trades import (
 
 logger = logging.getLogger(__name__)
 
+COMPACT_RECENT_DELAY = pd.Timedelta("2h")
+
+
+def get_compact_max_timestamp_to(timestamp_to: datetime.datetime) -> datetime.datetime:
+    return get_min_time(timestamp_to - COMPACT_RECENT_DELAY, "1h")
+
 
 def convert_candle_cache_to_daily(candle: Candle) -> None:
     """Convert candle cache, by minute or hour, to daily.

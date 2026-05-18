@@ -111,7 +111,7 @@ if HAS_SEMANTIC_FILTERS:
 
         class Meta:
             model = TaskState
-            fields = ("exchange", "task_type")
+            fields = ("exchange", "api_symbol", "task_type")
 
 
     class TradeDataFilter(SemanticFilterSet):
