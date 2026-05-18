@@ -4,6 +4,8 @@ from datetime import datetime
 from django.db import models
 from pandas import DataFrame
 
+from quant_tick.constants import TradeDataRetry
+
 
 class BaseController:
     """Base controller for exchange trade and candle ingestion."""
@@ -14,7 +16,7 @@ class BaseController:
         timestamp_from: datetime,
         timestamp_to: datetime,
         on_data_frame: Callable,
-        retry: bool = False,
+        retry: TradeDataRetry = False,
         verbose: bool = True,
     ) -> None:
         """Store the controller inputs for one symbol and time range."""

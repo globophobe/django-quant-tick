@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from pandas import DataFrame
 
-from quant_tick.constants import Exchange, SymbolType
+from quant_tick.constants import Exchange, SymbolType, TradeDataRetry
 from quant_tick.lib import (
     get_complete_interval_end,
     iter_chunks,
@@ -55,7 +55,7 @@ def api(
     symbol: Symbol,
     timestamp_from: datetime,
     timestamp_to: datetime,
-    retry: bool = False,
+    retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
     """Fetch exchange trades and persist them."""
@@ -99,7 +99,7 @@ def trades_api(
     timestamp_from: datetime,
     timestamp_to: datetime,
     on_data_frame: Callable,
-    retry: bool = False,
+    retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
     """Dispatch trade fetching to the exchange-specific adapter."""

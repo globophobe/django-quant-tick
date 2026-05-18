@@ -1,7 +1,9 @@
 from collections.abc import Generator
 from datetime import datetime
 
-from quant_tick.constants import Frequency
+from django.db.models import Q
+
+from quant_tick.constants import RETRY_INDETERMINATE, Frequency, TradeDataRetry
 from quant_tick.lib import (
     get_current_time,
     get_existing,
@@ -26,14 +28,16 @@ class TradeDataIterator:
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
-        retry: bool = False,
+        retry: TradeDataRetry = False,
     ) -> Generator[tuple[datetime, datetime], None, None]:
         """Iter all, by days in 1 hour chunks, further chunked by 1m intervals.
 
         1 day -> 24 hours -> 60 minutes, etc.
         """
         for ts_from, ts_to, existing in self.iter_days(
-            timestamp_from, timestamp_to, retry=retry
+            timestamp_from,
+            timestamp_to,
+            retry=retry,
         ):
             yield from self.iter_hours(ts_from, ts_to, existing)
 
@@ -41,14 +45,18 @@ class TradeDataIterator:
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
-        retry: bool = False,
+        retry: TradeDataRetry = False,
     ) -> Generator[tuple[datetime, datetime, list[datetime]], None, None]:
         """Iterate day partitions that still need TradeData."""
         # Trade data iterates from present to past.
         for ts_from, ts_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d", reverse=True
         ):
-            existing = self.get_existing(ts_from, ts_to, retry=retry)
+            existing = self.get_existing(
+                ts_from,
+                ts_to,
+                retry=retry,
+            )
             if not has_timestamps(ts_from, ts_to, existing):
                 yield ts_from, ts_to, existing
 
@@ -77,7 +85,10 @@ class TradeDataIterator:
                         yield start_time, end
 
     def get_existing(
-        self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        retry: TradeDataRetry = False,
     ) -> list[datetime]:
         """Return existing minute timestamps for the partition."""
         queryset = TradeData.objects.filter(
@@ -86,8 +97,15 @@ class TradeDataIterator:
             timestamp__lt=timestamp_to,
         )
         if retry:
+            retry_indeterminate = retry == RETRY_INDETERMINATE
             # Delete daily data.
-            queryset.filter(frequency=Frequency.DAY, ok=False).delete()
-            # Overwrite hourly or minute data.
-            queryset = queryset.exclude(ok=False)
+            daily_filter = Q(frequency=Frequency.DAY, ok=False)
+            if retry_indeterminate:
+                daily_filter |= Q(frequency=Frequency.DAY, ok__isnull=True)
+            queryset.filter(daily_filter).delete()
+            # Only leave rows that should block refetching in the existing set.
+            if retry_indeterminate:
+                queryset = queryset.filter(ok=True)
+            else:
+                queryset = queryset.exclude(ok=False)
         return get_existing(queryset.values("timestamp", "frequency"))

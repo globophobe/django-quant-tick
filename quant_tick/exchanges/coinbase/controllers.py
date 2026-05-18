@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 from pandas import DataFrame
 
+from quant_tick.constants import TradeDataRetry
 from quant_tick.controllers import ExchangeREST
 from quant_tick.models import Symbol
 
@@ -23,7 +24,7 @@ def coinbase_trades(
     timestamp_from: datetime,
     timestamp_to: datetime,
     on_data_frame: Callable,
-    retry: bool = False,
+    retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
     """Get Coinbase trades."""

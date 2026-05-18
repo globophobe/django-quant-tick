@@ -4,6 +4,7 @@ from collections.abc import Callable
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.constants import TradeDataRetry
 from quant_tick.controllers import ExchangeREST, ExchangeS3, use_s3
 from quant_tick.models import Symbol
 
@@ -17,7 +18,7 @@ def bitmex_trades(
     timestamp_from: datetime.datetime,
     timestamp_to: datetime.datetime,
     on_data_frame: Callable,
-    retry: bool = False,
+    retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
     """Get BitMEX trades."""
