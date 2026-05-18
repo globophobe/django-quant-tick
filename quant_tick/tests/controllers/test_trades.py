@@ -604,7 +604,7 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
         self.assertIn("raw_trades", kwargs)
         self.assertEqual(list(kwargs["raw_trades"].uid), list(frame.uid))
 
-    def test_main_splices_two_invalid_websocket_gaps(self):
+    def test_main_replaces_span_between_two_invalid_websocket_gaps_with_rest(self):
         ts0 = self.timestamp_from
         invalid_minutes = {2, 4}
         for minute in range(6):
@@ -662,13 +662,13 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
         self.assertEqual(
             list(frame.uid),
             [
-                str(9000 + minute) if minute in invalid_minutes else str(1000 + minute)
+                str(9000 + minute) if 2 <= minute <= 4 else str(1000 + minute)
                 for minute in range(6)
             ],
         )
         self.assertIn("raw_trades", kwargs)
 
-    def test_main_splices_sparse_websocket_gaps_when_ranges_are_within_limit(self):
+    def test_main_replaces_sparse_websocket_gap_span_when_ranges_are_within_limit(self):
         ts0 = self.timestamp_from
         invalid_minutes = {2, 20}
         for minute in range(30):
@@ -726,7 +726,7 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
         self.assertEqual(
             list(frame.uid),
             [
-                str(9000 + minute) if minute in invalid_minutes else str(1000 + minute)
+                str(9000 + minute) if 2 <= minute <= 20 else str(1000 + minute)
                 for minute in range(30)
             ],
         )
