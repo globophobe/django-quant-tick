@@ -5,7 +5,7 @@ import httpx
 from django.test import TestCase
 from django.urls import reverse
 
-from quant_tick.constants import Exchange, Frequency, TaskType
+from quant_tick.constants import RETRY_INDETERMINATE, Exchange, Frequency, TaskType
 from quant_tick.lib.download import ArchiveDownloadError
 from quant_tick.models import Symbol, TaskState, TradeData
 
@@ -50,9 +50,9 @@ class AggregateTradeViewTest(TestCase):
         self.assertEqual(
             [(call.args[0].api_symbol, call.args[3]) for call in mock_api.call_args_list],
             [
-                ("test-1", True),
+                ("test-1", RETRY_INDETERMINATE),
                 ("test-1", False),
-                ("test-2", True),
+                ("test-2", RETRY_INDETERMINATE),
                 ("test-2", False),
             ],
         )
@@ -89,7 +89,7 @@ class AggregateTradeViewTest(TestCase):
         _symbol, retry_from, retry_to, retry = mock_api.call_args_list[0].args
         self.assertEqual(retry_from, datetime(2026, 5, 1, 23, 10, tzinfo=UTC))
         self.assertEqual(retry_to, datetime(2026, 5, 2, 0, 10, tzinfo=UTC))
-        self.assertTrue(retry)
+        self.assertEqual(retry, RETRY_INDETERMINATE)
         _symbol, timestamp_from, timestamp_to, retry = mock_api.call_args_list[1].args
         self.assertEqual(timestamp_from, datetime(2026, 4, 25, tzinfo=UTC))
         self.assertEqual(timestamp_to, datetime(2026, 5, 2, 0, 10, tzinfo=UTC))
@@ -115,7 +115,7 @@ class AggregateTradeViewTest(TestCase):
         _symbol, retry_from, retry_to, retry = mock_api.call_args_list[0].args
         self.assertEqual(retry_from, datetime(2026, 5, 1, 23, 10, tzinfo=UTC))
         self.assertEqual(retry_to, datetime(2026, 5, 2, 0, 10, tzinfo=UTC))
-        self.assertTrue(retry)
+        self.assertEqual(retry, RETRY_INDETERMINATE)
         _symbol, timestamp_from, timestamp_to, retry = mock_api.call_args_list[1].args
         self.assertEqual(timestamp_from, datetime(2026, 4, 25, tzinfo=UTC))
         self.assertEqual(timestamp_to, datetime(2026, 5, 2, 0, 10, tzinfo=UTC))
