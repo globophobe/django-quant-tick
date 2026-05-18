@@ -382,14 +382,18 @@ class ExchangeREST(BaseController):
         if timestamp_from < websocket_timestamp_from:
             append_rest_range(timestamp_from, websocket_timestamp_from)
 
+        rest_timestamp_from = None
+        rest_timestamp_to = None
         rest_data_frame = None
         if invalid_ranges:
-            # Fetch one REST span that covers all invalid ranges, then slice each
-            # missing minute from that frame below. This avoids one REST request per
-            # bad minute while still preserving valid websocket minutes.
+            # If any websocket minutes in the covered span are invalid, use REST
+            # for that whole span. This avoids mixing websocket and REST ordering
+            # within the repair window.
+            rest_timestamp_from = invalid_ranges[0][0]
+            rest_timestamp_to = invalid_ranges[-1][1]
             rest_data_frame = self.fetch_rest_data_frame(
-                invalid_ranges[0][0],
-                invalid_ranges[-1][1],
+                rest_timestamp_from,
+                rest_timestamp_to,
             )
 
         for ts_from, ts_to in iter_window(
@@ -397,13 +401,24 @@ class ExchangeREST(BaseController):
             timestamp_to,
             value="1min",
         ):
+            if rest_timestamp_from is not None and ts_from == rest_timestamp_from:
+                append_rest_range(
+                    rest_timestamp_from,
+                    rest_timestamp_to,
+                    rest_data_frame,
+                )
+            if (
+                rest_timestamp_from is not None
+                and rest_timestamp_from <= ts_from < rest_timestamp_to
+            ):
+                continue
             frames = websocket_partitions.get(ts_from)
             if frames is None:
                 # Match REST validation semantics: an empty trade minute is valid
                 # when the exchange candle has zero volume/notional.
                 if has_zero_trade_candle(self.symbol.exchange, candles, ts_from, ts_to):
                     continue
-                append_rest_range(ts_from, ts_to, rest_data_frame)
+                append_rest_range(ts_from, ts_to)
                 continue
             append_frames(*frames)
 
