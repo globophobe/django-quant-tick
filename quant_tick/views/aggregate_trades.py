@@ -7,7 +7,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
-from quant_tick.constants import TaskType
+from quant_tick.constants import RETRY_INDETERMINATE, TaskType
 from quant_tick.exchanges import api
 from quant_tick.lib import get_current_time, get_min_time
 from quant_tick.lib.download import ArchiveDownloadError
@@ -178,7 +178,7 @@ class AggregateTradeDataView(View):
                         api(
                             symbol,
                             *retry_window,
-                            True,
+                            RETRY_INDETERMINATE,
                         )
                     api(
                         symbol,

@@ -6,7 +6,7 @@ import pandas as pd
 import time_machine
 from django.test import TestCase
 
-from quant_tick.constants import Exchange, Frequency
+from quant_tick.constants import RETRY_INDETERMINATE, Exchange, Frequency
 from quant_tick.controllers import ExchangeREST, ExchangeS3, TradeDataIterator
 from quant_tick.exchanges.bitmex.base import BitmexS3Mixin
 from quant_tick.models import TradeData, WebSocketData
@@ -22,7 +22,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         self.timestamp_to = self.timestamp_from + (self.one_minute * 5)
         self.symbol = self.get_symbol()
 
-    def get_values(self, retry: bool = False) -> list[tuple[datetime, datetime]]:
+    def get_values(self, retry=False) -> list[tuple[datetime, datetime]]:
         return [
             value
             for value in TradeDataIterator(self.symbol).iter_all(
@@ -136,7 +136,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
     )
-    def test_iter_all_with_retry_and_one_missing(self, mock_get_max_timestamp_to):
+    def test_iter_all_with_retry_and_one_unknown_ok(self, mock_get_max_timestamp_to):
         TradeData.objects.create(
             symbol=self.symbol,
             timestamp=self.timestamp_from,
@@ -146,6 +146,24 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
         values = self.get_values(retry=True)
         self.assertEqual(len(values), 1)
         self.assertEqual(values[0][0], self.timestamp_from + self.one_minute)
+        self.assertEqual(values[-1][1], self.timestamp_to)
+
+    @patch(
+        "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+    )
+    def test_iter_all_with_retry_indeterminate_and_one_unknown_ok(
+        self, mock_get_max_timestamp_to
+    ):
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.MINUTE,
+            ok=None,
+        )
+        values = self.get_values(retry=RETRY_INDETERMINATE)
+        self.assertEqual(len(values), 1)
+        self.assertEqual(values[0][0], self.timestamp_from)
         self.assertEqual(values[-1][1], self.timestamp_to)
 
     @patch(
