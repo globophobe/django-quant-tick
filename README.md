@@ -54,7 +54,7 @@ Deployment
 
 For deployment, there are Dockerfiles. As well, there are invoke tasks for deployment to Google Cloud Run. Just as easily, the demo could be deployed to a VPS or AWS.
 
-If using GCP, it is recommended to use the Cloud SQL Auth proxy, and run the management commands to collect data from your local machine. Django Quant Tick will upload the trade data to the cloud.
+If using Google Cloud, it is recommended to use the Cloud SQL Auth proxy, and run the management commands to collect data from your local machine. Django Quant Tick will upload the trade data to the cloud.
 
 ```
 cd demo
@@ -67,4 +67,4 @@ Then, configure a Cloud Workflow to collect data in the cloud. There is an examp
 Environment
 -----------
 
-To use the scripts or deploy to GCP, rename `.env.sample` to `.env`, and add the required settings.
+To use the scripts or deploy to Google Cloud, rename `.env.sample` to `.env`, and add the required settings.
