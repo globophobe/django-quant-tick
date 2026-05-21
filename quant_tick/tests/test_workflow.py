@@ -15,7 +15,8 @@ class WorkflowTest(SimpleTestCase):
             "https://test.123/",
             [{"exchange": "coinbase", "api_symbol": "BTC-USD"}],
             callback_url="https://test.456/callback/",
-            callback_interval_minutes=15,
+            callback_window_period_minutes=15,
+            callback_window_duration_minutes=5,
         )
         steps = workflow["main"]["steps"]
         self.assertEqual(
@@ -49,27 +50,19 @@ class WorkflowTest(SimpleTestCase):
         )
 
 
-    def test_callback_condition_limits_repeating_window(self):
+    def test_callback_condition_uses_window_only(self):
         condition = _callback_condition(
-            callback_interval_minutes=1,
-            callback_window_period_minutes=480,
-            callback_window_duration_minutes=10,
+            callback_window_period_minutes=15,
+            callback_window_duration_minutes=5,
         )
 
-        self.assertEqual(
-            condition,
-            "(runMinutes % 1 == 0) && (runMinutes % 480 < 10)",
-        )
+        self.assertEqual(condition, "runMinutes % 15 < 5")
 
-    def test_callback_condition_rejects_partial_or_invalid_window(self):
-        with self.assertRaisesRegex(ValueError, "must be set together"):
-            _callback_condition(
-                callback_interval_minutes=1,
-                callback_window_period_minutes=480,
-            )
+    def test_callback_condition_rejects_missing_or_invalid_window(self):
+        with self.assertRaisesRegex(ValueError, "required when CALLBACK_URL is set"):
+            _callback_condition(callback_window_period_minutes=480)
         with self.assertRaisesRegex(ValueError, "must be <="):
             _callback_condition(
-                callback_interval_minutes=1,
                 callback_window_period_minutes=10,
                 callback_window_duration_minutes=480,
             )
@@ -137,7 +130,6 @@ class WorkflowDeployTest(TestCase):
         {
             "PRODUCTION_API_URL": "https://test.123/",
             "CALLBACK_URL": "",
-            "CALLBACK_INTERVAL_MINUTES": "",
             "CALLBACK_WINDOW_PERIOD_MINUTES": "",
             "CALLBACK_WINDOW_DURATION_MINUTES": "",
         },
@@ -196,9 +188,8 @@ class WorkflowDeployTest(TestCase):
         {
             "PRODUCTION_API_URL": "https://test.123/",
             "CALLBACK_URL": "https://test.456/callback/",
-            "CALLBACK_INTERVAL_MINUTES": "1",
-            "CALLBACK_WINDOW_PERIOD_MINUTES": "480",
-            "CALLBACK_WINDOW_DURATION_MINUTES": "10",
+            "CALLBACK_WINDOW_PERIOD_MINUTES": "15",
+            "CALLBACK_WINDOW_DURATION_MINUTES": "5",
         },
     )
     @patch("tasks.django_settings")
@@ -217,6 +208,5 @@ class WorkflowDeployTest(TestCase):
         push_workflow.body(Mock())
 
         self.assertEqual(mock_get_workflow.call_args.kwargs["callback_url"], "https://test.456/callback/")
-        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_interval_minutes"], 1)
-        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_window_period_minutes"], 480)
-        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_window_duration_minutes"], 10)
+        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_window_period_minutes"], 15)
+        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_window_duration_minutes"], 5)
