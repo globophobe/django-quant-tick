@@ -174,41 +174,33 @@ def _validate_positive_minutes(name: str, value: int | None) -> None:
 
 def _callback_condition(
     *,
-    callback_interval_minutes: int,
     callback_window_period_minutes: int | None = None,
     callback_window_duration_minutes: int | None = None,
 ) -> str:
-    condition = f"runMinutes % {callback_interval_minutes} == 0"
-    if callback_window_period_minutes is None and callback_window_duration_minutes is None:
-        return condition
     if callback_window_period_minutes is None or callback_window_duration_minutes is None:
         raise ValueError(
-            "CALLBACK_WINDOW_PERIOD_MINUTES and CALLBACK_WINDOW_DURATION_MINUTES must be set together."
+            "CALLBACK_WINDOW_PERIOD_MINUTES and CALLBACK_WINDOW_DURATION_MINUTES are required when CALLBACK_URL is set."
         )
     _validate_positive_minutes("CALLBACK_WINDOW_PERIOD_MINUTES", callback_window_period_minutes)
     _validate_positive_minutes("CALLBACK_WINDOW_DURATION_MINUTES", callback_window_duration_minutes)
     if callback_window_duration_minutes > callback_window_period_minutes:
         raise ValueError("CALLBACK_WINDOW_DURATION_MINUTES must be <= CALLBACK_WINDOW_PERIOD_MINUTES.")
-    return f"({condition}) && (runMinutes % {callback_window_period_minutes} < {callback_window_duration_minutes})"
+    return f"runMinutes % {callback_window_period_minutes} < {callback_window_duration_minutes}"
 
 
 def get_workflow(
     url: str,
     symbols: list[dict[str, str]],
     callback_url: str | None = None,
-    callback_interval_minutes: int | None = None,
     callback_window_period_minutes: int | None = None,
     callback_window_duration_minutes: int | None = None,
 ) -> dict:
     """Get workflow."""
-    if callback_interval_minutes is not None:
-        _validate_positive_minutes("CALLBACK_INTERVAL_MINUTES", callback_interval_minutes)
-
     aggregate_trades = urljoin(url, "aggregate-trades/")
     fetch_exchange_data_url = urljoin(url, "fetch-exchange-data/")
     compact = urljoin(url, "compact/")
     steps = []
-    if callback_url and callback_interval_minutes:
+    if callback_url:
         steps.append(
             {
                 "getRunTime": {
@@ -270,9 +262,8 @@ def get_workflow(
             }
         },
     ]
-    if callback_url and callback_interval_minutes:
+    if callback_url:
         condition = _callback_condition(
-            callback_interval_minutes=callback_interval_minutes,
             callback_window_period_minutes=callback_window_period_minutes,
             callback_window_duration_minutes=callback_window_duration_minutes,
         )
@@ -339,19 +330,13 @@ def push_workflow(
 
     url = os.environ["PRODUCTION_API_URL"]
     callback_url = os.environ.get("CALLBACK_URL") or None
-    callback_interval_minutes = _optional_int_env("CALLBACK_INTERVAL_MINUTES")
     callback_window_period_minutes = _optional_int_env("CALLBACK_WINDOW_PERIOD_MINUTES")
     callback_window_duration_minutes = _optional_int_env("CALLBACK_WINDOW_DURATION_MINUTES")
-    if callback_interval_minutes is not None:
-        _validate_positive_minutes("CALLBACK_INTERVAL_MINUTES", callback_interval_minutes)
-    if callback_url and callback_interval_minutes is None:
-        raise ValueError("CALLBACK_INTERVAL_MINUTES is required when CALLBACK_URL is set.")
 
     workflow = get_workflow(
         url,
         symbols,
         callback_url=callback_url,
-        callback_interval_minutes=callback_interval_minutes,
         callback_window_period_minutes=callback_window_period_minutes,
         callback_window_duration_minutes=callback_window_duration_minutes,
     )
