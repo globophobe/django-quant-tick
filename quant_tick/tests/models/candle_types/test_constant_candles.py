@@ -164,6 +164,35 @@ class ConstantNotionalHourFrequencyCandleTest(
             self.assertEqual(queryset.count(), 1)
         self.assertEqual(querysets[CandleData][0].timestamp, self.timestamp_from)
 
+    def test_retry_deletes_candle_open_from_preserved_cache(
+        self, mock_get_current_time
+    ):
+        first_trade_ts = self.timestamp_from + pd.Timedelta("30min")
+        second_trade_ts = self.one_hour_from_now + pd.Timedelta("30min")
+
+        self.write_trade_data(
+            self.timestamp_from,
+            self.one_hour_from_now,
+            self.get_filtered(first_trade_ts, notional=Decimal("0.5")),
+        )
+        self.candle.candles(self.timestamp_from, self.one_hour_from_now)
+        self.assertFalse(CandleData.objects.exists())
+
+        self.write_trade_data(
+            self.one_hour_from_now,
+            self.two_hours_from_now,
+            self.get_filtered(second_trade_ts, notional=Decimal("0.5")),
+        )
+        self.candle.candles(self.one_hour_from_now, self.two_hours_from_now)
+
+        retry_from = self.one_hour_from_now + pd.Timedelta("15min")
+        for _ in range(2):
+            self.candle.candles(retry_from, self.two_hours_from_now, retry=True)
+
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, first_trade_ts)
+
     def test_one_candle_from_trade_in_the_first_and_second_hour(
         self, mock_get_current_time
     ):
