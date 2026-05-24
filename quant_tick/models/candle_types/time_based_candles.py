@@ -40,6 +40,12 @@ class TimeBasedCandle(Candle):
             return None
         return dict(trade_data.json_data["candle"])
 
+    def get_retry_timestamp_from(
+        self, timestamp_from: datetime, cache_end: datetime
+    ) -> datetime:
+        """Return timestamp for retry."""
+        return timestamp_from
+
     def get_max_timestamp_to(
         self, timestamp_from: datetime, timestamp_to: datetime
     ) -> datetime:
@@ -119,12 +125,30 @@ class TimeBasedCandle(Candle):
         return data, cache_data
 
     @transaction.atomic
-    def on_retry(self, timestamp_from: datetime, timestamp_to: datetime) -> None:
-        """Delete cached and stored rows inside the retry window."""
+    def on_retry(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        data_timestamp_from: datetime | None = None,
+    ) -> None:
+        """Delete cache and candle data for the retry window."""
         self.delete_overlapping_cache(timestamp_from, timestamp_to)
         CandleData.objects.filter(
             candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
         ).delete()
+
+    def write_data(
+        self, timestamp_from: datetime, timestamp_to: datetime, json_data: list[dict]
+    ) -> None:
+        """Replace candle data for the requested window."""
+        with transaction.atomic():
+            CandleData.objects.filter(
+                candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+            ).delete()
+            data = []
+            for j in json_data:
+                data.append(CandleData.objects.from_data(self, j))
+            CandleData.objects.bulk_create(data)
 
     class Meta:
         proxy = True
