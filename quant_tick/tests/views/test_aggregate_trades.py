@@ -129,6 +129,10 @@ class AggregateTradeViewTest(TestCase):
             timestamp=datetime(2026, 5, 1, 23, 42, tzinfo=UTC),
             ok=False,
         )
+        self.create_trade_data(
+            timestamp=datetime(2026, 5, 1, 23, 55, tzinfo=UTC),
+            ok=False,
+        )
 
         with (
             patch("quant_tick.views.aggregate_trades.get_current_time", return_value=now),
