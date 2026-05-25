@@ -504,5 +504,5 @@ class CandleData(models.Model):
 
     class Meta:
         db_table = "quant_tick_candle_data"
-        ordering = ("timestamp",)
+        ordering = ("timestamp", "id")
         verbose_name = verbose_name_plural = _("candle data")
