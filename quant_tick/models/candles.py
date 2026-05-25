@@ -391,7 +391,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             queryset = queryset.filter(timestamp__gte=timestamp_from)
         if timestamp_to is not None:
             queryset = queryset.filter(timestamp__lt=timestamp_to)
-        queryset = queryset.order_by("timestamp")
+        queryset = queryset.order_by("timestamp", "id")
 
         for obj in queryset.iterator(chunk_size=10000):
             payload = {}
