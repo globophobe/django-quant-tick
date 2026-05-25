@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 import httpx
+from django.db import OperationalError
 from django.test import TestCase
 from django.urls import reverse
 
@@ -128,6 +129,10 @@ class AggregateTradeViewTest(TestCase):
             timestamp=datetime(2026, 5, 1, 23, 42, tzinfo=UTC),
             ok=False,
         )
+        self.create_trade_data(
+            timestamp=datetime(2026, 5, 1, 23, 55, tzinfo=UTC),
+            ok=False,
+        )
 
         with (
             patch("quant_tick.views.aggregate_trades.get_current_time", return_value=now),
@@ -214,6 +219,22 @@ class AggregateTradeViewTest(TestCase):
 
         with self.assertLogs("django.request", level="ERROR"):
             with self.assertRaises(httpx.RemoteProtocolError):
+                self.client.get(self.get_url())
+
+        task_state = TaskState.objects.get(
+            task_type=TaskType.AGGREGATE_TRADES,
+            exchange=Exchange.COINBASE,
+            api_symbol="test-1",
+        )
+        self.assertEqual(task_state.recent_error_count, 1)
+        self.assertIsNone(task_state.next_fetch_at)
+        self.assertIsNone(task_state.locked_until)
+
+    def test_get_marks_transient_task_error_without_backoff(self, mock_api):
+        mock_api.side_effect = OperationalError("server closed the connection")
+
+        with self.assertLogs("django.request", level="ERROR"):
+            with self.assertRaises(OperationalError):
                 self.client.get(self.get_url())
 
         task_state = TaskState.objects.get(

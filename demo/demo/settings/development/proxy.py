@@ -21,7 +21,7 @@ DATABASES = {
     },
 }
 
-# GCP
+# Google Cloud
 credentials = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
 if credentials and not Path(credentials).is_absolute():
     credentials = Path.home() / "keys" / credentials

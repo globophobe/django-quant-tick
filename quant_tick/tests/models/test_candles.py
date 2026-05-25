@@ -117,6 +117,17 @@ class CandleInitializeTest(BaseSymbolTest, BaseDayIteratorTest, TestCase):
         self.assertEqual(timestamp_from, self.timestamp_from)
         self.assertEqual(timestamp_to, self.three_days_from_now)
 
+    def test_retry_initial_timestamp_uses_preserved_cache_boundary(self):
+        self.create_candle_cache(self.timestamp_from)
+        retry_from = self.one_day_from_now + pd.Timedelta("12h")
+
+        timestamp_from, timestamp_to, _ = self.candle.initialize(
+            retry_from, self.three_days_from_now, retry=True
+        )
+
+        self.assertEqual(timestamp_from, self.one_day_from_now)
+        self.assertEqual(timestamp_to, self.three_days_from_now)
+
     def test_initial_timestamp_from_with_both_candle_date_from_and_candle_cache(self):
         self.candle.date_from = self.one_day_from_now.date()
         for i in range(2):

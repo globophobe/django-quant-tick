@@ -11,6 +11,7 @@ from quant_tick.constants import RETRY_INDETERMINATE, TaskType
 from quant_tick.exchanges import api
 from quant_tick.lib import get_current_time, get_min_time
 from quant_tick.lib.download import ArchiveDownloadError
+from quant_tick.lib.task_errors import is_transient_task_error
 from quant_tick.models import Symbol, TaskState, TradeData
 from quant_tick.services.aggregate_candles import aggregate_candle_data
 from quant_tick.forms import (
@@ -200,8 +201,8 @@ class AggregateTradeDataView(View):
                 except TRANSIENT_COLLECTION_ERRORS:
                     task_state.mark_recent_error(backoff=False)
                     raise
-                except Exception:
-                    task_state.mark_recent_error()
+                except Exception as exc:
+                    task_state.mark_recent_error(backoff=not is_transient_task_error(exc))
                     raise
                 else:
                     task_state.clear_recent_error()

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.test import TestCase
 
 from quant_tick.constants import Exchange, TaskType
@@ -227,4 +228,24 @@ class AggregateCandleServiceTest(TestCase):
             api_symbol="test",
         )
         self.assertEqual(task_state.recent_error_count, 1)
+        self.assertIsNone(task_state.locked_until)
+
+    def test_aggregate_marks_transient_task_error_without_backoff(self):
+        Candle.objects.create(symbol=self.symbol)
+
+        with patch(
+            "quant_tick.models.candles.Candle.candles",
+            autospec=True,
+            side_effect=OperationalError("server closed the connection"),
+        ):
+            with self.assertRaises(OperationalError):
+                aggregate_candle_data([{}])
+
+        task_state = TaskState.objects.get(
+            task_type=TaskType.AGGREGATE_CANDLES,
+            exchange=Exchange.COINBASE,
+            api_symbol="test",
+        )
+        self.assertEqual(task_state.recent_error_count, 1)
+        self.assertIsNone(task_state.next_fetch_at)
         self.assertIsNone(task_state.locked_until)

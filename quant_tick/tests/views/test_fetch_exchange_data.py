@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 import httpx
+from django.db import OperationalError
 from django.test import TestCase
 from django.urls import reverse
 
@@ -240,5 +241,32 @@ class FetchExchangeDataViewTest(TestCase):
             api_symbol="BTCUSDT",
         )
         self.assertEqual(task_state.recent_error_count, 0)
+        self.assertIsNone(task_state.next_fetch_at)
+        self.assertIsNone(task_state.locked_until)
+
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
+    def test_get_marks_transient_task_error_without_backoff(
+        self,
+        mock_funding,
+        mock_candles,
+    ):
+        mock_funding.side_effect = OperationalError("server closed the connection")
+
+        with self.assertLogs("quant_tick.views.fetch_exchange_data", level="ERROR"):
+            response = self.client.get(
+                self.get_url(),
+                {"exchange": Exchange.BINANCE_FUTURES},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["ok"])
+        self.assertEqual(response.json()["failed"], 1)
+        task_state = TaskState.objects.get(
+            task_type=TaskType.FETCH_EXCHANGE_DATA,
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+        )
+        self.assertEqual(task_state.recent_error_count, 1)
         self.assertIsNone(task_state.next_fetch_at)
         self.assertIsNone(task_state.locked_until)

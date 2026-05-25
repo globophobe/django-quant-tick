@@ -6,7 +6,7 @@ from django.test import SimpleTestCase, TestCase
 from quant_tick.constants import Exchange
 from quant_tick.models import Symbol
 
-from tasks import get_workflow, push_workflow
+from tasks import _callback_condition, get_workflow, push_workflow
 
 
 class WorkflowTest(SimpleTestCase):
@@ -15,7 +15,8 @@ class WorkflowTest(SimpleTestCase):
             "https://test.123/",
             [{"exchange": "coinbase", "api_symbol": "BTC-USD"}],
             callback_url="https://test.456/callback/",
-            callback_interval_minutes=15,
+            callback_window_period_minutes=15,
+            callback_window_duration_minutes=5,
         )
         steps = workflow["main"]["steps"]
         self.assertEqual(
@@ -47,6 +48,24 @@ class WorkflowTest(SimpleTestCase):
             steps[5]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
         )
+
+
+    def test_callback_condition_uses_window_only(self):
+        condition = _callback_condition(
+            callback_window_period_minutes=15,
+            callback_window_duration_minutes=5,
+        )
+
+        self.assertEqual(condition, "runMinutes % 15 < 5")
+
+    def test_callback_condition_rejects_missing_or_invalid_window(self):
+        with self.assertRaisesRegex(ValueError, "required when CALLBACK_URL is set"):
+            _callback_condition(callback_window_period_minutes=480)
+        with self.assertRaisesRegex(ValueError, "must be <="):
+            _callback_condition(
+                callback_window_period_minutes=10,
+                callback_window_duration_minutes=480,
+            )
 
     def test_workflow_collects_trades(self):
         workflow = get_workflow(
@@ -111,7 +130,8 @@ class WorkflowDeployTest(TestCase):
         {
             "PRODUCTION_API_URL": "https://test.123/",
             "CALLBACK_URL": "",
-            "CALLBACK_INTERVAL_MINUTES": "",
+            "CALLBACK_WINDOW_PERIOD_MINUTES": "",
+            "CALLBACK_WINDOW_DURATION_MINUTES": "",
         },
     )
     @patch("tasks.django_settings")
@@ -162,3 +182,31 @@ class WorkflowDeployTest(TestCase):
                 {"exchange": raw.exchange, "api_symbol": raw.api_symbol},
             ],
         )
+
+    @patch.dict(
+        os.environ,
+        {
+            "PRODUCTION_API_URL": "https://test.123/",
+            "CALLBACK_URL": "https://test.456/callback/",
+            "CALLBACK_WINDOW_PERIOD_MINUTES": "15",
+            "CALLBACK_WINDOW_DURATION_MINUTES": "5",
+        },
+    )
+    @patch("tasks.django_settings")
+    @patch("tasks.get_workflow", return_value={"main": {"steps": []}})
+    def test_push_workflow_passes_callback_window_settings(
+        self,
+        mock_get_workflow,
+        _mock_django_settings,
+    ):
+        Symbol.objects.create(
+            exchange=Exchange.COINBASE,
+            api_symbol="BTC-USD",
+            save_raw=True,
+        )
+
+        push_workflow.body(Mock())
+
+        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_url"], "https://test.456/callback/")
+        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_window_period_minutes"], 15)
+        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_window_duration_minutes"], 5)

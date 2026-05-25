@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 
 from quant_tick.constants import TaskType
 from quant_tick.lib import get_current_time, get_min_time
+from quant_tick.lib.task_errors import is_transient_task_error
 from quant_tick.models import Candle, Symbol, TaskState
 
 logger = logging.getLogger(__name__)
@@ -106,8 +107,8 @@ class AggregateCandleService:
                         )
                         candle.candles(timestamp_from, timestamp_to, retry)
                         processed += 1
-                except Exception:
-                    task_state.mark_recent_error()
+                except Exception as exc:
+                    task_state.mark_recent_error(backoff=not is_transient_task_error(exc))
                     raise
                 else:
                     task_state.clear_recent_error()

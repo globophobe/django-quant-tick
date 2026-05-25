@@ -9,6 +9,7 @@ from quant_tick.exchanges.api import (
     exchange_candles as fetch_symbol_exchange_candles,
     funding as fetch_symbol_funding,
 )
+from quant_tick.lib.task_errors import is_transient_task_error
 from quant_tick.models import Symbol, TaskState
 from quant_tick.views.aggregate_trades import (
     TRANSIENT_COLLECTION_ERRORS,
@@ -149,6 +150,9 @@ class FetchExchangeDataView(View):
                 counts["failed"] += 1
                 if is_soft_collection_error(exc):
                     logger.warning("%s: fetch exchange data skipped: %s", symbol, exc)
+                elif is_transient_task_error(exc):
+                    task_state.mark_recent_error(backoff=False)
+                    logger.exception("%s: fetch exchange data failed", symbol)
                 else:
                     task_state.mark_recent_error()
                     logger.exception("%s: fetch exchange data failed", symbol)
