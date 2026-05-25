@@ -129,7 +129,7 @@ class TimeBasedCandle(Candle):
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
-        data_timestamp_from: datetime | None = None,
+        timestamp_delete_from: datetime | None = None,
     ) -> None:
         """Delete cache and candle data for the retry window."""
         self.delete_overlapping_cache(timestamp_from, timestamp_to)

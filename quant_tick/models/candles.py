@@ -49,7 +49,9 @@ class Candle(AbstractCodeName, PolymorphicModel):
         self, timestamp_from: datetime, timestamp_to: datetime, retry: bool = False
     ) -> tuple[datetime, datetime, dict]:
         """Clamp the requested range to available trade and cache data."""
-        timestamp_range = self.symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
+        timestamp_range = self.symbol.clamp_timestamp_range(
+            timestamp_from, timestamp_to
+        )
         if timestamp_range is None:
             return timestamp_to, timestamp_to, {}
         timestamp_from, timestamp_to = timestamp_range
@@ -164,8 +166,14 @@ class Candle(AbstractCodeName, PolymorphicModel):
             timestamp_from, timestamp_to, retry
         )
         if retry:
-            data_ts_from = self.get_retry_data_timestamp_from(min_ts_from, cache_data)
-            self.on_retry(min_ts_from, max_ts_to, data_timestamp_from=data_ts_from)
+            timestamp_delete_from = self.get_retry_timestamp_delete_from(
+                min_ts_from, cache_data
+            )
+            self.on_retry(
+                min_ts_from,
+                max_ts_to,
+                timestamp_delete_from=timestamp_delete_from,
+            )
         for ts_from, ts_to, trade_data in self.iter_all(min_ts_from, max_ts_to):
             trade_candle = self.get_trade_candle(ts_from, ts_to, trade_data)
             df = (
@@ -186,10 +194,10 @@ class Candle(AbstractCodeName, PolymorphicModel):
             ts = ts_to.replace(tzinfo=None)
             logger.info(f"Candle {self}: {ts}")
 
-    def get_retry_data_timestamp_from(
+    def get_retry_timestamp_delete_from(
         self, timestamp_from: datetime, cache_data: dict | None
     ) -> datetime:
-        """Return the first candle-data timestamp made unsafe by a retry."""
+        """Return the first persisted candle timestamp made unsafe by retry."""
         next_data = (cache_data or {}).get("next")
         if not isinstance(next_data, dict):
             return timestamp_from
@@ -208,22 +216,22 @@ class Candle(AbstractCodeName, PolymorphicModel):
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
-        data_timestamp_from: datetime | None = None,
+        timestamp_delete_from: datetime | None = None,
     ) -> None:
         """Delete cached and persisted candle rows before retrying."""
-        data_timestamp_from = data_timestamp_from or timestamp_from
+        timestamp_delete_from = timestamp_delete_from or timestamp_from
         with transaction.atomic():
             self.delete_overlapping_cache(timestamp_from, timestamp_to)
             CandleData.objects.filter(
-                candle=self, timestamp__gte=data_timestamp_from
+                candle=self, timestamp__gte=timestamp_delete_from
             ).delete()
 
-    def delete_overlapping_cache(
+    def get_overlapping_cache_ids(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
-    ) -> None:
-        """Delete cache overlapping the retry window."""
+    ) -> list[int]:
+        """Return cache ids overlapping the retry window."""
         cache_ids = []
         for candle_cache in (
             CandleCache.objects.filter(candle=self, timestamp__lt=timestamp_to)
@@ -235,8 +243,47 @@ class Candle(AbstractCodeName, PolymorphicModel):
             )
             if cache_end > timestamp_from:
                 cache_ids.append(candle_cache.id)
-        if cache_ids:
-            CandleCache.objects.filter(id__in=cache_ids).delete()
+        return cache_ids
+
+    def get_cache_ids_from_boundary(self, timestamp_from: datetime) -> list[int]:
+        """Return cache ids whose cached interval extends past timestamp_from."""
+        cache_ids = []
+        for candle_cache in (
+            CandleCache.objects.filter(candle=self)
+            .only("id", "timestamp", "frequency")
+            .iterator()
+        ):
+            cache_end = candle_cache.timestamp + pd.Timedelta(
+                f"{candle_cache.frequency}min"
+            )
+            if cache_end > timestamp_from:
+                cache_ids.append(candle_cache.id)
+        return cache_ids
+
+    def delete_cache_from_boundary(self, timestamp_from: datetime) -> int:
+        """Delete cache whose cached interval extends past timestamp_from."""
+        cache_ids = self.get_cache_ids_from_boundary(timestamp_from)
+        if not cache_ids:
+            return 0
+        deleted, _ = CandleCache.objects.filter(id__in=cache_ids).delete()
+        return deleted
+
+    def delete_overlapping_cache(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        cache_ids: list[int] | None = None,
+    ) -> int:
+        """Delete cache overlapping the retry window."""
+        cache_ids = (
+            self.get_overlapping_cache_ids(timestamp_from, timestamp_to)
+            if cache_ids is None
+            else cache_ids
+        )
+        if not cache_ids:
+            return 0
+        deleted, _ = CandleCache.objects.filter(id__in=cache_ids).delete()
+        return deleted
 
     def iter_all(
         self, timestamp_from: datetime, timestamp_to: datetime

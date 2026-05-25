@@ -1,12 +1,13 @@
 from datetime import date, datetime
 
 import pandas as pd
+from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
 from quant_tick.constants import Frequency
 
-from ..candles import Candle
+from ..candles import Candle, CandleData
 
 
 class ConstantCandle(Candle):
@@ -115,6 +116,20 @@ class ConstantCandle(Candle):
 
     def should_aggregate_candle(self, data: dict) -> bool:
         return data["sample_value"] >= self.json_data["target_value"]
+
+    def on_retry(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        timestamp_delete_from: datetime | None = None,
+    ) -> None:
+        """Delete all stateful cache and CandleData from the retry boundary."""
+        timestamp_delete_from = timestamp_delete_from or timestamp_from
+        with transaction.atomic():
+            self.delete_cache_from_boundary(timestamp_from)
+            CandleData.objects.filter(
+                candle=self, timestamp__gte=timestamp_delete_from
+            ).delete()
 
     def get_incomplete_candle(
         self, timestamp: datetime, data: list, cache_data: dict
