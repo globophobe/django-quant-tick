@@ -363,7 +363,7 @@ def clean_unlinked_trade_data_files(
 
                 dummy = TradeData(symbol=symbol, timestamp=daily_timestamp_from)
                 storage = getattr(dummy, file_data).storage
-                directory = Path(upload_to(dummy, "dummy.parquet")).stem
+                directory = Path(upload_to(dummy, "dummy.parquet")).parent
                 __, filenames = storage.listdir(directory)
 
                 should_delete = [
