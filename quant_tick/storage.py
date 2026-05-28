@@ -288,12 +288,30 @@ def clean_trade_data_with_non_existing_files(
             timestamp__gte=timestamp_from,
             timestamp__lte=timestamp_to,
         )
-        .only(*fields)
+        .only("timestamp", *fields)
     )
     count = 0
     deleted = 0
     total = trade_data.count()
+    first_row = trade_data.first()
+    next_progress_year = first_row.timestamp.year + 1 if first_row else timestamp_from.year + 1
     for obj in trade_data:
+        row_timestamp = obj.timestamp
+        while row_timestamp.year >= next_progress_year:
+            logging.info(
+                (
+                    "{symbol}: checked {year}, {count}/{total} items, "
+                    "deleted {deleted} items"
+                ).format(
+                    symbol=str(symbol),
+                    year=next_progress_year - 1,
+                    count=count,
+                    total=total,
+                    deleted=deleted,
+                )
+            )
+            next_progress_year += 1
+
         count += 1
         for field in fields:
             if getattr(obj, field):
@@ -303,19 +321,14 @@ def clean_trade_data_with_non_existing_files(
                     obj.delete()
                     break
 
-        logging.info(
-            _("Checked {count}/{total} objects").format(
-                **{"count": count, "total": total}
-            )
-        )
-
-    logging.info(_("Deleted {deleted} objects").format(**{"deleted": deleted}))
 
 
 def clean_unlinked_trade_data_files(
     symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ) -> None:
     """Clean unlinked trade data files."""
+    logging.info(_("Checking unlinked trade data files"))
+
     fields = symbol.trade_data_fields
     if not fields:
         return
@@ -349,13 +362,6 @@ def clean_unlinked_trade_data_files(
         max_timestamp_to = t.last().timestamp
         if timestamp_to > max_timestamp_to:
             timestamp_to = max_timestamp_to
-        logger.info(
-            "{symbol}: checking unlinked trade data files from {timestamp_from} to {timestamp_to}".format(
-                symbol=str(symbol),
-                timestamp_from=timestamp_from.isoformat(),
-                timestamp_to=timestamp_to.isoformat(),
-            )
-        )
         next_progress_year = timestamp_from.year + 1
         for daily_timestamp_from, daily_timestamp_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d"
@@ -386,70 +392,94 @@ def clean_unlinked_trade_data_files(
             if daily_timestamp_to.year >= next_progress_year:
                 logger.info(
                     (
-                        "{symbol}: checked through year {year}, {checked_days} days through {timestamp_to}, "
-                        "scanned {scanned_files} files, deleted {deleted} unlinked files"
+                        "{symbol}: checked {year}, {checked_days} items, "
+                        "deleted {deleted} items"
                     ).format(
                         symbol=str(symbol),
                         year=next_progress_year - 1,
                         checked_days=checked_days,
-                        timestamp_to=daily_timestamp_to.isoformat(),
-                        scanned_files=scanned_files,
                         deleted=deleted,
                     )
                 )
                 next_progress_year = daily_timestamp_to.year + 1
 
-    logger.info(
-        (
-            "{symbol}: checked {checked_days} days, scanned {scanned_files} files, "
-            "deleted {deleted} unlinked files"
-        ).format(
-            symbol=str(symbol),
-            checked_days=checked_days,
-            scanned_files=scanned_files,
-            deleted=deleted,
+
+
+def _clean_overlapping_trade_data_rows(
+    *,
+    symbol: Symbol,
+    rows: list[TradeData],
+    coverage_delta: pd.Timedelta,
+    cleanup_frequency: Frequency | tuple[Frequency, ...],
+    label: str,
+) -> int:
+    deleted = 0
+    count = 0
+    total = len(rows)
+    if not rows:
+        return deleted
+
+    next_progress_year = rows[0].timestamp.year + 1
+    for row in rows:
+        while row.timestamp.year >= next_progress_year:
+            logger.info(
+                (
+                    "{symbol}: checked {label} overlap rows {year}, "
+                    "{count}/{total} items, deleted {deleted} items"
+                ).format(
+                    symbol=str(symbol),
+                    label=label,
+                    year=next_progress_year - 1,
+                    count=count,
+                    total=total,
+                    deleted=deleted,
+                )
+            )
+            next_progress_year += 1
+
+        deleted += TradeData.objects.cleanup(
+            symbol,
+            row.timestamp,
+            row.timestamp + coverage_delta,
+            cleanup_frequency,
         )
-    )
+        count += 1
+
+    return deleted
 
 
 def clean_trade_data_overlaps(
     symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ) -> int:
     """Delete lower-frequency rows already covered by higher-frequency TradeData."""
-    deleted = 0
+    logging.info(_("Checking overlapping trade data rows"))
 
     daily_rows = list(
         TradeData.objects.overlapping(
             symbol, timestamp_from, timestamp_to, Frequency.DAY
         ).only("timestamp")
     )
-    for row in daily_rows:
-        deleted += TradeData.objects.cleanup(
-            symbol,
-            row.timestamp,
-            row.timestamp + pd.Timedelta("1d"),
-            (Frequency.HOUR, Frequency.MINUTE),
-        )
-
     hourly_rows = list(
         TradeData.objects.overlapping(
             symbol, timestamp_from, timestamp_to, Frequency.HOUR
         ).only("timestamp")
     )
-    for row in hourly_rows:
-        deleted += TradeData.objects.cleanup(
-            symbol,
-            row.timestamp,
-            row.timestamp + pd.Timedelta("1h"),
-            Frequency.MINUTE,
-        )
 
-    if deleted:
-        logger.info(
-            _("{symbol}: deleted {deleted} overlapping trade-data rows").format(
-                symbol=str(symbol), deleted=deleted
-            )
-        )
-    else:
+    deleted = _clean_overlapping_trade_data_rows(
+        symbol=symbol,
+        rows=daily_rows,
+        coverage_delta=pd.Timedelta("1d"),
+        cleanup_frequency=(Frequency.HOUR, Frequency.MINUTE),
+        label="daily",
+    )
+    deleted += _clean_overlapping_trade_data_rows(
+        symbol=symbol,
+        rows=hourly_rows,
+        coverage_delta=pd.Timedelta("1h"),
+        cleanup_frequency=Frequency.MINUTE,
+        label="hourly",
+    )
+
+    if not daily_rows and not hourly_rows:
         logger.info("{symbol}: no overlapping trade-data rows".format(symbol=str(symbol)))
     return deleted
