@@ -316,8 +316,6 @@ def clean_unlinked_trade_data_files(
     symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ) -> None:
     """Clean unlinked trade data files."""
-    logging.info(_("Checking unlinked trade data files"))
-
     fields = symbol.trade_data_fields
     if not fields:
         return
@@ -333,6 +331,8 @@ def clean_unlinked_trade_data_files(
     )
 
     deleted = 0
+    checked_days = 0
+    scanned_files = 0
     mapping = {
         k: v
         for k, v in {
@@ -349,9 +349,18 @@ def clean_unlinked_trade_data_files(
         max_timestamp_to = t.last().timestamp
         if timestamp_to > max_timestamp_to:
             timestamp_to = max_timestamp_to
+        logger.info(
+            "{symbol}: checking unlinked trade data files from {timestamp_from} to {timestamp_to}".format(
+                symbol=str(symbol),
+                timestamp_from=timestamp_from.isoformat(),
+                timestamp_to=timestamp_to.isoformat(),
+            )
+        )
+        next_progress_year = timestamp_from.year + 1
         for daily_timestamp_from, daily_timestamp_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d"
         ):
+            checked_days += 1
             for file_data, upload_to in mapping.items():
                 expected_files = [
                     Path(getattr(obj, file_data).name).name
@@ -365,6 +374,7 @@ def clean_unlinked_trade_data_files(
                 storage = getattr(dummy, file_data).storage
                 directory = Path(upload_to(dummy, "dummy.parquet")).parent
                 __, filenames = storage.listdir(directory)
+                scanned_files += len(filenames)
 
                 should_delete = [
                     filename for filename in filenames if filename not in expected_files
@@ -373,14 +383,33 @@ def clean_unlinked_trade_data_files(
                     storage.delete(Path(directory) / filename)
                     deleted += 1
 
-            logging.info(
-                _("Checked {date}").format(**{"date": daily_timestamp_from.date()})
-            )
+            if daily_timestamp_to.year >= next_progress_year:
+                logger.info(
+                    (
+                        "{symbol}: checked through year {year}, {checked_days} days through {timestamp_to}, "
+                        "scanned {scanned_files} files, deleted {deleted} unlinked files"
+                    ).format(
+                        symbol=str(symbol),
+                        year=next_progress_year - 1,
+                        checked_days=checked_days,
+                        timestamp_to=daily_timestamp_to.isoformat(),
+                        scanned_files=scanned_files,
+                        deleted=deleted,
+                    )
+                )
+                next_progress_year = daily_timestamp_to.year + 1
 
-        logging.info(
-            _("Deleted {deleted} unlinked files").format(**{"deleted": deleted})
+    logger.info(
+        (
+            "{symbol}: checked {checked_days} days, scanned {scanned_files} files, "
+            "deleted {deleted} unlinked files"
+        ).format(
+            symbol=str(symbol),
+            checked_days=checked_days,
+            scanned_files=scanned_files,
+            deleted=deleted,
         )
-    logger.info("{symbol}: done".format(symbol=str(symbol)))
+    )
 
 
 def clean_trade_data_overlaps(
