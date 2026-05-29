@@ -43,7 +43,10 @@ class WorkflowTest(SimpleTestCase):
         self.assertEqual(steps[3]["maybeCallback"]["next"], "compact")
         self.assertEqual(steps[4]["callback"]["next"], "compact")
         self.assertEqual(steps[4]["callback"]["args"]["url"], "https://test.456/callback/")
-        self.assertEqual(steps[4]["callback"]["args"]["body"], {"as_of": "${runTime}"})
+        self.assertEqual(
+            steps[4]["callback"]["args"]["body"],
+            {"as_of": "${runTime}", "final_retry": "${runMinutes % 15 == 5}"},
+        )
         self.assertEqual(
             steps[5]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
@@ -56,15 +59,15 @@ class WorkflowTest(SimpleTestCase):
             callback_window_duration_minutes=5,
         )
 
-        self.assertEqual(condition, "runMinutes % 15 < 5")
+        self.assertEqual(condition, "runMinutes % 15 <= 5")
 
     def test_callback_condition_rejects_missing_or_invalid_window(self):
         with self.assertRaisesRegex(ValueError, "required when CALLBACK_URL is set"):
-            _callback_condition(callback_window_period_minutes=480)
+            _callback_condition(callback_window_period_minutes=15)
         with self.assertRaisesRegex(ValueError, "must be <="):
             _callback_condition(
                 callback_window_period_minutes=10,
-                callback_window_duration_minutes=480,
+                callback_window_duration_minutes=20,
             )
 
     def test_workflow_collects_trades(self):
