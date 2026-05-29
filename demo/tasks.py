@@ -165,7 +165,7 @@ def _callback_condition(
     _validate_positive_minutes("CALLBACK_WINDOW_DURATION_MINUTES", callback_window_duration_minutes)
     if callback_window_duration_minutes > callback_window_period_minutes:
         raise ValueError("CALLBACK_WINDOW_DURATION_MINUTES must be <= CALLBACK_WINDOW_PERIOD_MINUTES.")
-    return f"runMinutes % {callback_window_period_minutes} < {callback_window_duration_minutes}"
+    return f"runMinutes % {callback_window_period_minutes} <= {callback_window_duration_minutes}"
 
 
 def get_workflow(
@@ -265,7 +265,15 @@ def get_workflow(
                     "args": {
                         "url": callback_url,
                         "auth": {"type": "OIDC"},
-                        "body": {"as_of": "${runTime}"},
+                        "body": {
+                            "as_of": "${runTime}",
+                            "final_retry": (
+                                "${"
+                                f"runMinutes % {callback_window_period_minutes} == "
+                                f"{callback_window_duration_minutes}"
+                                "}"
+                            ),
+                        },
                     },
                     "next": "compact",
                 }
