@@ -26,26 +26,6 @@ def django_settings(ctx: Any, proxy: bool = False) -> Any:
 
 
 @task
-def test(ctx: Any) -> None:
-    ctx.run("python manage.py test quant_tick")
-
-
-@task
-def coverage(ctx: Any) -> None:
-    ctx.run("coverage run --source=../ manage.py test quant_tick; coverage report")
-
-
-@task
-def lint(ctx: Any) -> None:
-    ctx.run("ruff check ../")
-
-
-@task
-def format(ctx: Any) -> None:
-    ctx.run("ruff check ../ --fix")
-
-
-@task
 def makemigrations(ctx: Any) -> None:
     ctx.run("python manage.py makemigrations quant_tick")
 
