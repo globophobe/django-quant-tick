@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.humanize.templatetags.humanize import intcomma
@@ -281,7 +282,7 @@ class FundingDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
         return format_display_rate(obj.funding_rate)
 
 
-if "django.contrib.admin" in settings.INSTALLED_APPS:
+if apps.is_installed("django.contrib.admin"):
     admin.site.register(Symbol, SymbolAdmin)
     admin.site.register(Candle, CandleAdmin)
     admin.site.register(TaskState, TaskStateAdmin)
