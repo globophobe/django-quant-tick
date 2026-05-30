@@ -17,6 +17,7 @@ class WorkflowTest(SimpleTestCase):
             callback_url="https://test.456/callback/",
             callback_window_period_minutes=15,
             callback_window_duration_minutes=5,
+            callback_strategies=["callback-target-a", "callback-target-b"],
         )
         steps = workflow["main"]["steps"]
         self.assertEqual(
@@ -27,6 +28,7 @@ class WorkflowTest(SimpleTestCase):
                 "fetchExchangeData",
                 "maybeCallback",
                 "callback",
+                "notify",
                 "compact",
             ],
         )
@@ -41,14 +43,29 @@ class WorkflowTest(SimpleTestCase):
         )
         self.assertEqual(steps[2]["fetchExchangeData"]["except"]["steps"], [])
         self.assertEqual(steps[3]["maybeCallback"]["next"], "compact")
-        self.assertEqual(steps[4]["callback"]["next"], "compact")
-        self.assertEqual(steps[4]["callback"]["args"]["url"], "https://test.456/callback/")
+        self.assertEqual(steps[4]["callback"]["next"], "notify")
+        callback_fanout = steps[4]["callback"]["parallel"]["for"]
+        self.assertEqual(callback_fanout["value"], "callbackTarget")
         self.assertEqual(
-            steps[4]["callback"]["args"]["body"],
-            {"as_of": "${runTime}", "final_retry": "${runMinutes % 15 == 5}"},
+            callback_fanout["in"],
+            [
+                {"url": "https://test.456/callback/callback-target-a/"},
+                {"url": "https://test.456/callback/callback-target-b/"},
+            ],
         )
+        callback_step = callback_fanout["steps"][0]["callbackStrategy"]
+        self.assertEqual(callback_step["args"]["url"], "${callbackTarget.url}")
         self.assertEqual(
-            steps[5]["compact"]["args"]["url"],
+            callback_step["args"]["body"],
+            {
+                "as_of": "${runTime}",
+                "final_retry": "${runMinutes % 15 == 5}",
+            },
+        )
+        self.assertEqual(steps[5]["notify"]["args"]["url"], "https://test.456/notify/")
+        self.assertEqual(steps[5]["notify"]["next"], "compact")
+        self.assertEqual(
+            steps[6]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
         )
 
@@ -68,6 +85,16 @@ class WorkflowTest(SimpleTestCase):
             _callback_condition(
                 callback_window_period_minutes=10,
                 callback_window_duration_minutes=20,
+            )
+
+    def test_workflow_requires_callback_strategies_when_callback_url_is_set(self):
+        with self.assertRaisesRegex(ValueError, "CALLBACK_STRATEGIES"):
+            get_workflow(
+                "https://test.123/",
+                [{"exchange": "coinbase", "api_symbol": "BTC-USD"}],
+                callback_url="https://test.456/callback/",
+                callback_window_period_minutes=15,
+                callback_window_duration_minutes=5,
             )
 
     def test_workflow_collects_trades(self):
@@ -191,6 +218,7 @@ class WorkflowDeployTest(TestCase):
         {
             "PRODUCTION_API_URL": "https://test.123/",
             "CALLBACK_URL": "https://test.456/callback/",
+            "CALLBACK_STRATEGIES": "callback-target-a, callback-target-b",
             "CALLBACK_WINDOW_PERIOD_MINUTES": "15",
             "CALLBACK_WINDOW_DURATION_MINUTES": "5",
         },
@@ -211,5 +239,9 @@ class WorkflowDeployTest(TestCase):
         push_workflow.body(Mock())
 
         self.assertEqual(mock_get_workflow.call_args.kwargs["callback_url"], "https://test.456/callback/")
+        self.assertEqual(
+            mock_get_workflow.call_args.kwargs["callback_strategies"],
+            ["callback-target-a", "callback-target-b"],
+        )
         self.assertEqual(mock_get_workflow.call_args.kwargs["callback_window_period_minutes"], 15)
         self.assertEqual(mock_get_workflow.call_args.kwargs["callback_window_duration_minutes"], 5)
