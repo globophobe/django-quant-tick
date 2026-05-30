@@ -147,6 +147,27 @@ def _optional_int_env(name: str) -> int | None:
     return int(value)
 
 
+
+def _parse_callback_strategies(raw: str | None) -> list[str] | None:
+    if raw is None:
+        return None
+    names = list(dict.fromkeys(item.strip() for item in raw.split(",") if item.strip()))
+    return names or None
+
+
+def _validate_callback_strategies(callback_strategies: list[str] | None) -> None:
+    if not callback_strategies:
+        raise ValueError("CALLBACK_STRATEGIES is required when CALLBACK_URL is set.")
+
+
+def _callback_strategy_url(callback_url: str, strategy_name: str) -> str:
+    return f"{callback_url.rstrip('/')}/{quote(strategy_name, safe='')}/"
+
+
+def _callback_notify_url(callback_url: str) -> str:
+    return urljoin(f"{callback_url.rstrip('/')}/", "../notify/")
+
+
 def _validate_positive_minutes(name: str, value: int | None) -> None:
     if value is not None and value <= 0:
         raise ValueError(f"{name} must be positive.")
@@ -174,6 +195,7 @@ def get_workflow(
     callback_url: str | None = None,
     callback_window_period_minutes: int | None = None,
     callback_window_duration_minutes: int | None = None,
+    callback_strategies: list[str] | None = None,
 ) -> dict:
     """Get workflow."""
     aggregate_trades = urljoin(url, "aggregate-trades/")
@@ -243,6 +265,7 @@ def get_workflow(
         },
     ]
     if callback_url:
+        _validate_callback_strategies(callback_strategies)
         condition = _callback_condition(
             callback_window_period_minutes=callback_window_period_minutes,
             callback_window_duration_minutes=callback_window_duration_minutes,
@@ -261,19 +284,44 @@ def get_workflow(
             },
             {
                 "callback": {
+                    "parallel": {
+                        "for": {
+                            "value": "callbackTarget",
+                            "in": [
+                                {"url": _callback_strategy_url(callback_url, strategy_name)}
+                                for strategy_name in callback_strategies
+                            ],
+                            "steps": [
+                                {
+                                    "callbackStrategy": {
+                                        "call": "http.post",
+                                        "args": {
+                                            "url": "${callbackTarget.url}",
+                                            "auth": {"type": "OIDC"},
+                                            "body": {
+                                                "as_of": "${runTime}",
+                                                "final_retry": (
+                                                    "${"
+                                                    f"runMinutes % {callback_window_period_minutes} == "
+                                                    f"{callback_window_duration_minutes}"
+                                                    "}"
+                                                ),
+                                            },
+                                        },
+                                    }
+                                }
+                            ],
+                        }
+                    },
+                    "next": "notify",
+                }
+            },
+            {
+                "notify": {
                     "call": "http.post",
                     "args": {
-                        "url": callback_url,
+                        "url": _callback_notify_url(callback_url),
                         "auth": {"type": "OIDC"},
-                        "body": {
-                            "as_of": "${runTime}",
-                            "final_retry": (
-                                "${"
-                                f"runMinutes % {callback_window_period_minutes} == "
-                                f"{callback_window_duration_minutes}"
-                                "}"
-                            ),
-                        },
                     },
                     "next": "compact",
                 }
@@ -318,6 +366,7 @@ def push_workflow(
 
     url = os.environ["PRODUCTION_API_URL"]
     callback_url = os.environ.get("CALLBACK_URL") or None
+    callback_strategies = _parse_callback_strategies(os.environ.get("CALLBACK_STRATEGIES"))
     callback_window_period_minutes = _optional_int_env("CALLBACK_WINDOW_PERIOD_MINUTES")
     callback_window_duration_minutes = _optional_int_env("CALLBACK_WINDOW_DURATION_MINUTES")
 
@@ -327,6 +376,7 @@ def push_workflow(
         callback_url=callback_url,
         callback_window_period_minutes=callback_window_period_minutes,
         callback_window_duration_minutes=callback_window_duration_minutes,
+        callback_strategies=callback_strategies,
     )
     with tempfile.NamedTemporaryFile(mode="w") as f:
         json.dump(workflow, f)
