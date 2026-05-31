@@ -53,7 +53,7 @@ deploy = [
 dev = [
     "coverage>=7.11.0",
     "django-filter>=25.2",
-    "django-semantic-admin>=0.6.8",
+    "django-semantic-admin>=0.7.0",
     "django-semantic-forms>=0.1.11",
     "django-storages[google]>=1.14.6",
     "invoke>=2.2.1",
@@ -66,3 +66,4 @@ dev = [
 
 [tool.uv]
 exclude-newer = "P7D"
+exclude-newer-package = { django-semantic-admin = false, django-semantic-forms = false }
