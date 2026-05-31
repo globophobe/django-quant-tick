@@ -56,23 +56,6 @@ def get_container_name(
     return f"{region}-docker.pkg.dev/{project_id}/{name}/{name}"
 
 
-def docker_secrets() -> str:
-    """Docker build args for the current deploy contract."""
-    build_args = [
-        f'{secret}="{os.environ[secret]}"'
-        for secret in (
-            "SECRET_KEY",
-            "DATABASE_NAME",
-            "DATABASE_USER",
-            "DATABASE_PASSWORD",
-            "PRODUCTION_DATABASE_HOST",
-            "DATABASE_PORT",
-            "GCS_BUCKET_NAME",
-        )
-    ]
-    return " ".join([f"--build-arg {build_arg}" for build_arg in build_args])
-
-
 def build_quant_tick(ctx: Any) -> str:
     """Build the wheel and return its filename."""
     repo_root = Path(__file__).resolve().parent.parent
@@ -120,7 +103,6 @@ def build_container(
             [
                 "docker build",
                 build_args,
-                docker_secrets(),
                 "--no-cache --file=Dockerfile",
                 f"--tag={name} .",
             ]
