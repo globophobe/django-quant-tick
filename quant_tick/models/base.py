@@ -154,7 +154,7 @@ class AbstractDataStorage(models.Model):
             drop_columns.append("uid")
         if len(drop_columns):
             data_frame = data_frame.drop(columns=drop_columns)
-        data_frame.reset_index(drop=True)
+        data_frame = data_frame.reset_index(drop=True)
         buffer = BytesIO()
         data_frame.to_parquet(buffer, engine="auto", compression="snappy")
         return ContentFile(buffer.getvalue(), "data.parquet")

@@ -3,10 +3,15 @@ from unittest import TestCase
 
 import pandas as pd
 
-from quant_tick.lib import get_frame_totals, has_column_group, validate_totals
+from quant_tick.lib import get_frame_totals, has_column_group, is_decimal_close, validate_totals
 
 
 class DataFrameValidationTest(TestCase):
+    def test_is_decimal_close_uses_absolute_epsilon_only(self):
+        self.assertTrue(is_decimal_close(Decimal("1.000000001"), Decimal("1.000000002")))
+        self.assertFalse(is_decimal_close(Decimal("100000"), Decimal("100001")))
+        self.assertFalse(is_decimal_close(Decimal("100"), Decimal("100.001")))
+
     def test_has_column_group_rejects_partial_groups(self):
         data = pd.DataFrame([{"a": 1, "b": 2}])
 

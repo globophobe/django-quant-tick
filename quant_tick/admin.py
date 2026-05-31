@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.humanize.templatetags.humanize import intcomma
@@ -32,6 +33,7 @@ from quant_tick.models import (
 USE_SEMANTIC_ADMIN = "semantic_admin" in settings.INSTALLED_APPS
 if USE_SEMANTIC_ADMIN:
     from semantic_admin import SemanticModelAdmin
+
     ModelAdmin = SemanticModelAdmin
 else:
     ModelAdmin = admin.ModelAdmin
@@ -114,20 +116,7 @@ class ReadOnlyAdmin(ModelAdmin):
         return False
 
 
-class CreateOnlyAdmin(ModelAdmin):
-    def has_change_permission(self, request, obj=None):
-        return obj is None
-
-    def has_delete_permission(self, request, obj=None):
-        return False
-
-
-class NoCreateAdmin(ModelAdmin):
-    def has_add_permission(self, request):
-        return False
-
-
-class SymbolAdmin(CreateOnlyAdmin):
+class SymbolAdmin(ReadOnlyAdmin):
     filterset_class = SymbolFilter
     list_display = (
         "code_name",
@@ -147,14 +136,14 @@ class SymbolAdmin(CreateOnlyAdmin):
     )
 
 
-class CandleAdmin(DirectSymbolLinkMixin, CreateOnlyAdmin):
+class CandleAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
     filterset_class = CandleFilter
     list_display = ("code_name", "symbol_link", "date_from", "date_to", "is_active")
     list_filter = get_list_filter("symbol", "is_active")
     list_select_related = ("symbol",)
 
 
-class TaskStateAdmin(NoCreateAdmin):
+class TaskStateAdmin(ModelAdmin):
     filterset_class = TaskStateFilter
     list_display = (
         "task_type",
@@ -166,6 +155,12 @@ class TaskStateAdmin(NoCreateAdmin):
         "locked_until",
     )
     list_filter = get_list_filter("exchange", "api_symbol", "task_type")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class TradeDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
@@ -281,7 +276,7 @@ class FundingDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
         return format_display_rate(obj.funding_rate)
 
 
-if "django.contrib.admin" in settings.INSTALLED_APPS:
+if apps.is_installed("django.contrib.admin"):
     admin.site.register(Symbol, SymbolAdmin)
     admin.site.register(Candle, CandleAdmin)
     admin.site.register(TaskState, TaskStateAdmin)

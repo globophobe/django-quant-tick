@@ -239,7 +239,8 @@ class TradeData(AbstractDataStorage):
         if delta <= pd.Timedelta(0):
             raise ValueError("timestamp_to must be after timestamp_from.")
         frequency = delta.total_seconds() / 60
-        assert frequency <= Frequency.DAY
+        if frequency > Frequency.DAY:
+            raise ValueError("frequency cannot exceed daily.")
         if (
             timestamp_from == get_min_time(timestamp_from, "1d")
             and timestamp_from == timestamp_to - pd.Timedelta("1d")

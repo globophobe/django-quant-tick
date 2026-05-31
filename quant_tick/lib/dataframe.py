@@ -7,6 +7,8 @@ from pandas import DataFrame
 
 from quant_tick.constants import ZERO
 
+DECIMAL_CLOSE_EPSILON = Decimal("1e-8")
+
 
 def calculate_notional(data_frame: DataFrame) -> DataFrame:
     """Calculate notional."""
@@ -58,9 +60,18 @@ def assert_type_decimal(data_frame: DataFrame, columns: Iterable[str]) -> None:
         assert all(isinstance(value, Decimal) for value in data_frame[column])
 
 
-def is_decimal_close(d1: Decimal, d2: Decimal) -> bool:
-    """Is decimal one close to decimal two?"""
-    return np.isclose(float(d1), float(d2))
+def is_decimal_close(
+    d1: object,
+    d2: object,
+    *,
+    epsilon: Decimal = DECIMAL_CLOSE_EPSILON,
+) -> bool:
+    """Return whether two decimals differ by no more than an absolute epsilon."""
+    left = to_decimal_or_none(d1)
+    right = to_decimal_or_none(d2)
+    if left is None or right is None:
+        return left == right
+    return abs(left - right) <= epsilon
 
 
 def has_column_group(data_frame: DataFrame, columns: Iterable[str]) -> bool:
