@@ -12,6 +12,8 @@ QUANT_TICK_TASK_BACKOFF_BASE = timedelta(minutes=10)
 QUANT_TICK_TASK_BACKOFF_CAP = timedelta(hours=1)
 QUANT_TICK_TASK_BACKOFF_MULTIPLIER = 2
 QUANT_TICK_TASK_LOCK_LEASE = timedelta(hours=1)
+TASK_STATE_EXCHANGE_ALL = "all"
+TASK_STATE_EXCHANGE_CHOICES = ((TASK_STATE_EXCHANGE_ALL, _("All")), *Exchange.choices)
 
 
 def _as_timedelta(value: int | float | timedelta | None, default: timedelta) -> timedelta:
@@ -66,7 +68,7 @@ class TaskState(models.Model):
 
     exchange = models.CharField(
         _("exchange"),
-        choices=Exchange.choices,
+        choices=TASK_STATE_EXCHANGE_CHOICES,
         max_length=255,
     )
     api_symbol = models.CharField(

@@ -41,6 +41,7 @@ class TaskType(models.TextChoices):
     AGGREGATE_TRADES = "aggregate_trades", "Aggregate trades"
     AGGREGATE_CANDLES = "aggregate_candles", "Aggregate candles"
     FETCH_EXCHANGE_DATA = "fetch_exchange_data", "Fetch exchange data"
+    COMPACT = "compact", "Compact"
 
 
 class SampleType(models.TextChoices):
