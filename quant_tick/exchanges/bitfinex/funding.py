@@ -160,5 +160,7 @@ def bitfinex_funding(
 
     df = DataFrame(event_rows)
     df = df.sort_values(["timestamp", "status_timestamp"], kind="stable")
-    df = df.drop_duplicates(subset=["timestamp"], keep="last")
+    # Bitfinex status history can include multiple status rows for the same
+    # funding event. The latest status before the event is the canonical row.
+    df = df.groupby("timestamp", sort=False, as_index=False).tail(1)
     return BitfinexFunding.normalize_frame(df, timestamp_from, timestamp_to)
