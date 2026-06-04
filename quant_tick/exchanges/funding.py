@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.lib import iter_missing
+from quant_tick.lib import filter_by_timestamp, iter_missing
 
 
 class ExchangeFunding:
@@ -75,8 +75,6 @@ class ExchangeFunding:
         timestamp_from: datetime,
         timestamp_to: datetime,
     ) -> DataFrame:
-        from_ts = pd.to_datetime(timestamp_from, utc=True)
-        to_ts = pd.to_datetime(timestamp_to, utc=True)
         if df.empty:
             return df.set_index("timestamp")
 
@@ -104,13 +102,7 @@ class ExchangeFunding:
         df["raw_timestamp"] = pd.Series(raw_metadata, dtype=object)
         df["timestamp_offset_ms"] = pd.Series(offset_metadata, dtype=object)
         df["timestamp_anomaly"] = pd.Series(anomaly_metadata, dtype=object)
-        df["_raw_timestamp_sort"] = raw_timestamps
-        df = (
-            df.sort_values(["timestamp", "_raw_timestamp_sort"], kind="stable")
-            .drop_duplicates(subset=["timestamp"], keep="last")
-            .loc[lambda frame: (frame["timestamp"] >= from_ts) & (frame["timestamp"] < to_ts)]
-            .drop(columns=["_raw_timestamp_sort"])
-        )
+        df = filter_by_timestamp(df, timestamp_from, timestamp_to)
         return df.set_index("timestamp")
 
     @classmethod
