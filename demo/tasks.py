@@ -150,9 +150,24 @@ def _callback_notify_url(callback_url: str) -> str:
     return urljoin(f"{callback_url.rstrip('/')}/", "../notify/")
 
 
+def _callback_ready_url(callback_url: str, strategy_name: str) -> str:
+    url = urljoin(f"{callback_url.rstrip('/')}/", "../ready/")
+    return f"{url.rstrip('/')}/{quote(strategy_name, safe='')}/"
+
+
 def _validate_positive_minutes(name: str, value: int | None) -> None:
     if value is not None and value <= 0:
         raise ValueError(f"{name} must be positive.")
+
+
+def _callback_ready_condition(
+    *,
+    callback_window_period_minutes: int | None = None,
+) -> str:
+    if callback_window_period_minutes is None:
+        raise ValueError("CALLBACK_WINDOW_PERIOD_MINUTES is required when CALLBACK_URL is set.")
+    _validate_positive_minutes("CALLBACK_WINDOW_PERIOD_MINUTES", callback_window_period_minutes)
+    return f"runMinutes % {callback_window_period_minutes} == 0"
 
 
 def _callback_condition(
@@ -183,9 +198,9 @@ def get_workflow(
     aggregate_trades = urljoin(url, "aggregate-trades/")
     fetch_exchange_data_url = urljoin(url, "fetch-exchange-data/")
     compact = urljoin(url, "compact/")
-    steps = []
+    all_steps = []
     if callback_url:
-        steps.append(
+        all_steps.append(
             {
                 "getRunTime": {
                     "assign": [
@@ -197,7 +212,7 @@ def get_workflow(
                 }
             }
         )
-    steps += [
+    steps = [
         {
             "getTradeData": {
                 "parallel": {
@@ -231,8 +246,6 @@ def get_workflow(
                 }
             }
         },
-    ]
-    steps += [
         {
             "fetchExchangeData": {
                 "try": {
@@ -248,11 +261,85 @@ def get_workflow(
     ]
     if callback_url:
         _validate_callback_strategies(callback_strategies)
+        ready_condition = _callback_ready_condition(
+            callback_window_period_minutes=callback_window_period_minutes,
+        )
+        ready_targets = [
+            {"url": _callback_ready_url(callback_url, strategy_name)}
+            for strategy_name in callback_strategies
+        ]
+        all_steps += [
+            {
+                "process": {
+                    "parallel": {
+                        "branches": [
+                            {
+                                "maybeReady": {
+                                    "steps": [
+                                        {
+                                            "checkReady": {
+                                                "switch": [
+                                                    {
+                                                        "condition": f"${{{ready_condition}}}",
+                                                        "next": "ready",
+                                                    }
+                                                ],
+                                                "next": "skipReady",
+                                            }
+                                        },
+                                        {
+                                            "ready": {
+                                                "parallel": {
+                                                    "for": {
+                                                        "value": "readyTarget",
+                                                        "in": ready_targets,
+                                                        "steps": [
+                                                            {
+                                                                "readyStrategy": {
+                                                                    "try": {
+                                                                        "call": "http.get",
+                                                                        "args": {
+                                                                            "url": "${readyTarget.url}",
+                                                                            "auth": {"type": "OIDC"},
+                                                                        },
+                                                                    },
+                                                                    "except": {"as": "e", "steps": []},
+                                                                }
+                                                            }
+                                                        ],
+                                                    }
+                                                },
+                                                "next": "readyDone",
+                                            }
+                                        },
+                                        {
+                                            "skipReady": {
+                                                "assign": [{"readySkipped": True}],
+                                                "next": "readyDone",
+                                            }
+                                        },
+                                        {"readyDone": {"assign": [{"readyDone": True}]}},
+                                    ]
+                                }
+                            },
+                            {
+                                "getData": {
+                                    "steps": steps,
+                                }
+                            },
+                        ]
+                    }
+                }
+            }
+        ]
+    else:
+        all_steps += steps
+    if callback_url:
         condition = _callback_condition(
             callback_window_period_minutes=callback_window_period_minutes,
             callback_window_duration_minutes=callback_window_duration_minutes,
         )
-        steps += [
+        all_steps += [
             {
                 "maybeCallback": {
                     "switch": [
@@ -309,7 +396,7 @@ def get_workflow(
                 }
             },
         ]
-    steps += [
+    all_steps += [
         {
             "compact": {
                 "call": "http.get",
@@ -320,7 +407,7 @@ def get_workflow(
             }
         },
     ]
-    return {"main": {"steps": steps}}
+    return {"main": {"steps": all_steps}}
 
 
 @task
