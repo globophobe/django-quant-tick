@@ -6,7 +6,7 @@ from django.test import SimpleTestCase, TestCase
 from quant_tick.constants import Exchange
 from quant_tick.models import Symbol
 
-from tasks import _callback_condition, get_workflow, push_workflow
+from tasks import _callback_condition, _callback_ready_condition, get_workflow, push_workflow
 
 
 class WorkflowTest(SimpleTestCase):
@@ -24,27 +24,52 @@ class WorkflowTest(SimpleTestCase):
             [next(iter(step)) for step in steps],
             [
                 "getRunTime",
-                "getTradeData",
-                "fetchExchangeData",
+                "process",
                 "maybeCallback",
                 "callback",
                 "notify",
                 "compact",
             ],
         )
-        trade_step = steps[1]["getTradeData"]["parallel"]["for"]["steps"][0][
+        branches = steps[1]["process"]["parallel"]["branches"]
+        self.assertEqual([next(iter(branch)) for branch in branches], ["maybeReady", "getData"])
+        ready_steps = branches[0]["maybeReady"]["steps"]
+        check_ready = ready_steps[0]["checkReady"]
+        self.assertEqual(
+            check_ready["switch"],
+            [{"condition": "${runMinutes % 15 == 0}", "next": "ready"}],
+        )
+        self.assertEqual(check_ready["next"], "skipReady")
+        ready_step = ready_steps[1]["ready"]
+        ready_fanout = ready_step["parallel"]["for"]
+        self.assertEqual(ready_fanout["value"], "readyTarget")
+        self.assertEqual(
+            ready_fanout["in"],
+            [
+                {"url": "https://test.456/ready/callback-target-a/"},
+                {"url": "https://test.456/ready/callback-target-b/"},
+            ],
+        )
+        ready_call = ready_fanout["steps"][0]["readyStrategy"]
+        self.assertEqual(ready_call["try"]["call"], "http.get")
+        self.assertEqual(ready_call["try"]["args"]["url"], "${readyTarget.url}")
+        self.assertEqual(ready_call["except"]["steps"], [])
+        self.assertEqual(ready_step["next"], "readyDone")
+        self.assertEqual(ready_steps[2]["skipReady"]["next"], "readyDone")
+        data_steps = branches[1]["getData"]["steps"]
+        trade_step = data_steps[0]["getTradeData"]["parallel"]["for"]["steps"][0][
             "tradeData"
         ]["try"]
         self.assertEqual(trade_step["call"], "http.get")
         self.assertEqual(trade_step["args"]["url"], "${item.url}")
         self.assertEqual(
-            steps[2]["fetchExchangeData"]["try"]["args"]["url"],
+            data_steps[1]["fetchExchangeData"]["try"]["args"]["url"],
             "https://test.123/fetch-exchange-data/?time_ago=7d",
         )
-        self.assertEqual(steps[2]["fetchExchangeData"]["except"]["steps"], [])
-        self.assertEqual(steps[3]["maybeCallback"]["next"], "compact")
-        self.assertEqual(steps[4]["callback"]["next"], "notify")
-        callback_fanout = steps[4]["callback"]["parallel"]["for"]
+        self.assertEqual(data_steps[1]["fetchExchangeData"]["except"]["steps"], [])
+        self.assertEqual(steps[2]["maybeCallback"]["next"], "compact")
+        self.assertEqual(steps[3]["callback"]["next"], "notify")
+        callback_fanout = steps[3]["callback"]["parallel"]["for"]
         self.assertEqual(callback_fanout["value"], "callbackTarget")
         self.assertEqual(
             callback_fanout["in"],
@@ -62,13 +87,18 @@ class WorkflowTest(SimpleTestCase):
                 "final_retry": "${runMinutes % 15 == 5}",
             },
         )
-        self.assertEqual(steps[5]["notify"]["args"]["url"], "https://test.456/notify/")
-        self.assertEqual(steps[5]["notify"]["next"], "compact")
+        self.assertEqual(steps[4]["notify"]["args"]["url"], "https://test.456/notify/")
+        self.assertEqual(steps[4]["notify"]["next"], "compact")
         self.assertEqual(
-            steps[6]["compact"]["args"]["url"],
+            steps[5]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
         )
 
+
+    def test_callback_ready_condition_uses_exact_period_boundary(self):
+        condition = _callback_ready_condition(callback_window_period_minutes=15)
+
+        self.assertEqual(condition, "runMinutes % 15 == 0")
 
     def test_callback_condition_uses_window_only(self):
         condition = _callback_condition(

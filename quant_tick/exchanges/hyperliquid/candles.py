@@ -112,10 +112,6 @@ def hyperliquid_candles(
             ],
         }
     )
-    df = df.sort_values("timestamp", kind="stable").drop_duplicates(
-        subset=["timestamp"],
-        keep="last",
-    )
     return candles_to_data_frame(
         timestamp_from,
         timestamp_to,

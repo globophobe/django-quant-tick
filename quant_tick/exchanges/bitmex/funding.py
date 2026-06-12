@@ -99,5 +99,5 @@ def bitmex_funding(
             else Decimal(str(item["indicativeFundingRate"]))
             for item in rows
         ]
-    df = DataFrame(frame_dict)
+    df = DataFrame(frame_dict).sort_values("timestamp", kind="stable")
     return BitmexFunding.normalize_frame(df, timestamp_from, timestamp_to)

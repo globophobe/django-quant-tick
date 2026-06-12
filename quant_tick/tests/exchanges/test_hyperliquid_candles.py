@@ -40,7 +40,7 @@ class HyperliquidCandleTest(SimpleTestCase):
 
         with patch(
             "quant_tick.exchanges.hyperliquid.candles.get_hyperliquid_candle_response",
-            return_value=data,
+            side_effect=[data, []],
         ):
             df = hyperliquid_candles("BTC", timestamp_from, timestamp_to)
 

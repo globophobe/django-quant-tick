@@ -27,6 +27,7 @@
 - `notional` is the physical quantity.
 - `volume` is the quote-value amount.
 - Use `Decimal` for financial calculations.
+- Do not sort or attempt to dedup timestamps, unless exchange APIs are known to return data out of order or with dups.
 
 ## Code Style
 
