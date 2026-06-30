@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.db import models
+from django.db import close_old_connections, models
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -125,6 +125,7 @@ class TaskState(models.Model):
         """Release the task lease."""
         if self.locked_until is None:
             return
+        close_old_connections()
         self.locked_until = None
         self.save(update_fields=["locked_until"])
 
@@ -144,6 +145,7 @@ class TaskState(models.Model):
         else:
             self.recent_error_count += 1
             self.next_fetch_at = None
+        close_old_connections()
         self.save(
             update_fields=["recent_error_at", "recent_error_count", "next_fetch_at"]
         )
@@ -159,6 +161,7 @@ class TaskState(models.Model):
         self.recent_error_at = None
         self.recent_error_count = 0
         self.next_fetch_at = None
+        close_old_connections()
         self.save(
             update_fields=["recent_error_at", "recent_error_count", "next_fetch_at"]
         )
