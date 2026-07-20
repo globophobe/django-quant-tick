@@ -68,9 +68,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         # Is there a specific date to?
         if self.date_to:
             max_timestamp_to = parse_datetime(self.date_to)
-            ts_to = (
-                max_timestamp_to if timestamp_to < max_timestamp_to else timestamp_to
-            )
+            ts_to = min(timestamp_to, max_timestamp_to)
         else:
             ts_to = timestamp_to
         # Does it have trade data?
