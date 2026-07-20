@@ -78,7 +78,7 @@ class ExchangeFunding:
         if df.empty:
             return df.set_index("timestamp")
 
-        df = df.copy()
+        df = df.reset_index(drop=True).copy()
         raw_timestamps = pd.to_datetime(df["timestamp"], utc=True, format="ISO8601")
         timestamps = []
         raw_metadata = []
