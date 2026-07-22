@@ -1,6 +1,6 @@
 import logging
 import re
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from datetime import datetime
 from decimal import Decimal
 
@@ -158,6 +158,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         timestamp_from: datetime,
         timestamp_to: datetime,
         retry: bool = False,
+        assert_lease_owned: Callable[[], None] | None = None,
     ) -> None:
         """Aggregate and persist candles over a time range."""
         min_ts_from, max_ts_to, cache_data = self.initialize(
@@ -167,11 +168,14 @@ class Candle(AbstractCodeName, PolymorphicModel):
             timestamp_delete_from = self.get_retry_timestamp_delete_from(
                 min_ts_from, cache_data
             )
-            self.on_retry(
-                min_ts_from,
-                max_ts_to,
-                timestamp_delete_from=timestamp_delete_from,
-            )
+            with transaction.atomic():
+                if assert_lease_owned is not None:
+                    assert_lease_owned()
+                self.on_retry(
+                    min_ts_from,
+                    max_ts_to,
+                    timestamp_delete_from=timestamp_delete_from,
+                )
         for ts_from, ts_to, trade_data in self.iter_all(min_ts_from, max_ts_to):
             trade_candle = self.get_trade_candle(ts_from, ts_to, trade_data)
             df = (
@@ -187,8 +191,11 @@ class Candle(AbstractCodeName, PolymorphicModel):
                 cache_data,
                 trade_candle=trade_candle,
             )
-            self.write_cache(ts_from, ts_to, cache_data)
-            self.write_data(ts_from, ts_to, data)
+            with transaction.atomic():
+                if assert_lease_owned is not None:
+                    assert_lease_owned()
+                self.write_cache(ts_from, ts_to, cache_data)
+                self.write_data(ts_from, ts_to, data)
             ts = ts_to.replace(tzinfo=None)
             logger.info(f"Candle {self}: {ts}")
 

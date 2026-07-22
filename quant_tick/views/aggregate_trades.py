@@ -14,6 +14,12 @@ from quant_tick.lib.download import ArchiveDownloadError
 from quant_tick.lib.task_errors import is_transient_task_error
 from quant_tick.models import Symbol, TaskState, TradeData
 from quant_tick.services.aggregate_candles import aggregate_candle_data
+from quant_tick.services.task_lease import (
+    TaskLeaseHeartbeat,
+    TaskLeaseLost,
+    clear_task_recent_error,
+    mark_task_recent_error,
+)
 from quant_tick.forms import (
     AggregateTradeRequestForm,
     TimeRangeRequestForm,
@@ -162,7 +168,9 @@ class AggregateTradeDataView(View):
             aggregate_candle_params = []
             released = set()
             for task_state, symbol, timestamp_from, timestamp_to in tasks:
+                lease_heartbeat = TaskLeaseHeartbeat(state=task_state)
                 try:
+                    lease_heartbeat.start()
                     logger.info(
                         "{symbol}: starting...".format(**{"symbol": str(symbol)})
                     )
@@ -181,32 +189,42 @@ class AggregateTradeDataView(View):
                             *retry_window,
                             RETRY_INDETERMINATE,
                         )
+                        lease_heartbeat.assert_owned()
                     api(
                         symbol,
                         timestamp_from,
                         timestamp_to,
                         False,
                     )
+                    lease_heartbeat.assert_owned()
                     aggregate_candle_params.append(
                         self.get_aggregate_candle_params(symbol, candle_retry_from)
                     )
+                except TaskLeaseLost:
+                    raise
                 except ArchiveDownloadError:
+                    lease_heartbeat.assert_owned()
                     raise
                 except httpx.HTTPStatusError as exc:
+                    lease_heartbeat.assert_owned()
                     if is_soft_collection_error(exc):
                         logger.warning("%s: collection skipped: %s", symbol, exc)
                         continue
-                    task_state.mark_recent_error()
+                    mark_task_recent_error(state=task_state)
                     raise
                 except TRANSIENT_COLLECTION_ERRORS:
-                    task_state.mark_recent_error(backoff=False)
+                    mark_task_recent_error(state=task_state, backoff=False)
                     raise
                 except Exception as exc:
-                    task_state.mark_recent_error(backoff=not is_transient_task_error(exc))
+                    mark_task_recent_error(
+                        state=task_state,
+                        backoff=not is_transient_task_error(exc),
+                    )
                     raise
                 else:
-                    task_state.clear_recent_error()
+                    clear_task_recent_error(state=task_state)
                 finally:
+                    lease_heartbeat.stop()
                     task_state.release()
                     released.add(task_state.pk)
         except ArchiveDownloadError:
