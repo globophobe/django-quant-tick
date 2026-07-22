@@ -9,7 +9,7 @@ from quant_tick.models.task_state import get_task_backoff, get_task_lock_lease
 
 
 class TaskLeaseLost(RuntimeError):
-    """Raised when a worker no longer owns its task lease."""
+    pass
 
 
 def _owned_state_for_update(*, state: TaskState) -> TaskState:
@@ -23,13 +23,11 @@ def _owned_state_for_update(*, state: TaskState) -> TaskState:
 
 
 def assert_task_lease_owned(*, state: TaskState) -> None:
-    """Raise unless the persisted task state still has this worker's token."""
     with transaction.atomic():
         _owned_state_for_update(state=state)
 
 
 def renew_task_lease(*, state: TaskState) -> None:
-    """Extend the lease only while this worker's token still owns it."""
     token = state.lock_token
     if token is None:
         raise TaskLeaseLost(f"task lease token missing for TaskState {state.pk}")
@@ -49,7 +47,6 @@ def mark_task_recent_error(
     now: datetime | None = None,
     backoff: bool = True,
 ) -> None:
-    """Record an error while holding an ownership fence on the task row."""
     current_time = now or timezone.now()
     close_old_connections()
     with transaction.atomic():
@@ -78,7 +75,6 @@ def mark_task_recent_error(
 
 
 def clear_task_recent_error(*, state: TaskState) -> None:
-    """Clear backoff state while holding an ownership fence on the task row."""
     close_old_connections()
     with transaction.atomic():
         current = _owned_state_for_update(state=state)
@@ -103,8 +99,6 @@ def clear_task_recent_error(*, state: TaskState) -> None:
 
 
 class TaskLeaseHeartbeat:
-    """Turtle-style background renewal for a token-owned task lease."""
-
     def __init__(self, *, state: TaskState) -> None:
         self.state = state
         ttl_seconds = max(1.0, get_task_lock_lease().total_seconds())
@@ -119,7 +113,6 @@ class TaskLeaseHeartbeat:
         )
 
     def start(self) -> None:
-        """Renew immediately, then start periodic renewal."""
         renew_task_lease(state=self.state)
         self._thread.start()
 

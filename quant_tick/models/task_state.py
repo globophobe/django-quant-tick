@@ -129,7 +129,7 @@ class TaskState(models.Model):
         return True
 
     def release(self) -> None:
-        """Release the task lease only while this instance still owns it."""
+        """Release the task lease."""
         if self.lock_token is None:
             return
         lock_token = self.lock_token
