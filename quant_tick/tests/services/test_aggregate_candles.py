@@ -10,6 +10,10 @@ from quant_tick.services.aggregate_candles import (
     DEFAULT_TIMESTAMP_FROM,
     aggregate_candle_data,
 )
+from quant_tick.services.task_lease import (
+    TaskLeaseLost,
+    clear_task_recent_error,
+)
 
 
 class AggregateCandleServiceTest(TestCase):
@@ -25,7 +29,7 @@ class AggregateCandleServiceTest(TestCase):
         Candle.objects.create(symbol=self.symbol)
         Candle.objects.create(symbol=self.symbol)
 
-        def on_candles(candle, *_args):
+        def on_candles(candle, *_args, **_kwargs):
             order.append(candle.code_name)
 
         with patch(
@@ -46,6 +50,7 @@ class AggregateCandleServiceTest(TestCase):
         self.assertEqual(task_state.recent_error_count, 0)
         self.assertIsNone(task_state.next_fetch_at)
         self.assertIsNone(task_state.locked_until)
+        self.assertIsNone(task_state.lock_token)
         self.assertFalse(
             TaskState.objects.filter(
                 task_type=TaskType.AGGREGATE_CANDLES,
@@ -62,7 +67,7 @@ class AggregateCandleServiceTest(TestCase):
         Candle.objects.create(symbol=binance_symbol)
         order = []
 
-        def on_candles(candle, *_args):
+        def on_candles(candle, *_args, **_kwargs):
             order.append(candle.code_name)
 
         with patch(
@@ -85,7 +90,7 @@ class AggregateCandleServiceTest(TestCase):
         Candle.objects.create(symbol=other_symbol)
         order = []
 
-        def on_candles(candle, *_args):
+        def on_candles(candle, *_args, **_kwargs):
             order.append(candle.code_name)
 
         with patch(
@@ -209,6 +214,81 @@ class AggregateCandleServiceTest(TestCase):
 
         self.assertEqual(response, {"ok": True, "skipped": "locked"})
         mock_candles.assert_not_called()
+
+    def test_stale_worker_cannot_release_or_mark_successor_lease(self):
+        Candle.objects.create(symbol=self.symbol)
+        successor = {}
+
+        def take_over_lease(_candle, *_args, **_kwargs):
+            task_state = TaskState.objects.get(
+                task_type=TaskType.AGGREGATE_CANDLES,
+                exchange=Exchange.COINBASE,
+                api_symbol="test",
+            )
+            TaskState.objects.filter(pk=task_state.pk).update(
+                locked_until=datetime(2000, 1, 1, tzinfo=UTC),
+            )
+            new_owner = TaskState.objects.get(pk=task_state.pk)
+            self.assertTrue(new_owner.acquire())
+            successor["token"] = new_owner.lock_token
+            successor["locked_until"] = new_owner.locked_until
+
+        with patch(
+            "quant_tick.models.candles.Candle.candles",
+            autospec=True,
+            side_effect=take_over_lease,
+        ):
+            with self.assertRaisesRegex(TaskLeaseLost, "ownership lost"):
+                aggregate_candle_data([{}])
+
+        task_state = TaskState.objects.get(
+            task_type=TaskType.AGGREGATE_CANDLES,
+            exchange=Exchange.COINBASE,
+            api_symbol="test",
+        )
+        self.assertEqual(task_state.lock_token, successor["token"])
+        self.assertEqual(
+            task_state.locked_until,
+            successor["locked_until"],
+        )
+        self.assertEqual(task_state.recent_error_count, 0)
+        self.assertIsNone(task_state.recent_error_at)
+        self.assertIsNone(task_state.next_fetch_at)
+
+    def test_success_finalizer_rechecks_owner_inside_locked_transaction(self):
+        Candle.objects.create(symbol=self.symbol)
+        successor = {}
+
+        def take_over_before_clear(*, state):
+            TaskState.objects.filter(pk=state.pk).update(
+                locked_until=datetime(2000, 1, 1, tzinfo=UTC),
+            )
+            new_owner = TaskState.objects.get(pk=state.pk)
+            self.assertTrue(new_owner.acquire())
+            successor["token"] = new_owner.lock_token
+            successor["locked_until"] = new_owner.locked_until
+            clear_task_recent_error(state=state)
+
+        with (
+            patch("quant_tick.models.candles.Candle.candles"),
+            patch(
+                "quant_tick.services.aggregate_candles.clear_task_recent_error",
+                side_effect=take_over_before_clear,
+            ),
+        ):
+            with self.assertRaisesRegex(TaskLeaseLost, "ownership lost"):
+                aggregate_candle_data([{}])
+
+        task_state = TaskState.objects.get(
+            task_type=TaskType.AGGREGATE_CANDLES,
+            exchange=Exchange.COINBASE,
+            api_symbol="test",
+        )
+        self.assertEqual(task_state.lock_token, successor["token"])
+        self.assertEqual(task_state.locked_until, successor["locked_until"])
+        self.assertEqual(task_state.recent_error_count, 0)
+        self.assertIsNone(task_state.recent_error_at)
+        self.assertIsNone(task_state.next_fetch_at)
 
     def test_aggregate_marks_error_when_aggregation_fails(self):
         Candle.objects.create(symbol=self.symbol)

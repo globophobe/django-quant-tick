@@ -108,6 +108,46 @@ class FundingAdapterTest(SimpleTestCase):
         self.assertEqual(df.iloc[0].timestamp_offset_ms, 1000)
         self.assertFalse(df.iloc[0].timestamp_anomaly)
 
+    def test_bitmex_funding_keeps_audit_metadata_aligned_after_sort(self):
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 25, 16, tzinfo=UTC)
+        data = [
+            {
+                "timestamp": "2026-04-25T12:00:02.000Z",
+                "fundingRate": "0.0002",
+            },
+            {
+                "timestamp": "2026-04-25T04:00:01.000Z",
+                "fundingRate": "0.0001",
+            },
+        ]
+
+        with patch(
+            "quant_tick.exchanges.bitmex.funding.get_bitmex_funding_response",
+            return_value=data,
+        ):
+            df = bitmex_funding("XBTUSD", timestamp_from, timestamp_to)
+
+        self.assertEqual(
+            list(df.index),
+            [
+                pd.Timestamp("2026-04-25T04:00:00Z"),
+                pd.Timestamp("2026-04-25T12:00:00Z"),
+            ],
+        )
+        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.0001"))
+        self.assertEqual(
+            df.iloc[0].raw_timestamp,
+            pd.Timestamp("2026-04-25T04:00:01Z"),
+        )
+        self.assertEqual(df.iloc[0].timestamp_offset_ms, 1000)
+        self.assertEqual(df.iloc[1].funding_rate, Decimal("0.0002"))
+        self.assertEqual(
+            df.iloc[1].raw_timestamp,
+            pd.Timestamp("2026-04-25T12:00:02Z"),
+        )
+        self.assertEqual(df.iloc[1].timestamp_offset_ms, 2000)
+
     def test_bitmex_funding_response_uses_shared_api_helper(self):
         from quant_tick.exchanges.bitmex.funding import get_bitmex_funding_response
 
