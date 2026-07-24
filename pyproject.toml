@@ -21,6 +21,7 @@ keywords = [
     "bitfinex",
     "bitmex",
     "coinbase",
+    "deribit",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

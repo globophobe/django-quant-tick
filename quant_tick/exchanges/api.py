@@ -19,6 +19,8 @@ from .bitfinex.funding import BitfinexFunding
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
 from .bitmex.funding import BitmexFunding
 from .coinbase import coinbase_candles, coinbase_trades
+from .deribit import deribit_candles, deribit_funding, deribit_trades
+from .deribit.funding import DeribitFunding
 from .funding import ExchangeFunding
 from .hyperliquid import hyperliquid_candles, hyperliquid_funding
 from .hyperliquid.funding import HyperliquidFunding
@@ -28,12 +30,14 @@ FUNDING_CHUNKED_EXCHANGES = {
     Exchange.BINANCE_FUTURES,
     Exchange.BITFINEX,
     Exchange.BITMEX,
+    Exchange.DERIBIT,
     Exchange.HYPERLIQUID,
 }
 FUNDING_MODEL = {
     Exchange.BINANCE_FUTURES: BinanceFuturesFunding,
     Exchange.BITFINEX: BitfinexFunding,
     Exchange.BITMEX: BitmexFunding,
+    Exchange.DERIBIT: DeribitFunding,
     Exchange.HYPERLIQUID: HyperliquidFunding,
 }
 
@@ -124,6 +128,8 @@ def trades_api(
         bitmex_trades(symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         coinbase_trades(symbol, **kwargs)
+    elif exchange == Exchange.DERIBIT:
+        deribit_trades(symbol, **kwargs)
 
 
 def candles_api(
@@ -147,6 +153,8 @@ def candles_api(
         candles = bitmex_candles(api_symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         candles = coinbase_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.DERIBIT:
+        candles = deribit_candles(api_symbol, **kwargs)
     elif exchange == Exchange.HYPERLIQUID:
         candles = hyperliquid_candles(api_symbol, **kwargs)
     else:
@@ -173,6 +181,8 @@ def funding_api(
         return bitfinex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.BITMEX:
         return bitmex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
+    if exchange == Exchange.DERIBIT:
+        return deribit_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.HYPERLIQUID:
         return hyperliquid_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     raise NotImplementedError(f"Funding is not implemented for {exchange}.")
