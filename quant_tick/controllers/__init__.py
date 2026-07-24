@@ -5,6 +5,7 @@ from .rest import (
     IntegerPaginationMixin,
     SequentialIntegerMixin,
     increment_api_total_requests,
+    is_terminal_page,
     iter_api,
     throttle_api_requests,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "IntegerPaginationMixin",
     "SequentialIntegerMixin",
     "increment_api_total_requests",
+    "is_terminal_page",
     "iter_api",
     "throttle_api_requests",
     "ExchangeS3",

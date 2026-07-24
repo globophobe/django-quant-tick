@@ -2,7 +2,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 from pandas import DataFrame
@@ -26,6 +26,23 @@ WEBSOCKET_DATA_LOOKBACK = pd.Timedelta("30min")
 WEBSOCKET_REST_BACKFILL_MAX_INVALID_RANGES = 2
 
 
+def is_terminal_page(
+    data: list,
+    *,
+    get_timestamp: Callable,
+    interval: timedelta,
+    max_results: int,
+) -> bool:
+    """Return whether a short page spans less than one full API window."""
+    if len(data) >= max_results:
+        return False
+    timestamps = [get_timestamp(item) for item in data]
+    if not timestamps:
+        return True
+    expected_span = interval * (max_results - 1)
+    return max(timestamps) - min(timestamps) < expected_span
+
+
 def iter_api(
     url: str,
     get_api_pagination_id: Callable,
@@ -36,6 +53,7 @@ def iter_api(
     timestamp_from: datetime | None = None,
     pagination_id: str | None = None,
     log_format: str | None = None,
+    is_terminal_page: Callable[[list], bool] | None = None,
 ) -> list:
     """Iterate a paginated exchange API until the partition is covered."""
     results = []
@@ -59,8 +77,12 @@ def iter_api(
             last_data = data
             # Append results
             results += data
-            less_than_max_results = len(data) < max_results
-            is_last_iteration = pagination_id is None or less_than_max_results
+            is_terminal = (
+                is_terminal_page(data)
+                if is_terminal_page is not None
+                else len(data) < max_results
+            )
+            is_last_iteration = pagination_id is None or is_terminal
             is_within_partition = timestamp_from and timestamp > timestamp_from
             # Maybe stop iteration
             if is_last_iteration or not is_within_partition:

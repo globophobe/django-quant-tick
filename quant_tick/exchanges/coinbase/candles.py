@@ -4,7 +4,7 @@ from functools import partial
 
 from pandas import DataFrame
 
-from quant_tick.controllers import iter_api
+from quant_tick.controllers import is_terminal_page, iter_api
 from quant_tick.lib import (
     candles_to_data_frame,
     get_interval_inclusive_end,
@@ -78,6 +78,12 @@ def fetch_coinbase_candles(
 ) -> DataFrame:
     """Fetch Coinbase candles."""
     url = f"{API_URL}/products/{api_symbol}/candles?granularity={granularity}"
+    is_terminal = partial(
+        is_terminal_page,
+        get_timestamp=get_coinbase_candle_timestamp,
+        interval=timedelta(seconds=granularity),
+        max_results=CANDLE_MAX_RESULTS,
+    )
     results, _, _ = iter_api(
         url,
         get_coinbase_candle_pagination_id,
@@ -95,6 +101,7 @@ def fetch_coinbase_candles(
         timestamp_from=timestamp_from,
         pagination_id=timestamp_to,
         log_format=log_format,
+        is_terminal_page=is_terminal,
     )
     candles = [
         {
