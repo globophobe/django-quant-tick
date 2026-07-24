@@ -135,6 +135,8 @@ class CoinbaseCandleTest(SimpleTestCase):
             mocked.call_args.kwargs["pagination_id"],
             timestamp_to,
         )
+        terminal_page = mocked.call_args.kwargs["is_terminal_page"]
+        self.assertFalse(terminal_page(results))
         self.assertEqual(
             list(result.index),
             [
