@@ -74,3 +74,31 @@ class TradesApiTest(BaseSymbolTest, TestCase):
 
         with self.assertRaises(ValueError):
             trades_api(symbol, self.timestamp_from, ts_to, Mock())
+
+    def test_trades_api_dispatches_deribit_perpetual(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.DERIBIT,
+            api_symbol="BTC-PERPETUAL",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        ts_to = self.timestamp_from + timedelta(days=1)
+
+        with patch("quant_tick.exchanges.api.deribit_trades") as mocked:
+            trades_api(symbol, self.timestamp_from, ts_to, Mock())
+
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.args[0], symbol)
+
+    def test_trades_api_dispatches_deribit_spot(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.DERIBIT,
+            api_symbol="BTC_USDC",
+            symbol_type=SymbolType.SPOT,
+        )
+        ts_to = self.timestamp_from + timedelta(days=1)
+
+        with patch("quant_tick.exchanges.api.deribit_trades") as mocked:
+            trades_api(symbol, self.timestamp_from, ts_to, Mock())
+
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.args[0], symbol)
