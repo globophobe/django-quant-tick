@@ -16,10 +16,15 @@ class ExchangeFunding:
         cls,
         timestamp_from: datetime,
         timestamp_to: datetime,
+        *,
+        interval: str | pd.Timedelta | None = None,
     ) -> list[datetime]:
         """Return expected normalized funding timestamps in a half-open range."""
-        if cls.interval is None:
+        interval = cls.interval if interval is None else pd.Timedelta(interval)
+        if interval is None:
             return []
+        if interval <= pd.Timedelta(0):
+            raise ValueError("funding interval must be positive")
 
         from_ts = pd.to_datetime(timestamp_from, utc=True)
         to_ts = pd.to_datetime(timestamp_to, utc=True)
@@ -27,15 +32,15 @@ class ExchangeFunding:
             return []
 
         anchor = cls.get_anchor()
-        interval_ns = cls.interval.value
+        interval_ns = interval.value
         start_step = -((anchor.value - from_ts.value) // interval_ns)
-        timestamp = anchor + start_step * cls.interval
+        timestamp = anchor + start_step * interval
         timestamps = []
         while timestamp < to_ts:
             dt = timestamp.to_pydatetime()
             if not cls.is_known_missing_timestamp(dt):
                 timestamps.append(dt)
-            timestamp += cls.interval
+            timestamp += interval
         return timestamps
 
     @classmethod
@@ -44,16 +49,25 @@ class ExchangeFunding:
         timestamp_from: datetime,
         timestamp_to: datetime,
         existing: set[datetime],
+        *,
+        interval: str | pd.Timedelta | None = None,
     ) -> list[tuple[datetime, datetime]]:
-        if cls.interval is None:
+        interval = cls.interval if interval is None else pd.Timedelta(interval)
+        if interval is None:
             return []
+        if interval <= pd.Timedelta(0):
+            raise ValueError("funding interval must be positive")
         return iter_missing(
             timestamp_from,
             timestamp_to,
             existing,
             reverse=True,
-            value=cls.interval,
-            timestamps=cls.expected_timestamps(timestamp_from, timestamp_to),
+            value=interval,
+            timestamps=cls.expected_timestamps(
+                timestamp_from,
+                timestamp_to,
+                interval=interval,
+            ),
         )
 
     @classmethod
@@ -74,6 +88,8 @@ class ExchangeFunding:
         df: DataFrame,
         timestamp_from: datetime,
         timestamp_to: datetime,
+        *,
+        interval: str | pd.Timedelta | None = None,
     ) -> DataFrame:
         if df.empty:
             return df.set_index("timestamp")
@@ -85,7 +101,10 @@ class ExchangeFunding:
         offset_metadata = []
         anomaly_metadata = []
         for raw_ts in raw_timestamps:
-            timestamp, offset = cls.normalize_timestamp(raw_ts)
+            timestamp, offset = cls.normalize_timestamp(
+                raw_ts,
+                interval=interval,
+            )
             timestamps.append(timestamp)
             if offset:
                 raw_metadata.append(raw_ts.to_pydatetime())
@@ -106,14 +125,22 @@ class ExchangeFunding:
         return df.set_index("timestamp")
 
     @classmethod
-    def normalize_timestamp(cls, raw_timestamp: pd.Timestamp) -> tuple[datetime, int | None]:
+    def normalize_timestamp(
+        cls,
+        raw_timestamp: pd.Timestamp,
+        *,
+        interval: str | pd.Timedelta | None = None,
+    ) -> tuple[datetime, int | None]:
         raw_timestamp = raw_timestamp.tz_convert(UTC)
-        if cls.interval is None:
+        interval = cls.interval if interval is None else pd.Timedelta(interval)
+        if interval is None:
             timestamp = raw_timestamp.to_pydatetime()
             return timestamp, None
+        if interval <= pd.Timedelta(0):
+            raise ValueError("funding interval must be positive")
 
         anchor = cls.get_anchor()
-        interval_ns = cls.interval.value
+        interval_ns = interval.value
         offset_ns = raw_timestamp.value - anchor.value
         bucket_ns = anchor.value + ((offset_ns + interval_ns // 2) // interval_ns) * interval_ns
         timestamp = pd.Timestamp(bucket_ns, tz=UTC)

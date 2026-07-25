@@ -18,7 +18,8 @@ from .bitfinex import bitfinex_candles, bitfinex_funding, bitfinex_trades
 from .bitfinex.funding import BitfinexFunding
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
 from .bitmex.funding import BitmexFunding
-from .bybit import bybit_candles, bybit_trades
+from .bybit import bybit_candles, bybit_funding, bybit_trades
+from .bybit.funding import BybitFunding
 from .coinbase import coinbase_candles, coinbase_trades
 from .deribit import deribit_candles, deribit_funding, deribit_trades
 from .deribit.funding import DeribitFunding
@@ -31,6 +32,7 @@ FUNDING_CHUNKED_EXCHANGES = {
     Exchange.BINANCE_FUTURES,
     Exchange.BITFINEX,
     Exchange.BITMEX,
+    Exchange.BYBIT,
     Exchange.DERIBIT,
     Exchange.HYPERLIQUID,
 }
@@ -38,6 +40,7 @@ FUNDING_MODEL = {
     Exchange.BINANCE_FUTURES: BinanceFuturesFunding,
     Exchange.BITFINEX: BitfinexFunding,
     Exchange.BITMEX: BitmexFunding,
+    Exchange.BYBIT: BybitFunding,
     Exchange.DERIBIT: DeribitFunding,
     Exchange.HYPERLIQUID: HyperliquidFunding,
 }
@@ -190,6 +193,13 @@ def funding_api(
         return bitfinex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.BITMEX:
         return bitmex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
+    if exchange == Exchange.BYBIT:
+        return bybit_funding(
+            symbol.api_symbol,
+            timestamp_from,
+            timestamp_to,
+            funding_interval=getattr(symbol, "funding_interval", "") or None,
+        )
     if exchange == Exchange.DERIBIT:
         return deribit_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.HYPERLIQUID:
@@ -234,7 +244,12 @@ def get_missing_funding_windows(
         .values_list("timestamp", flat=True)
     )
     has_existing = bool(existing)
-    windows = funding_model.missing_windows(timestamp_from, timestamp_to, existing)
+    windows = funding_model.missing_windows(
+        timestamp_from,
+        timestamp_to,
+        existing,
+        interval=symbol.funding_interval or None,
+    )
     return windows, has_existing
 
 
