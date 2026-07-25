@@ -7,7 +7,12 @@ import pandas as pd
 from django.test import SimpleTestCase, TestCase
 
 from quant_tick.constants import Exchange, SymbolType
-from quant_tick.exchanges.api import FUNDING_FETCH_WINDOW, funding, funding_api
+from quant_tick.exchanges.api import (
+    FUNDING_FETCH_WINDOW,
+    funding,
+    funding_api,
+    get_missing_funding_windows,
+)
 from quant_tick.exchanges.binance.funding import binance_funding
 from quant_tick.exchanges.bitfinex.funding import bitfinex_funding
 from quant_tick.exchanges.bitmex.funding import bitmex_funding
@@ -527,3 +532,36 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, timestamp_from + timedelta(hours=8))
         self.assertEqual(rows[0].funding_rate, Decimal("0.0004"))
+
+    def test_symbol_funding_interval_overrides_exchange_default(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        symbol.funding_interval = "4h"
+        symbol.save(update_fields=["funding_interval"])
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(hours=12)
+        self.write_existing_rows(
+            symbol,
+            timestamp_from,
+            timestamp_from + timedelta(hours=8),
+        )
+
+        windows, has_existing = get_missing_funding_windows(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+        )
+
+        self.assertTrue(has_existing)
+        self.assertEqual(
+            windows,
+            [
+                (
+                    timestamp_from + timedelta(hours=4),
+                    timestamp_from + timedelta(hours=8),
+                )
+            ],
+        )
