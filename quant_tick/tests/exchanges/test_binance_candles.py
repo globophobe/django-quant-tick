@@ -178,7 +178,6 @@ class BinanceCandleTest(SimpleTestCase):
             timestamp_from=timestamp_from,
             timestamp_to=timestamp_to,
             resolution="2h",
-            symbol_type=SymbolType.SPOT,
         )
         self.assertTrue(result.equals(expected))
 
@@ -193,7 +192,7 @@ class BinanceCandleTest(SimpleTestCase):
         expected = pd.DataFrame([])
 
         with patch(
-            "quant_tick.exchanges.api.binance_candles",
+            "quant_tick.exchanges.api.binance_futures_candles",
             return_value=expected,
         ) as mocked:
             result = candles_api(
@@ -208,7 +207,6 @@ class BinanceCandleTest(SimpleTestCase):
             timestamp_from=timestamp_from,
             timestamp_to=timestamp_to,
             resolution="2h",
-            symbol_type=SymbolType.PERPETUAL,
         )
         self.assertTrue(result.equals(expected))
 

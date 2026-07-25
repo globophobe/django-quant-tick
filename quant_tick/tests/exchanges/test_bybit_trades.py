@@ -114,6 +114,38 @@ class BybitTradesTest(SimpleTestCase):
         self.assertEqual(parsed.iloc[1]["timestamp"].microsecond, 64700)
         self.assertEqual(parsed.iloc[1]["nanoseconds"], 0)
 
+    def test_archive_preserves_source_order_for_exact_timestamp_ties(self):
+        rows = []
+        for uid in (
+            "bbb107e9-f7e8-53f3-b18a-ac9781c6eae8",
+            "aaa107e9-f7e8-53f3-b18a-ac9781c6eae8",
+        ):
+            rows.append(
+                {
+                    "timestamp": "1585180700.0647",
+                    "symbol": "BTCUSDT",
+                    "side": "Buy",
+                    "size": "0.001",
+                    "price": "6698.5",
+                    "tickDirection": "PlusTick",
+                    "trdMatchID": uid,
+                    "grossValue": "669850000",
+                    "foreignNotional": "6.6985",
+                }
+            )
+
+        parsed = self.get_controller().parse_dtypes_and_strip_columns(
+            pd.DataFrame(rows)
+        )
+
+        self.assertEqual(
+            parsed["uid"].tolist(),
+            [
+                "bbb107e9-f7e8-53f3-b18a-ac9781c6eae8",
+                "aaa107e9-f7e8-53f3-b18a-ac9781c6eae8",
+            ],
+        )
+
     def test_inverse_archive_normalizes_contracts_to_base_notional(self):
         data = pd.DataFrame(
             [

@@ -58,7 +58,7 @@ class TradesApiTest(BaseSymbolTest, TestCase):
         )
         ts_to = self.timestamp_from + timedelta(days=1)
 
-        with patch("quant_tick.exchanges.api.binance_trades") as mocked:
+        with patch("quant_tick.exchanges.api.binance_futures_trades") as mocked:
             trades_api(symbol, self.timestamp_from, ts_to, Mock())
 
         mocked.assert_called_once()

@@ -13,7 +13,7 @@ from quant_tick.exchanges.api import (
     funding_api,
     get_missing_funding_windows,
 )
-from quant_tick.exchanges.binance.funding import binance_funding
+from quant_tick.exchanges.binance_futures.funding import binance_futures_funding
 from quant_tick.exchanges.bitfinex.funding import bitfinex_funding
 from quant_tick.exchanges.bitmex.funding import bitmex_funding
 from quant_tick.exchanges.hyperliquid.api import post_hyperliquid_info
@@ -44,11 +44,21 @@ class FundingAdapterTest(SimpleTestCase):
             },
         ]
 
-        with patch(
-            "quant_tick.exchanges.binance.funding.get_binance_funding_response",
-            return_value=data,
+        history = pd.DataFrame(
+            {"open_interest": [Decimal("123.4")]},
+            index=pd.DatetimeIndex([timestamp_from], name="timestamp"),
+        )
+        with (
+            patch(
+                "quant_tick.exchanges.binance_futures.funding.get_binance_funding_response",
+                return_value=data,
+            ),
+            patch(
+                "quant_tick.exchanges.binance_futures.funding.binance_market_history",
+                return_value=history,
+            ),
         ):
-            df = binance_funding("BTCUSDT", timestamp_from, timestamp_to)
+            df = binance_futures_funding("BTCUSDT", timestamp_from, timestamp_to)
 
         self.assertEqual(
             list(df.index),
@@ -65,14 +75,15 @@ class FundingAdapterTest(SimpleTestCase):
         )
         self.assertEqual(df.iloc[0].timestamp_offset_ms, 5)
         self.assertFalse(df.iloc[0].timestamp_anomaly)
+        self.assertEqual(df.iloc[0].open_interest, Decimal("123.4"))
         self.assertEqual(df.iloc[1].funding_rate, Decimal("0.0002"))
         self.assertIsNone(df.iloc[1].mark_price)
 
     def test_binance_funding_response_uses_shared_api_helper(self):
-        from quant_tick.exchanges.binance.funding import get_binance_funding_response
+        from quant_tick.exchanges.binance_futures.funding import get_binance_funding_response
 
         with patch(
-            "quant_tick.exchanges.binance.funding.get_binance_api_response",
+            "quant_tick.exchanges.binance_futures.funding.get_binance_api_response",
             return_value=[],
         ) as mocked:
             result = get_binance_funding_response("https://example.test/funding")
@@ -308,12 +319,17 @@ class FundingAdapterTest(SimpleTestCase):
         expected = pd.DataFrame([])
 
         with patch(
-            "quant_tick.exchanges.api.binance_funding",
+            "quant_tick.exchanges.api.binance_futures_funding",
             return_value=expected,
         ) as mocked:
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
-        mocked.assert_called_once_with("BTCUSDT", timestamp_from, timestamp_to)
+        mocked.assert_called_once_with(
+            "BTCUSDT",
+            timestamp_from,
+            timestamp_to,
+            funding_interval=None,
+        )
         self.assertTrue(result.equals(expected))
 
     def test_funding_api_dispatches_bitfinex_perpetuals(self):
