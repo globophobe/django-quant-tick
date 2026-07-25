@@ -183,12 +183,70 @@ class WorkflowTest(SimpleTestCase):
             ],
         )
 
+    def test_workflow_routes_selected_exchanges_to_international_service(self):
+        workflow = get_workflow(
+            "https://primary.test/",
+            [
+                {"exchange": "binance", "api_symbol": "BTCUSDT"},
+                {"exchange": "binance-futures", "api_symbol": "BTCUSDT"},
+                {"exchange": "coinbase", "api_symbol": "BTC-USD"},
+            ],
+            exchange_data_exchanges=["binance", "binance-futures", "coinbase"],
+            intl_url="https://intl.test/",
+            intl_exchanges=["binance", "binance-futures"],
+        )
+
+        steps = workflow["main"]["steps"]
+        self.assertEqual(
+            steps[0]["getTradeData"]["parallel"]["for"]["in"],
+            [
+                {
+                    "url": "https://intl.test/aggregate-trades/binance/?time_ago=7d&api_symbol=BTCUSDT"
+                },
+                {
+                    "url": "https://intl.test/aggregate-trades/binance-futures/?time_ago=7d&api_symbol=BTCUSDT"
+                },
+                {
+                    "url": "https://primary.test/aggregate-trades/coinbase/?time_ago=7d&api_symbol=BTC-USD"
+                },
+            ],
+        )
+        self.assertEqual(
+            steps[1]["fetchExchangeData"]["parallel"]["for"]["in"],
+            [
+                {
+                    "url": "https://intl.test/fetch-exchange-data/?time_ago=7d&exchange=binance"
+                },
+                {
+                    "url": "https://intl.test/fetch-exchange-data/?time_ago=7d&exchange=binance-futures"
+                },
+                {
+                    "url": "https://primary.test/fetch-exchange-data/?time_ago=7d&exchange=coinbase"
+                },
+            ],
+        )
+        self.assertEqual(
+            steps[2]["compact"]["args"]["url"],
+            "https://primary.test/compact/?time_ago=7d",
+        )
+
+    def test_workflow_rejects_international_exchanges_without_url(self):
+        with self.assertRaisesRegex(ValueError, "PRODUCTION_INTL_API_URL"):
+            get_workflow(
+                "https://primary.test/",
+                [{"exchange": "binance", "api_symbol": "BTCUSDT"}],
+                exchange_data_exchanges=["binance"],
+                intl_exchanges=["binance"],
+            )
+
 
 class WorkflowDeployTest(TestCase):
     @patch.dict(
         os.environ,
         {
             "PRODUCTION_API_URL": "https://test.123/",
+            "PRODUCTION_INTL_API_URL": "https://intl.test/",
+            "PRODUCTION_INTL_EXCHANGES": "binance, binance-futures",
             "CALLBACK_URL": "",
             "CALLBACK_WINDOW_PERIOD_MINUTES": "",
             "CALLBACK_WINDOW_DURATION_MINUTES": "",
@@ -242,11 +300,25 @@ class WorkflowDeployTest(TestCase):
                 {"exchange": raw.exchange, "api_symbol": raw.api_symbol},
             ],
         )
+        self.assertEqual(
+            mock_get_workflow.call_args.kwargs["exchange_data_exchanges"],
+            [Exchange.BINANCE_FUTURES],
+        )
+        self.assertEqual(
+            mock_get_workflow.call_args.kwargs["intl_url"],
+            "https://intl.test/",
+        )
+        self.assertEqual(
+            mock_get_workflow.call_args.kwargs["intl_exchanges"],
+            ["binance", "binance-futures"],
+        )
 
     @patch.dict(
         os.environ,
         {
             "PRODUCTION_API_URL": "https://test.123/",
+            "PRODUCTION_INTL_API_URL": "",
+            "PRODUCTION_INTL_EXCHANGES": "",
             "CALLBACK_URL": "https://test.456/callback/",
             "CALLBACK_STRATEGIES": "callback-target-a, callback-target-b",
             "CALLBACK_WINDOW_PERIOD_MINUTES": "15",
