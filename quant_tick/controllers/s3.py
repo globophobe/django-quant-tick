@@ -63,6 +63,7 @@ class ExchangeS3(BaseController):
     def main(self) -> None:
         """Fetch daily S3 files and persist matching partitions."""
         iterator = TradeDataIterator(self.symbol)
+        archive_started = False
         for timestamp_from, timestamp_to, existing in iterator.iter_days(
             self.timestamp_from,
             self.timestamp_to,
@@ -71,6 +72,7 @@ class ExchangeS3(BaseController):
             date = timestamp_from.date()
             data_frame = self.get_data_frame(date)
             if data_frame is not None:
+                archive_started = True
                 is_full_day = (
                     timestamp_from.time() == datetime.time.min
                     and timestamp_to == timestamp_from + pd.Timedelta("1d")
@@ -86,8 +88,8 @@ class ExchangeS3(BaseController):
             # No data
             elif date in self.missing_archive_dates:
                 pass
-            # Complete
-            else:
+            # The first unknown gap inside established history is its boundary.
+            elif archive_started:
                 break
 
     def get_data_frame(self, date: datetime.date) -> DataFrame | None:

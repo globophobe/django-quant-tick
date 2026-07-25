@@ -12,8 +12,13 @@ from quant_tick.lib import (
 )
 from quant_tick.models import ExchangeCandleData, FundingData, Symbol, TradeData
 
-from .binance import binance_candles, binance_funding, binance_trades
-from .binance.funding import BinanceFuturesFunding
+from .binance import binance_candles, binance_trades
+from .binance_futures import (
+    binance_futures_candles,
+    binance_futures_funding,
+    binance_futures_trades,
+)
+from .binance_futures.funding import BinanceFuturesFunding
 from .bitfinex import bitfinex_candles, bitfinex_funding, bitfinex_trades
 from .bitfinex.funding import BitfinexFunding
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
@@ -123,9 +128,12 @@ def trades_api(
         "retry": retry,
         "verbose": verbose,
     }
-    if exchange in (Exchange.BINANCE, Exchange.BINANCE_FUTURES):
+    if exchange == Exchange.BINANCE:
         get_binance_symbol_type(symbol)
         binance_trades(symbol, **kwargs)
+    elif exchange == Exchange.BINANCE_FUTURES:
+        get_binance_symbol_type(symbol)
+        binance_futures_trades(symbol, **kwargs)
     elif exchange == Exchange.BITFINEX:
         bitfinex_trades(symbol, **kwargs)
     elif exchange == Exchange.BITMEX:
@@ -150,9 +158,12 @@ def candles_api(
     kwargs = {"timestamp_from": timestamp_from, "timestamp_to": timestamp_to}
     if resolution is not None:
         kwargs["resolution"] = resolution
-    if exchange in (Exchange.BINANCE, Exchange.BINANCE_FUTURES):
-        kwargs["symbol_type"] = get_binance_symbol_type(symbol)
+    if exchange == Exchange.BINANCE:
+        get_binance_symbol_type(symbol)
         candles = binance_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.BINANCE_FUTURES:
+        get_binance_symbol_type(symbol)
+        candles = binance_futures_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BITFINEX:
         candles = bitfinex_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BITMEX:
@@ -188,7 +199,12 @@ def funding_api(
     timestamp_from, timestamp_to = timestamp_range
     exchange = symbol.exchange
     if exchange == Exchange.BINANCE_FUTURES:
-        return binance_funding(symbol.api_symbol, timestamp_from, timestamp_to)
+        return binance_futures_funding(
+            symbol.api_symbol,
+            timestamp_from,
+            timestamp_to,
+            funding_interval=getattr(symbol, "funding_interval", "") or None,
+        )
     if exchange == Exchange.BITFINEX:
         return bitfinex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.BITMEX:

@@ -6,8 +6,10 @@ from pandas import DataFrame
 
 from quant_tick.exchanges.funding import ExchangeFunding
 
-from .api import get_binance_api_response
-from .constants import FUTURES_API_URL
+from quant_tick.exchanges.binance.api import get_binance_api_response
+
+from .constants import API_URL
+from .market_history import binance_market_history, empty_market_history
 
 BINANCE_FUNDING_MAX_RESULTS = 1000
 
@@ -51,20 +53,23 @@ def get_binance_funding_response(base_url: str) -> list[dict]:
     )
 
 
-def binance_funding(
+def binance_futures_funding(
     api_symbol: str,
     timestamp_from: datetime,
     timestamp_to: datetime,
+    *,
+    funding_interval: str | pd.Timedelta | None = None,
 ) -> DataFrame:
-    """Fetch Binance USD-M perpetual funding events."""
+    """Fetch Binance USD-M funding with aligned futures market history."""
+    columns = ["funding_rate", "mark_price", *empty_market_history().columns]
     if timestamp_to <= timestamp_from:
-        return BinanceFuturesFunding.empty_frame(["funding_rate", "mark_price"])
+        return BinanceFuturesFunding.empty_frame(columns)
 
     cursor = timestamp_from
     rows = []
     while cursor < timestamp_to:
         url = (
-            f"{FUTURES_API_URL}/fundingRate"
+            f"{API_URL}/fundingRate"
             f"?symbol={str(api_symbol).strip()}"
             f"&startTime={format_binance_funding_timestamp(cursor)}"
             f"&endTime={format_binance_funding_timestamp(timestamp_to)}"
@@ -83,7 +88,7 @@ def binance_funding(
             break
 
     if not rows:
-        return BinanceFuturesFunding.empty_frame(["funding_rate", "mark_price"])
+        return BinanceFuturesFunding.empty_frame(columns)
 
     df = DataFrame(
         {
@@ -99,4 +104,11 @@ def binance_funding(
             ],
         }
     )
-    return BinanceFuturesFunding.normalize_frame(df, timestamp_from, timestamp_to)
+    normalized = BinanceFuturesFunding.normalize_frame(
+        df,
+        timestamp_from,
+        timestamp_to,
+        interval=funding_interval,
+    )
+    history = binance_market_history(api_symbol, timestamp_from, timestamp_to)
+    return normalized.join(history, how="left").sort_index(kind="stable")
