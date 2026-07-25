@@ -659,7 +659,7 @@ class ExchangeREST(BaseController):
 
 
 class IntegerPaginationMixin:
-    """Binance, ByBit, and Coinbase REST API."""
+    """Binance and Coinbase REST APIs."""
 
     def get_pagination_id(self, timestamp_from: datetime) -> int | None:
         """Get integer pagination_id."""
@@ -667,7 +667,7 @@ class IntegerPaginationMixin:
 
 
 class SequentialIntegerMixin(IntegerPaginationMixin):
-    """Binance, ByBit, and Coinbase REST API."""
+    """Binance and Coinbase REST APIs."""
 
     def assert_data_frame(
         self,

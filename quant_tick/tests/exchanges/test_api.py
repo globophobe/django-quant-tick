@@ -102,3 +102,17 @@ class TradesApiTest(BaseSymbolTest, TestCase):
 
         mocked.assert_called_once()
         self.assertEqual(mocked.call_args.args[0], symbol)
+
+    def test_trades_api_dispatches_bybit_perpetual(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        ts_to = self.timestamp_from + timedelta(days=1)
+
+        with patch("quant_tick.exchanges.api.bybit_trades") as mocked:
+            trades_api(symbol, self.timestamp_from, ts_to, Mock())
+
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.args[0], symbol)

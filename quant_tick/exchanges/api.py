@@ -18,6 +18,7 @@ from .bitfinex import bitfinex_candles, bitfinex_funding, bitfinex_trades
 from .bitfinex.funding import BitfinexFunding
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
 from .bitmex.funding import BitmexFunding
+from .bybit import bybit_candles, bybit_trades
 from .coinbase import coinbase_candles, coinbase_trades
 from .deribit import deribit_candles, deribit_funding, deribit_trades
 from .deribit.funding import DeribitFunding
@@ -126,6 +127,8 @@ def trades_api(
         bitfinex_trades(symbol, **kwargs)
     elif exchange == Exchange.BITMEX:
         bitmex_trades(symbol, **kwargs)
+    elif exchange == Exchange.BYBIT:
+        bybit_trades(symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         coinbase_trades(symbol, **kwargs)
     elif exchange == Exchange.DERIBIT:
@@ -151,6 +154,12 @@ def candles_api(
         candles = bitfinex_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BITMEX:
         candles = bitmex_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.BYBIT:
+        candles = bybit_candles(
+            api_symbol,
+            symbol_type=symbol.symbol_type,
+            **kwargs,
+        )
     elif exchange == Exchange.COINBASE:
         candles = coinbase_candles(api_symbol, **kwargs)
     elif exchange == Exchange.DERIBIT:
