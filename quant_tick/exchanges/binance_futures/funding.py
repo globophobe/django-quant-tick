@@ -60,7 +60,7 @@ def binance_futures_funding(
     *,
     funding_interval: str | pd.Timedelta | None = None,
 ) -> DataFrame:
-    """Fetch Binance USD-M funding with aligned futures market history."""
+    """Get Binance futures funding."""
     columns = ["funding_rate", "mark_price", *empty_market_history().columns]
     if timestamp_to <= timestamp_from:
         return BinanceFuturesFunding.empty_frame(columns)

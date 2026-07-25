@@ -13,7 +13,7 @@ from .trades import get_binance_trades_timestamp, get_trades
 
 
 class BinanceMixin(SequentialIntegerMixin):
-    """Normalize Binance spot raw trades."""
+    """Binance mixin."""
 
     def iter_api(self, timestamp_from: datetime.datetime, pagination_id: str) -> tuple:
         return get_trades(
@@ -51,7 +51,9 @@ class BinanceMixin(SequentialIntegerMixin):
         trades: list | None = None,
     ) -> None:
         """Assert Binance-specific integrity constraints."""
+        # Duplicates.
         assert len(data_frame["uid"].unique()) == len(trades)
+        # Missing orders.
         expected = len(trades) - 1
         diff = data_frame["index"].diff().dropna()
         assert abs(diff.sum()) == expected
@@ -69,7 +71,7 @@ class BinanceMixin(SequentialIntegerMixin):
 
 
 class BinanceS3Mixin(BinanceMixin):
-    """Normalize Binance spot daily raw-trade archives."""
+    """Binance S3 mixin."""
 
     @property
     def csv_columns(self) -> list:
@@ -107,8 +109,11 @@ class BinanceS3Mixin(BinanceMixin):
             df = df.loc[~header_rows].copy()
         df = set_type_decimal(df, "price")
         df = set_type_decimal(df, "qty")
+        # S3 files are daily, so first timestamp
         times = df["time"].astype("int64")
-        unit = "us" if int(times.iloc[0]) > 1e14 else "ms"
+        first_time = int(times.iloc[0])
+        # Milliseconds: ~13 digits (1e12), microseconds: ~16 digits (1e15)
+        unit = "us" if first_time > 1e14 else "ms"
         df["timestamp"] = pd.to_datetime(times, unit=unit, utc=True)
         df["nanoseconds"] = 0
         if unit == "us":

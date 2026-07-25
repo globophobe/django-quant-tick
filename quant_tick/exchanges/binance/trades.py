@@ -25,14 +25,19 @@ def get_binance_trades_pagination_id(
     data: list | None = None,
 ) -> int | None:
     data = data or []
+    # Like bybit, binance pagination feels like an IQ test.
     if len(data):
         last_trade = data[-1]
         last_id = last_trade["id"]
         pagination_id = last_id - len(data)
+        # Is it the last_id? If so, stop_iteration
         if last_id == 1:
             return None
+        # Is data fetched same as previous?
         if len(data) == TRADE_MAX_RESULTS and last_data and last_id == last_data[-1]["id"]:
             return None
+        # Calculated pagination_id will be negative if remaining trades is
+        # less than TRADE_MAX_RESULTS.
         if pagination_id <= 0:
             return 1
         return pagination_id
@@ -48,7 +53,6 @@ def get_trades(
     pagination_id: int,
     log_format: str | None = None,
 ) -> list[dict]:
-    """Fetch Binance spot raw trades."""
     url = f"{SPOT_API_URL}/historicalTrades?symbol={symbol}&limit={TRADE_MAX_RESULTS}"
     return iter_api(
         url,

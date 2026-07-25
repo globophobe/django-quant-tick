@@ -19,7 +19,7 @@ def binance_trades(
     retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
-    """Fetch Binance spot raw trades."""
+    """Get Binance trades."""
     cutoff = use_s3()
     if timestamp_to > cutoff:
         BinanceTradesREST(
@@ -42,13 +42,14 @@ def binance_trades(
 
 
 class BinanceTradesREST(BinanceMixin, ExchangeREST):
-    """Binance spot raw trades via REST API."""
+    """Binance trades via REST API."""
 
 
 class BinanceTradesS3(BinanceS3Mixin, ExchangeS3):
-    """Binance spot raw trades via Data Vision archives."""
+    """Binance trades via S3 archive."""
 
     def get_data_frame(self, date: datetime.date) -> DataFrame | None:
+        """Get data_frame from ZIP file."""
         df = zip_downloader(self.get_url(date), self.csv_columns)
         if df is not None and len(df):
             return self.parse_dtypes_and_strip_columns(df)

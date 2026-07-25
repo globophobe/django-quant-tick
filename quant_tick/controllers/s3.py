@@ -88,7 +88,7 @@ class ExchangeS3(BaseController):
             # No data
             elif date in self.missing_archive_dates:
                 pass
-            # The first unknown gap inside established history is its boundary.
+            # Complete
             elif archive_started:
                 break
 
