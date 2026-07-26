@@ -1,15 +1,53 @@
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pandas as pd
 from django.test import SimpleTestCase
 
-from quant_tick.exchanges.binance.controllers import BinanceTradesS3
+from quant_tick.exchanges.binance.controllers import (
+    BinanceTradesS3,
+    binance_trades,
+)
 from quant_tick.exchanges.binance.trades import get_trades
 
 
 class BinanceTradesTest(SimpleTestCase):
+    def test_trades_probe_archives_then_fill_missing_ranges_with_rest(self):
+        symbol = SimpleNamespace(api_symbol="BTCUSDT")
+        timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 4, tzinfo=UTC)
+        on_data_frame = Mock()
+        calls = []
+
+        with (
+            patch(
+                "quant_tick.exchanges.binance.controllers.BinanceTradesS3"
+            ) as archive,
+            patch(
+                "quant_tick.exchanges.binance.controllers.BinanceTradesREST"
+            ) as rest,
+        ):
+            archive.return_value.main.side_effect = lambda: calls.append("archive")
+            rest.return_value.main.side_effect = lambda: calls.append("rest")
+            binance_trades(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                on_data_frame,
+            )
+
+        expected_kwargs = {
+            "timestamp_from": timestamp_from,
+            "timestamp_to": timestamp_to,
+            "on_data_frame": on_data_frame,
+            "retry": False,
+            "verbose": False,
+        }
+        archive.assert_called_once_with(symbol, **expected_kwargs)
+        rest.assert_called_once_with(symbol, **expected_kwargs)
+        self.assertEqual(calls, ["archive", "rest"])
+
     def test_get_trades_uses_spot_raw_trade_api(self):
         with patch(
             "quant_tick.exchanges.binance.trades.iter_api",

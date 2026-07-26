@@ -171,16 +171,19 @@ class BinanceFuturesTradesTest(SimpleTestCase):
         data_frame = pd.DataFrame([{"uid": "1"}])
         candles = pd.DataFrame([])
 
+        calls = []
         with (
-            patch(
-                "quant_tick.exchanges.binance_futures.controllers.use_s3",
-                return_value=timestamp_to,
-            ),
             patch(
                 "quant_tick.exchanges.binance_futures.controllers."
                 "BinanceFuturesTradesS3"
             ) as archive,
+            patch(
+                "quant_tick.exchanges.binance_futures.controllers."
+                "BinanceFuturesTradesREST"
+            ) as rest,
         ):
+            archive.return_value.main.side_effect = lambda: calls.append("archive")
+            rest.return_value.main.side_effect = lambda: calls.append("rest")
             binance_futures_trades(
                 symbol,
                 timestamp_from,
@@ -188,7 +191,13 @@ class BinanceFuturesTradesTest(SimpleTestCase):
                 on_data_frame,
             )
 
+        self.assertEqual(calls, ["archive", "rest"])
+        for controller in (archive, rest):
+            self.assertEqual(controller.call_args.args, (symbol,))
+            self.assertEqual(controller.call_args.kwargs["timestamp_from"], timestamp_from)
+            self.assertEqual(controller.call_args.kwargs["timestamp_to"], timestamp_to)
         callback = archive.call_args.kwargs["on_data_frame"]
+        self.assertIs(callback, rest.call_args.kwargs["on_data_frame"])
         callback(
             symbol,
             timestamp_from,
