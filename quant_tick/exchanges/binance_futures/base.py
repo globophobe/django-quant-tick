@@ -16,7 +16,7 @@ from .trades import (
 
 
 class BinanceFuturesMixin(SequentialIntegerMixin):
-    """Normalize public Binance USD-M aggregate trades."""
+    """Binance Futures mixin."""
 
     @property
     def columns(self) -> list[str]:
@@ -80,7 +80,7 @@ class BinanceFuturesMixin(SequentialIntegerMixin):
 
 
 class BinanceFuturesS3Mixin(BinanceFuturesMixin):
-    """Normalize Binance USD-M daily aggregate-trade archives."""
+    """Binance Futures S3 mixin."""
 
     @property
     def csv_columns(self) -> list[str]:

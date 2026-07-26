@@ -55,7 +55,7 @@ def get_binance_funding_response(base_url: str) -> list[dict]:
 
 
 def get_binance_futures_funding_interval(api_symbol: str) -> timedelta:
-    """Return the current funding interval for a Binance USD-M symbol."""
+    """Get Binance Futures funding interval."""
     symbol = str(api_symbol).strip().upper()
     rows = get_binance_funding_response(f"{API_URL}/fundingInfo")
     matching = [item for item in rows if item.get("symbol") == symbol]
@@ -80,7 +80,7 @@ def binance_futures_funding(
     *,
     funding_interval: str | timedelta | pd.Timedelta | None = None,
 ) -> DataFrame:
-    """Get Binance futures funding."""
+    """Fetch Binance Futures funding."""
     columns = ["funding_rate", "mark_price", *empty_market_history().columns]
     if timestamp_to <= timestamp_from:
         return BinanceFuturesFunding.empty_frame(columns)

@@ -26,7 +26,7 @@ def _category(api_symbol: str) -> str:
 
 
 def get_bybit_funding_interval(api_symbol: str) -> timedelta:
-    """Return the funding interval reported for a Bybit symbol."""
+    """Get Bybit funding interval."""
     symbol = str(api_symbol).strip().upper()
     result = get_bybit_result(
         "/v5/market/instruments-info",
@@ -206,7 +206,7 @@ def bybit_funding(
     *,
     funding_interval: str | timedelta | pd.Timedelta | None = None,
 ) -> DataFrame:
-    """Fetch Bybit funding with aligned OI and account positioning."""
+    """Fetch Bybit funding."""
     columns = [
         "funding_rate",
         "open_interest",

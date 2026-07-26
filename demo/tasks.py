@@ -128,7 +128,7 @@ def update_container(
     name: str = "django-quant-tick",
     region: str = "asia-northeast1",
 ) -> None:
-    """Build, push, and deploy a traffic-serving Cloud Run revision."""
+    """Update the Cloud Run container."""
     build_container(ctx, name=name, region=region)
     push_container(ctx, name=name, region=region)
     image = get_container_name(ctx, name, region=region)

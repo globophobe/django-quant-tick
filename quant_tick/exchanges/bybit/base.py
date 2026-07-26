@@ -12,7 +12,7 @@ from .constants import S3_URL
 
 
 class BybitMixin:
-    """Shared Bybit archive behavior."""
+    """Bybit mixin."""
 
     def get_candles(
         self,
@@ -29,7 +29,7 @@ class BybitMixin:
 
 
 class BybitS3Mixin(BybitMixin):
-    """Normalize Bybit daily public trade archives."""
+    """Bybit S3 mixin."""
 
     @property
     def gzipped_csv_columns(self) -> list[str]:
@@ -50,7 +50,7 @@ class BybitS3Mixin(BybitMixin):
         return f"{S3_URL}/{symbol}/{symbol}{date.isoformat()}.csv.gz"
 
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
-        """Parse archive timestamps, units, and taker side."""
+        """Parse Bybit S3 columns into the canonical trade schema."""
         df = data_frame.copy()
         total_nanoseconds = df["timestamp"].map(
             lambda value: int(Decimal(str(value)) * Decimal("1000000000"))

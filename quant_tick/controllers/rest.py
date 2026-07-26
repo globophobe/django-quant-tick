@@ -33,7 +33,7 @@ def is_terminal_page(
     interval: timedelta,
     max_results: int,
 ) -> bool:
-    """Return whether a short page spans less than one full API window."""
+    """Check whether the API page is terminal."""
     if len(data) >= max_results:
         return False
     timestamps = [get_timestamp(item) for item in data]
@@ -659,7 +659,7 @@ class ExchangeREST(BaseController):
 
 
 class IntegerPaginationMixin:
-    """Binance and Coinbase REST APIs."""
+    """REST APIs with integer pagination."""
 
     def get_pagination_id(self, timestamp_from: datetime) -> int | None:
         """Get integer pagination_id."""
@@ -667,7 +667,7 @@ class IntegerPaginationMixin:
 
 
 class SequentialIntegerMixin(IntegerPaginationMixin):
-    """Binance and Coinbase REST APIs."""
+    """REST APIs with sequential integer IDs."""
 
     def assert_data_frame(
         self,

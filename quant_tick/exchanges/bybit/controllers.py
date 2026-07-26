@@ -16,7 +16,7 @@ def bybit_trades(
     retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
-    """Fetch Bybit trades directly from daily public archives."""
+    """Get Bybit trades."""
     validate_bybit_trade_symbol(symbol)
     BybitTradesS3(
         symbol,
@@ -29,4 +29,4 @@ def bybit_trades(
 
 
 class BybitTradesS3(BybitS3Mixin, ExchangeS3):
-    """Bybit trades from the daily public archive."""
+    """Bybit trades S3."""

@@ -16,7 +16,7 @@ def deribit_trades(
     retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
-    """Fetch Deribit public spot or perpetual trades."""
+    """Get Deribit trades."""
     DeribitTrades(
         symbol,
         timestamp_from=timestamp_from,
@@ -28,4 +28,4 @@ def deribit_trades(
 
 
 class DeribitTrades(DeribitMixin, ExchangeREST):
-    """Deribit public trades via REST API."""
+    """Deribit trades REST."""

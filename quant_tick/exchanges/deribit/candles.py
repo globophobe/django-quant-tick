@@ -16,7 +16,7 @@ from .constants import CANDLE_MAX_RESULTS, CANDLE_RESOLUTIONS_BY_MINUTES
 def get_deribit_fetch_resolution(
     resolution: str | int | None,
 ) -> tuple[int, int, str]:
-    """Return target minutes, source minutes, and the Deribit resolution."""
+    """Map requested resolution to a supported Deribit interval."""
     target_minutes = parse_fixed_resolution_minutes(resolution)
     candidates = [
         minutes
@@ -72,7 +72,7 @@ def fetch_deribit_candles(
     source_minutes: int,
     resolution: str,
 ) -> DataFrame:
-    """Fetch native Deribit candles in bounded, non-overlapping windows."""
+    """Fetch Deribit candles."""
     start_ms = to_millis(timestamp_from)
     end_ms = to_millis(timestamp_to)
     if end_ms <= start_ms:
@@ -155,7 +155,7 @@ def deribit_candles(
     timestamp_to: datetime,
     resolution: str | int | None = "1m",
 ) -> DataFrame:
-    """Fetch Deribit candles and resample unsupported fixed intervals."""
+    """Fetch Deribit candles."""
     target_minutes, source_minutes, api_resolution = get_deribit_fetch_resolution(
         resolution
     )

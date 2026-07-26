@@ -15,7 +15,7 @@ def to_millis(timestamp: datetime) -> int:
 
 
 def get_bybit_result(path: str, params: dict, retry: int = 30) -> dict:
-    """Fetch a result from the public Bybit V5 API."""
+    """Get Bybit API result."""
     attempts = retry + 1
     for attempt in range(attempts):
         start = time.time()

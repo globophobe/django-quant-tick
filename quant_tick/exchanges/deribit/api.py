@@ -15,7 +15,7 @@ def to_millis(timestamp: datetime) -> int:
 
 
 def get_deribit_result(method: str, params: dict, retry: int = 30):
-    """Fetch the result from a public Deribit JSON-RPC endpoint."""
+    """Get Deribit API result."""
     attempts = retry + 1
     for attempt in range(attempts):
         start = time.time()

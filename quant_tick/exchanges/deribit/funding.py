@@ -52,7 +52,7 @@ def deribit_funding(
     timestamp_from: datetime,
     timestamp_to: datetime,
 ) -> DataFrame:
-    """Fetch Deribit perpetual hourly funding events."""
+    """Fetch Deribit funding."""
     start_ms = to_millis(timestamp_from)
     end_ms = to_millis(timestamp_to)
     columns = [

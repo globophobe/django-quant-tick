@@ -27,7 +27,7 @@ def get_bybit_category(api_symbol: str, symbol_type: str) -> str:
 def get_bybit_fetch_resolution(
     resolution: str | int | None,
 ) -> tuple[int, int, str]:
-    """Return target minutes, source minutes, and the Bybit interval."""
+    """Map requested resolution to a supported Bybit interval."""
     target_minutes = parse_fixed_resolution_minutes(resolution)
     candidates = [
         minutes
@@ -88,7 +88,7 @@ def fetch_bybit_candles(
     interval: str,
     category: str,
 ) -> DataFrame:
-    """Fetch Bybit candles newest-to-oldest using bounded V5 pages."""
+    """Fetch Bybit candles."""
     if timestamp_to <= timestamp_from:
         return _empty_candles()
 
@@ -154,7 +154,7 @@ def bybit_candles(
     resolution: str | int | None = "1m",
     symbol_type: str = SymbolType.PERPETUAL,
 ) -> DataFrame:
-    """Fetch Bybit candles and resample unsupported fixed intervals."""
+    """Fetch Bybit candles."""
     target_minutes, source_minutes, interval = get_bybit_fetch_resolution(resolution)
     data_frame = fetch_bybit_candles(
         api_symbol,

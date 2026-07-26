@@ -50,7 +50,7 @@ def get_binance_futures_trades(
     *,
     log_format: str | None = None,
 ) -> tuple[list[dict], bool, int | None]:
-    """Fetch public Binance USD-M aggregate trades newest to oldest."""
+    """Get Binance Futures trades."""
     url = f"{API_URL}/aggTrades?symbol={symbol}&limit={TRADE_MAX_RESULTS}"
     return iter_api(
         url,

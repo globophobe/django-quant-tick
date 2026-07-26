@@ -32,7 +32,7 @@ def get_trades(
     pagination_id: dict[str, int],
     log_format: str | None = None,
 ) -> tuple[list[dict], bool, dict[str, int] | None]:
-    """Fetch one descending page and continue by instrument trade sequence."""
+    """Get Deribit trades."""
     result = get_deribit_trades_response(
         api_symbol,
         to_millis(timestamp_from),

@@ -16,7 +16,7 @@ def binance_futures_candles(
     limit: int | None = None,
     log_format: str | None = None,
 ) -> DataFrame:
-    """Fetch Binance USD-M futures candles."""
+    """Fetch Binance Futures candles."""
     return binance_candles(
         api_symbol,
         timestamp_from,

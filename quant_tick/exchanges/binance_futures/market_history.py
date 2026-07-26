@@ -227,7 +227,7 @@ def binance_market_history(
     timestamp_from: datetime,
     timestamp_to: datetime,
 ) -> DataFrame:
-    """Prefer daily archives and fill unpublished recent days from REST."""
+    """Fetch Binance Futures market history."""
     if timestamp_to <= timestamp_from:
         return empty_market_history()
 

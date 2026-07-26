@@ -44,7 +44,7 @@ def binance_futures_trades(
     retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
-    """Fetch public Binance USD-M aggregate trades."""
+    """Get Binance Futures trades."""
     kwargs = {
         "timestamp_from": timestamp_from,
         "timestamp_to": timestamp_to,
@@ -57,11 +57,11 @@ def binance_futures_trades(
 
 
 class BinanceFuturesTradesREST(BinanceFuturesMixin, ExchangeREST):
-    """Binance USD-M aggregate trades via public REST API."""
+    """Binance Futures trades REST."""
 
 
 class BinanceFuturesTradesS3(BinanceFuturesS3Mixin, ExchangeS3):
-    """Binance USD-M aggregate trades via Data Vision archives."""
+    """Binance Futures trades S3."""
 
     def get_data_frame(self, date: datetime.date) -> DataFrame | None:
         df = zip_downloader(self.get_url(date), self.csv_columns)

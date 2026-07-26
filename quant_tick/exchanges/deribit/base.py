@@ -13,7 +13,7 @@ from .trades import get_trades
 
 
 class DeribitMixin(SequentialIntegerMixin):
-    """Normalize Deribit spot and perpetual trades into DQT units."""
+    """Deribit mixin."""
 
     def get_pagination_id(self, timestamp_to: datetime) -> dict[str, int]:
         uid = TradeData.objects.get_last_uid(self.symbol, timestamp_to)
