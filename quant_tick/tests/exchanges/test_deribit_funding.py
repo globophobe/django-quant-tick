@@ -111,12 +111,18 @@ class DeribitFundingTest(SimpleTestCase):
         timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
         expected = pd.DataFrame([])
 
-        with patch(
-            "quant_tick.exchanges.api.deribit_funding",
-            return_value=expected,
-        ) as mocked:
+        with (
+            patch(
+                "quant_tick.exchanges.api.deribit_funding",
+                return_value=expected,
+            ) as mocked,
+            patch(
+                "quant_tick.exchanges.api.refresh_funding_interval"
+            ) as refresh,
+        ):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
+        refresh.assert_called_once_with(symbol)
         mocked.assert_called_once_with(
             "BTC-PERPETUAL",
             timestamp_from,

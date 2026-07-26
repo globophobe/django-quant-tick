@@ -12,6 +12,7 @@ from quant_tick.exchanges.bybit.funding import (
     BybitFunding,
     _fetch_funding_rows,
     bybit_funding,
+    get_bybit_funding_interval,
     bybit_open_interest,
 )
 
@@ -21,6 +22,23 @@ def millis(timestamp: datetime) -> str:
 
 
 class BybitFundingTest(SimpleTestCase):
+    def test_funding_interval_uses_instrument_metadata(self):
+        with patch(
+            "quant_tick.exchanges.bybit.funding.get_bybit_result",
+            return_value={
+                "list": [
+                    {"symbol": "BTCUSDT", "fundingInterval": "240"},
+                ]
+            },
+        ) as mocked:
+            interval = get_bybit_funding_interval("btcusdt")
+
+        self.assertEqual(interval, timedelta(hours=4))
+        mocked.assert_called_once_with(
+            "/v5/market/instruments-info",
+            {"category": "linear", "symbol": "BTCUSDT"},
+        )
+
     def test_funding_aligns_open_interest_and_account_positioning(self):
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
         timestamp_to = timestamp_from + timedelta(hours=16)
@@ -256,12 +274,18 @@ class BybitFundingTest(SimpleTestCase):
         timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
         expected = pd.DataFrame([])
 
-        with patch(
-            "quant_tick.exchanges.api.bybit_funding",
-            return_value=expected,
-        ) as mocked:
+        with (
+            patch(
+                "quant_tick.exchanges.api.bybit_funding",
+                return_value=expected,
+            ) as mocked,
+            patch(
+                "quant_tick.exchanges.api.refresh_funding_interval"
+            ) as refresh,
+        ):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
+        refresh.assert_called_once_with(symbol)
         mocked.assert_called_once_with(
             "BTCUSDT",
             timestamp_from,
