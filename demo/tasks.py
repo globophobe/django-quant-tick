@@ -153,99 +153,12 @@ def _optional_int_env(name: str) -> int | None:
     return int(value)
 
 
-def _parse_csv(raw: str | None) -> list[str] | None:
-    if raw is None:
-        return None
-    values = list(
-        dict.fromkeys(item.strip() for item in raw.split(",") if item.strip())
-    )
-    return values or None
-
 
 def _parse_callback_strategies(raw: str | None) -> list[str] | None:
-    return _parse_csv(raw)
-
-
-def _exchange_base_url(
-    url: str,
-    exchange: str,
-    intl_url: str | None,
-    intl_exchanges: set[str],
-) -> str:
-    return intl_url if intl_url and exchange in intl_exchanges else url
-
-
-def _aggregate_trades_url(
-    url: str,
-    exchange: str,
-    api_symbol: str,
-    intl_url: str | None,
-    intl_exchanges: set[str],
-) -> str:
-    aggregate_trades = urljoin(
-        _exchange_base_url(url, exchange, intl_url, intl_exchanges),
-        "aggregate-trades/",
-    )
-    return (
-        f"{aggregate_trades}{exchange}/"
-        f"?time_ago=7d&api_symbol={quote(api_symbol, safe='')}"
-    )
-
-
-def _exchange_data_step(
-    url: str,
-    exchange_data_exchanges: list[str] | None,
-    intl_url: str | None,
-    intl_exchanges: set[str],
-) -> dict:
-    if exchange_data_exchanges is None:
-        target_url = f"{urljoin(url, 'fetch-exchange-data/')}?time_ago=7d"
-        return {
-            "fetchExchangeData": {
-                "try": {
-                    "call": "http.get",
-                    "args": {
-                        "url": target_url,
-                        "auth": {"type": "OIDC"},
-                    },
-                },
-                "except": {"as": "e", "steps": []},
-            }
-        }
-
-    targets = [
-        {
-            "url": (
-                f"{urljoin(_exchange_base_url(url, exchange, intl_url, intl_exchanges), 'fetch-exchange-data/')}"
-                f"?time_ago=7d&exchange={quote(exchange, safe='')}"
-            )
-        }
-        for exchange in exchange_data_exchanges
-    ]
-    return {
-        "fetchExchangeData": {
-            "parallel": {
-                "for": {
-                    "value": "exchangeDataTarget",
-                    "in": targets,
-                    "steps": [
-                        {
-                            "exchangeData": {
-                                "try": {
-                                    "call": "http.get",
-                                    "args": {
-                                        "url": "${exchangeDataTarget.url}",
-                                        "auth": {"type": "OIDC"},
-                                    },
-                                },
-                                "except": {"as": "e", "steps": []},
-                            }
-                        }
-                    ],
-                }
-            }
-        }
-    }
+    if raw is None:
+        return None
+    names = list(dict.fromkeys(item.strip() for item in raw.split(",") if item.strip()))
+    return names or None
 
 
 def _validate_callback_strategies(callback_strategies: list[str] | None) -> None:
@@ -304,21 +217,10 @@ def get_workflow(
     callback_window_period_minutes: int | None = None,
     callback_window_duration_minutes: int | None = None,
     callback_strategies: list[str] | None = None,
-    exchange_data_exchanges: list[str] | None = None,
-    intl_url: str | None = None,
-    intl_exchanges: list[str] | None = None,
 ) -> dict:
     """Get workflow."""
-    intl_exchange_set = set(intl_exchanges or ())
-    if intl_exchange_set and not intl_url:
-        raise ValueError(
-            "PRODUCTION_INTL_API_URL is required when PRODUCTION_INTL_EXCHANGES is set."
-        )
-    if intl_exchange_set and exchange_data_exchanges is None:
-        raise ValueError(
-            "exchange_data_exchanges is required for international routing."
-        )
-
+    aggregate_trades = urljoin(url, "aggregate-trades/")
+    fetch_exchange_data_url = urljoin(url, "fetch-exchange-data/")
     compact = urljoin(url, "compact/")
     all_steps = []
     if callback_url:
@@ -342,12 +244,10 @@ def get_workflow(
                         "value": "item",
                         "in": [
                             {
-                                "url": _aggregate_trades_url(
-                                    url,
-                                    item["exchange"],
-                                    item["api_symbol"],
-                                    intl_url,
-                                    intl_exchange_set,
+                                "url": (
+                                    f"{aggregate_trades}{item['exchange']}/"
+                                    f"?time_ago=7d&api_symbol="
+                                    f"{quote(item['api_symbol'], safe='')}"
                                 )
                             }
                             for item in symbols
@@ -370,12 +270,18 @@ def get_workflow(
                 }
             }
         },
-        _exchange_data_step(
-            url,
-            exchange_data_exchanges,
-            intl_url,
-            intl_exchange_set,
-        ),
+        {
+            "fetchExchangeData": {
+                "try": {
+                    "call": "http.get",
+                    "args": {
+                        "url": f"{fetch_exchange_data_url}?time_ago=7d",
+                        "auth": {"type": "OIDC"},
+                    },
+                },
+                "except": {"as": "e", "steps": []},
+            }
+        },
     ]
     if callback_url:
         _validate_callback_strategies(callback_strategies)
@@ -536,9 +442,7 @@ def push_workflow(
 ) -> None:
     """Push workflow."""
     django_settings(ctx, proxy=True)
-    from quant_tick.constants import Exchange
     from quant_tick.models import Symbol
-    from quant_tick.views import FetchExchangeDataView
 
     symbols = list(
         Symbol.objects.filter(is_active=True)
@@ -552,20 +456,8 @@ def push_workflow(
     )
     if not symbols:
         raise RuntimeError("No active symbols.")
-    exchange_data_exchanges = list(FetchExchangeDataView().get_configured_exchanges())
 
     url = os.environ["PRODUCTION_API_URL"]
-    intl_url = os.environ.get("PRODUCTION_INTL_API_URL") or None
-    intl_exchanges = _parse_csv(os.environ.get("PRODUCTION_INTL_EXCHANGES"))
-    unknown_intl_exchanges = sorted(set(intl_exchanges or ()) - set(Exchange.values))
-    if unknown_intl_exchanges:
-        raise ValueError(
-            "unknown PRODUCTION_INTL_EXCHANGES: " + ", ".join(unknown_intl_exchanges)
-        )
-    if intl_exchanges and not intl_url:
-        raise ValueError(
-            "PRODUCTION_INTL_API_URL is required when PRODUCTION_INTL_EXCHANGES is set."
-        )
     callback_url = os.environ.get("CALLBACK_URL") or None
     callback_strategies = _parse_callback_strategies(os.environ.get("CALLBACK_STRATEGIES"))
     callback_window_period_minutes = _optional_int_env("CALLBACK_WINDOW_PERIOD_MINUTES")
@@ -578,9 +470,6 @@ def push_workflow(
         callback_window_period_minutes=callback_window_period_minutes,
         callback_window_duration_minutes=callback_window_duration_minutes,
         callback_strategies=callback_strategies,
-        exchange_data_exchanges=exchange_data_exchanges,
-        intl_url=intl_url,
-        intl_exchanges=intl_exchanges,
     )
     with tempfile.NamedTemporaryFile(mode="w") as f:
         json.dump(workflow, f)
