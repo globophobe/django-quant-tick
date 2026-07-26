@@ -8,7 +8,7 @@ from quant_tick.controllers import SequentialIntegerMixin
 from quant_tick.lib import set_type_decimal
 
 from .candles import binance_candles
-from .constants import SPOT_S3_URL
+from .constants import S3_URL
 from .trades import get_binance_trades_timestamp, get_trades
 
 
@@ -100,7 +100,7 @@ class BinanceS3Mixin(BinanceMixin):
     def get_url(self, date: datetime.date) -> str:
         symbol = self.symbol.api_symbol
         date_str = date.isoformat()
-        return f"{SPOT_S3_URL}/{symbol}/{symbol}-trades-{date_str}.zip"
+        return f"{S3_URL}/{symbol}/{symbol}-trades-{date_str}.zip"
 
     def parse_dtypes_and_strip_columns(self, df: DataFrame) -> DataFrame:
         """Parse Binance S3 columns into the canonical trade schema."""
