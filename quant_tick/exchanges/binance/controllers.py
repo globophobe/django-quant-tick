@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pandas import DataFrame
 
 from quant_tick.constants import TradeDataRetry
-from quant_tick.controllers import ExchangeREST, ExchangeS3, use_s3
+from quant_tick.controllers import ExchangeREST, ExchangeS3
 from quant_tick.lib import zip_downloader
 from quant_tick.models import Symbol
 
@@ -20,25 +20,15 @@ def binance_trades(
     verbose: bool = False,
 ) -> None:
     """Get Binance trades."""
-    cutoff = use_s3()
-    if timestamp_to > cutoff:
-        BinanceTradesREST(
-            symbol,
-            timestamp_from=max(timestamp_from, cutoff),
-            timestamp_to=timestamp_to,
-            on_data_frame=on_data_frame,
-            retry=retry,
-            verbose=verbose,
-        ).main()
-    if timestamp_from < cutoff:
-        BinanceTradesS3(
-            symbol,
-            timestamp_from=timestamp_from,
-            timestamp_to=min(timestamp_to, cutoff),
-            on_data_frame=on_data_frame,
-            retry=retry,
-            verbose=verbose,
-        ).main()
+    kwargs = {
+        "timestamp_from": timestamp_from,
+        "timestamp_to": timestamp_to,
+        "on_data_frame": on_data_frame,
+        "retry": retry,
+        "verbose": verbose,
+    }
+    BinanceTradesS3(symbol, **kwargs).main()
+    BinanceTradesREST(symbol, **kwargs).main()
 
 
 class BinanceTradesREST(BinanceMixin, ExchangeREST):

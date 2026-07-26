@@ -5,7 +5,7 @@ from functools import wraps
 from pandas import DataFrame
 
 from quant_tick.constants import TradeDataRetry
-from quant_tick.controllers import ExchangeREST, ExchangeS3, use_s3
+from quant_tick.controllers import ExchangeREST, ExchangeS3
 from quant_tick.lib import zip_downloader
 from quant_tick.models import Symbol
 
@@ -45,26 +45,15 @@ def binance_futures_trades(
     verbose: bool = False,
 ) -> None:
     """Fetch public Binance USD-M aggregate trades."""
-    cutoff = use_s3()
-    callback = _store_as_aggregated(on_data_frame)
-    if timestamp_to > cutoff:
-        BinanceFuturesTradesREST(
-            symbol,
-            timestamp_from=max(timestamp_from, cutoff),
-            timestamp_to=timestamp_to,
-            on_data_frame=callback,
-            retry=retry,
-            verbose=verbose,
-        ).main()
-    if timestamp_from < cutoff:
-        BinanceFuturesTradesS3(
-            symbol,
-            timestamp_from=timestamp_from,
-            timestamp_to=min(timestamp_to, cutoff),
-            on_data_frame=callback,
-            retry=retry,
-            verbose=verbose,
-        ).main()
+    kwargs = {
+        "timestamp_from": timestamp_from,
+        "timestamp_to": timestamp_to,
+        "on_data_frame": _store_as_aggregated(on_data_frame),
+        "retry": retry,
+        "verbose": verbose,
+    }
+    BinanceFuturesTradesS3(symbol, **kwargs).main()
+    BinanceFuturesTradesREST(symbol, **kwargs).main()
 
 
 class BinanceFuturesTradesREST(BinanceFuturesMixin, ExchangeREST):
