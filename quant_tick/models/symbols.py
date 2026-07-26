@@ -42,6 +42,13 @@ class Symbol(AbstractCodeName):
         blank=True,
         default="",
     )
+    funding_interval = models.DurationField(
+        _("funding interval"),
+        help_text=_("Funding cadence discovered from exchange metadata."),
+        null=True,
+        blank=True,
+        editable=False,
+    )
     is_active = models.BooleanField(_("active"), default=True)
 
     @property
