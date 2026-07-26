@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from pandas import DataFrame
@@ -17,7 +17,7 @@ class ExchangeFunding:
         timestamp_from: datetime,
         timestamp_to: datetime,
         *,
-        interval: str | pd.Timedelta | None = None,
+        interval: str | timedelta | pd.Timedelta | None = None,
     ) -> list[datetime]:
         """Return expected normalized funding timestamps in a half-open range."""
         interval = cls.interval if interval is None else pd.Timedelta(interval)
@@ -50,7 +50,7 @@ class ExchangeFunding:
         timestamp_to: datetime,
         existing: set[datetime],
         *,
-        interval: str | pd.Timedelta | None = None,
+        interval: str | timedelta | pd.Timedelta | None = None,
     ) -> list[tuple[datetime, datetime]]:
         interval = cls.interval if interval is None else pd.Timedelta(interval)
         if interval is None:
@@ -89,7 +89,7 @@ class ExchangeFunding:
         timestamp_from: datetime,
         timestamp_to: datetime,
         *,
-        interval: str | pd.Timedelta | None = None,
+        interval: str | timedelta | pd.Timedelta | None = None,
     ) -> DataFrame:
         if df.empty:
             return df.set_index("timestamp")
@@ -129,7 +129,7 @@ class ExchangeFunding:
         cls,
         raw_timestamp: pd.Timestamp,
         *,
-        interval: str | pd.Timedelta | None = None,
+        interval: str | timedelta | pd.Timedelta | None = None,
     ) -> tuple[datetime, int | None]:
         raw_timestamp = raw_timestamp.tz_convert(UTC)
         interval = cls.interval if interval is None else pd.Timedelta(interval)

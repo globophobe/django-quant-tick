@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pandas as pd
@@ -23,6 +23,30 @@ class BybitFunding(ExchangeFunding):
 
 def _category(api_symbol: str) -> str:
     return get_bybit_category(api_symbol, SymbolType.PERPETUAL)
+
+
+def get_bybit_funding_interval(api_symbol: str) -> timedelta:
+    """Return the funding interval reported for a Bybit symbol."""
+    symbol = str(api_symbol).strip().upper()
+    result = get_bybit_result(
+        "/v5/market/instruments-info",
+        {
+            "category": _category(api_symbol),
+            "symbol": symbol,
+        },
+    )
+    matching = [
+        item for item in result.get("list", []) if item.get("symbol") == symbol
+    ]
+    if len(matching) != 1:
+        raise ValueError(f"Bybit funding interval is unavailable for {symbol}.")
+    try:
+        minutes = int(matching[0]["fundingInterval"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Bybit funding interval is invalid for {symbol}.") from exc
+    if minutes <= 0:
+        raise ValueError(f"Bybit funding interval is invalid for {symbol}.")
+    return timedelta(minutes=minutes)
 
 
 def get_bybit_funding_response(
@@ -180,7 +204,7 @@ def bybit_funding(
     timestamp_from: datetime,
     timestamp_to: datetime,
     *,
-    funding_interval: str | pd.Timedelta | None = None,
+    funding_interval: str | timedelta | pd.Timedelta | None = None,
 ) -> DataFrame:
     """Fetch Bybit funding with aligned OI and account positioning."""
     columns = [

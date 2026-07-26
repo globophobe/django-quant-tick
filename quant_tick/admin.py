@@ -124,6 +124,7 @@ class SymbolAdmin(ReadOnlyAdmin):
         "api_symbol",
         "symbol_type",
         "exchange_candle_resolution",
+        "funding_interval",
         "date_from",
         "is_active",
     )

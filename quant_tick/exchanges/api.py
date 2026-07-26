@@ -18,13 +18,16 @@ from .binance_futures import (
     binance_futures_funding,
     binance_futures_trades,
 )
-from .binance_futures.funding import BinanceFuturesFunding
+from .binance_futures.funding import (
+    BinanceFuturesFunding,
+    get_binance_futures_funding_interval,
+)
 from .bitfinex import bitfinex_candles, bitfinex_funding, bitfinex_trades
 from .bitfinex.funding import BitfinexFunding
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
 from .bitmex.funding import BitmexFunding
 from .bybit import bybit_candles, bybit_funding, bybit_trades
-from .bybit.funding import BybitFunding
+from .bybit.funding import BybitFunding, get_bybit_funding_interval
 from .coinbase import coinbase_candles, coinbase_trades
 from .deribit import deribit_candles, deribit_funding, deribit_trades
 from .deribit.funding import DeribitFunding
@@ -185,18 +188,11 @@ def candles_api(
     return candles
 
 
-def funding_api(
+def _funding_api(
     symbol: Symbol,
     timestamp_from: datetime,
     timestamp_to: datetime,
 ) -> DataFrame:
-    """Dispatch funding fetching to the exchange-specific adapter."""
-    if symbol.symbol_type != SymbolType.PERPETUAL:
-        raise ValueError("Funding is only available for perpetual symbols.")
-    timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
-    if timestamp_range is None:
-        return DataFrame(columns=["timestamp"]).set_index("timestamp")
-    timestamp_from, timestamp_to = timestamp_range
     exchange = symbol.exchange
     if exchange == Exchange.BINANCE_FUTURES:
         return binance_futures_funding(
@@ -223,6 +219,21 @@ def funding_api(
     raise NotImplementedError(f"Funding is not implemented for {exchange}.")
 
 
+def funding_api(
+    symbol: Symbol,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+) -> DataFrame:
+    """Dispatch funding fetching to the exchange-specific adapter."""
+    if symbol.symbol_type != SymbolType.PERPETUAL:
+        raise ValueError("Funding is only available for perpetual symbols.")
+    timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
+    if timestamp_range is None:
+        return DataFrame(columns=["timestamp"]).set_index("timestamp")
+    refresh_funding_interval(symbol)
+    return _funding_api(symbol, *timestamp_range)
+
+
 def get_funding_model(symbol: Symbol) -> type[ExchangeFunding]:
     try:
         return FUNDING_MODEL[symbol.exchange]
@@ -230,6 +241,31 @@ def get_funding_model(symbol: Symbol) -> type[ExchangeFunding]:
         raise NotImplementedError(
             f"Funding is not implemented for {symbol.exchange}."
         ) from exc
+
+
+def refresh_funding_interval(symbol: Symbol) -> timedelta | None:
+    if symbol.exchange == Exchange.BINANCE_FUTURES:
+        interval = get_binance_futures_funding_interval(symbol.api_symbol)
+    elif symbol.exchange == Exchange.BYBIT:
+        interval = get_bybit_funding_interval(symbol.api_symbol)
+    else:
+        adapter_interval = get_funding_model(symbol).interval
+        if adapter_interval is None:
+            raise ValueError(f"Funding interval is unavailable for {symbol}.")
+        interval = adapter_interval.to_pytimedelta()
+
+    previous = symbol.funding_interval
+    if previous == interval:
+        return interval
+    if previous is not None:
+        raise ValueError(
+            f"Funding interval changed for {symbol}: "
+            f"stored={previous}, venue={interval}. "
+            "Automatic schedule transitions are not supported."
+        )
+    symbol.funding_interval = interval
+    symbol.save(update_fields=["funding_interval"])
+    return interval
 
 
 def iter_funding_windows(
@@ -279,6 +315,7 @@ def funding(
     timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
     if timestamp_range is None:
         return
+    refresh_funding_interval(symbol)
     timestamp_from, timestamp_to = timestamp_range
     for ts_from, ts_to in iter_funding_windows(symbol, timestamp_from, timestamp_to):
         windows = [(ts_from, ts_to)]
@@ -291,7 +328,7 @@ def funding(
             )
 
         for fetch_timestamp_from, fetch_timestamp_to in windows:
-            data_frame = funding_api(symbol, fetch_timestamp_from, fetch_timestamp_to)
+            data_frame = _funding_api(symbol, fetch_timestamp_from, fetch_timestamp_to)
             FundingData.write(
                 symbol,
                 fetch_timestamp_from,

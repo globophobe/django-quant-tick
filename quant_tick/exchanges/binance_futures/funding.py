@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
@@ -12,6 +12,7 @@ from .constants import API_URL
 from .market_history import binance_market_history, empty_market_history
 
 BINANCE_FUNDING_MAX_RESULTS = 1000
+BINANCE_DEFAULT_FUNDING_INTERVAL = timedelta(hours=8)
 
 
 class BinanceFuturesFunding(ExchangeFunding):
@@ -53,12 +54,31 @@ def get_binance_funding_response(base_url: str) -> list[dict]:
     )
 
 
+def get_binance_futures_funding_interval(api_symbol: str) -> timedelta:
+    """Return the current funding interval for a Binance USD-M symbol."""
+    symbol = str(api_symbol).strip().upper()
+    rows = get_binance_funding_response(f"{API_URL}/fundingInfo")
+    matching = [item for item in rows if item.get("symbol") == symbol]
+    if not matching:
+        return BINANCE_DEFAULT_FUNDING_INTERVAL
+
+    try:
+        hours = int(matching[0]["fundingIntervalHours"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Binance funding interval is invalid for {symbol}."
+        ) from exc
+    if hours <= 0:
+        raise ValueError(f"Binance funding interval is invalid for {symbol}.")
+    return timedelta(hours=hours)
+
+
 def binance_futures_funding(
     api_symbol: str,
     timestamp_from: datetime,
     timestamp_to: datetime,
     *,
-    funding_interval: str | pd.Timedelta | None = None,
+    funding_interval: str | timedelta | pd.Timedelta | None = None,
 ) -> DataFrame:
     """Get Binance futures funding."""
     columns = ["funding_rate", "mark_price", *empty_market_history().columns]
