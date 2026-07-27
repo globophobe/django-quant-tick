@@ -6,8 +6,12 @@ from unittest.mock import Mock, patch
 import pandas as pd
 from django.test import SimpleTestCase
 
-from quant_tick.constants import SymbolType
-from quant_tick.exchanges.bybit.controllers import BybitTradesS3, bybit_trades
+from quant_tick.constants import Exchange, SymbolType
+from quant_tick.exchanges.bybit.controllers import (
+    BybitTradesS3,
+    BybitTradesWebSocket,
+    bybit_trades,
+)
 
 
 class BybitTradesTest(SimpleTestCase):
@@ -28,7 +32,7 @@ class BybitTradesTest(SimpleTestCase):
             "BTCUSDT2026-07-23.csv.gz",
         )
 
-    def test_trades_use_archive_without_fixed_publication_clamp(self):
+    def test_trades_use_archive_then_websocket_without_publication_clamp(self):
         symbol = SimpleNamespace(
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
@@ -37,9 +41,17 @@ class BybitTradesTest(SimpleTestCase):
         timestamp_to = timestamp_from + timedelta(days=2)
         on_data_frame = Mock()
 
-        with patch(
-            "quant_tick.exchanges.bybit.controllers.BybitTradesS3"
-        ) as archive:
+        calls = []
+        with (
+            patch(
+                "quant_tick.exchanges.bybit.controllers.BybitTradesS3"
+            ) as archive,
+            patch(
+                "quant_tick.exchanges.bybit.controllers.BybitTradesWebSocket"
+            ) as websocket,
+        ):
+            archive.return_value.main.side_effect = lambda: calls.append("archive")
+            websocket.return_value.main.side_effect = lambda: calls.append("websocket")
             bybit_trades(
                 symbol,
                 timestamp_from,
@@ -47,15 +59,91 @@ class BybitTradesTest(SimpleTestCase):
                 on_data_frame,
             )
 
-        archive.assert_called_once_with(
-            symbol,
-            timestamp_from=timestamp_from,
-            timestamp_to=timestamp_to,
-            on_data_frame=on_data_frame,
-            retry=False,
-            verbose=False,
+        self.assertEqual(calls, ["archive", "websocket"])
+        for controller in (archive, websocket):
+            controller.assert_called_once_with(
+                symbol,
+                timestamp_from=timestamp_from,
+                timestamp_to=timestamp_to,
+                on_data_frame=on_data_frame,
+                retry=False,
+                verbose=False,
+            )
+            controller.return_value.main.assert_called_once_with()
+
+    def test_websocket_controller_promotes_valid_current_minute(self):
+        timestamp_from = datetime(2026, 7, 23, 12, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(minutes=1)
+        symbol = SimpleNamespace(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+            save_raw=False,
+            save_aggregated=False,
+            significant_trade_filter=1000,
         )
-        archive.return_value.main.assert_called_once_with()
+        on_data_frame = Mock()
+        filtered = pd.DataFrame([{"uid": "trade"}])
+        candles = pd.DataFrame([])
+        controller = BybitTradesWebSocket(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            on_data_frame,
+        )
+        controller.get_websocket_timestamp_from = Mock(return_value=timestamp_from)
+        controller.get_candles = Mock(return_value=candles)
+        controller.validate_websocket_partitions = Mock(
+            return_value={timestamp_from: (None, None, filtered)}
+        )
+
+        with patch(
+            "quant_tick.controllers.rest.TradeData.objects.overlapping"
+        ) as overlapping:
+            overlapping.return_value.exists.return_value = False
+            controller.main()
+
+        on_data_frame.assert_called_once_with(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            filtered,
+            candles,
+            filtered_trades=filtered,
+        )
+
+    def test_websocket_controller_preserves_larger_archive_partition(self):
+        timestamp_from = datetime(2026, 7, 23, 12, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(minutes=1)
+        symbol = SimpleNamespace(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+            save_raw=False,
+            save_aggregated=False,
+            significant_trade_filter=1000,
+        )
+        on_data_frame = Mock()
+        filtered = pd.DataFrame([{"uid": "trade"}])
+        controller = BybitTradesWebSocket(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            on_data_frame,
+        )
+        controller.get_websocket_timestamp_from = Mock(return_value=timestamp_from)
+        controller.get_candles = Mock(return_value=pd.DataFrame([]))
+        controller.validate_websocket_partitions = Mock(
+            return_value={timestamp_from: (None, None, filtered)}
+        )
+
+        with patch(
+            "quant_tick.controllers.rest.TradeData.objects.overlapping"
+        ) as overlapping:
+            overlapping.return_value.exists.return_value = True
+            controller.main()
+
+        on_data_frame.assert_not_called()
 
     def test_trades_reject_spot_archive_path(self):
         symbol = SimpleNamespace(

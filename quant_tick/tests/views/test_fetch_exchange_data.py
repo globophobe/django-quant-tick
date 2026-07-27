@@ -71,6 +71,18 @@ class FetchExchangeDataViewTest(TestCase):
         self.assertEqual(response.json()["funding"], 5)
         self.assertEqual(response.json()["exchange_candles"], 5)
         self.assertEqual(mock_funding.call_count, 5)
+        self.assertTrue(
+            all(
+                callable(call.kwargs["assert_lease_owned"])
+                for call in mock_funding.call_args_list
+            )
+        )
+        self.assertTrue(
+            all(
+                callable(call.kwargs["assert_lease_owned"])
+                for call in mock_candles.call_args_list
+            )
+        )
         funding_symbols = {
             (call.args[0].exchange, call.args[0].api_symbol)
             for call in mock_funding.call_args_list
@@ -216,7 +228,7 @@ class FetchExchangeDataViewTest(TestCase):
         mock_funding,
         mock_candles,
     ):
-        def funding_side_effect(symbol, *_args):
+        def funding_side_effect(symbol, *_args, **_kwargs):
             if symbol.api_symbol == "BTC":
                 raise RuntimeError("boom")
 

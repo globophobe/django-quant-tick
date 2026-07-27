@@ -50,6 +50,53 @@ class ExchangeCandleDataTest(BaseSymbolTest, TestCase):
         self.assertEqual(rows[0].notional, Decimal("10"))
         self.assertEqual(rows[0].json_data["trades"], 5)
 
+    def test_write_rejects_lost_lease_before_replacing_rows(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = timestamp_from + pd.Timedelta("1h")
+        original = pd.DataFrame(
+            [
+                {
+                    "timestamp": timestamp_from,
+                    "open": Decimal("1"),
+                    "high": Decimal("2"),
+                    "low": Decimal("0.5"),
+                    "close": Decimal("1.5"),
+                }
+            ]
+        )
+        replacement = original.assign(close=Decimal("1.75"))
+        ExchangeCandleData.write(symbol, 60, timestamp_from, timestamp_to, original)
+
+        def reject_lease():
+            type(symbol).objects.filter(pk=symbol.pk).update(api_symbol="stale-write")
+            raise RuntimeError("lease ownership lost")
+
+        with self.assertRaisesRegex(RuntimeError, "ownership lost"):
+            ExchangeCandleData.write(
+                symbol,
+                60,
+                timestamp_from,
+                timestamp_to,
+                replacement,
+                assert_lease_owned=reject_lease,
+            )
+
+        symbol.refresh_from_db()
+        self.assertEqual(symbol.api_symbol, "BTC")
+        self.assertEqual(
+            ExchangeCandleData.objects.get(
+                symbol=symbol,
+                timestamp=timestamp_from,
+                frequency=60,
+            ).close,
+            Decimal("1.5"),
+        )
+
     def test_write_skips_incomplete_exchange_candles(self):
         symbol = self.get_symbol(
             exchange=Exchange.HYPERLIQUID,

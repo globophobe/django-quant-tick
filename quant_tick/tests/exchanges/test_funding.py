@@ -459,7 +459,7 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
         with patch("quant_tick.exchanges.api._funding_api") as mocked:
             funding(symbol, timestamp_from, timestamp_to)
 
-        self.interval_refresh.assert_called_once_with(symbol)
+        self.interval_refresh.assert_called_once_with(symbol, assert_lease_owned=None)
         mocked.assert_not_called()
         self.assertEqual(FundingData.objects.filter(symbol=symbol).count(), 2)
 

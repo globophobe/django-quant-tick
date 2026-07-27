@@ -162,6 +162,31 @@ class BinanceFuturesTradesTest(SimpleTestCase):
             parsed.iloc[0].timestamp,
             pd.Timestamp("2026-07-20T00:00:00.061Z"),
         )
+        self.assertEqual(parsed.iloc[0].nanoseconds, 0)
+
+    def test_s3_keeps_microseconds_in_timestamp_not_residual_nanoseconds(self):
+        controller = BinanceFuturesTradesS3.__new__(BinanceFuturesTradesS3)
+        data = pd.DataFrame(
+            [
+                {
+                    "agg_trade_id": "1",
+                    "price": "64694.8",
+                    "quantity": "0.597",
+                    "first_trade_id": "10",
+                    "last_trade_id": "10",
+                    "transact_time": "1784505600061123",
+                    "is_buyer_maker": "false",
+                }
+            ]
+        )
+
+        parsed = controller.parse_dtypes_and_strip_columns(data)
+
+        self.assertEqual(
+            parsed.iloc[0].timestamp,
+            pd.Timestamp("2026-07-20T00:00:00.061123Z"),
+        )
+        self.assertEqual(parsed.iloc[0].nanoseconds, 0)
 
     def test_controller_persists_futures_rows_as_aggregated_data(self):
         timestamp_from = datetime(2026, 7, 20, tzinfo=UTC)

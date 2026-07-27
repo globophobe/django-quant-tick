@@ -118,6 +118,37 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(t.timestamp, row.timestamp)
         self.assertFalse(t.ok)
 
+    def test_write_rejects_lost_lease_before_replacing_partition(self):
+        symbol = self.get_symbol(api_symbol="lease-test")
+        TradeData.write(
+            symbol,
+            self.timestamp_from,
+            self.timestamp_to,
+            pd.DataFrame([]),
+            raw_trades=self.get_raw_validation_data("original"),
+        )
+
+        def reject_lease():
+            type(symbol).objects.filter(pk=symbol.pk).update(api_symbol="stale-write")
+            raise RuntimeError("lease ownership lost")
+
+        with self.assertRaisesRegex(RuntimeError, "ownership lost"):
+            TradeData.write(
+                symbol,
+                self.timestamp_from,
+                self.timestamp_to,
+                pd.DataFrame([]),
+                raw_trades=self.get_raw_validation_data("replacement"),
+                assert_lease_owned=reject_lease,
+            )
+
+        symbol.refresh_from_db()
+        self.assertEqual(symbol.api_symbol, "lease-test")
+        self.assertEqual(
+            TradeData.objects.get(symbol=symbol, timestamp=self.timestamp_from).uid,
+            "original",
+        )
+
     def test_write_trade_data_validates_exchange_candle(self):
         for name, symbol_kwargs, trade_kwargs, stored_data in self.get_validation_cases():
             with self.subTest(name=name):
