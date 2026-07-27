@@ -199,3 +199,30 @@ class DeribitTradesTest(SimpleTestCase):
 
         self.assertEqual(parsed[0]["notional"], Decimal("0.004"))
         self.assertEqual(parsed[0]["volume"], Decimal("250.0000"))
+
+    def test_mixin_maps_option_amount_and_starbase_timestamp(self):
+        controller = DeribitTrades.__new__(DeribitTrades)
+        controller.symbol = SimpleNamespace(
+            symbol_type=SymbolType.PERPETUAL,
+            api_symbol="BTC-24APR26-72000-C",
+        )
+        parsed = controller.parse_data(
+            [
+                {
+                    "trade_seq": 1,
+                    "timestamp": 1785110400000,
+                    "starbase_timestamp": 1785110400123456789,
+                    "direction": "buy",
+                    "amount": 3,
+                    "price": 0.0525,
+                }
+            ]
+        )
+
+        self.assertEqual(parsed[0]["notional"], Decimal("3"))
+        self.assertEqual(parsed[0]["volume"], Decimal("0.1575"))
+        self.assertEqual(
+            parsed[0]["timestamp"],
+            datetime(2026, 7, 27, 0, 0, 0, 123456, tzinfo=UTC),
+        )
+        self.assertEqual(parsed[0]["nanoseconds"], 789)
