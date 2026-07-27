@@ -41,4 +41,4 @@ class BybitTradesS3(BybitS3Mixin, ExchangeS3):
 
 
 class BybitTradesWebSocket(BybitMixin, ExchangeWebSocket):
-    """Bybit recent trades from GQT WebSocket buckets."""
+    """Bybit trades WebSocket."""

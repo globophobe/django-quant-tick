@@ -660,7 +660,7 @@ class ExchangeREST(BaseController):
 
 
 class ExchangeWebSocket(ExchangeREST):
-    """Promote recent validated WebSocket buckets without a REST fallback."""
+    """WebSocket trades."""
 
     def main(self) -> None:
         if self.retry:
