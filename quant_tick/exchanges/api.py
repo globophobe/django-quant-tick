@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
+from django.db import transaction
 from pandas import DataFrame
 
 from quant_tick.constants import Exchange, SymbolType, TradeDataRetry
@@ -73,6 +74,8 @@ def api(
     timestamp_to: datetime,
     retry: TradeDataRetry = False,
     verbose: bool = False,
+    *,
+    assert_lease_owned: Callable[[], None] | None = None,
 ) -> None:
     """Fetch exchange trades and persist them."""
 
@@ -98,6 +101,7 @@ def api(
             raw_trades=raw_trades,
             aggregated_trades=aggregated_trades,
             filtered_trades=filtered_trades,
+            assert_lease_owned=assert_lease_owned,
         )
 
     trades_api(
@@ -243,7 +247,10 @@ def get_funding_model(symbol: Symbol) -> type[ExchangeFunding]:
         ) from exc
 
 
-def refresh_funding_interval(symbol: Symbol) -> timedelta | None:
+def refresh_funding_interval(
+    symbol: Symbol,
+    assert_lease_owned: Callable[[], None] | None = None,
+) -> timedelta | None:
     if symbol.exchange == Exchange.BINANCE_FUTURES:
         interval = get_binance_futures_funding_interval(symbol.api_symbol)
     elif symbol.exchange == Exchange.BYBIT:
@@ -263,8 +270,11 @@ def refresh_funding_interval(symbol: Symbol) -> timedelta | None:
             f"stored={previous}, venue={interval}. "
             "Automatic schedule transitions are not supported."
         )
-    symbol.funding_interval = interval
-    symbol.save(update_fields=["funding_interval"])
+    with transaction.atomic():
+        if assert_lease_owned is not None:
+            assert_lease_owned()
+        symbol.funding_interval = interval
+        symbol.save(update_fields=["funding_interval"])
     return interval
 
 
@@ -310,12 +320,17 @@ def funding(
     timestamp_from: datetime,
     timestamp_to: datetime,
     retry: bool = False,
+    *,
+    assert_lease_owned: Callable[[], None] | None = None,
 ) -> None:
     """Fetch exchange funding and persist FundingData rows."""
     timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
     if timestamp_range is None:
         return
-    refresh_funding_interval(symbol)
+    refresh_funding_interval(
+        symbol,
+        assert_lease_owned=assert_lease_owned,
+    )
     timestamp_from, timestamp_to = timestamp_range
     for ts_from, ts_to in iter_funding_windows(symbol, timestamp_from, timestamp_to):
         windows = [(ts_from, ts_to)]
@@ -334,6 +349,7 @@ def funding(
                 fetch_timestamp_from,
                 fetch_timestamp_to,
                 data_frame,
+                assert_lease_owned=assert_lease_owned,
             )
             if not retry and data_frame.empty and not has_existing:
                 return
@@ -367,6 +383,8 @@ def exchange_candles(
     timestamp_to: datetime,
     resolution: str | int | None = None,
     retry: bool = False,
+    *,
+    assert_lease_owned: Callable[[], None] | None = None,
 ) -> None:
     """Fetch direct exchange candles and persist ExchangeCandleData rows."""
     resolution = resolution or symbol.exchange_candle_resolution
@@ -413,4 +431,5 @@ def exchange_candles(
             ts_from,
             ts_to,
             data_frame,
+            assert_lease_owned=assert_lease_owned,
         )

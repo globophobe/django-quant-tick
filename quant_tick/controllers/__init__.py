@@ -2,6 +2,7 @@ from .constants import HTTPX_ERRORS
 from .iterators import TradeDataIterator
 from .rest import (
     ExchangeREST,
+    ExchangeWebSocket,
     IntegerPaginationMixin,
     SequentialIntegerMixin,
     increment_api_total_requests,
@@ -15,6 +16,7 @@ __all__ = [
     "HTTPX_ERRORS",
     "TradeDataIterator",
     "ExchangeREST",
+    "ExchangeWebSocket",
     "IntegerPaginationMixin",
     "SequentialIntegerMixin",
     "increment_api_total_requests",

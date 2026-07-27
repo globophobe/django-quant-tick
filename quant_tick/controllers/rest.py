@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 from pandas import DataFrame
 
+from quant_tick.constants import Frequency
 from quant_tick.lib import (
     assert_type_decimal,
     get_current_time,
@@ -655,6 +656,78 @@ class ExchangeREST(BaseController):
                 <= df.iloc[0].timestamp
                 <= df.iloc[-1].timestamp
                 < timestamp_to
+            )
+
+
+class ExchangeWebSocket(ExchangeREST):
+    """Promote recent validated WebSocket buckets without a REST fallback."""
+
+    def main(self) -> None:
+        if self.retry:
+            return
+        timestamp_from = max(
+            self.timestamp_from,
+            self.get_websocket_timestamp_from(),
+        )
+        timestamp_to = self.timestamp_to
+        if timestamp_from >= timestamp_to:
+            return
+
+        candles = self.get_candles(timestamp_from, timestamp_to)
+        partitions = self.validate_websocket_partitions(
+            timestamp_from,
+            timestamp_to,
+            candles,
+        )
+        for ts_from, ts_to in iter_window(
+            timestamp_from,
+            timestamp_to,
+            value="1min",
+        ):
+            if TradeData.objects.overlapping(
+                self.symbol,
+                ts_from,
+                ts_to,
+                (Frequency.HOUR, Frequency.DAY),
+            ).exists():
+                continue
+            frames = partitions.get(ts_from)
+            if frames is None:
+                if not has_zero_trade_candle(
+                    self.symbol.exchange,
+                    candles,
+                    ts_from,
+                    ts_to,
+                ):
+                    continue
+                self.on_data_frame(
+                    self.symbol,
+                    ts_from,
+                    ts_to,
+                    pd.DataFrame([]),
+                    candles,
+                )
+                continue
+
+            raw_trades, aggregated_trades, filtered_trades = frames
+            data_frame = TradeData._get_validation_frame(
+                raw_trades=raw_trades,
+                aggregated_trades=aggregated_trades,
+                filtered_trades=filtered_trades,
+            )
+            if data_frame is None:
+                data_frame = pd.DataFrame([])
+            self.on_data_frame(
+                self.symbol,
+                ts_from,
+                ts_to,
+                data_frame,
+                candles,
+                **self.get_data_frame_kwargs(
+                    raw_trades,
+                    aggregated_trades,
+                    filtered_trades,
+                ),
             )
 
 

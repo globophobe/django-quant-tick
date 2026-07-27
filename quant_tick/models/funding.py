@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime
 
 from django.db import models, transaction
@@ -54,6 +55,8 @@ class FundingData(models.Model):
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
+        *,
+        assert_lease_owned: Callable[[], None] | None = None,
     ) -> None:
         """Replace funding data for half-open timestamp range."""
         if symbol.symbol_type != SymbolType.PERPETUAL:
@@ -82,6 +85,8 @@ class FundingData(models.Model):
             )
 
         with transaction.atomic():
+            if assert_lease_owned is not None:
+                assert_lease_owned()
             cls.objects.in_range(symbol, timestamp_from, timestamp_to).delete()
             cls.objects.bulk_create(rows)
 

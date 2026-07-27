@@ -1,4 +1,5 @@
 import datetime
+from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
@@ -177,6 +178,7 @@ class TradeData(AbstractDataStorage):
         raw_trades: DataFrame | None = None,
         aggregated_trades: DataFrame | None = None,
         filtered_trades: DataFrame | None = None,
+        assert_lease_owned: Callable[[], None] | None = None,
     ) -> list["TradeData"]:
         """Write trades and validate them against exchange candles."""
         if raw_trades is None and aggregated_trades is None and filtered_trades is None:
@@ -191,6 +193,7 @@ class TradeData(AbstractDataStorage):
             raw_trades=raw_trades,
             aggregated_trades=aggregated_trades,
             filtered_trades=filtered_trades,
+            assert_lease_owned=assert_lease_owned,
         )
 
     @classmethod
@@ -268,6 +271,7 @@ class TradeData(AbstractDataStorage):
         raw_trades: DataFrame | None = None,
         aggregated_trades: DataFrame | None = None,
         filtered_trades: DataFrame | None = None,
+        assert_lease_owned: Callable[[], None] | None = None,
     ) -> list["TradeData"]:
         frequency = cls._get_write_frequency(timestamp_from, timestamp_to)
         if frequency in (Frequency.DAY, Frequency.HOUR):
@@ -281,6 +285,7 @@ class TradeData(AbstractDataStorage):
                     raw_trades=raw_trades,
                     aggregated_trades=aggregated_trades,
                     filtered_trades=filtered_trades,
+                    assert_lease_owned=assert_lease_owned,
                 )
             ]
         return [
@@ -293,6 +298,7 @@ class TradeData(AbstractDataStorage):
                 raw_trades=raw_trades,
                 aggregated_trades=aggregated_trades,
                 filtered_trades=filtered_trades,
+                assert_lease_owned=assert_lease_owned,
             )
             for ts_from, ts_to in iter_window(
                 timestamp_from,
@@ -313,6 +319,7 @@ class TradeData(AbstractDataStorage):
         raw_trades: DataFrame | None = None,
         aggregated_trades: DataFrame | None = None,
         filtered_trades: DataFrame | None = None,
+        assert_lease_owned: Callable[[], None] | None = None,
     ) -> "TradeData":
         raw_trades, aggregated_trades, filtered_trades = cls._prepare_partition_data(
             symbol,
@@ -323,20 +330,27 @@ class TradeData(AbstractDataStorage):
             filtered_trades=filtered_trades,
         )
 
-        cls.objects.cleanup(
-            symbol,
-            timestamp_from,
-            timestamp_to,
-            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
-        )
-        obj = TradeData(symbol=symbol, timestamp=timestamp_from, frequency=frequency)
-        return cls._save_trade_data(
-            obj,
-            filter_by_timestamp(candles, timestamp_from, timestamp_to),
-            raw_trades=raw_trades,
-            aggregated_trades=aggregated_trades,
-            filtered_trades=filtered_trades,
-        )
+        with transaction.atomic():
+            if assert_lease_owned is not None:
+                assert_lease_owned()
+            cls.objects.cleanup(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
+            )
+            obj = TradeData(
+                symbol=symbol,
+                timestamp=timestamp_from,
+                frequency=frequency,
+            )
+            return cls._save_trade_data(
+                obj,
+                filter_by_timestamp(candles, timestamp_from, timestamp_to),
+                raw_trades=raw_trades,
+                aggregated_trades=aggregated_trades,
+                filtered_trades=filtered_trades,
+            )
 
     @classmethod
     def _prepare_partition_data(

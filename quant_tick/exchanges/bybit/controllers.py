@@ -2,10 +2,10 @@ from collections.abc import Callable
 from datetime import datetime
 
 from quant_tick.constants import TradeDataRetry
-from quant_tick.controllers import ExchangeS3
+from quant_tick.controllers import ExchangeS3, ExchangeWebSocket
 from quant_tick.models import Symbol
 
-from .base import BybitS3Mixin, validate_bybit_trade_symbol
+from .base import BybitMixin, BybitS3Mixin, validate_bybit_trade_symbol
 
 
 def bybit_trades(
@@ -26,7 +26,19 @@ def bybit_trades(
         retry=retry,
         verbose=verbose,
     ).main()
+    BybitTradesWebSocket(
+        symbol,
+        timestamp_from=timestamp_from,
+        timestamp_to=timestamp_to,
+        on_data_frame=on_data_frame,
+        retry=retry,
+        verbose=verbose,
+    ).main()
 
 
 class BybitTradesS3(BybitS3Mixin, ExchangeS3):
     """Bybit trades S3."""
+
+
+class BybitTradesWebSocket(BybitMixin, ExchangeWebSocket):
+    """Bybit recent trades from GQT WebSocket buckets."""

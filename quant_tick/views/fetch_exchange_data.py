@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 
 from django.db.models import Q
 from django.http import HttpRequest, JsonResponse
@@ -103,6 +104,7 @@ class FetchExchangeDataView(View):
         timestamp_from,
         timestamp_to,
         retry: bool,
+        assert_lease_owned: Callable[[], None] | None = None,
     ) -> dict:
         counts = {"funding": 0, "exchange_candles": 0}
         if (
@@ -110,7 +112,13 @@ class FetchExchangeDataView(View):
             and symbol.symbol_type == SymbolType.PERPETUAL
         ):
             logger.info("{symbol}: funding starting...".format(symbol=str(symbol)))
-            fetch_symbol_funding(symbol, timestamp_from, timestamp_to, retry)
+            fetch_symbol_funding(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                retry,
+                assert_lease_owned=assert_lease_owned,
+            )
             counts["funding"] = 1
         if symbol.exchange_candle_resolution:
             logger.info(
@@ -122,6 +130,7 @@ class FetchExchangeDataView(View):
                 timestamp_to,
                 resolution=symbol.exchange_candle_resolution,
                 retry=retry,
+                assert_lease_owned=assert_lease_owned,
             )
             counts["exchange_candles"] = 1
         return counts
@@ -152,6 +161,7 @@ class FetchExchangeDataView(View):
                         timestamp_from,
                         timestamp_to,
                         retry,
+                        assert_lease_owned=lease_heartbeat.assert_owned,
                     )
                 except TaskLeaseLost:
                     raise

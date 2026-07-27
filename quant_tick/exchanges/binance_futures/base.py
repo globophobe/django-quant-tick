@@ -123,8 +123,6 @@ class BinanceFuturesS3Mixin(BinanceFuturesMixin):
         unit = "us" if int(times.iloc[0]) > 1e14 else "ms"
         df["timestamp"] = pd.to_datetime(times, unit=unit, utc=True)
         df["nanoseconds"] = 0
-        if unit == "us":
-            df["nanoseconds"] = (times % 1000) * 1000
         df = df.rename(columns={"agg_trade_id": "uid", "quantity": "notional"})
         df["volume"] = df["price"] * df["notional"]
         df["tickRule"] = 1

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime
 
 import pandas as pd
@@ -65,6 +66,8 @@ class ExchangeCandleData(models.Model):
         timestamp_from: datetime,
         timestamp_to: datetime,
         data_frame: DataFrame,
+        *,
+        assert_lease_owned: Callable[[], None] | None = None,
     ) -> None:
         """Replace exchange candles for half-open timestamp range."""
         rows = []
@@ -104,6 +107,8 @@ class ExchangeCandleData(models.Model):
             )
 
         with transaction.atomic():
+            if assert_lease_owned is not None:
+                assert_lease_owned()
             cls.objects.in_range(
                 symbol,
                 frequency,

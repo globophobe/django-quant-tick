@@ -188,6 +188,7 @@ class AggregateTradeDataView(View):
                             symbol,
                             *retry_window,
                             RETRY_INDETERMINATE,
+                            assert_lease_owned=lease_heartbeat.assert_owned,
                         )
                         lease_heartbeat.assert_owned()
                     api(
@@ -195,6 +196,7 @@ class AggregateTradeDataView(View):
                         timestamp_from,
                         timestamp_to,
                         False,
+                        assert_lease_owned=lease_heartbeat.assert_owned,
                     )
                     lease_heartbeat.assert_owned()
                     aggregate_candle_params.append(
