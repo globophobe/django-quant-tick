@@ -42,20 +42,19 @@ class DeribitMixin(SequentialIntegerMixin):
             if direction not in {"buy", "sell"}:
                 raise ValueError(f"Unexpected Deribit trade direction: {direction}")
             sequence = int(trade["trade_seq"])
+            timestamp, nanoseconds = _deribit_event_timestamp(trade)
             amount_is_base = (
                 self.symbol.symbol_type == SymbolType.SPOT
                 or "_" in self.symbol.api_symbol
+                or _is_deribit_option(self.symbol.api_symbol)
             )
             volume = price * amount if amount_is_base else amount
             notional = amount if amount_is_base else amount / price
             parsed.append(
                 {
                     "uid": str(sequence),
-                    "timestamp": datetime.fromtimestamp(
-                        int(trade["timestamp"]) / 1000,
-                        tz=UTC,
-                    ),
-                    "nanoseconds": 0,
+                    "timestamp": timestamp,
+                    "nanoseconds": nanoseconds,
                     "price": price,
                     "volume": volume,
                     "notional": notional,
@@ -76,3 +75,23 @@ class DeribitMixin(SequentialIntegerMixin):
             timestamp_to,
             resolution="1m",
         )
+
+
+def _is_deribit_option(api_symbol: str) -> bool:
+    parts = api_symbol.split("-")
+    return len(parts) == 4 and parts[-1] in {"C", "P"}
+
+
+def _deribit_event_timestamp(trade: dict) -> tuple[datetime, int]:
+    starbase_timestamp = trade.get("starbase_timestamp")
+    if starbase_timestamp is None:
+        return (
+            datetime.fromtimestamp(int(trade["timestamp"]) / 1000, tz=UTC),
+            0,
+        )
+    seconds, nanoseconds = divmod(int(starbase_timestamp), 1_000_000_000)
+    microseconds, residual_nanoseconds = divmod(nanoseconds, 1_000)
+    timestamp = datetime.fromtimestamp(seconds, tz=UTC).replace(
+        microsecond=microseconds
+    )
+    return timestamp, residual_nanoseconds
