@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
-from quant_tick.constants import SymbolType
+from quant_tick.constants import Exchange
 from quant_tick.exchanges.bybit.candles import (
     bybit_candles,
     fetch_bybit_candles,
@@ -98,7 +98,7 @@ class BybitCandleTest(SimpleTestCase):
     def test_8h_uses_4h_source_resolution(self):
         self.assertEqual(get_bybit_fetch_resolution("8h"), (480, 240, "240"))
 
-    def test_bybit_candles_passes_perpetual_category(self):
+    def test_bybit_candles_passes_explicit_category(self):
         timestamp_from = datetime(2026, 7, 23, tzinfo=UTC)
         with patch(
             "quant_tick.exchanges.bybit.candles.fetch_bybit_candles"
@@ -107,7 +107,14 @@ class BybitCandleTest(SimpleTestCase):
                 "BTCUSDT",
                 timestamp_from,
                 timestamp_from + timedelta(minutes=1),
-                symbol_type=SymbolType.PERPETUAL,
+                category="linear",
             )
 
         self.assertEqual(fetch.call_args.kwargs["category"], "linear")
+
+    def test_exchange_names_map_to_distinct_categories(self):
+        from quant_tick.exchanges.bybit.candles import get_bybit_category
+
+        self.assertEqual(get_bybit_category(Exchange.BYBIT), "spot")
+        self.assertEqual(get_bybit_category(Exchange.BYBIT_LINEAR), "linear")
+        self.assertEqual(get_bybit_category(Exchange.BYBIT_INVERSE), "inverse")

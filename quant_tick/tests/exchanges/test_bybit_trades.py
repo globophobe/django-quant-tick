@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 
 from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.bybit.controllers import (
+    BybitSpotTradesS3,
     BybitTradesS3,
     BybitTradesWebSocket,
     bybit_trades,
@@ -15,9 +16,14 @@ from quant_tick.exchanges.bybit.controllers import (
 
 
 class BybitTradesTest(SimpleTestCase):
-    def get_controller(self, api_symbol="BTCUSDT"):
+    def get_controller(
+        self,
+        api_symbol="BTCUSDT",
+        exchange=Exchange.BYBIT_LINEAR,
+    ):
         controller = BybitTradesS3.__new__(BybitTradesS3)
         controller.symbol = SimpleNamespace(
+            exchange=exchange,
             api_symbol=api_symbol,
             symbol_type=SymbolType.PERPETUAL,
         )
@@ -31,8 +37,18 @@ class BybitTradesTest(SimpleTestCase):
             "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2026-07-23.csv.gz",
         )
 
+    def test_spot_s3_uses_exact_daily_archive_url(self):
+        controller = BybitSpotTradesS3.__new__(BybitSpotTradesS3)
+        controller.symbol = SimpleNamespace(api_symbol="BTCUSDT")
+
+        self.assertEqual(
+            controller.get_url(date(2026, 7, 23)),
+            "https://public.bybit.com/spot/BTCUSDT/BTCUSDT_2026-07-23.csv.gz",
+        )
+
     def test_trades_use_archive_then_websocket_without_publication_clamp(self):
         symbol = SimpleNamespace(
+            exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
         )
@@ -72,7 +88,7 @@ class BybitTradesTest(SimpleTestCase):
         timestamp_from = datetime(2026, 7, 23, 12, tzinfo=UTC)
         timestamp_to = timestamp_from + timedelta(minutes=1)
         symbol = SimpleNamespace(
-            exchange=Exchange.BYBIT,
+            exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
             save_raw=False,
@@ -114,7 +130,7 @@ class BybitTradesTest(SimpleTestCase):
         timestamp_to = timestamp_from + timedelta(minutes=2)
         newest = timestamp_from + timedelta(minutes=1)
         symbol = SimpleNamespace(
-            exchange=Exchange.BYBIT,
+            exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
             save_raw=False,
@@ -157,7 +173,7 @@ class BybitTradesTest(SimpleTestCase):
         timestamp_from = datetime(2026, 7, 23, 12, tzinfo=UTC)
         timestamp_to = timestamp_from + timedelta(minutes=1)
         symbol = SimpleNamespace(
-            exchange=Exchange.BYBIT,
+            exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
             save_raw=False,
@@ -186,19 +202,71 @@ class BybitTradesTest(SimpleTestCase):
 
         on_data_frame.assert_not_called()
 
-    def test_trades_reject_spot_archive_path(self):
+    def test_spot_trades_use_spot_archive_then_websocket(self):
         symbol = SimpleNamespace(
+            exchange=Exchange.BYBIT,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.SPOT,
         )
-
-        with self.assertRaisesRegex(ValueError, "perpetuals only"):
+        calls = []
+        with (
+            patch(
+                "quant_tick.exchanges.bybit.controllers.BybitSpotTradesS3"
+            ) as archive,
+            patch(
+                "quant_tick.exchanges.bybit.controllers.BybitTradesWebSocket"
+            ) as websocket,
+        ):
+            archive.return_value.main.side_effect = lambda: calls.append("archive")
+            websocket.return_value.main.side_effect = lambda: calls.append("websocket")
             bybit_trades(
                 symbol,
                 datetime(2026, 7, 23, tzinfo=UTC),
                 datetime(2026, 7, 24, tzinfo=UTC),
                 Mock(),
             )
+
+        self.assertEqual(calls, ["archive", "websocket"])
+        archive.assert_called_once()
+        archive.return_value.main.assert_called_once_with()
+        websocket.assert_called_once()
+        websocket.return_value.main.assert_called_once_with()
+
+    def test_spot_archive_normalizes_units_side_and_order(self):
+        controller = BybitSpotTradesS3.__new__(BybitSpotTradesS3)
+        controller.symbol = SimpleNamespace(api_symbol="BTCUSDT")
+        data = pd.DataFrame(
+            [
+                {
+                    "id": "2",
+                    "timestamp": "1668038400526",
+                    "price": "15910.30",
+                    "volume": "0.0001",
+                    "side": "buy",
+                },
+                {
+                    "id": "1",
+                    "timestamp": "1668038400525",
+                    "price": "15910.61",
+                    "volume": "0.003383",
+                    "side": "sell",
+                },
+            ]
+        )
+
+        parsed = controller.parse_dtypes_and_strip_columns(data)
+
+        self.assertEqual(parsed["uid"].tolist(), ["1", "2"])
+        self.assertEqual(parsed["tickRule"].tolist(), [-1, 1])
+        self.assertEqual(
+            parsed["notional"].tolist(),
+            [Decimal("0.003383"), Decimal("0.0001")],
+        )
+        self.assertEqual(
+            parsed["volume"].tolist(),
+            [Decimal("53.82559363"), Decimal("1.591030")],
+        )
+        self.assertEqual(parsed["nanoseconds"].tolist(), [0, 0])
 
     def test_linear_archive_normalizes_units_side_and_order(self):
         data = pd.DataFrame(
@@ -292,7 +360,10 @@ class BybitTradesTest(SimpleTestCase):
             ]
         )
 
-        parsed = self.get_controller("BTCUSD").parse_dtypes_and_strip_columns(data)
+        parsed = self.get_controller(
+            "BTCUSD",
+            Exchange.BYBIT_INVERSE,
+        ).parse_dtypes_and_strip_columns(data)
 
         self.assertEqual(parsed.iloc[0]["volume"], Decimal("100"))
         self.assertEqual(parsed.iloc[0]["notional"], Decimal("0.01"))

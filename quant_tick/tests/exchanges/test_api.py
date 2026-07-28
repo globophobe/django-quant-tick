@@ -103,16 +103,41 @@ class TradesApiTest(BaseSymbolTest, TestCase):
         mocked.assert_called_once()
         self.assertEqual(mocked.call_args.args[0], symbol)
 
-    def test_trades_api_dispatches_bybit_perpetual(self):
-        symbol = self.get_symbol(
-            exchange=Exchange.BYBIT,
-            api_symbol="BTCUSDT",
-            symbol_type=SymbolType.PERPETUAL,
-        )
+    def test_trades_api_dispatches_explicit_bybit_market_namespaces(self):
+        cases = [
+            (Exchange.BYBIT, "BTCUSDT", SymbolType.SPOT),
+            (Exchange.BYBIT_LINEAR, "BTCUSDT", SymbolType.PERPETUAL),
+            (Exchange.BYBIT_INVERSE, "BTCUSD", SymbolType.PERPETUAL),
+        ]
         ts_to = self.timestamp_from + timedelta(days=1)
 
-        with patch("quant_tick.exchanges.api.bybit_trades") as mocked:
-            trades_api(symbol, self.timestamp_from, ts_to, Mock())
+        for exchange, api_symbol, symbol_type in cases:
+            with self.subTest(exchange=exchange):
+                symbol = self.get_symbol(
+                    exchange=exchange,
+                    api_symbol=api_symbol,
+                    symbol_type=symbol_type,
+                )
+                with patch("quant_tick.exchanges.api.bybit_trades") as mocked:
+                    trades_api(symbol, self.timestamp_from, ts_to, Mock())
 
-        mocked.assert_called_once()
-        self.assertEqual(mocked.call_args.args[0], symbol)
+                mocked.assert_called_once()
+                self.assertEqual(mocked.call_args.args[0], symbol)
+
+    def test_trades_api_rejects_mismatched_bybit_symbol_types(self):
+        cases = [
+            (Exchange.BYBIT, SymbolType.PERPETUAL),
+            (Exchange.BYBIT_LINEAR, SymbolType.SPOT),
+            (Exchange.BYBIT_INVERSE, SymbolType.SPOT),
+        ]
+        ts_to = self.timestamp_from + timedelta(days=1)
+
+        for exchange, symbol_type in cases:
+            with self.subTest(exchange=exchange):
+                symbol = self.get_symbol(
+                    exchange=exchange,
+                    api_symbol=f"BTC-{exchange}",
+                    symbol_type=symbol_type,
+                )
+                with self.assertRaises(ValueError):
+                    trades_api(symbol, self.timestamp_from, ts_to, Mock())

@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from quant_tick.constants import Exchange
+from quant_tick.constants import Exchange, SymbolType
 from quant_tick.models import Symbol, WebSocketData
 
 
@@ -53,6 +53,41 @@ class WebSocketDataTest(TestCase):
         rows = list(WebSocketData.objects.for_symbol(symbol))
 
         self.assertEqual(rows, [expected])
+
+    def test_for_symbol_isolates_bybit_market_namespaces(self):
+        spot = Symbol.objects.create(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.SPOT,
+            significant_trade_filter=1000,
+        )
+        linear = Symbol.objects.create(
+            exchange=Exchange.BYBIT_LINEAR,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+            significant_trade_filter=1000,
+        )
+        timestamp = datetime(2026, 5, 10, 10, tzinfo=UTC)
+        spot_row = WebSocketData.objects.create(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            significant_trade_filter=1000,
+            timestamp=timestamp,
+            filtered_trades=[self.get_trade("spot")],
+        )
+        linear_row = WebSocketData.objects.create(
+            exchange=Exchange.BYBIT_LINEAR,
+            api_symbol="BTCUSDT",
+            significant_trade_filter=1000,
+            timestamp=timestamp,
+            filtered_trades=[self.get_trade("linear")],
+        )
+
+        self.assertEqual(list(WebSocketData.objects.for_symbol(spot)), [spot_row])
+        self.assertEqual(
+            list(WebSocketData.objects.for_symbol(linear)),
+            [linear_row],
+        )
 
     def test_get_data_frames_parses_trade_payloads(self):
         symbol = Symbol.objects.create(

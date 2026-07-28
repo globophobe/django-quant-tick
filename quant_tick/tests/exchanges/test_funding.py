@@ -604,7 +604,7 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
 
     def test_symbol_funding_interval_controls_missing_windows(self):
         symbol = self.get_symbol(
-            exchange=Exchange.BYBIT,
+            exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
         )
@@ -652,7 +652,7 @@ class FundingIntervalRefreshTest(BaseSymbolTest, TestCase):
 
     def test_refresh_persists_discovered_interval(self):
         symbol = self.get_symbol(
-            exchange=Exchange.BYBIT,
+            exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
         )
@@ -669,7 +669,7 @@ class FundingIntervalRefreshTest(BaseSymbolTest, TestCase):
 
     def test_refresh_rejects_changed_interval(self):
         symbol = self.get_symbol(
-            exchange=Exchange.BYBIT,
+            exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
         )
@@ -693,7 +693,7 @@ class FundingIntervalRefreshTest(BaseSymbolTest, TestCase):
 
     def test_funding_aborts_before_window_scan_when_interval_changes(self):
         symbol = self.get_symbol(
-            exchange=Exchange.BYBIT,
+            exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
         )
@@ -721,7 +721,7 @@ class FundingIntervalRefreshTest(BaseSymbolTest, TestCase):
 
     def test_public_funding_api_discovers_interval_before_dispatch(self):
         symbol = self.get_symbol(
-            exchange=Exchange.BYBIT,
+            exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
         )
@@ -747,6 +747,7 @@ class FundingIntervalRefreshTest(BaseSymbolTest, TestCase):
             "BTCUSDT",
             timestamp_from,
             timestamp_to,
+            category="linear",
             funding_interval=timedelta(hours=4),
         )
         self.assertTrue(result.equals(expected))
