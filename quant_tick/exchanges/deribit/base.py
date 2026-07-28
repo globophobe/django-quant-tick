@@ -4,21 +4,19 @@ from decimal import Decimal
 from pandas import DataFrame
 
 from quant_tick.constants import SymbolType
-from quant_tick.controllers import SequentialIntegerMixin
-from quant_tick.models import TradeData
+from quant_tick.controllers import IntegerPaginationMixin
 
 from .api import to_millis
 from .candles import deribit_candles
 from .trades import get_trades
 
 
-class DeribitMixin(SequentialIntegerMixin):
+class DeribitMixin(IntegerPaginationMixin):
     """Deribit mixin."""
 
+    partition_scoped = True
+
     def get_pagination_id(self, timestamp_to: datetime) -> dict[str, int]:
-        uid = TradeData.objects.get_last_uid(self.symbol, timestamp_to)
-        if uid is not None:
-            return {"end_seq": int(uid) - 1}
         return {"end_timestamp": to_millis(timestamp_to) - 1}
 
     def iter_api(
@@ -26,10 +24,14 @@ class DeribitMixin(SequentialIntegerMixin):
         timestamp_from: datetime,
         pagination_id: dict[str, int],
     ) -> tuple[list[dict], bool, dict[str, int] | None]:
+        timestamp_to = datetime.fromtimestamp(
+            (pagination_id["end_timestamp"] + 1) / 1000,
+            tz=UTC,
+        )
         return get_trades(
             self.symbol.api_symbol,
             timestamp_from,
-            pagination_id,
+            timestamp_to,
             log_format=self.log_format,
         )
 
@@ -62,7 +64,17 @@ class DeribitMixin(SequentialIntegerMixin):
                     "index": sequence,
                 }
             )
-        return parsed
+        return sorted(parsed, key=lambda trade: trade["index"], reverse=True)
+
+    def assert_data_frame(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        data_frame: DataFrame,
+        trades: list | None = None,
+    ) -> None:
+        super().assert_data_frame(timestamp_from, timestamp_to, data_frame, trades)
+        assert (data_frame["index"].diff().dropna() > 0).all()
 
     def get_candles(
         self,

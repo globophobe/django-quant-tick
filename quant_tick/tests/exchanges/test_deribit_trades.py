@@ -33,7 +33,6 @@ class DeribitTradesTest(SimpleTestCase):
 
         mocked.assert_called_once_with(
             "BTC-PERPETUAL",
-            int(self.timestamp_from.timestamp() * 1000),
             pagination_id,
         )
         self.assertEqual(result, trades)

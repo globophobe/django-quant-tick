@@ -157,6 +157,8 @@ def throttle_api_requests(
 class ExchangeREST(BaseController):
     """Base controller for REST trade ingestion."""
 
+    partition_scoped = False
+
     def get_pagination_id(self, timestamp_to: datetime) -> None:
         raise NotImplementedError
 
@@ -216,6 +218,13 @@ class ExchangeREST(BaseController):
                 pagination_id = None
                 is_last_iteration = False
                 previous_timestamp_from = None
+                continue
+            if self.partition_scoped:
+                self.on_rest_data_frame(
+                    timestamp_from,
+                    timestamp_to,
+                    candles,
+                )
                 continue
             if previous_timestamp_from == timestamp_to:
                 buffered_trades = [

@@ -14,14 +14,20 @@ def to_millis(timestamp: datetime) -> int:
     return int(timestamp.timestamp() * 1000)
 
 
-def get_deribit_result(method: str, params: dict, retry: int = 30):
+def get_deribit_result(
+    method: str,
+    params: dict,
+    retry: int = 30,
+    *,
+    api_url: str = API_URL,
+):
     """Get Deribit API result."""
     attempts = retry + 1
     for attempt in range(attempts):
         start = time.time()
         try:
             response = httpx.get(
-                f"{API_URL}/{method}",
+                f"{api_url}/{method}",
                 params=params,
                 timeout=30,
             )
