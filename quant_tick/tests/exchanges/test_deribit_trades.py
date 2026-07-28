@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from django.test import SimpleTestCase
 
@@ -14,49 +14,168 @@ class DeribitTradesTest(SimpleTestCase):
     def setUp(self):
         self.timestamp_from = datetime(2026, 7, 24, tzinfo=UTC)
 
-    def test_get_trades_pages_backwards_by_sequence(self):
-        trades = [
-            {"trade_seq": 102, "timestamp": 1784851201000},
-            {"trade_seq": 101, "timestamp": 1784851201000},
-        ]
-        pagination_id = {"end_timestamp": 1784851201999}
+    @staticmethod
+    def trade(sequence: int, timestamp: int) -> dict:
+        return {
+            "trade_seq": sequence,
+            "trade_id": f"BTC-{sequence}",
+            "instrument_name": "BTC-PERPETUAL",
+            "timestamp": timestamp,
+            "direction": "buy",
+            "amount": 100,
+            "price": 62500.0,
+        }
+
+    def test_get_trades_fetches_exact_half_open_history_window(self):
+        timestamp_to = self.timestamp_from + timedelta(milliseconds=4)
+        start = int(self.timestamp_from.timestamp() * 1000)
+        trades = [self.trade(100, start + 1)]
 
         with patch(
             "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
-            return_value={"trades": trades, "has_more": True},
+            return_value={"trades": trades, "has_more": False},
         ) as mocked:
-            result, is_last, next_pagination_id = get_trades(
+            result = get_trades(
                 "BTC-PERPETUAL",
                 self.timestamp_from,
-                pagination_id,
+                timestamp_to,
+                history=True,
             )
 
         mocked.assert_called_once_with(
             "BTC-PERPETUAL",
-            pagination_id,
+            start,
+            start + 3,
+            history=True,
         )
-        self.assertEqual(result, trades)
-        self.assertFalse(is_last)
-        self.assertEqual(next_pagination_id, {"end_seq": 100})
+        self.assertEqual(result, (trades, True, None))
 
-    def test_get_trades_ends_when_response_has_no_more(self):
+    def test_get_trades_bisects_overflowing_window(self):
+        timestamp_to = self.timestamp_from + timedelta(milliseconds=4)
+        start = int(self.timestamp_from.timestamp() * 1000)
+        first = self.trade(100, start + 1)
+        second = self.trade(102, start + 2)
+
         with patch(
             "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
-            return_value={
-                "trades": [{"trade_seq": 7, "timestamp": 1784851201000}],
-                "has_more": False,
-            },
-        ):
-            _, is_last, next_pagination_id = get_trades(
+            side_effect=[
+                {"trades": [first], "has_more": True},
+                {"trades": [first], "has_more": False},
+                {"trades": [second], "has_more": False},
+            ],
+        ) as mocked:
+            result, is_last, pagination_id = get_trades(
                 "BTC-PERPETUAL",
                 self.timestamp_from,
-                {"end_seq": 7},
+                timestamp_to,
+                history=True,
             )
 
+        self.assertEqual(
+            mocked.call_args_list,
+            [
+                call("BTC-PERPETUAL", start, start + 3, history=True),
+                call("BTC-PERPETUAL", start, start + 1, history=True),
+                call("BTC-PERPETUAL", start + 2, start + 3, history=True),
+            ],
+        )
+        self.assertEqual(result, [first, second])
         self.assertTrue(is_last)
-        self.assertEqual(next_pagination_id, {"end_seq": 6})
+        self.assertIsNone(pagination_id)
 
-    def test_mixin_maps_inverse_perpetual_units_and_ordering(self):
+    def test_get_trades_deduplicates_only_identical_payloads(self):
+        timestamp_to = self.timestamp_from + timedelta(milliseconds=1)
+        start = int(self.timestamp_from.timestamp() * 1000)
+        trade = self.trade(100, start)
+
+        with patch(
+            "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
+            return_value={"trades": [trade, trade.copy()], "has_more": False},
+        ):
+            result, _, _ = get_trades(
+                "BTC-PERPETUAL",
+                self.timestamp_from,
+                timestamp_to,
+                history=True,
+            )
+
+        self.assertEqual(result, [trade])
+
+        conflict = trade | {"amount": 200}
+        with patch(
+            "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
+            return_value={"trades": [trade, conflict], "has_more": False},
+        ):
+            with self.assertRaisesRegex(ValueError, "conflicting trade sequence 100"):
+                get_trades(
+                    "BTC-PERPETUAL",
+                    self.timestamp_from,
+                    timestamp_to,
+                    history=True,
+                )
+
+    def test_get_trades_selects_recent_and_history_apis(self):
+        timestamp_to = self.timestamp_from + timedelta(milliseconds=1)
+        start = int(self.timestamp_from.timestamp() * 1000)
+        trade = self.trade(100, start)
+
+        for current_time, expected_history in (
+            (self.timestamp_from + timedelta(hours=1), False),
+            (self.timestamp_from + timedelta(days=2), True),
+        ):
+            with (
+                patch(
+                    "quant_tick.exchanges.deribit.trades.get_current_time",
+                    return_value=current_time,
+                ),
+                patch(
+                    "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
+                    return_value={"trades": [trade], "has_more": False},
+                ) as mocked,
+            ):
+                get_trades(
+                    "BTC-PERPETUAL",
+                    self.timestamp_from,
+                    timestamp_to,
+                )
+
+            mocked.assert_called_once_with(
+                "BTC-PERPETUAL",
+                start,
+                start,
+                history=expected_history,
+            )
+    def test_get_trades_rejects_invalid_window_responses(self):
+        timestamp_to = self.timestamp_from + timedelta(milliseconds=1)
+        start = int(self.timestamp_from.timestamp() * 1000)
+
+        outside = self.trade(100, start + 1)
+        with patch(
+            "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
+            return_value={"trades": [outside], "has_more": False},
+        ):
+            with self.assertRaisesRegex(ValueError, "outside requested window"):
+                get_trades(
+                    "BTC-PERPETUAL",
+                    self.timestamp_from,
+                    timestamp_to,
+                    history=True,
+                )
+
+        inside = self.trade(100, start)
+        with patch(
+            "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
+            return_value={"trades": [inside], "has_more": True},
+        ):
+            with self.assertRaisesRegex(ValueError, "within one millisecond"):
+                get_trades(
+                    "BTC-PERPETUAL",
+                    self.timestamp_from,
+                    timestamp_to,
+                    history=True,
+                )
+
+    def test_mixin_maps_inverse_perpetual_units_and_sparse_ordering(self):
         controller = DeribitTrades.__new__(DeribitTrades)
         controller.symbol = SimpleNamespace(
             symbol_type=SymbolType.PERPETUAL,
@@ -72,7 +191,7 @@ class DeribitTradesTest(SimpleTestCase):
                 "price": 62500.0,
             },
             {
-                "trade_seq": 101,
+                "trade_seq": 100,
                 "trade_id": "BTC-1",
                 "timestamp": 1784851201000,
                 "direction": "buy",
@@ -80,12 +199,19 @@ class DeribitTradesTest(SimpleTestCase):
                 "price": 62500.0,
             },
         ]
+        raw.reverse()
 
         parsed = controller.parse_data(raw)
         frame = controller.get_data_frame(parsed)
+        controller.assert_data_frame(
+            self.timestamp_from,
+            self.timestamp_from + timedelta(minutes=1),
+            frame,
+            parsed,
+        )
 
-        self.assertEqual(frame["uid"].tolist(), ["101", "102"])
-        self.assertEqual(frame["index"].tolist(), [101, 102])
+        self.assertEqual(frame["uid"].tolist(), ["100", "102"])
+        self.assertEqual(frame["index"].tolist(), [100, 102])
         self.assertEqual(frame["volume"].tolist(), [Decimal("250"), Decimal("500")])
         self.assertEqual(
             frame["notional"].tolist(),
@@ -93,28 +219,9 @@ class DeribitTradesTest(SimpleTestCase):
         )
         self.assertEqual(frame["tickRule"].tolist(), [1, -1])
 
-    def test_mixin_uses_sequence_before_next_stored_partition(self):
+    def test_mixin_uses_half_open_timestamp_window(self):
         controller = DeribitTrades.__new__(DeribitTrades)
-        controller.symbol = SimpleNamespace()
-
-        with patch(
-            "quant_tick.exchanges.deribit.base.TradeData.objects.get_last_uid",
-            return_value="101",
-        ) as mocked:
-            result = controller.get_pagination_id(self.timestamp_from)
-
-        mocked.assert_called_once_with(controller.symbol, self.timestamp_from)
-        self.assertEqual(result, {"end_seq": 100})
-
-    def test_mixin_uses_half_open_timestamp_for_initial_page(self):
-        controller = DeribitTrades.__new__(DeribitTrades)
-        controller.symbol = SimpleNamespace()
-
-        with patch(
-            "quant_tick.exchanges.deribit.base.TradeData.objects.get_last_uid",
-            return_value=None,
-        ):
-            result = controller.get_pagination_id(self.timestamp_from)
+        result = controller.get_pagination_id(self.timestamp_from)
 
         self.assertEqual(
             result,
@@ -139,6 +246,35 @@ class DeribitTradesTest(SimpleTestCase):
             resolution="1m",
         )
 
+    def test_main_fetches_each_missing_partition_independently(self):
+        controller = DeribitTrades.__new__(DeribitTrades)
+        controller.symbol = SimpleNamespace()
+        controller.timestamp_from = self.timestamp_from
+        controller.timestamp_to = self.timestamp_from + timedelta(hours=2)
+        controller.retry = False
+        controller.get_candles = Mock(side_effect=["newer", "older"])
+        controller.validate_websocket_partitions = Mock(return_value={})
+        controller.get_websocket_timestamp_from = Mock(
+            return_value=controller.timestamp_to
+        )
+        controller.on_rest_data_frame = Mock()
+        newer = (
+            self.timestamp_from + timedelta(hours=1),
+            self.timestamp_from + timedelta(hours=2),
+        )
+        older = (self.timestamp_from, self.timestamp_from + timedelta(hours=1))
+
+        with patch(
+            "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+            return_value=[newer, older],
+        ):
+            controller.main()
+
+        self.assertEqual(
+            controller.on_rest_data_frame.call_args_list,
+            [call(*newer, "newer"), call(*older, "older")],
+        )
+
     def test_deribit_trades_uses_exchange_controller(self):
         timestamp_to = self.timestamp_from + timedelta(minutes=1)
         symbol = SimpleNamespace(symbol_type=SymbolType.PERPETUAL)
@@ -155,8 +291,6 @@ class DeribitTradesTest(SimpleTestCase):
 
         controller.assert_called_once()
         controller.return_value.main.assert_called_once_with()
-
-
     def test_mixin_maps_spot_amount_as_base_asset(self):
         controller = DeribitTrades.__new__(DeribitTrades)
         controller.symbol = SimpleNamespace(
