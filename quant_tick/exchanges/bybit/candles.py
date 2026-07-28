@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from pandas import DataFrame
 
-from quant_tick.constants import SymbolType
+from quant_tick.constants import Exchange
 from quant_tick.lib import (
     candles_to_data_frame,
     get_interval_inclusive_end,
@@ -15,13 +15,16 @@ from .api import get_bybit_result, to_millis
 from .constants import CANDLE_MAX_RESULTS, CANDLE_RESOLUTIONS_BY_MINUTES
 
 
-def get_bybit_category(api_symbol: str, symbol_type: str) -> str:
-    if symbol_type == SymbolType.SPOT:
-        return "spot"
-    if symbol_type != SymbolType.PERPETUAL:
-        raise ValueError(f"Unsupported Bybit symbol type: {symbol_type}")
-    symbol = str(api_symbol).upper()
-    return "linear" if symbol.endswith(("USDT", "USDC")) else "inverse"
+def get_bybit_category(exchange: str) -> str:
+    categories = {
+        Exchange.BYBIT: "spot",
+        Exchange.BYBIT_LINEAR: "linear",
+        Exchange.BYBIT_INVERSE: "inverse",
+    }
+    try:
+        return categories[exchange]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported Bybit exchange: {exchange}") from exc
 
 
 def get_bybit_fetch_resolution(
@@ -152,7 +155,8 @@ def bybit_candles(
     timestamp_from: datetime,
     timestamp_to: datetime,
     resolution: str | int | None = "1m",
-    symbol_type: str = SymbolType.PERPETUAL,
+    *,
+    category: str,
 ) -> DataFrame:
     """Fetch Bybit candles."""
     target_minutes, source_minutes, interval = get_bybit_fetch_resolution(resolution)
@@ -162,7 +166,7 @@ def bybit_candles(
         timestamp_to,
         source_minutes=source_minutes,
         interval=interval,
-        category=get_bybit_category(api_symbol, symbol_type),
+        category=category,
     )
     if source_minutes == target_minutes:
         return data_frame

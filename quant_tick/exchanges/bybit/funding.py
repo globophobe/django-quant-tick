@@ -4,11 +4,9 @@ from decimal import Decimal
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.constants import SymbolType
 from quant_tick.exchanges.funding import ExchangeFunding
 
 from .api import get_bybit_result, to_millis
-from .candles import get_bybit_category
 from .constants import (
     FUNDING_MAX_RESULTS,
     MARKET_HISTORY_INTERVAL,
@@ -21,17 +19,13 @@ class BybitFunding(ExchangeFunding):
     timestamp_anomaly_tolerance = pd.Timedelta("1min")
 
 
-def _category(api_symbol: str) -> str:
-    return get_bybit_category(api_symbol, SymbolType.PERPETUAL)
-
-
-def get_bybit_funding_interval(api_symbol: str) -> timedelta:
+def get_bybit_funding_interval(api_symbol: str, *, category: str) -> timedelta:
     """Get Bybit funding interval."""
     symbol = str(api_symbol).strip().upper()
     result = get_bybit_result(
         "/v5/market/instruments-info",
         {
-            "category": _category(api_symbol),
+            "category": category,
             "symbol": symbol,
         },
     )
@@ -54,12 +48,13 @@ def get_bybit_funding_response(
     start_ms: int,
     end_ms: int,
     *,
+    category: str,
     limit: int = FUNDING_MAX_RESULTS,
 ) -> dict:
     return get_bybit_result(
         "/v5/market/funding/history",
         {
-            "category": _category(api_symbol),
+            "category": category,
             "symbol": str(api_symbol).strip().upper(),
             "startTime": start_ms,
             "endTime": end_ms,
@@ -72,6 +67,8 @@ def _fetch_funding_rows(
     api_symbol: str,
     timestamp_from: datetime,
     timestamp_to: datetime,
+    *,
+    category: str,
 ) -> list[dict]:
     start_ms = to_millis(timestamp_from)
     cursor_end_ms = to_millis(timestamp_to)
@@ -81,6 +78,7 @@ def _fetch_funding_rows(
             api_symbol,
             start_ms,
             cursor_end_ms,
+            category=category,
         )
         page = result.get("list", [])
         if not page:
@@ -120,12 +118,14 @@ def bybit_open_interest(
     api_symbol: str,
     timestamp_from: datetime,
     timestamp_to: datetime,
+    *,
+    category: str,
 ) -> DataFrame:
     columns = ["timestamp", "open_interest", "single_open_interest"]
     rows = _fetch_cursor_rows(
         "/v5/market/open-interest",
         {
-            "category": _category(api_symbol),
+            "category": category,
             "symbol": str(api_symbol).strip().upper(),
             "intervalTime": MARKET_HISTORY_INTERVAL,
             "startTime": to_millis(timestamp_from),
@@ -156,6 +156,8 @@ def bybit_account_ratio(
     api_symbol: str,
     timestamp_from: datetime,
     timestamp_to: datetime,
+    *,
+    category: str,
 ) -> DataFrame:
     columns = [
         "timestamp",
@@ -166,7 +168,7 @@ def bybit_account_ratio(
     rows = _fetch_cursor_rows(
         "/v5/market/account-ratio",
         {
-            "category": _category(api_symbol),
+            "category": category,
             "symbol": str(api_symbol).strip().upper(),
             "period": MARKET_HISTORY_INTERVAL,
             "startTime": to_millis(timestamp_from),
@@ -204,6 +206,7 @@ def bybit_funding(
     timestamp_from: datetime,
     timestamp_to: datetime,
     *,
+    category: str,
     funding_interval: str | timedelta | pd.Timedelta | None = None,
 ) -> DataFrame:
     """Fetch Bybit funding."""
@@ -220,7 +223,12 @@ def bybit_funding(
     if timestamp_to <= timestamp_from:
         return BybitFunding.empty_frame(columns)
 
-    rows = _fetch_funding_rows(api_symbol, timestamp_from, timestamp_to)
+    rows = _fetch_funding_rows(
+        api_symbol,
+        timestamp_from,
+        timestamp_to,
+        category=category,
+    )
     if not rows:
         return BybitFunding.empty_frame(columns)
 
@@ -237,13 +245,22 @@ def bybit_funding(
         }
     ).set_index("timestamp")
     df = df.join(
-        bybit_open_interest(api_symbol, timestamp_from, timestamp_to),
+        bybit_open_interest(
+            api_symbol,
+            timestamp_from,
+            timestamp_to,
+            category=category,
+        ),
         how="left",
     ).join(
-        bybit_account_ratio(api_symbol, timestamp_from, timestamp_to),
+        bybit_account_ratio(
+            api_symbol,
+            timestamp_from,
+            timestamp_to,
+            category=category,
+        ),
         how="left",
     )
-    category = _category(api_symbol)
     df["open_interest_unit"] = (
         "base_asset" if category == "linear" else "quote_asset"
     )
