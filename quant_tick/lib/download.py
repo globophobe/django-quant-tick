@@ -22,6 +22,9 @@ def download_content(url: str) -> bytes | None:
         raise ArchiveDownloadError(f"Archive download failed: {url}") from exc
     if response.status_code == 200:
         return response.content
+    if response.status_code == 404:
+        logger.info(f"Archive not found: {url}")
+        return None
     logger.error(f"Error {response.status_code}: {url}")
     return None
 

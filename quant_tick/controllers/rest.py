@@ -683,6 +683,7 @@ class ExchangeWebSocket(ExchangeREST):
             timestamp_from,
             timestamp_to,
             value="1min",
+            reverse=True,
         ):
             if TradeData.objects.overlapping(
                 self.symbol,

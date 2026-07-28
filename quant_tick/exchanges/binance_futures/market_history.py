@@ -64,10 +64,7 @@ def empty_market_history() -> DataFrame:
 def get_binance_metrics_archive_url(api_symbol: str, archive_date: date) -> str:
     symbol = str(api_symbol).strip().upper()
     date_str = archive_date.isoformat()
-    return (
-        f"{METRICS_S3_URL}/{symbol}/"
-        f"{symbol}-metrics-{date_str}.zip"
-    )
+    return f"{METRICS_S3_URL}/{symbol}/{symbol}-metrics-{date_str}.zip"
 
 
 def get_binance_metrics_archive(
@@ -89,12 +86,8 @@ def get_binance_metrics_archive(
     rename = {
         "sum_open_interest": "open_interest",
         "sum_open_interest_value": "open_interest_value",
-        "count_toptrader_long_short_ratio": (
-            "top_trader_long_short_account_ratio"
-        ),
-        "sum_toptrader_long_short_ratio": (
-            "top_trader_long_short_position_ratio"
-        ),
+        "count_toptrader_long_short_ratio": ("top_trader_long_short_account_ratio"),
+        "sum_toptrader_long_short_ratio": ("top_trader_long_short_position_ratio"),
         "count_long_short_ratio": "long_short_account_ratio",
         "sum_taker_long_short_vol_ratio": "taker_long_short_volume_ratio",
     }
@@ -149,29 +142,29 @@ def _fetch_rest_series(
     timestamp_from: datetime,
     timestamp_to: datetime,
 ) -> list[dict]:
-    cursor = timestamp_from
+    cursor = timestamp_to
     rows = []
-    while cursor < timestamp_to:
+    while cursor > timestamp_from:
         url = (
             f"{DATA_API_URL}/{endpoint}"
             f"?symbol={str(api_symbol).strip().upper()}"
             f"&period={MARKET_HISTORY_INTERVAL}"
-            f"&startTime={int(cursor.timestamp() * 1000)}"
-            f"&endTime={int(timestamp_to.timestamp() * 1000)}"
+            f"&startTime={int(timestamp_from.timestamp() * 1000)}"
+            f"&endTime={int(cursor.timestamp() * 1000)}"
             f"&limit={MARKET_HISTORY_MAX_RESULTS}"
         )
         page = get_binance_market_history_response(url)
         if not page:
             break
         rows.extend(page)
-        last_timestamp = max(int(item["timestamp"]) for item in page)
+        first_timestamp = min(int(item["timestamp"]) for item in page)
         next_cursor = pd.to_datetime(
-            last_timestamp + 1,
+            first_timestamp - 1,
             unit="ms",
             utc=True,
         ).to_pydatetime()
-        if next_cursor <= cursor:
-            raise ValueError(f"Binance {endpoint} pagination did not advance")
+        if next_cursor >= cursor:
+            raise ValueError(f"Binance {endpoint} pagination did not move backward")
         cursor = next_cursor
         if len(page) < MARKET_HISTORY_MAX_RESULTS:
             break
