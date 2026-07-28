@@ -36,7 +36,11 @@ Supported exchanges
 
 ✅ BitMEX REST API, and [S3](https://public.bitmex.com/) repository
 
+✅ Bybit [S3](https://public.bybit.com/trading/)
+
 ✅ Coinbase REST API
+
+✅ Deribit REST API
 
 Note: Exchanges without paginated REST APIs or an S3 repository, will never be supported.
 

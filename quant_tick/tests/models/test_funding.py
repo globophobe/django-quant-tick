@@ -52,6 +52,42 @@ class FundingDataTest(BaseSymbolTest, TestCase):
         self.assertEqual(rows[0].json_data["timestamp_offset_ms"], 5)
         self.assertEqual(rows[0].to_row()["mark_price"], Decimal("95000"))
 
+    def test_write_rejects_lost_lease_before_replacing_rows(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = timestamp_from + pd.Timedelta("1h")
+        original = pd.DataFrame(
+            [{"timestamp": timestamp_from, "funding_rate": Decimal("0.0001")}]
+        )
+        replacement = pd.DataFrame(
+            [{"timestamp": timestamp_from, "funding_rate": Decimal("0.0002")}]
+        )
+        FundingData.write(symbol, timestamp_from, timestamp_to, original)
+
+        def reject_lease():
+            type(symbol).objects.filter(pk=symbol.pk).update(api_symbol="stale-write")
+            raise RuntimeError("lease ownership lost")
+
+        with self.assertRaisesRegex(RuntimeError, "ownership lost"):
+            FundingData.write(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                replacement,
+                assert_lease_owned=reject_lease,
+            )
+
+        symbol.refresh_from_db()
+        self.assertEqual(symbol.api_symbol, "BTCUSDT")
+        self.assertEqual(
+            FundingData.objects.get(symbol=symbol, timestamp=timestamp_from).funding_rate,
+            Decimal("0.0001"),
+        )
+
     def test_write_rejects_spot_symbol(self):
         symbol = self.get_symbol(symbol_type=SymbolType.SPOT)
         data = pd.DataFrame(

@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 
 from django.db.models import Q
 from django.http import HttpRequest, JsonResponse
@@ -11,6 +12,12 @@ from quant_tick.exchanges.api import (
 )
 from quant_tick.lib.task_errors import is_transient_task_error
 from quant_tick.models import Symbol, TaskState
+from quant_tick.services.task_lease import (
+    TaskLeaseHeartbeat,
+    TaskLeaseLost,
+    clear_task_recent_error,
+    mark_task_recent_error,
+)
 from quant_tick.views.aggregate_trades import (
     TRANSIENT_COLLECTION_ERRORS,
     get_timestamp_range,
@@ -27,6 +34,8 @@ FUNDING_SUPPORTED_EXCHANGES = (
     Exchange.BINANCE_FUTURES,
     Exchange.BITFINEX,
     Exchange.BITMEX,
+    Exchange.BYBIT,
+    Exchange.DERIBIT,
     Exchange.HYPERLIQUID,
 )
 
@@ -95,6 +104,7 @@ class FetchExchangeDataView(View):
         timestamp_from,
         timestamp_to,
         retry: bool,
+        assert_lease_owned: Callable[[], None] | None = None,
     ) -> dict:
         counts = {"funding": 0, "exchange_candles": 0}
         if (
@@ -102,7 +112,13 @@ class FetchExchangeDataView(View):
             and symbol.symbol_type == SymbolType.PERPETUAL
         ):
             logger.info("{symbol}: funding starting...".format(symbol=str(symbol)))
-            fetch_symbol_funding(symbol, timestamp_from, timestamp_to, retry)
+            fetch_symbol_funding(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                retry,
+                assert_lease_owned=assert_lease_owned,
+            )
             counts["funding"] = 1
         if symbol.exchange_candle_resolution:
             logger.info(
@@ -114,6 +130,7 @@ class FetchExchangeDataView(View):
                 timestamp_to,
                 resolution=symbol.exchange_candle_resolution,
                 retry=retry,
+                assert_lease_owned=assert_lease_owned,
             )
             counts["exchange_candles"] = 1
         return counts
@@ -135,32 +152,45 @@ class FetchExchangeDataView(View):
             if not task_state.acquire():
                 counts["skipped"] += 1
                 continue
+            lease_heartbeat = TaskLeaseHeartbeat(state=task_state)
             try:
-                symbol_counts = self.fetch_symbol_exchange_data(
-                    symbol,
-                    timestamp_from,
-                    timestamp_to,
-                    retry,
-                )
-            except TRANSIENT_COLLECTION_ERRORS:
-                counts["failed"] += 1
-                task_state.mark_recent_error(backoff=False)
-                logger.exception("%s: fetch exchange data failed", symbol)
-            except Exception as exc:
-                counts["failed"] += 1
-                if is_soft_collection_error(exc):
-                    logger.warning("%s: fetch exchange data skipped: %s", symbol, exc)
-                elif is_transient_task_error(exc):
-                    task_state.mark_recent_error(backoff=False)
+                try:
+                    lease_heartbeat.start()
+                    symbol_counts = self.fetch_symbol_exchange_data(
+                        symbol,
+                        timestamp_from,
+                        timestamp_to,
+                        retry,
+                        assert_lease_owned=lease_heartbeat.assert_owned,
+                    )
+                except TaskLeaseLost:
+                    raise
+                except TRANSIENT_COLLECTION_ERRORS:
+                    mark_task_recent_error(state=task_state, backoff=False)
+                    counts["failed"] += 1
                     logger.exception("%s: fetch exchange data failed", symbol)
+                except Exception as exc:
+                    if is_soft_collection_error(exc):
+                        lease_heartbeat.assert_owned()
+                        counts["failed"] += 1
+                        logger.warning("%s: fetch exchange data skipped: %s", symbol, exc)
+                    elif is_transient_task_error(exc):
+                        mark_task_recent_error(state=task_state, backoff=False)
+                        counts["failed"] += 1
+                        logger.exception("%s: fetch exchange data failed", symbol)
+                    else:
+                        mark_task_recent_error(state=task_state)
+                        counts["failed"] += 1
+                        logger.exception("%s: fetch exchange data failed", symbol)
                 else:
-                    task_state.mark_recent_error()
-                    logger.exception("%s: fetch exchange data failed", symbol)
-            else:
-                counts["funding"] += symbol_counts["funding"]
-                counts["exchange_candles"] += symbol_counts["exchange_candles"]
-                task_state.clear_recent_error()
+                    clear_task_recent_error(state=task_state)
+                    counts["funding"] += symbol_counts["funding"]
+                    counts["exchange_candles"] += symbol_counts["exchange_candles"]
+            except TaskLeaseLost:
+                counts["failed"] += 1
+                logger.exception("%s: task lease ownership lost", symbol)
             finally:
+                lease_heartbeat.stop()
                 task_state.release()
         return counts
 

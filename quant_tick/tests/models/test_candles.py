@@ -60,6 +60,22 @@ class CandleInitializeTest(BaseSymbolTest, BaseDayIteratorTest, TestCase):
         self.assertEqual(timestamp_from, self.timestamp_from)
         self.assertEqual(timestamp_to, self.three_days_from_now)
 
+    def test_initial_timestamp_to_is_clamped_by_candle_date_to(self):
+        self.candle.date_to = self.two_days_from_now.date()
+        cases = (
+            (self.one_day_from_now, self.one_day_from_now),
+            (self.two_days_from_now, self.two_days_from_now),
+            (self.three_days_from_now, self.two_days_from_now),
+        )
+
+        for requested_to, expected_to in cases:
+            with self.subTest(requested_to=requested_to):
+                _timestamp_from, timestamp_to, _data = self.candle.initialize(
+                    self.timestamp_from,
+                    requested_to,
+                )
+                self.assertEqual(timestamp_to, expected_to)
+
     def test_initial_timestamp_from_with_candle_date_from(self):
         self.candle.date_from = self.one_day_from_now.date()
         timestamp_from, timestamp_to, _ = self.candle.initialize(

@@ -7,8 +7,17 @@ import pandas as pd
 from django.test import SimpleTestCase, TestCase
 
 from quant_tick.constants import Exchange, SymbolType
-from quant_tick.exchanges.api import FUNDING_FETCH_WINDOW, funding, funding_api
-from quant_tick.exchanges.binance.funding import binance_funding
+from quant_tick.exchanges.api import (
+    FUNDING_FETCH_WINDOW,
+    funding,
+    funding_api,
+    get_missing_funding_windows,
+    refresh_funding_interval,
+)
+from quant_tick.exchanges.binance_futures.funding import (
+    binance_futures_funding,
+    get_binance_futures_funding_interval,
+)
 from quant_tick.exchanges.bitfinex.funding import bitfinex_funding
 from quant_tick.exchanges.bitmex.funding import bitmex_funding
 from quant_tick.exchanges.hyperliquid.api import post_hyperliquid_info
@@ -19,6 +28,28 @@ from ..base import BaseSymbolTest
 
 
 class FundingAdapterTest(SimpleTestCase):
+    def test_binance_funding_interval_uses_adjusted_symbol_metadata(self):
+        with patch(
+            "quant_tick.exchanges.binance_futures.funding.get_binance_funding_response",
+            return_value=[
+                {"symbol": "BTCUSDT", "fundingIntervalHours": 4},
+            ],
+        ):
+            interval = get_binance_futures_funding_interval("btcusdt")
+
+        self.assertEqual(interval, timedelta(hours=4))
+
+    def test_binance_funding_interval_uses_default_without_adjustment(self):
+        with patch(
+            "quant_tick.exchanges.binance_futures.funding.get_binance_funding_response",
+            return_value=[
+                {"symbol": "ETHUSDT", "fundingIntervalHours": 4},
+            ],
+        ):
+            interval = get_binance_futures_funding_interval("BTCUSDT")
+
+        self.assertEqual(interval, timedelta(hours=8))
+
     def test_binance_funding_normalizes_rows(self):
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 25, 16, tzinfo=UTC)
@@ -39,11 +70,21 @@ class FundingAdapterTest(SimpleTestCase):
             },
         ]
 
-        with patch(
-            "quant_tick.exchanges.binance.funding.get_binance_funding_response",
-            return_value=data,
+        history = pd.DataFrame(
+            {"open_interest": [Decimal("123.4")]},
+            index=pd.DatetimeIndex([timestamp_from], name="timestamp"),
+        )
+        with (
+            patch(
+                "quant_tick.exchanges.binance_futures.funding.get_binance_funding_response",
+                return_value=data,
+            ),
+            patch(
+                "quant_tick.exchanges.binance_futures.funding.binance_market_history",
+                return_value=history,
+            ),
         ):
-            df = binance_funding("BTCUSDT", timestamp_from, timestamp_to)
+            df = binance_futures_funding("BTCUSDT", timestamp_from, timestamp_to)
 
         self.assertEqual(
             list(df.index),
@@ -60,14 +101,15 @@ class FundingAdapterTest(SimpleTestCase):
         )
         self.assertEqual(df.iloc[0].timestamp_offset_ms, 5)
         self.assertFalse(df.iloc[0].timestamp_anomaly)
+        self.assertEqual(df.iloc[0].open_interest, Decimal("123.4"))
         self.assertEqual(df.iloc[1].funding_rate, Decimal("0.0002"))
         self.assertIsNone(df.iloc[1].mark_price)
 
     def test_binance_funding_response_uses_shared_api_helper(self):
-        from quant_tick.exchanges.binance.funding import get_binance_funding_response
+        from quant_tick.exchanges.binance_futures.funding import get_binance_funding_response
 
         with patch(
-            "quant_tick.exchanges.binance.funding.get_binance_api_response",
+            "quant_tick.exchanges.binance_futures.funding.get_binance_api_response",
             return_value=[],
         ) as mocked:
             result = get_binance_funding_response("https://example.test/funding")
@@ -107,6 +149,46 @@ class FundingAdapterTest(SimpleTestCase):
         )
         self.assertEqual(df.iloc[0].timestamp_offset_ms, 1000)
         self.assertFalse(df.iloc[0].timestamp_anomaly)
+
+    def test_bitmex_funding_keeps_audit_metadata_aligned_after_sort(self):
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 25, 16, tzinfo=UTC)
+        data = [
+            {
+                "timestamp": "2026-04-25T12:00:02.000Z",
+                "fundingRate": "0.0002",
+            },
+            {
+                "timestamp": "2026-04-25T04:00:01.000Z",
+                "fundingRate": "0.0001",
+            },
+        ]
+
+        with patch(
+            "quant_tick.exchanges.bitmex.funding.get_bitmex_funding_response",
+            return_value=data,
+        ):
+            df = bitmex_funding("XBTUSD", timestamp_from, timestamp_to)
+
+        self.assertEqual(
+            list(df.index),
+            [
+                pd.Timestamp("2026-04-25T04:00:00Z"),
+                pd.Timestamp("2026-04-25T12:00:00Z"),
+            ],
+        )
+        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.0001"))
+        self.assertEqual(
+            df.iloc[0].raw_timestamp,
+            pd.Timestamp("2026-04-25T04:00:01Z"),
+        )
+        self.assertEqual(df.iloc[0].timestamp_offset_ms, 1000)
+        self.assertEqual(df.iloc[1].funding_rate, Decimal("0.0002"))
+        self.assertEqual(
+            df.iloc[1].raw_timestamp,
+            pd.Timestamp("2026-04-25T12:00:02Z"),
+        )
+        self.assertEqual(df.iloc[1].timestamp_offset_ms, 2000)
 
     def test_bitmex_funding_response_uses_shared_api_helper(self):
         from quant_tick.exchanges.bitmex.funding import get_bitmex_funding_response
@@ -242,12 +324,18 @@ class FundingAdapterTest(SimpleTestCase):
         timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
         expected = pd.DataFrame([])
 
-        with patch(
-            "quant_tick.exchanges.api.hyperliquid_funding",
-            return_value=expected,
-        ) as mocked:
+        with (
+            patch(
+                "quant_tick.exchanges.api.hyperliquid_funding",
+                return_value=expected,
+            ) as mocked,
+            patch(
+                "quant_tick.exchanges.api.refresh_funding_interval"
+            ) as refresh,
+        ):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
+        refresh.assert_called_once_with(symbol)
         mocked.assert_called_once_with("BTC", timestamp_from, timestamp_to)
         self.assertTrue(result.equals(expected))
 
@@ -262,13 +350,24 @@ class FundingAdapterTest(SimpleTestCase):
         timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
         expected = pd.DataFrame([])
 
-        with patch(
-            "quant_tick.exchanges.api.binance_funding",
-            return_value=expected,
-        ) as mocked:
+        with (
+            patch(
+                "quant_tick.exchanges.api.binance_futures_funding",
+                return_value=expected,
+            ) as mocked,
+            patch(
+                "quant_tick.exchanges.api.refresh_funding_interval"
+            ) as refresh,
+        ):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
-        mocked.assert_called_once_with("BTCUSDT", timestamp_from, timestamp_to)
+        refresh.assert_called_once_with(symbol)
+        mocked.assert_called_once_with(
+            "BTCUSDT",
+            timestamp_from,
+            timestamp_to,
+            funding_interval=None,
+        )
         self.assertTrue(result.equals(expected))
 
     def test_funding_api_dispatches_bitfinex_perpetuals(self):
@@ -282,12 +381,18 @@ class FundingAdapterTest(SimpleTestCase):
         timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
         expected = pd.DataFrame([])
 
-        with patch(
-            "quant_tick.exchanges.api.bitfinex_funding",
-            return_value=expected,
-        ) as mocked:
+        with (
+            patch(
+                "quant_tick.exchanges.api.bitfinex_funding",
+                return_value=expected,
+            ) as mocked,
+            patch(
+                "quant_tick.exchanges.api.refresh_funding_interval"
+            ) as refresh,
+        ):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
+        refresh.assert_called_once_with(symbol)
         mocked.assert_called_once_with("tBTCF0:USTF0", timestamp_from, timestamp_to)
         self.assertTrue(result.equals(expected))
 
@@ -307,6 +412,14 @@ class FundingAdapterTest(SimpleTestCase):
 
 
 class FundingFetchTest(BaseSymbolTest, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.interval_refresh_patcher = patch(
+            "quant_tick.exchanges.api.refresh_funding_interval"
+        )
+        self.interval_refresh = self.interval_refresh_patcher.start()
+        self.addCleanup(self.interval_refresh_patcher.stop)
+
     def get_binance_futures_symbol(self):
         return self.get_symbol(
             exchange=Exchange.BINANCE_FUTURES,
@@ -343,9 +456,10 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
             timestamp_from + timedelta(hours=8),
         )
 
-        with patch("quant_tick.exchanges.api.funding_api") as mocked:
+        with patch("quant_tick.exchanges.api._funding_api") as mocked:
             funding(symbol, timestamp_from, timestamp_to)
 
+        self.interval_refresh.assert_called_once_with(symbol, assert_lease_owned=None)
         mocked.assert_not_called()
         self.assertEqual(FundingData.objects.filter(symbol=symbol).count(), 2)
 
@@ -368,7 +482,7 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
         )
 
         with patch(
-            "quant_tick.exchanges.api.funding_api",
+            "quant_tick.exchanges.api._funding_api",
             return_value=data,
         ) as mocked:
             funding(symbol, timestamp_from, timestamp_to)
@@ -407,7 +521,7 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
         )
 
         with patch(
-            "quant_tick.exchanges.api.funding_api",
+            "quant_tick.exchanges.api._funding_api",
             return_value=data,
         ) as mocked:
             funding(symbol, timestamp_from, timestamp_to)
@@ -443,7 +557,7 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
             )
 
         with patch(
-            "quant_tick.exchanges.api.funding_api",
+            "quant_tick.exchanges.api._funding_api",
             side_effect=fetch,
         ) as mocked:
             funding(symbol, timestamp_from, timestamp_to)
@@ -477,7 +591,7 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
         )
 
         with patch(
-            "quant_tick.exchanges.api.funding_api",
+            "quant_tick.exchanges.api._funding_api",
             return_value=data,
         ) as mocked:
             funding(symbol, timestamp_from, timestamp_to, retry=True)
@@ -487,3 +601,152 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, timestamp_from + timedelta(hours=8))
         self.assertEqual(rows[0].funding_rate, Decimal("0.0004"))
+
+    def test_symbol_funding_interval_controls_missing_windows(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        symbol.funding_interval = timedelta(hours=4)
+        symbol.save(update_fields=["funding_interval"])
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(hours=12)
+        self.write_existing_rows(
+            symbol,
+            timestamp_from,
+            timestamp_from + timedelta(hours=8),
+        )
+
+        windows, has_existing = get_missing_funding_windows(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+        )
+
+        self.assertTrue(has_existing)
+        self.assertEqual(
+            windows,
+            [
+                (
+                    timestamp_from + timedelta(hours=4),
+                    timestamp_from + timedelta(hours=8),
+                )
+            ],
+        )
+
+
+class FundingIntervalRefreshTest(BaseSymbolTest, TestCase):
+    def test_refresh_persists_adapter_interval(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+
+        interval = refresh_funding_interval(symbol)
+
+        symbol.refresh_from_db()
+        self.assertEqual(interval, timedelta(hours=1))
+        self.assertEqual(symbol.funding_interval, timedelta(hours=1))
+
+    def test_refresh_persists_discovered_interval(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+
+        with patch(
+            "quant_tick.exchanges.api.get_bybit_funding_interval",
+            return_value=timedelta(hours=4),
+        ):
+            interval = refresh_funding_interval(symbol)
+
+        symbol.refresh_from_db()
+        self.assertEqual(interval, timedelta(hours=4))
+        self.assertEqual(symbol.funding_interval, timedelta(hours=4))
+
+    def test_refresh_rejects_changed_interval(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        symbol.funding_interval = timedelta(hours=8)
+        symbol.save(update_fields=["funding_interval"])
+
+        with (
+            patch(
+                "quant_tick.exchanges.api.get_bybit_funding_interval",
+                return_value=timedelta(hours=4),
+            ),
+            self.assertRaisesMessage(
+                ValueError,
+                "Automatic schedule transitions are not supported.",
+            ),
+        ):
+            refresh_funding_interval(symbol)
+
+        symbol.refresh_from_db()
+        self.assertEqual(symbol.funding_interval, timedelta(hours=8))
+
+    def test_funding_aborts_before_window_scan_when_interval_changes(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        symbol.funding_interval = timedelta(hours=8)
+        symbol.save(update_fields=["funding_interval"])
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(days=7)
+
+        with (
+            patch(
+                "quant_tick.exchanges.api.get_bybit_funding_interval",
+                return_value=timedelta(hours=4),
+            ),
+            patch(
+                "quant_tick.exchanges.api.get_missing_funding_windows"
+            ) as missing_windows,
+            self.assertRaisesMessage(
+                ValueError,
+                "Automatic schedule transitions are not supported.",
+            ),
+        ):
+            funding(symbol, timestamp_from, timestamp_to)
+
+        missing_windows.assert_not_called()
+
+    def test_public_funding_api_discovers_interval_before_dispatch(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(hours=8)
+        expected = pd.DataFrame([])
+
+        with (
+            patch(
+                "quant_tick.exchanges.api.get_bybit_funding_interval",
+                return_value=timedelta(hours=4),
+            ),
+            patch(
+                "quant_tick.exchanges.api.bybit_funding",
+                return_value=expected,
+            ) as adapter,
+        ):
+            result = funding_api(symbol, timestamp_from, timestamp_to)
+
+        symbol.refresh_from_db()
+        self.assertEqual(symbol.funding_interval, timedelta(hours=4))
+        adapter.assert_called_once_with(
+            "BTCUSDT",
+            timestamp_from,
+            timestamp_to,
+            funding_interval=timedelta(hours=4),
+        )
+        self.assertTrue(result.equals(expected))

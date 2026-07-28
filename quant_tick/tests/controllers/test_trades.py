@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pandas as pd
 import time_machine
@@ -1075,6 +1075,40 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
         self.assertEqual(controller.frames[0][0], expected_from)
         self.assertEqual(controller.frames[0][1], expected_to)
         self.assertEqual(list(controller.frames[0][2].timestamp), [expected_from])
+
+    @patch(
+        "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
+    )
+    def test_main_skips_leading_unpublished_days_then_stops_inside_history(
+        self, mock_get_max_timestamp_to
+    ):
+        timestamp_from = datetime(2009, 1, 1, tzinfo=UTC)
+        timestamp_to = datetime(2009, 1, 4, tzinfo=UTC)
+        available = self.get_data_frame().copy()
+        available["timestamp"] = available["timestamp"] - self.one_day
+        controller = DummyExchangeS3(
+            self.symbol,
+            timestamp_from=timestamp_from,
+            timestamp_to=timestamp_to,
+            retry=False,
+            verbose=False,
+            data_frame=available,
+        )
+        controller.get_data_frame = Mock(side_effect=[None, available, None])
+
+        controller.main()
+
+        self.assertEqual(
+            [call.args[0] for call in controller.get_data_frame.call_args_list],
+            [
+                datetime(2009, 1, 3).date(),
+                datetime(2009, 1, 2).date(),
+                datetime(2009, 1, 1).date(),
+            ],
+        )
+        self.assertEqual(len(controller.frames), 1)
+        self.assertEqual(controller.frames[0][0], datetime(2009, 1, 2, tzinfo=UTC))
 
     def test_bitmex_main_skips_known_missing_archive_date(self):
         controller = DummyMissingBitmexExchangeS3(

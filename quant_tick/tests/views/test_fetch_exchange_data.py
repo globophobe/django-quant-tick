@@ -42,10 +42,21 @@ class FetchExchangeDataViewTest(TestCase):
             symbol_type=SymbolType.PERPETUAL,
         )
         Symbol.objects.create(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        Symbol.objects.create(
             exchange=Exchange.COINBASE,
             api_symbol="BTC-USD",
             symbol_type=SymbolType.SPOT,
             exchange_candle_resolution="1d",
+        )
+        Symbol.objects.create(
+            exchange=Exchange.DERIBIT,
+            api_symbol="BTC-PERPETUAL",
+            symbol_type=SymbolType.PERPETUAL,
+            exchange_candle_resolution="8h",
         )
 
     def get_url(self) -> str:
@@ -57,28 +68,52 @@ class FetchExchangeDataViewTest(TestCase):
         response = self.client.get(self.get_url())
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["funding"], 3)
-        self.assertEqual(response.json()["exchange_candles"], 4)
-        self.assertEqual(mock_funding.call_count, 3)
+        self.assertEqual(response.json()["funding"], 5)
+        self.assertEqual(response.json()["exchange_candles"], 5)
+        self.assertEqual(mock_funding.call_count, 5)
+        self.assertTrue(
+            all(
+                callable(call.kwargs["assert_lease_owned"])
+                for call in mock_funding.call_args_list
+            )
+        )
+        self.assertTrue(
+            all(
+                callable(call.kwargs["assert_lease_owned"])
+                for call in mock_candles.call_args_list
+            )
+        )
         funding_symbols = {
-            call.args[0].api_symbol for call in mock_funding.call_args_list
+            (call.args[0].exchange, call.args[0].api_symbol)
+            for call in mock_funding.call_args_list
         }
-        self.assertEqual(funding_symbols, {"BTC", "BTCUSDT", "tBTCF0:USTF0"})
-        self.assertEqual(mock_candles.call_count, 4)
+        self.assertEqual(
+            funding_symbols,
+            {
+                (Exchange.BINANCE_FUTURES, "BTCUSDT"),
+                (Exchange.BITFINEX, "tBTCF0:USTF0"),
+                (Exchange.BYBIT, "BTCUSDT"),
+                (Exchange.DERIBIT, "BTC-PERPETUAL"),
+                (Exchange.HYPERLIQUID, "BTC"),
+            },
+        )
+        self.assertEqual(mock_candles.call_count, 5)
         candle_symbols = {
             call.args[0].api_symbol for call in mock_candles.call_args_list
         }
-        self.assertEqual(candle_symbols, {"BTC", "SOL", "BTC-USD", "tBTCF0:USTF0"})
+        self.assertEqual(candle_symbols, {"BTC", "BTC-PERPETUAL", "SOL", "BTC-USD", "tBTCF0:USTF0"})
         candle_resolutions = {
             call.kwargs["resolution"] for call in mock_candles.call_args_list
         }
-        self.assertEqual(candle_resolutions, {"1d", "1h", "4h"})
+        self.assertEqual(candle_resolutions, {"1d", "1h", "4h", "8h"})
         self.assertEqual(
             set(response.json()["exchanges"]),
             {
                 Exchange.BINANCE_FUTURES,
                 Exchange.BITFINEX,
+                Exchange.BYBIT,
                 Exchange.COINBASE,
+                Exchange.DERIBIT,
                 Exchange.HYPERLIQUID,
             },
         )
@@ -90,7 +125,9 @@ class FetchExchangeDataViewTest(TestCase):
             [
                 (Exchange.BINANCE_FUTURES, "BTCUSDT"),
                 (Exchange.BITFINEX, "tBTCF0:USTF0"),
+                (Exchange.BYBIT, "BTCUSDT"),
                 (Exchange.COINBASE, "BTC-USD"),
+                (Exchange.DERIBIT, "BTC-PERPETUAL"),
                 (Exchange.HYPERLIQUID, "BTC"),
                 (Exchange.HYPERLIQUID, "SOL"),
             ],
@@ -168,12 +205,21 @@ class FetchExchangeDataViewTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["skipped"], 1)
-        self.assertEqual(response.json()["funding"], 2)
+        self.assertEqual(response.json()["funding"], 4)
         funding_symbols = {
-            call.args[0].api_symbol for call in mock_funding.call_args_list
+            (call.args[0].exchange, call.args[0].api_symbol)
+            for call in mock_funding.call_args_list
         }
-        self.assertEqual(funding_symbols, {"BTC", "tBTCF0:USTF0"})
-        self.assertEqual(mock_candles.call_count, 4)
+        self.assertEqual(
+            funding_symbols,
+            {
+                (Exchange.BITFINEX, "tBTCF0:USTF0"),
+                (Exchange.BYBIT, "BTCUSDT"),
+                (Exchange.DERIBIT, "BTC-PERPETUAL"),
+                (Exchange.HYPERLIQUID, "BTC"),
+            },
+        )
+        self.assertEqual(mock_candles.call_count, 5)
 
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
@@ -182,7 +228,7 @@ class FetchExchangeDataViewTest(TestCase):
         mock_funding,
         mock_candles,
     ):
-        def funding_side_effect(symbol, *_args):
+        def funding_side_effect(symbol, *_args, **_kwargs):
             if symbol.api_symbol == "BTC":
                 raise RuntimeError("boom")
 
@@ -194,8 +240,8 @@ class FetchExchangeDataViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["ok"])
         self.assertEqual(response.json()["failed"], 1)
-        self.assertEqual(response.json()["funding"], 2)
-        self.assertEqual(response.json()["exchange_candles"], 3)
+        self.assertEqual(response.json()["funding"], 4)
+        self.assertEqual(response.json()["exchange_candles"], 4)
         failed_task = TaskState.objects.get(
             task_type=TaskType.FETCH_EXCHANGE_DATA,
             exchange=Exchange.HYPERLIQUID,

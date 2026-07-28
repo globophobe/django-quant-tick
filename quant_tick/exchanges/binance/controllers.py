@@ -1,16 +1,14 @@
 import datetime
-import os
 from collections.abc import Callable
 
 from pandas import DataFrame
 
-from quant_tick.constants import SymbolType, TradeDataRetry
-from quant_tick.controllers import ExchangeREST, ExchangeS3, use_s3
+from quant_tick.constants import TradeDataRetry
+from quant_tick.controllers import ExchangeREST, ExchangeS3
 from quant_tick.lib import zip_downloader
 from quant_tick.models import Symbol
 
 from .base import BinanceMixin, BinanceS3Mixin
-from .constants import BINANCE_API_KEY
 
 
 def binance_trades(
@@ -22,28 +20,15 @@ def binance_trades(
     verbose: bool = False,
 ) -> None:
     """Get Binance trades."""
-    if symbol.symbol_type == SymbolType.PERPETUAL and not os.environ.get(
-        BINANCE_API_KEY
-    ):
-        return
-    if timestamp_to > use_s3():
-        BinanceTradesREST(
-            symbol,
-            timestamp_from=timestamp_from if timestamp_from > use_s3() else use_s3(),
-            timestamp_to=timestamp_to,
-            on_data_frame=on_data_frame,
-            retry=retry,
-            verbose=verbose,
-        ).main()
-    if timestamp_from < use_s3():
-        BinanceTradesS3(
-            symbol,
-            timestamp_from=timestamp_from,
-            timestamp_to=timestamp_to if timestamp_to < use_s3() else use_s3(),
-            on_data_frame=on_data_frame,
-            retry=retry,
-            verbose=verbose,
-        ).main()
+    kwargs = {
+        "timestamp_from": timestamp_from,
+        "timestamp_to": timestamp_to,
+        "on_data_frame": on_data_frame,
+        "retry": retry,
+        "verbose": verbose,
+    }
+    BinanceTradesS3(symbol, **kwargs).main()
+    BinanceTradesREST(symbol, **kwargs).main()
 
 
 class BinanceTradesREST(BinanceMixin, ExchangeREST):
@@ -55,8 +40,7 @@ class BinanceTradesS3(BinanceS3Mixin, ExchangeS3):
 
     def get_data_frame(self, date: datetime.date) -> DataFrame | None:
         """Get data_frame from ZIP file."""
-        url = self.get_url(date)
-        df = zip_downloader(url, self.csv_columns)
+        df = zip_downloader(self.get_url(date), self.csv_columns)
         if df is not None and len(df):
             return self.parse_dtypes_and_strip_columns(df)
         return df

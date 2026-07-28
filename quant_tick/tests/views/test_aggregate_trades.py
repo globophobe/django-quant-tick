@@ -57,6 +57,9 @@ class AggregateTradeViewTest(TestCase):
                 ("test-2", False),
             ],
         )
+        self.assertTrue(
+            all(callable(call.kwargs["assert_lease_owned"]) for call in mock_api.call_args_list)
+        )
         task_states = TaskState.objects.filter(
             task_type=TaskType.AGGREGATE_TRADES,
             exchange=Exchange.COINBASE,

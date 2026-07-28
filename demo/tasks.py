@@ -98,7 +98,7 @@ def build_container(
         build_args = " ".join(
             [f'--build-arg {key}="{value}"' for key, value in build_args.items()]
         )
-        name = get_container_name(ctx, name)
+        name = get_container_name(ctx, name, region=region)
         cmd = " ".join(
             [
                 "docker build",
@@ -120,6 +120,30 @@ def push_container(
     # Push
     cmd = f"docker push {name}"
     ctx.run(cmd)
+
+
+@task
+def update_container(
+    ctx: Any,
+    name: str = "django-quant-tick",
+    region: str = "asia-northeast1",
+) -> None:
+    """Update the Cloud Run container."""
+    build_container(ctx, name=name, region=region)
+    push_container(ctx, name=name, region=region)
+    image = get_container_name(ctx, name, region=region)
+    ctx.run(
+        " ".join(
+            [
+                "gcloud run deploy",
+                name,
+                f"--image={image}",
+                f"--region={region}",
+                "--platform=managed",
+                "--quiet",
+            ]
+        )
+    )
 
 
 def _optional_int_env(name: str) -> int | None:

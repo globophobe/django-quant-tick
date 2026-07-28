@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from django.conf import settings
-from django.db import models
+from django.db import close_old_connections, models
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -103,6 +104,7 @@ class TaskState(models.Model):
         null=True,
         blank=True,
     )
+    lock_token = models.UUIDField(_("lock token"), null=True, blank=True)
 
     def can_run(self, *, now: datetime | None = None) -> bool:
         """Whether the task is outside its backoff window."""
@@ -113,20 +115,36 @@ class TaskState(models.Model):
         """Acquire the task lease if it is not already held."""
         current_time = now or timezone.now()
         locked_until = current_time + get_task_lock_lease()
+        lock_token = uuid4()
         updated = TaskState.objects.filter(pk=self.pk).filter(
             Q(locked_until__isnull=True) | Q(locked_until__lte=current_time)
-        ).update(locked_until=locked_until)
+        ).update(
+            locked_until=locked_until,
+            lock_token=lock_token,
+        )
         if not updated:
             return False
         self.locked_until = locked_until
+        self.lock_token = lock_token
         return True
 
     def release(self) -> None:
         """Release the task lease."""
-        if self.locked_until is None:
+        if self.lock_token is None:
+            return
+        lock_token = self.lock_token
+        close_old_connections()
+        updated = TaskState.objects.filter(
+            pk=self.pk,
+            lock_token=lock_token,
+        ).update(
+            locked_until=None,
+            lock_token=None,
+        )
+        if updated != 1:
             return
         self.locked_until = None
-        self.save(update_fields=["locked_until"])
+        self.lock_token = None
 
     def mark_recent_error(
         self, *, now: datetime | None = None, backoff: bool = True
@@ -144,6 +162,7 @@ class TaskState(models.Model):
         else:
             self.recent_error_count += 1
             self.next_fetch_at = None
+        close_old_connections()
         self.save(
             update_fields=["recent_error_at", "recent_error_count", "next_fetch_at"]
         )
@@ -159,6 +178,7 @@ class TaskState(models.Model):
         self.recent_error_at = None
         self.recent_error_count = 0
         self.next_fetch_at = None
+        close_old_connections()
         self.save(
             update_fields=["recent_error_at", "recent_error_count", "next_fetch_at"]
         )

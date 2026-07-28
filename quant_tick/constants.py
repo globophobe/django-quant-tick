@@ -24,7 +24,9 @@ class Exchange(models.TextChoices):
     BINANCE_FUTURES = "binance-futures", "Binance Futures"
     BITFINEX = "bitfinex", "Bitfinex"
     BITMEX = "bitmex", "BitMEX"
+    BYBIT = "bybit", "Bybit"
     COINBASE = "coinbase", "Coinbase"
+    DERIBIT = "deribit", "Deribit"
     HYPERLIQUID = "hyperliquid", "Hyperliquid"
 
 

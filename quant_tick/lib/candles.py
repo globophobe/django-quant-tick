@@ -161,8 +161,8 @@ def _aggregate_ohlc(df: DataFrame) -> dict:
     if "price" in df.columns:
         return {
             "open": df.iloc[0].price,
-            "high": df.price.max(),
-            "low": df.price.min(),
+            "high": df.high.max() if "high" in df.columns else df.price.max(),
+            "low": df.low.min() if "low" in df.columns else df.price.min(),
             "close": df.iloc[-1].price,
         }
     return {

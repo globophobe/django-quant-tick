@@ -8,6 +8,12 @@ from quant_tick.lib import get_min_time
 from quant_tick.constants import TaskType
 from quant_tick.models import Candle, Symbol, TaskState
 from quant_tick.models.task_state import TASK_STATE_EXCHANGE_ALL
+from quant_tick.services.task_lease import (
+    TaskLeaseHeartbeat,
+    TaskLeaseLost,
+    clear_task_recent_error,
+    mark_task_recent_error,
+)
 from quant_tick.storage import (
     convert_candle_cache_to_daily,
     convert_trade_data_to_daily,
@@ -50,26 +56,38 @@ class CompactView(View):
             return JsonResponse({"ok": True, "skipped": "locked"})
 
         failed = 0
+        lease_heartbeat = TaskLeaseHeartbeat(state=task_state)
         try:
+            lease_heartbeat.start()
             for symbol in self.symbol_queryset:
                 try:
                     convert_trade_data_to_daily(symbol, timestamp_from, timestamp_to)
                 except Exception:
+                    lease_heartbeat.assert_owned()
                     failed += 1
                     logger.exception("TradeData compaction failed for %s", symbol)
+                else:
+                    lease_heartbeat.assert_owned()
 
             for candle in self.candle_queryset:
                 try:
                     convert_candle_cache_to_daily(candle)
                 except Exception:
+                    lease_heartbeat.assert_owned()
                     failed += 1
                     logger.exception("CandleCache compaction failed for %s", candle)
+                else:
+                    lease_heartbeat.assert_owned()
 
             if failed:
-                task_state.mark_recent_error(backoff=False)
+                mark_task_recent_error(state=task_state, backoff=False)
             else:
-                task_state.clear_recent_error()
+                clear_task_recent_error(state=task_state)
+        except TaskLeaseLost:
+            logger.exception("Compaction task lease ownership lost")
+            raise
         finally:
+            lease_heartbeat.stop()
             task_state.release()
 
         return JsonResponse({"ok": True})

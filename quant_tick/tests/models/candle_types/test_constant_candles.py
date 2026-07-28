@@ -9,6 +9,7 @@ from django.test import TestCase
 from quant_tick.constants import FileData, Frequency, SampleType
 from quant_tick.lib import get_current_time
 from quant_tick.models import CandleCache, CandleData, ConstantCandle, TradeData
+from quant_tick.services.task_lease import TaskLeaseLost
 
 from .base import BaseDayIteratorTest, BaseHourIteratorTest, BaseTradeDataCandleTest
 
@@ -122,6 +123,62 @@ class ConstantNotionalHourFrequencyCandleTest(
         filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
         self.candle.candles(self.timestamp_from, self.one_hour_from_now)
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+
+    def test_cache_is_rolled_back_when_data_write_fails(
+        self, mock_get_current_time
+    ):
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        self.write_trade_data(
+            self.timestamp_from,
+            self.one_hour_from_now,
+            filtered,
+        )
+
+        with patch.object(
+            self.candle,
+            "write_data",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                self.candle.candles(self.timestamp_from, self.one_hour_from_now)
+
+        self.assertFalse(CandleCache.objects.exists())
+        self.assertFalse(CandleData.objects.exists())
+
+    def test_lease_loss_stops_before_next_partition_commit(
+        self, mock_get_current_time
+    ):
+        first = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        second = self.get_filtered(self.one_hour_from_now, notional=Decimal("1"))
+        self.write_trade_data(
+            self.timestamp_from,
+            self.one_hour_from_now,
+            first,
+        )
+        self.write_trade_data(
+            self.one_hour_from_now,
+            self.two_hours_from_now,
+            second,
+        )
+        assertion_count = 0
+
+        def assert_lease_owned():
+            nonlocal assertion_count
+            assertion_count += 1
+            if assertion_count == 2:
+                raise TaskLeaseLost("lease ownership lost")
+
+        with self.assertRaisesRegex(TaskLeaseLost, "ownership lost"):
+            self.candle.candles(
+                self.timestamp_from,
+                self.two_hours_from_now,
+                assert_lease_owned=assert_lease_owned,
+            )
+
+        self.assertEqual(CandleCache.objects.count(), 1)
         candle_data = CandleData.objects.all()
         self.assertEqual(candle_data.count(), 1)
         self.assertEqual(candle_data[0].timestamp, self.timestamp_from)

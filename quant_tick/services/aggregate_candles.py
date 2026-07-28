@@ -7,6 +7,12 @@ from quant_tick.constants import TaskType
 from quant_tick.lib import get_current_time, get_min_time
 from quant_tick.lib.task_errors import is_transient_task_error
 from quant_tick.models import Candle, Symbol, TaskState
+from quant_tick.services.task_lease import (
+    TaskLeaseHeartbeat,
+    TaskLeaseLost,
+    clear_task_recent_error,
+    mark_task_recent_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,19 +106,33 @@ class AggregateCandleService:
         released = set()
         try:
             for task_state, items in tasks:
+                lease_heartbeat = TaskLeaseHeartbeat(state=task_state)
                 try:
+                    lease_heartbeat.start()
                     for candle, timestamp_from, timestamp_to, retry in items:
                         logger.info(
                             "{candle}: starting...".format(**{"candle": str(candle)})
                         )
-                        candle.candles(timestamp_from, timestamp_to, retry)
+                        candle.candles(
+                            timestamp_from,
+                            timestamp_to,
+                            retry,
+                            assert_lease_owned=lease_heartbeat.assert_owned,
+                        )
+                        lease_heartbeat.assert_owned()
                         processed += 1
+                except TaskLeaseLost:
+                    raise
                 except Exception as exc:
-                    task_state.mark_recent_error(backoff=not is_transient_task_error(exc))
+                    mark_task_recent_error(
+                        state=task_state,
+                        backoff=not is_transient_task_error(exc),
+                    )
                     raise
                 else:
-                    task_state.clear_recent_error()
+                    clear_task_recent_error(state=task_state)
                 finally:
+                    lease_heartbeat.stop()
                     task_state.release()
                     released.add(task_state.pk)
         finally:
