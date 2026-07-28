@@ -130,16 +130,17 @@ class BinanceMarketHistoryTest(SimpleTestCase):
             ],
         )
 
-    def test_rest_series_paginates_forward_without_overlap(self):
+    def test_rest_series_paginates_backward_without_overlap(self):
         timestamp_from = datetime(2026, 1, 1, tzinfo=UTC)
         timestamp_to = timestamp_from + timedelta(minutes=20)
         first = int(timestamp_from.timestamp() * 1000)
-        page_one = [
+        newest = [
+            {"timestamp": first + 600_000, "sumOpenInterest": "102"},
+            {"timestamp": first + 900_000, "sumOpenInterest": "103"},
+        ]
+        oldest = [
             {"timestamp": first, "sumOpenInterest": "100"},
             {"timestamp": first + 300_000, "sumOpenInterest": "101"},
-        ]
-        page_two = [
-            {"timestamp": first + 600_000, "sumOpenInterest": "102"},
         ]
 
         with (
@@ -151,7 +152,7 @@ class BinanceMarketHistoryTest(SimpleTestCase):
             patch(
                 "quant_tick.exchanges.binance_futures.market_history."
                 "get_binance_market_history_response",
-                side_effect=[page_one, page_two],
+                side_effect=[newest, oldest],
             ) as mocked,
         ):
             result = _fetch_rest_series(
@@ -161,11 +162,33 @@ class BinanceMarketHistoryTest(SimpleTestCase):
                 timestamp_to,
             )
 
-        self.assertEqual(result, [*page_one, *page_two])
+        self.assertEqual(result, [*newest, *oldest])
         self.assertEqual(mocked.call_count, 2)
-        self.assertIn(f"startTime={first + 300_001}", mocked.call_args.args[0])
-        self.assertIn("symbol=BTCUSDT", mocked.call_args.args[0])
-        self.assertIn("period=5m", mocked.call_args.args[0])
+        first_url = mocked.call_args_list[0].args[0]
+        second_url = mocked.call_args_list[1].args[0]
+        self.assertIn(f"startTime={first}", first_url)
+        self.assertIn(f"endTime={int(timestamp_to.timestamp() * 1000)}", first_url)
+        self.assertIn(f"endTime={first + 599_999}", second_url)
+        self.assertIn("symbol=BTCUSDT", second_url)
+        self.assertIn("period=5m", second_url)
+
+    def test_rest_series_rejects_page_that_does_not_move_backward(self):
+        timestamp_from = datetime(2026, 1, 1, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(minutes=20)
+        timestamp = int((timestamp_to + timedelta(minutes=5)).timestamp() * 1000)
+
+        with patch(
+            "quant_tick.exchanges.binance_futures.market_history."
+            "get_binance_market_history_response",
+            return_value=[{"timestamp": timestamp}],
+        ):
+            with self.assertRaisesRegex(ValueError, "did not move backward"):
+                _fetch_rest_series(
+                    "BTCUSDT",
+                    "takerlongshortRatio",
+                    timestamp_from,
+                    timestamp_to,
+                )
 
     def test_rest_combines_all_market_history_series(self):
         timestamp = datetime(2026, 1, 1, tzinfo=UTC)
@@ -226,8 +249,7 @@ class BinanceMarketHistoryTest(SimpleTestCase):
 
         with (
             patch(
-                "quant_tick.exchanges.binance_futures.market_history."
-                "get_current_time",
+                "quant_tick.exchanges.binance_futures.market_history.get_current_time",
                 return_value=timestamp_to,
             ),
             patch(

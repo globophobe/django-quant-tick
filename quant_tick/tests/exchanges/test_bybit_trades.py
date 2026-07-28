@@ -28,8 +28,7 @@ class BybitTradesTest(SimpleTestCase):
 
         self.assertEqual(
             url,
-            "https://public.bybit.com/trading/BTCUSDT/"
-            "BTCUSDT2026-07-23.csv.gz",
+            "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2026-07-23.csv.gz",
         )
 
     def test_trades_use_archive_then_websocket_without_publication_clamp(self):
@@ -43,9 +42,7 @@ class BybitTradesTest(SimpleTestCase):
 
         calls = []
         with (
-            patch(
-                "quant_tick.exchanges.bybit.controllers.BybitTradesS3"
-            ) as archive,
+            patch("quant_tick.exchanges.bybit.controllers.BybitTradesS3") as archive,
             patch(
                 "quant_tick.exchanges.bybit.controllers.BybitTradesWebSocket"
             ) as websocket,
@@ -110,6 +107,50 @@ class BybitTradesTest(SimpleTestCase):
             filtered,
             candles,
             filtered_trades=filtered,
+        )
+
+    def test_websocket_controller_promotes_newest_minute_first(self):
+        timestamp_from = datetime(2026, 7, 23, 12, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(minutes=2)
+        newest = timestamp_from + timedelta(minutes=1)
+        symbol = SimpleNamespace(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+            save_raw=False,
+            save_aggregated=False,
+            significant_trade_filter=1000,
+        )
+        on_data_frame = Mock()
+        old_filtered = pd.DataFrame([{"uid": "old"}])
+        new_filtered = pd.DataFrame([{"uid": "new"}])
+        controller = BybitTradesWebSocket(
+            symbol,
+            timestamp_from,
+            timestamp_to,
+            on_data_frame,
+        )
+        controller.get_websocket_timestamp_from = Mock(return_value=timestamp_from)
+        controller.get_candles = Mock(return_value=pd.DataFrame([]))
+        controller.validate_websocket_partitions = Mock(
+            return_value={
+                timestamp_from: (None, None, old_filtered),
+                newest: (None, None, new_filtered),
+            }
+        )
+
+        with patch(
+            "quant_tick.controllers.rest.TradeData.objects.overlapping"
+        ) as overlapping:
+            overlapping.return_value.exists.return_value = False
+            controller.main()
+
+        self.assertEqual(
+            [(call.args[1], call.args[2]) for call in on_data_frame.call_args_list],
+            [
+                (newest, timestamp_to),
+                (timestamp_from, newest),
+            ],
         )
 
     def test_websocket_controller_preserves_larger_archive_partition(self):
