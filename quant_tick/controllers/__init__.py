@@ -10,7 +10,7 @@ from .rest import (
     iter_api,
     throttle_api_requests,
 )
-from .s3 import ExchangeS3, use_s3
+from .s3 import ChunkedExchangeS3, ExchangeS3, use_s3
 
 __all__ = [
     "HTTPX_ERRORS",
@@ -23,6 +23,7 @@ __all__ = [
     "is_terminal_page",
     "iter_api",
     "throttle_api_requests",
+    "ChunkedExchangeS3",
     "ExchangeS3",
     "use_s3",
 ]

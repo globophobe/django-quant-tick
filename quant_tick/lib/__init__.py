@@ -50,7 +50,12 @@ from .dataframe import (
     to_decimal_or_none,
     validate_totals,
 )
-from .download import gzip_downloader, zip_downloader
+from .download import (
+    gzip_chunk_downloader,
+    gzip_downloader,
+    zip_chunk_downloader,
+    zip_downloader,
+)
 
 __all__ = [
     "aggregate_candle",
@@ -98,6 +103,8 @@ __all__ = [
     "set_type_decimal",
     "to_decimal_or_none",
     "validate_totals",
+    "gzip_chunk_downloader",
     "gzip_downloader",
+    "zip_chunk_downloader",
     "zip_downloader",
 ]

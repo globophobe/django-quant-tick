@@ -86,6 +86,16 @@ class BinanceS3Mixin(BinanceMixin):
         ]
 
     @property
+    def archive_csv_columns(self) -> list[str]:
+        return [
+            "id",
+            "price",
+            "qty",
+            "time",
+            "isBuyerMaker",
+        ]
+
+    @property
     def columns(self) -> list:
         return [
             "uid",
@@ -97,6 +107,19 @@ class BinanceS3Mixin(BinanceMixin):
             "tickRule",
         ]
 
+    def prepare_archive_chunk(self, df: DataFrame) -> DataFrame:
+        header_rows = df["id"].astype(str).str.lower() == "id"
+        return df.loc[~header_rows].copy() if header_rows.any() else df
+
+    @staticmethod
+    def get_archive_timestamp_unit(times: pd.Series) -> str:
+        return "us" if int(times.iloc[0]) > 1e14 else "ms"
+
+    def get_archive_timestamp_nanoseconds(self, df: DataFrame) -> pd.Series:
+        times = df["time"].astype("int64")
+        scale = 1_000 if self.get_archive_timestamp_unit(times) == "us" else 1_000_000
+        return times * scale
+
     def get_url(self, date: datetime.date) -> str:
         symbol = self.symbol.api_symbol
         date_str = date.isoformat()
@@ -104,16 +127,13 @@ class BinanceS3Mixin(BinanceMixin):
 
     def parse_dtypes_and_strip_columns(self, df: DataFrame) -> DataFrame:
         """Parse Binance S3 columns into the canonical trade schema."""
-        header_rows = df["id"].astype(str).str.lower() == "id"
-        if header_rows.any():
-            df = df.loc[~header_rows].copy()
+        df = self.prepare_archive_chunk(df)
         df = set_type_decimal(df, "price")
         df = set_type_decimal(df, "qty")
         # S3 files are daily, so first timestamp
         times = df["time"].astype("int64")
-        first_time = int(times.iloc[0])
         # Milliseconds: ~13 digits (1e12), microseconds: ~16 digits (1e15)
-        unit = "us" if first_time > 1e14 else "ms"
+        unit = self.get_archive_timestamp_unit(times)
         df["timestamp"] = pd.to_datetime(times, unit=unit, utc=True)
         df["nanoseconds"] = 0
         if unit == "us":

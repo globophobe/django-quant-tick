@@ -1,5 +1,6 @@
 API_URL = "https://api.bybit.com"
-S3_URL = "https://public.bybit.com/trading"
+DERIVATIVES_S3_URL = "https://public.bybit.com/trading"
+SPOT_S3_URL = "https://public.bybit.com/spot"
 
 MIN_ELAPSED_PER_REQUEST = 0.05
 CANDLE_MAX_RESULTS = 1000

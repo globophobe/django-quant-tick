@@ -127,8 +127,10 @@ class BinanceFuturesTradesTest(SimpleTestCase):
             "BTCUSDT/BTCUSDT-aggTrades-2026-07-20.zip",
         )
 
-    def test_s3_normalizes_archive_schema(self):
-        controller = BinanceFuturesTradesS3.__new__(BinanceFuturesTradesS3)
+    def test_s3_normalizes_chunked_archive_schema(self):
+        first_hour = datetime(2026, 7, 20, tzinfo=UTC)
+        second_hour = first_hour + timedelta(hours=1)
+        timestamp_to = second_hour + timedelta(hours=1)
         data = pd.DataFrame(
             [
                 {
@@ -149,20 +151,64 @@ class BinanceFuturesTradesTest(SimpleTestCase):
                     "transact_time": "1784505600061",
                     "is_buyer_maker": "false",
                 },
+                {
+                    "agg_trade_id": "3387637574",
+                    "price": "64700",
+                    "quantity": "0.100",
+                    "first_trade_id": "7912146439",
+                    "last_trade_id": "7912146440",
+                    "transact_time": "1784509200061",
+                    "is_buyer_maker": "true",
+                },
             ]
         )
+        symbol = self.get_symbol()
+        on_data_frame = Mock()
+        controller = BinanceFuturesTradesS3(
+            symbol,
+            timestamp_from=first_hour,
+            timestamp_to=timestamp_to,
+            on_data_frame=on_data_frame,
+        )
+        controller.get_data_frame_chunks = Mock(
+            return_value=iter([data.iloc[:2].copy(), data.iloc[2:].copy()])
+        )
+        controller.get_candles = Mock(return_value=pd.DataFrame([]))
 
-        parsed = controller.parse_dtypes_and_strip_columns(data)
+        with (
+            patch(
+                "quant_tick.controllers.s3.TradeDataIterator.iter_days",
+                return_value=[(first_hour, timestamp_to, [])],
+            ),
+            patch(
+                "quant_tick.controllers.s3.TradeDataIterator.iter_hours",
+                return_value=[
+                    (second_hour, timestamp_to),
+                    (first_hour, second_hour),
+                ],
+            ),
+        ):
+            controller.main()
 
-        self.assertEqual(parsed.iloc[0].uid, "3387637573")
-        self.assertEqual(parsed.iloc[0].notional, Decimal("0.597"))
-        self.assertEqual(parsed.iloc[0].tickRule, 1)
-        self.assertEqual(parsed.iloc[0].ticks, 47)
         self.assertEqual(
-            parsed.iloc[0].timestamp,
+            [(call.args[1], call.args[2]) for call in on_data_frame.call_args_list],
+            [
+                (first_hour, second_hour),
+                (second_hour, timestamp_to),
+            ],
+        )
+        first = on_data_frame.call_args_list[0].args[3]
+        second = on_data_frame.call_args_list[1].args[3]
+        self.assertEqual(first.iloc[0].uid, "3387637573")
+        self.assertEqual(first.iloc[0].notional, Decimal("0.597"))
+        self.assertEqual(first.iloc[0].tickRule, 1)
+        self.assertEqual(first.iloc[0].ticks, 47)
+        self.assertEqual(
+            first.iloc[0].timestamp,
             pd.Timestamp("2026-07-20T00:00:00.061Z"),
         )
-        self.assertEqual(parsed.iloc[0].nanoseconds, 0)
+        self.assertEqual(first.iloc[0].nanoseconds, 0)
+        self.assertEqual(second["uid"].tolist(), ["3387637574"])
 
     def test_s3_keeps_microseconds_in_timestamp_not_residual_nanoseconds(self):
         controller = BinanceFuturesTradesS3.__new__(BinanceFuturesTradesS3)

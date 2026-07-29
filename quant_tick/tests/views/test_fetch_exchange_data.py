@@ -42,7 +42,7 @@ class FetchExchangeDataViewTest(TestCase):
             symbol_type=SymbolType.PERPETUAL,
         )
         Symbol.objects.create(
-            exchange=Exchange.BYBIT,
+            exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
             symbol_type=SymbolType.PERPETUAL,
         )
@@ -92,7 +92,7 @@ class FetchExchangeDataViewTest(TestCase):
             {
                 (Exchange.BINANCE_FUTURES, "BTCUSDT"),
                 (Exchange.BITFINEX, "tBTCF0:USTF0"),
-                (Exchange.BYBIT, "BTCUSDT"),
+                (Exchange.BYBIT_LINEAR, "BTCUSDT"),
                 (Exchange.DERIBIT, "BTC-PERPETUAL"),
                 (Exchange.HYPERLIQUID, "BTC"),
             },
@@ -111,7 +111,7 @@ class FetchExchangeDataViewTest(TestCase):
             {
                 Exchange.BINANCE_FUTURES,
                 Exchange.BITFINEX,
-                Exchange.BYBIT,
+                Exchange.BYBIT_LINEAR,
                 Exchange.COINBASE,
                 Exchange.DERIBIT,
                 Exchange.HYPERLIQUID,
@@ -125,7 +125,7 @@ class FetchExchangeDataViewTest(TestCase):
             [
                 (Exchange.BINANCE_FUTURES, "BTCUSDT"),
                 (Exchange.BITFINEX, "tBTCF0:USTF0"),
-                (Exchange.BYBIT, "BTCUSDT"),
+                (Exchange.BYBIT_LINEAR, "BTCUSDT"),
                 (Exchange.COINBASE, "BTC-USD"),
                 (Exchange.DERIBIT, "BTC-PERPETUAL"),
                 (Exchange.HYPERLIQUID, "BTC"),
@@ -214,7 +214,7 @@ class FetchExchangeDataViewTest(TestCase):
             funding_symbols,
             {
                 (Exchange.BITFINEX, "tBTCF0:USTF0"),
-                (Exchange.BYBIT, "BTCUSDT"),
+                (Exchange.BYBIT_LINEAR, "BTCUSDT"),
                 (Exchange.DERIBIT, "BTC-PERPETUAL"),
                 (Exchange.HYPERLIQUID, "BTC"),
             },

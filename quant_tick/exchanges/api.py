@@ -28,6 +28,7 @@ from .bitfinex.funding import BitfinexFunding
 from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
 from .bitmex.funding import BitmexFunding
 from .bybit import bybit_candles, bybit_funding, bybit_trades
+from .bybit.candles import get_bybit_category
 from .bybit.funding import BybitFunding, get_bybit_funding_interval
 from .coinbase import coinbase_candles, coinbase_trades
 from .deribit import deribit_candles, deribit_funding, deribit_trades
@@ -36,12 +37,23 @@ from .funding import ExchangeFunding
 from .hyperliquid import hyperliquid_candles, hyperliquid_funding
 from .hyperliquid.funding import HyperliquidFunding
 
+BYBIT_EXCHANGES = {
+    Exchange.BYBIT,
+    Exchange.BYBIT_LINEAR,
+    Exchange.BYBIT_INVERSE,
+}
+BYBIT_DERIVATIVE_EXCHANGES = {
+    Exchange.BYBIT_LINEAR,
+    Exchange.BYBIT_INVERSE,
+}
+
 FUNDING_FETCH_WINDOW = timedelta(days=90)
 FUNDING_CHUNKED_EXCHANGES = {
     Exchange.BINANCE_FUTURES,
     Exchange.BITFINEX,
     Exchange.BITMEX,
-    Exchange.BYBIT,
+    Exchange.BYBIT_LINEAR,
+    Exchange.BYBIT_INVERSE,
     Exchange.DERIBIT,
     Exchange.HYPERLIQUID,
 }
@@ -49,7 +61,8 @@ FUNDING_MODEL = {
     Exchange.BINANCE_FUTURES: BinanceFuturesFunding,
     Exchange.BITFINEX: BitfinexFunding,
     Exchange.BITMEX: BitmexFunding,
-    Exchange.BYBIT: BybitFunding,
+    Exchange.BYBIT_LINEAR: BybitFunding,
+    Exchange.BYBIT_INVERSE: BybitFunding,
     Exchange.DERIBIT: DeribitFunding,
     Exchange.HYPERLIQUID: HyperliquidFunding,
 }
@@ -66,6 +79,14 @@ def get_binance_symbol_type(symbol: Symbol) -> str:
     if symbol.exchange == Exchange.BINANCE_FUTURES:
         raise ValueError("binance-futures must be perpetuals.")
     raise ValueError("binance symbols must be spot.")
+
+
+def get_bybit_symbol_type(symbol: Symbol) -> str:
+    category = get_bybit_category(symbol.exchange)
+    expected = SymbolType.SPOT if category == "spot" else SymbolType.PERPETUAL
+    if symbol.symbol_type != expected:
+        raise ValueError(f"{symbol.exchange} must be {expected}.")
+    return expected
 
 
 def api(
@@ -145,7 +166,8 @@ def trades_api(
         bitfinex_trades(symbol, **kwargs)
     elif exchange == Exchange.BITMEX:
         bitmex_trades(symbol, **kwargs)
-    elif exchange == Exchange.BYBIT:
+    elif exchange in BYBIT_EXCHANGES:
+        get_bybit_symbol_type(symbol)
         bybit_trades(symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         coinbase_trades(symbol, **kwargs)
@@ -175,10 +197,11 @@ def candles_api(
         candles = bitfinex_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BITMEX:
         candles = bitmex_candles(api_symbol, **kwargs)
-    elif exchange == Exchange.BYBIT:
+    elif exchange in BYBIT_EXCHANGES:
+        get_bybit_symbol_type(symbol)
         candles = bybit_candles(
             api_symbol,
-            symbol_type=symbol.symbol_type,
+            category=get_bybit_category(exchange),
             **kwargs,
         )
     elif exchange == Exchange.COINBASE:
@@ -209,11 +232,12 @@ def _funding_api(
         return bitfinex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.BITMEX:
         return bitmex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
-    if exchange == Exchange.BYBIT:
+    if exchange in BYBIT_DERIVATIVE_EXCHANGES:
         return bybit_funding(
             symbol.api_symbol,
             timestamp_from,
             timestamp_to,
+            category=get_bybit_category(exchange),
             funding_interval=getattr(symbol, "funding_interval", "") or None,
         )
     if exchange == Exchange.DERIBIT:
@@ -253,8 +277,11 @@ def refresh_funding_interval(
 ) -> timedelta | None:
     if symbol.exchange == Exchange.BINANCE_FUTURES:
         interval = get_binance_futures_funding_interval(symbol.api_symbol)
-    elif symbol.exchange == Exchange.BYBIT:
-        interval = get_bybit_funding_interval(symbol.api_symbol)
+    elif symbol.exchange in BYBIT_DERIVATIVE_EXCHANGES:
+        interval = get_bybit_funding_interval(
+            symbol.api_symbol,
+            category=get_bybit_category(symbol.exchange),
+        )
     else:
         adapter_interval = get_funding_model(symbol).interval
         if adapter_interval is None:

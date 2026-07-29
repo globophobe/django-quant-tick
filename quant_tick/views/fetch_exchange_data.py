@@ -34,7 +34,8 @@ FUNDING_SUPPORTED_EXCHANGES = (
     Exchange.BINANCE_FUTURES,
     Exchange.BITFINEX,
     Exchange.BITMEX,
-    Exchange.BYBIT,
+    Exchange.BYBIT_LINEAR,
+    Exchange.BYBIT_INVERSE,
     Exchange.DERIBIT,
     Exchange.HYPERLIQUID,
 )

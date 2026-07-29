@@ -107,20 +107,32 @@ class BinanceFuturesS3Mixin(BinanceFuturesMixin):
             "ticks",
         ]
 
+    def prepare_archive_chunk(self, df: DataFrame) -> DataFrame:
+        header_rows = (
+            df["agg_trade_id"].astype(str).str.lower() == "agg_trade_id"
+        )
+        return df.loc[~header_rows].copy() if header_rows.any() else df
+
+    @staticmethod
+    def get_archive_timestamp_unit(times: pd.Series) -> str:
+        return "us" if int(times.iloc[0]) > 1e14 else "ms"
+
+    def get_archive_timestamp_nanoseconds(self, df: DataFrame) -> pd.Series:
+        times = df["transact_time"].astype("int64")
+        scale = 1_000 if self.get_archive_timestamp_unit(times) == "us" else 1_000_000
+        return times * scale
+
     def get_url(self, date: datetime.date) -> str:
         symbol = self.symbol.api_symbol
         date_str = date.isoformat()
         return f"{S3_URL}/{symbol}/{symbol}-aggTrades-{date_str}.zip"
 
     def parse_dtypes_and_strip_columns(self, data_frame: DataFrame) -> DataFrame:
-        df = data_frame.copy()
-        header_rows = df["agg_trade_id"].astype(str).str.lower() == "agg_trade_id"
-        if header_rows.any():
-            df = df.loc[~header_rows].copy()
+        df = self.prepare_archive_chunk(data_frame)
         df = set_type_decimal(df, "price")
         df = set_type_decimal(df, "quantity")
         times = df["transact_time"].astype("int64")
-        unit = "us" if int(times.iloc[0]) > 1e14 else "ms"
+        unit = self.get_archive_timestamp_unit(times)
         df["timestamp"] = pd.to_datetime(times, unit=unit, utc=True)
         df["nanoseconds"] = 0
         df = df.rename(columns={"agg_trade_id": "uid", "quantity": "notional"})
