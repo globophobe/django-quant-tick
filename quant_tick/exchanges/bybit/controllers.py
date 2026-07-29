@@ -1,8 +1,12 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 
 from quant_tick.constants import TradeDataRetry
-from quant_tick.controllers import ExchangeS3, ExchangeWebSocket
+from quant_tick.controllers import (
+    ChunkedExchangeS3,
+    ExchangeWebSocket,
+)
+from quant_tick.lib import gzip_chunk_downloader
 from quant_tick.models import Symbol
 
 from .base import (
@@ -42,12 +46,30 @@ def bybit_trades(
     ).main()
 
 
-class BybitTradesS3(BybitS3Mixin, ExchangeS3):
+class BybitTradesS3(BybitS3Mixin, ChunkedExchangeS3):
     """Bybit trades S3."""
 
+    archive_chunksize = 200_000
 
-class BybitSpotTradesS3(BybitSpotS3Mixin, ExchangeS3):
+    def get_data_frame_chunks(self, value: date):
+        """Download one complete archive and return its CSV chunks."""
+        return gzip_chunk_downloader(
+            self.get_url(value),
+            self.gzipped_csv_columns,
+            chunksize=self.archive_chunksize,
+        )
+
+
+
+class BybitSpotTradesS3(BybitSpotS3Mixin, ChunkedExchangeS3):
     """Bybit spot trades S3."""
+
+    def get_data_frame_chunks(self, value: date):
+        return gzip_chunk_downloader(
+            self.get_url(value),
+            self.gzipped_csv_columns,
+            chunksize=self.archive_chunksize,
+        )
 
 
 class BybitTradesWebSocket(BybitMixin, ExchangeWebSocket):

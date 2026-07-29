@@ -5,8 +5,8 @@ from functools import wraps
 from pandas import DataFrame
 
 from quant_tick.constants import TradeDataRetry
-from quant_tick.controllers import ExchangeREST, ExchangeS3
-from quant_tick.lib import zip_downloader
+from quant_tick.controllers import ChunkedExchangeS3, ExchangeREST
+from quant_tick.lib import zip_chunk_downloader
 from quant_tick.models import Symbol
 
 from .base import BinanceFuturesMixin, BinanceFuturesS3Mixin
@@ -60,11 +60,12 @@ class BinanceFuturesTradesREST(BinanceFuturesMixin, ExchangeREST):
     """Binance Futures trades REST."""
 
 
-class BinanceFuturesTradesS3(BinanceFuturesS3Mixin, ExchangeS3):
+class BinanceFuturesTradesS3(BinanceFuturesS3Mixin, ChunkedExchangeS3):
     """Binance Futures trades S3."""
 
-    def get_data_frame(self, date: datetime.date) -> DataFrame | None:
-        df = zip_downloader(self.get_url(date), self.csv_columns)
-        if df is not None and len(df):
-            return self.parse_dtypes_and_strip_columns(df)
-        return df
+    def get_data_frame_chunks(self, value: datetime.date):
+        return zip_chunk_downloader(
+            self.get_url(value),
+            self.csv_columns,
+            chunksize=self.archive_chunksize,
+        )

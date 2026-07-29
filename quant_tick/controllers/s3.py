@@ -1,6 +1,8 @@
 import datetime
 import logging
+from collections.abc import Iterable, Iterator
 
+import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
@@ -9,6 +11,7 @@ from quant_tick.lib import (
     calculate_tick_rule,
     filter_by_timestamp,
     get_current_time,
+    get_min_time,
     gzip_downloader,
     set_dtypes,
 )
@@ -115,3 +118,161 @@ class ExchangeS3(BaseController):
         data_frame = calculate_notional(data_frame)
         data_frame = calculate_tick_rule(data_frame)
         return data_frame[self.columns]
+
+
+class ChunkedExchangeS3(ExchangeS3):
+    """Process complete daily archives in bounded timestamp frames."""
+
+    archive_chunksize = 200_000
+
+    def get_data_frame_chunks(
+        self,
+        value: datetime.date,
+    ) -> Iterable[DataFrame] | None:
+        raise NotImplementedError
+
+    def prepare_archive_chunk(self, data_frame: DataFrame) -> DataFrame:
+        return data_frame
+
+    def get_archive_timestamp_nanoseconds(
+        self,
+        data_frame: DataFrame,
+    ) -> pd.Series:
+        raise NotImplementedError
+
+    def iter_archive_hours(
+        self,
+        data_frames: Iterable[DataFrame],
+    ) -> Iterator[tuple[datetime.datetime, DataFrame]]:
+        current_hour = None
+        current_parts = []
+        previous_timestamp = None
+        nanoseconds_per_hour = 3_600_000_000_000
+
+        for data_frame in data_frames:
+            data_frame = self.prepare_archive_chunk(data_frame)
+            if not len(data_frame):
+                continue
+            timestamps = self.get_archive_timestamp_nanoseconds(data_frame)
+            values = timestamps.to_numpy(dtype="int64", copy=False)
+            if previous_timestamp is not None and values[0] < previous_timestamp:
+                raise ValueError("archive timestamps are not monotonic")
+            if len(values) > 1 and np.any(values[1:] < values[:-1]):
+                raise ValueError("archive timestamps are not monotonic")
+            previous_timestamp = int(values[-1])
+
+            hours = values // nanoseconds_per_hour
+            boundaries = np.flatnonzero(hours[1:] != hours[:-1]) + 1
+            starts = np.concatenate(([0], boundaries))
+            stops = np.concatenate((boundaries, [len(data_frame)]))
+            for start, stop in zip(starts, stops, strict=True):
+                hour = int(hours[start])
+                if current_hour is not None and hour != current_hour:
+                    timestamp = pd.Timestamp(
+                        current_hour * nanoseconds_per_hour,
+                        unit="ns",
+                        tz="UTC",
+                    ).to_pydatetime()
+                    frame = (
+                        current_parts[0]
+                        if len(current_parts) == 1
+                        else pd.concat(current_parts, ignore_index=True, copy=False)
+                    )
+                    current_parts = []
+                    yield timestamp, frame
+                    del frame
+                current_hour = hour
+                current_parts.append(data_frame.iloc[start:stop])
+
+        if current_hour is not None:
+            timestamp = pd.Timestamp(
+                current_hour * nanoseconds_per_hour,
+                unit="ns",
+                tz="UTC",
+            ).to_pydatetime()
+            frame = (
+                current_parts[0]
+                if len(current_parts) == 1
+                else pd.concat(current_parts, ignore_index=True, copy=False)
+            )
+            current_parts = []
+            yield timestamp, frame
+
+    def main(self) -> None:
+        """Fetch daily archives and persist bounded hourly frames."""
+        iterator = TradeDataIterator(self.symbol)
+        archive_started = False
+        for timestamp_from, timestamp_to, existing in iterator.iter_days(
+            self.timestamp_from,
+            self.timestamp_to,
+            retry=self.retry,
+        ):
+            chunks = self.get_data_frame_chunks(timestamp_from.date())
+            if chunks is None:
+                if timestamp_from.date() in self.missing_archive_dates:
+                    continue
+                if archive_started:
+                    break
+                continue
+            archive_started = True
+            windows = sorted(
+                iterator.iter_hours(timestamp_from, timestamp_to, existing),
+                key=lambda value: value[0],
+            )
+            windows_by_hour = {}
+            for window_from, window_to in windows:
+                hour = get_min_time(window_from, "1h")
+                windows_by_hour.setdefault(hour, []).append(
+                    (window_from, window_to)
+                )
+            try:
+                candles = self.get_candles(timestamp_from, timestamp_to)
+                for hour, raw_data in self.iter_archive_hours(chunks):
+                    hour_windows = windows_by_hour.pop(hour, ())
+                    if not hour_windows:
+                        del raw_data
+                        continue
+                    data_frame = self.parse_dtypes_and_strip_columns(raw_data)
+                    for window_from, window_to in hour_windows:
+                        self._write_archive_window(
+                            window_from,
+                            window_to,
+                            data_frame,
+                            candles,
+                        )
+                    del data_frame, raw_data
+            finally:
+                close = getattr(chunks, "close", None)
+                if close is not None:
+                    close()
+
+            empty = pd.DataFrame(columns=self.columns)
+            for hour_windows in windows_by_hour.values():
+                for window_from, window_to in hour_windows:
+                    self._write_archive_window(
+                        window_from,
+                        window_to,
+                        empty,
+                        candles,
+                    )
+
+    def _write_archive_window(
+        self,
+        timestamp_from: datetime.datetime,
+        timestamp_to: datetime.datetime,
+        data_frame: DataFrame,
+        candles: DataFrame,
+    ) -> None:
+        trades = filter_by_timestamp(data_frame, timestamp_from, timestamp_to)
+        window_candles = filter_by_timestamp(
+            candles,
+            timestamp_from,
+            timestamp_to,
+        )
+        self.on_data_frame(
+            self.symbol,
+            timestamp_from,
+            timestamp_to,
+            trades,
+            window_candles,
+        )
