@@ -232,11 +232,19 @@ class BybitTradesTest(SimpleTestCase):
         websocket.assert_called_once()
         websocket.return_value.main.assert_called_once_with()
 
-    def test_spot_archive_normalizes_units_side_and_order(self):
-        controller = BybitSpotTradesS3.__new__(BybitSpotTradesS3)
-        controller.symbol = SimpleNamespace(api_symbol="BTCUSDT")
+    def test_spot_archive_normalizes_chunked_hours(self):
+        first_hour = datetime(2022, 11, 10, tzinfo=UTC)
+        second_hour = first_hour + timedelta(hours=1)
+        timestamp_to = second_hour + timedelta(hours=1)
         data = pd.DataFrame(
             [
+                {
+                    "id": "1",
+                    "timestamp": "1668038400525",
+                    "price": "15910.61",
+                    "volume": "0.003383",
+                    "side": "sell",
+                },
                 {
                     "id": "2",
                     "timestamp": "1668038400526",
@@ -245,71 +253,158 @@ class BybitTradesTest(SimpleTestCase):
                     "side": "buy",
                 },
                 {
-                    "id": "1",
-                    "timestamp": "1668038400525",
-                    "price": "15910.61",
-                    "volume": "0.003383",
-                    "side": "sell",
+                    "id": "3",
+                    "timestamp": "1668042000000",
+                    "price": "16000",
+                    "volume": "0.001",
+                    "side": "buy",
                 },
             ]
         )
+        symbol = SimpleNamespace(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.SPOT,
+        )
+        on_data_frame = Mock()
+        controller = BybitSpotTradesS3(
+            symbol,
+            timestamp_from=first_hour,
+            timestamp_to=timestamp_to,
+            on_data_frame=on_data_frame,
+        )
+        controller.get_data_frame_chunks = Mock(
+            return_value=iter([data.iloc[:1].copy(), data.iloc[1:].copy()])
+        )
+        controller.get_candles = Mock(return_value=pd.DataFrame([]))
 
-        parsed = controller.parse_dtypes_and_strip_columns(data)
+        with (
+            patch(
+                "quant_tick.controllers.s3.TradeDataIterator.iter_days",
+                return_value=[(first_hour, timestamp_to, [])],
+            ),
+            patch(
+                "quant_tick.controllers.s3.TradeDataIterator.iter_hours",
+                return_value=[
+                    (second_hour, timestamp_to),
+                    (first_hour, second_hour),
+                ],
+            ),
+        ):
+            controller.main()
 
-        self.assertEqual(parsed["uid"].tolist(), ["1", "2"])
-        self.assertEqual(parsed["tickRule"].tolist(), [-1, 1])
         self.assertEqual(
-            parsed["notional"].tolist(),
+            [(call.args[1], call.args[2]) for call in on_data_frame.call_args_list],
+            [
+                (first_hour, second_hour),
+                (second_hour, timestamp_to),
+            ],
+        )
+        first = on_data_frame.call_args_list[0].args[3]
+        second = on_data_frame.call_args_list[1].args[3]
+        self.assertEqual(first["uid"].tolist(), ["1", "2"])
+        self.assertEqual(first["tickRule"].tolist(), [-1, 1])
+        self.assertEqual(
+            first["notional"].tolist(),
             [Decimal("0.003383"), Decimal("0.0001")],
         )
         self.assertEqual(
-            parsed["volume"].tolist(),
+            first["volume"].tolist(),
             [Decimal("53.82559363"), Decimal("1.591030")],
         )
-        self.assertEqual(parsed["nanoseconds"].tolist(), [0, 0])
+        self.assertEqual(first["nanoseconds"].tolist(), [0, 0])
+        self.assertEqual(second["uid"].tolist(), ["3"])
 
-    def test_linear_archive_normalizes_units_side_and_order(self):
+    def test_linear_archive_normalizes_chunked_hours(self):
+        first_hour = datetime(2020, 1, 1, tzinfo=UTC)
+        second_hour = first_hour + timedelta(hours=1)
+        timestamp_to = second_hour + timedelta(hours=1)
         data = pd.DataFrame(
             [
                 {
-                    "timestamp": "1585180700.0647",
-                    "symbol": "BTCUSDT",
-                    "side": "Buy",
-                    "size": "0.042",
-                    "price": "6698.5",
-                    "tickDirection": "MinusTick",
-                    "trdMatchID": "later",
-                    "grossValue": "28133700000",
-                    "foreignNotional": "281.337",
-                },
-                {
-                    "timestamp": "1585180700.0200",
-                    "symbol": "BTCUSDT",
+                    "timestamp": "1577836800.0200",
                     "side": "Sell",
                     "size": "0.072",
                     "price": "6698",
-                    "tickDirection": "PlusTick",
                     "trdMatchID": "earlier",
-                    "grossValue": "48225600000",
-                    "foreignNotional": "482.256",
+                    "symbol": "BTCUSDT",
+                },
+                {
+                    "timestamp": "1577836800.0647",
+                    "side": "Buy",
+                    "size": "0.042",
+                    "price": "6698.5",
+                    "trdMatchID": "later",
+                    "symbol": "BTCUSDT",
+                },
+                {
+                    "timestamp": "1577840400.0100",
+                    "side": "Buy",
+                    "size": "0.001",
+                    "price": "6700",
+                    "trdMatchID": "second-hour",
+                    "symbol": "BTCUSDT",
                 },
             ]
         )
+        symbol = SimpleNamespace(
+            exchange=Exchange.BYBIT_LINEAR,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        on_data_frame = Mock()
+        controller = BybitTradesS3(
+            symbol,
+            timestamp_from=first_hour,
+            timestamp_to=timestamp_to,
+            on_data_frame=on_data_frame,
+        )
+        controller.get_data_frame_chunks = Mock(
+            return_value=iter([data.iloc[:1].copy(), data.iloc[1:].copy()])
+        )
+        controller.get_candles = Mock(return_value=pd.DataFrame([]))
 
-        parsed = self.get_controller().parse_dtypes_and_strip_columns(data)
+        with (
+            patch(
+                "quant_tick.controllers.s3.TradeDataIterator.iter_days",
+                return_value=[(first_hour, timestamp_to, [])],
+            ),
+            patch(
+                "quant_tick.controllers.s3.TradeDataIterator.iter_hours",
+                return_value=[
+                    (second_hour, timestamp_to),
+                    (first_hour, second_hour),
+                ],
+            ),
+        ):
+            controller.main()
 
-        self.assertEqual(parsed["uid"].tolist(), ["earlier", "later"])
-        self.assertEqual(parsed["tickRule"].tolist(), [-1, 1])
         self.assertEqual(
-            parsed["notional"].tolist(),
+            [(call.args[1], call.args[2]) for call in on_data_frame.call_args_list],
+            [
+                (first_hour, second_hour),
+                (second_hour, timestamp_to),
+            ],
+        )
+        first = on_data_frame.call_args_list[0].args[3]
+        second = on_data_frame.call_args_list[1].args[3]
+        self.assertEqual(first["uid"].tolist(), ["earlier", "later"])
+        self.assertEqual(first["tickRule"].tolist(), [-1, 1])
+        self.assertEqual(
+            first["notional"].tolist(),
             [Decimal("0.072"), Decimal("0.042")],
         )
         self.assertEqual(
-            parsed["volume"].tolist(),
+            first["volume"].tolist(),
             [Decimal("482.256"), Decimal("281.3370")],
         )
-        self.assertEqual(parsed.iloc[1]["timestamp"].microsecond, 64700)
-        self.assertEqual(parsed.iloc[1]["nanoseconds"], 0)
+        self.assertEqual(first.iloc[1]["timestamp"].microsecond, 64700)
+        self.assertEqual(first.iloc[1]["nanoseconds"], 0)
+        self.assertEqual(second["uid"].tolist(), ["second-hour"])
+        with self.assertRaisesRegex(ValueError, "rows outside BTCUSDT"):
+            controller.prepare_archive_chunk(
+                pd.DataFrame([{"symbol": "ETHUSDT"}])
+            )
 
     def test_archive_preserves_source_order_for_exact_timestamp_ties(self):
         rows = []

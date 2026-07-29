@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -72,8 +72,10 @@ class BinanceTradesTest(SimpleTestCase):
             "BTCUSDT/BTCUSDT-trades-2026-04-01.zip",
         )
 
-    def test_s3_tick_rule_maps_is_buyer_maker_values(self):
-        controller = BinanceTradesS3.__new__(BinanceTradesS3)
+    def test_s3_normalizes_chunked_hours_and_tick_rules(self):
+        first_hour = datetime(2026, 4, 8, tzinfo=UTC)
+        second_hour = first_hour + timedelta(hours=1)
+        timestamp_to = second_hour + timedelta(hours=1)
         data = pd.DataFrame(
             [
                 {
@@ -121,9 +123,54 @@ class BinanceTradesTest(SimpleTestCase):
                     "isBuyerMaker": "False",
                     "isBestMatch": True,
                 },
+                {
+                    "id": "5",
+                    "price": "104",
+                    "qty": "6",
+                    "quoteQty": "624",
+                    "time": "1775610000000",
+                    "isBuyerMaker": False,
+                    "isBestMatch": True,
+                },
             ]
         )
+        symbol = SimpleNamespace(api_symbol="BTCUSDT")
+        on_data_frame = Mock()
+        controller = BinanceTradesS3(
+            symbol,
+            timestamp_from=first_hour,
+            timestamp_to=timestamp_to,
+            on_data_frame=on_data_frame,
+        )
+        controller.get_data_frame_chunks = Mock(
+            return_value=iter([data.iloc[:2].copy(), data.iloc[2:].copy()])
+        )
+        controller.get_candles = Mock(return_value=pd.DataFrame([]))
 
-        parsed = controller.parse_dtypes_and_strip_columns(data)
+        with (
+            patch(
+                "quant_tick.controllers.s3.TradeDataIterator.iter_days",
+                return_value=[(first_hour, timestamp_to, [])],
+            ),
+            patch(
+                "quant_tick.controllers.s3.TradeDataIterator.iter_hours",
+                return_value=[
+                    (second_hour, timestamp_to),
+                    (first_hour, second_hour),
+                ],
+            ),
+        ):
+            controller.main()
 
-        self.assertEqual(parsed["tickRule"].tolist(), [-1, -1, 1, 1])
+        self.assertEqual(
+            [(call.args[1], call.args[2]) for call in on_data_frame.call_args_list],
+            [
+                (first_hour, second_hour),
+                (second_hour, timestamp_to),
+            ],
+        )
+        first = on_data_frame.call_args_list[0].args[3]
+        second = on_data_frame.call_args_list[1].args[3]
+        self.assertEqual(first["uid"].tolist(), ["1", "2", "3", "4"])
+        self.assertEqual(first["tickRule"].tolist(), [-1, -1, 1, 1])
+        self.assertEqual(second["uid"].tolist(), ["5"])
