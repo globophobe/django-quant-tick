@@ -14,7 +14,10 @@ from quant_tick.lib import (
     volume_filter_with_time_window,
 )
 from quant_tick.models import TradeData
-from quant_tick.storage import convert_trade_data_to_daily
+from quant_tick.storage import (
+    clean_unlinked_trade_data_files,
+    convert_trade_data_to_daily,
+)
 
 from ..base import BaseWriteTradeDataTest
 
@@ -155,3 +158,8 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
 
         trade_data = TradeData.objects.get(symbol=symbol)
         self.assertEqual(trade_data.json_data["candle"], expected)
+        clean_unlinked_trade_data_files(
+            symbol,
+            timestamp_from,
+            timestamp_from + pd.Timedelta("1h"),
+        )

@@ -51,7 +51,14 @@ class CompactViewTest(TestCase):
         self.assertEqual(response.json(), {"ok": True})
         mock_compact_trades.assert_called_once()
         self.assertEqual(mock_compact_trades.call_args.args[0], self.symbol)
-        mock_compact_candles.assert_called_once_with(self.candle)
+        self.assertTrue(
+            callable(mock_compact_trades.call_args.kwargs["assert_lease_owned"])
+        )
+        mock_compact_candles.assert_called_once()
+        self.assertEqual(mock_compact_candles.call_args.args[0], self.candle)
+        self.assertTrue(
+            callable(mock_compact_candles.call_args.kwargs["assert_lease_owned"])
+        )
         task_state = self.get_task_state()
         self.assertIsNone(task_state.locked_until)
         self.assertEqual(task_state.recent_error_count, 0)
@@ -100,7 +107,11 @@ class CompactViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"ok": True})
         mock_compact_trades.assert_called_once()
-        mock_compact_candles.assert_called_once_with(self.candle)
+        mock_compact_candles.assert_called_once()
+        self.assertEqual(mock_compact_candles.call_args.args[0], self.candle)
+        self.assertTrue(
+            callable(mock_compact_candles.call_args.kwargs["assert_lease_owned"])
+        )
         task_state = self.get_task_state()
         self.assertIsNone(task_state.locked_until)
         self.assertEqual(task_state.recent_error_count, 1)
