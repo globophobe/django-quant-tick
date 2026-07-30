@@ -1,6 +1,7 @@
 import datetime
 import logging
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
@@ -36,7 +37,10 @@ def get_compact_max_timestamp_to(timestamp_to: datetime.datetime) -> datetime.da
     return get_min_time(timestamp_to - COMPACT_RECENT_DELAY, "1h")
 
 
-def convert_candle_cache_to_daily(candle: Candle) -> None:
+def convert_candle_cache_to_daily(
+    candle: Candle,
+    assert_lease_owned: Callable[[], None] | None = None,
+) -> None:
     """Convert candle cache, by minute or hour, to daily.
 
     * Convert, from past to present, in order.
@@ -86,6 +90,8 @@ def convert_candle_cache_to_daily(candle: Candle) -> None:
                 existing = get_existing(target_cache.values("timestamp", "frequency"))
                 if has_timestamps(daily_ts_from, daily_ts_to, existing):
                     with transaction.atomic():
+                        if assert_lease_owned is not None:
+                            assert_lease_owned()
                         daily_cache, created = CandleCache.objects.get_or_create(
                             candle=candle,
                             timestamp=daily_ts_from,
@@ -104,7 +110,10 @@ def convert_candle_cache_to_daily(candle: Candle) -> None:
 
 
 def convert_trade_data_to_daily(
-    symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
+    symbol: Symbol,
+    timestamp_from: datetime.datetime,
+    timestamp_to: datetime.datetime,
+    assert_lease_owned: Callable[[], None] | None = None,
 ) -> None:
     """Convert trade data by minute, or hourly, to daily.
 
@@ -149,7 +158,13 @@ def convert_trade_data_to_daily(
                         timestamp__gte=hourly_ts_from,
                         timestamp__lt=hourly_ts_to,
                     )
-                    convert_trade_data(symbol, hour_minute_data, hourly_ts_from, hourly_ts_to)
+                    convert_trade_data(
+                        symbol,
+                        hour_minute_data,
+                        hourly_ts_from,
+                        hourly_ts_to,
+                        assert_lease_owned=assert_lease_owned,
+                    )
 
             # Then, convert hourly to daily if complete.
             hourly_trade_data = queryset.filter(
@@ -168,7 +183,13 @@ def convert_trade_data_to_daily(
                 and len(hourly_values) == Frequency.DAY // Frequency.HOUR
                 and has_timestamps(daily_ts_from, daily_ts_to, hourly_existing)
             ):
-                convert_trade_data(symbol, hourly_trade_data, daily_ts_from, daily_ts_to)
+                convert_trade_data(
+                    symbol,
+                    hourly_trade_data,
+                    daily_ts_from,
+                    daily_ts_to,
+                    assert_lease_owned=assert_lease_owned,
+                )
     logger.info("{symbol}: done".format(symbol=str(symbol)))
 
 
@@ -177,11 +198,12 @@ def convert_trade_data(
     trade_data: QuerySet,
     timestamp_from: datetime.datetime,
     timestamp_to: datetime.datetime,
+    assert_lease_owned: Callable[[], None] | None = None,
 ) -> None:
     """Convert trade data."""
     objs = list(trade_data)
     delta = timestamp_to - timestamp_from
-    frequency = delta.total_seconds() / 60
+    frequency = int(delta.total_seconds() / 60)
     assert frequency in (Frequency.HOUR, Frequency.DAY)
     first = objs[0]
 
@@ -194,9 +216,9 @@ def convert_trade_data(
     ]
     for file_data in symbol.trade_data_fields:
         data_frames = {
-            t: t.get_data_frame(file_data)
-            for t in objs
-            if getattr(t, file_data).name
+            obj: obj.get_data_frame(file_data)
+            for obj in objs
+            if getattr(obj, file_data).name
         }
 
         if len(data_frames):
@@ -204,28 +226,26 @@ def convert_trade_data(
             # all-NA entries is deprecated.
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=FutureWarning)
-                data_frame = pd.concat(data_frames.values())
+                df = pd.concat(data_frames.values())
 
             key = (
                 "notional"
                 if file_data in (FileData.RAW, FileData.AGGREGATED)
                 else "totalNotional"
             )
-            expected = sum([getattr(df, key).sum() for df in data_frames.values()])
-            actual = data_frame[key].sum()
+            expected = sum(getattr(frame, key).sum() for frame in data_frames.values())
+            actual = df[key].sum()
             assert is_decimal_close(expected, actual)
 
-            # Next, create hourly or daily.
-            data_frame.reset_index(inplace=True)
-
-            if len(data_frame):
-                prepared_files[file_data] = TradeData.prepare_data(data_frame)
+            df.reset_index(inplace=True)
+            if len(df):
+                prepared_files[file_data] = TradeData.prepare_data(df)
                 if file_data in (
                     FileData.RAW,
                     FileData.AGGREGATED,
                     FileData.FILTERED,
                 ):
-                    candle_df = data_frame
+                    candle_df = df
 
     json_data = None
     if len(trade_candles) == len(objs) and trade_candles:
@@ -241,10 +261,7 @@ def convert_trade_data(
         )
         json_data = {"candle": candle}
 
-    for obj in objs:
-        obj.delete()
-
-    t = TradeData(
+    target = TradeData(
         symbol=symbol,
         timestamp=first.timestamp,
         uid=first.uid,
@@ -252,9 +269,72 @@ def convert_trade_data(
         ok=all(obj.ok for obj in objs),
         json_data=json_data,
     )
-    for file_data, prepared in prepared_files.items():
-        setattr(t, file_data, prepared)
-    t.save()
+    source_state = {
+        obj.pk: (
+            obj.timestamp,
+            obj.frequency,
+            obj.uid,
+            obj.raw_data.name,
+            obj.aggregated_data.name,
+            obj.filtered_data.name,
+            obj.json_data,
+            obj.ok,
+        )
+        for obj in objs
+    }
+    target_names = {
+        target._meta.get_field(str(file_data)).generate_filename(
+            target,
+            prepared.name,
+        )
+        for file_data, prepared in prepared_files.items()
+    }
+    source_names = {
+        getattr(obj, file_data).name
+        for obj in objs
+        for file_data in FileData
+        if getattr(obj, file_data).name
+    }
+    if target_names & source_names:
+        raise RuntimeError("Compacted target file conflicts with a source file.")
+
+    if assert_lease_owned is not None:
+        assert_lease_owned()
+    with transaction.atomic():
+        locked_objs = list(
+            TradeData.objects.select_for_update().filter(pk__in=source_state)
+        )
+        locked_state = {
+            obj.pk: (
+                obj.timestamp,
+                obj.frequency,
+                obj.uid,
+                obj.raw_data.name,
+                obj.aggregated_data.name,
+                obj.filtered_data.name,
+                obj.json_data,
+                obj.ok,
+            )
+            for obj in locked_objs
+        }
+        if locked_state != source_state:
+            raise RuntimeError("TradeData changed during compaction.")
+        if assert_lease_owned is not None:
+            assert_lease_owned()
+
+        target.save(force_insert=True)
+        update_fields = []
+        for file_data, prepared in prepared_files.items():
+            getattr(target, file_data).save(prepared.name, prepared, save=False)
+            update_fields.append(str(file_data))
+        if assert_lease_owned is not None:
+            assert_lease_owned()
+        if update_fields:
+            target.save(update_fields=update_fields)
+
+        for obj in locked_objs:
+            obj._skip_signal = True
+            obj.delete()
 
     logging.info(
         _("Converted {timestamp_from} {timestamp_to} to {frequency}").format(
@@ -333,11 +413,11 @@ def clean_unlinked_trade_data_files(
     if not fields:
         return
 
-    exclude = Q()
-    for f in fields:
-        exclude |= Q(**{f: ""})
-
-    trade_data = TradeData.objects.filter(symbol=symbol).exclude(exclude).only(*fields)
+    trade_data = TradeData.objects.filter(symbol=symbol).only(
+        *fields,
+        "timestamp",
+        "frequency",
+    )
     t = trade_data.filter(
         timestamp__gte=timestamp_from,
         timestamp__lte=timestamp_to,
@@ -359,7 +439,8 @@ def clean_unlinked_trade_data_files(
         min_timestamp_from = t.first().timestamp
         if timestamp_from < min_timestamp_from:
             timestamp_from = min_timestamp_from
-        max_timestamp_to = t.last().timestamp
+        last = t.last()
+        max_timestamp_to = last.timestamp + pd.Timedelta(minutes=last.frequency)
         if timestamp_to > max_timestamp_to:
             timestamp_to = max_timestamp_to
         next_progress_year = timestamp_from.year + 1
@@ -367,16 +448,25 @@ def clean_unlinked_trade_data_files(
             timestamp_from, timestamp_to, value="1d"
         ):
             checked_days += 1
+            directory_timestamp_from = get_min_time(
+                daily_timestamp_from,
+                "1d",
+            )
+            directory_timestamp_to = directory_timestamp_from + pd.Timedelta("1d")
             for file_data, upload_to in mapping.items():
-                expected_files = [
+                expected_files = {
                     Path(getattr(obj, file_data).name).name
-                    for obj in trade_data.filter(
-                        timestamp__gte=daily_timestamp_from,
-                        timestamp__lte=daily_timestamp_to,
+                    for obj in trade_data.exclude(**{file_data: ""}).filter(
+                        timestamp__gte=directory_timestamp_from,
+                        timestamp__lt=directory_timestamp_to,
                     )
-                ]
+                }
 
-                dummy = TradeData(symbol=symbol, timestamp=daily_timestamp_from)
+                dummy = TradeData(
+                    symbol=symbol,
+                    timestamp=directory_timestamp_from,
+                    frequency=Frequency.MINUTE,
+                )
                 storage = getattr(dummy, file_data).storage
                 directory = Path(upload_to(dummy, "dummy.parquet")).parent
                 __, filenames = storage.listdir(directory)

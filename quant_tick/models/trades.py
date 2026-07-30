@@ -151,13 +151,13 @@ class TradeData(AbstractDataStorage):
         """Upload path.
 
         Example:
-        trades / coinbase / BTCUSD / blaring-crocodile / raw / 2022-01-01 / 0000.parquet
+        trades / coinbase / BTCUSD / blaring-crocodile / raw / 2022-01-01 / 0000-1m.parquet
         """
         path = ["test-trades"] if is_test() else ["trades"]
         path += self.symbol.upload_path + [directory, self.timestamp.date().isoformat()]
-        fname = self.timestamp.time().strftime("%H%M")
+        timestamp = self.timestamp.time().strftime("%H%M")
         ext = Path(filename).suffix
-        path.append(f"{fname}{ext}")
+        path.append(f"{timestamp}-{int(self.frequency)}m{ext}")
         return "/".join(path)
 
     def get_candle_source_data(self) -> str | None:
