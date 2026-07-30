@@ -127,6 +127,21 @@ class BinanceFuturesTradesTest(SimpleTestCase):
             "BTCUSDT/BTCUSDT-aggTrades-2026-07-20.zip",
         )
 
+        timestamp_from = datetime(2026, 7, 20, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(days=1)
+        with patch(
+            "quant_tick.exchanges.binance_futures.base.binance_futures_candles",
+            return_value=pd.DataFrame([]),
+        ) as mocked:
+            controller.get_candles(timestamp_from, timestamp_to)
+
+        mocked.assert_called_once_with(
+            "BTCUSDT",
+            timestamp_from,
+            timestamp_to,
+            interval="1m",
+        )
+
     def test_s3_normalizes_chunked_archive_schema(self):
         first_hour = datetime(2026, 7, 20, tzinfo=UTC)
         second_hour = first_hour + timedelta(hours=1)
