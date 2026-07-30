@@ -75,7 +75,6 @@ class BinanceFuturesMixin(SequentialIntegerMixin):
             timestamp_from,
             timestamp_to,
             interval="1m",
-            limit=60,
         )
 
 
