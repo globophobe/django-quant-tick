@@ -34,7 +34,11 @@ from .coinbase import coinbase_candles, coinbase_trades
 from .deribit import deribit_candles, deribit_funding, deribit_trades
 from .deribit.funding import DeribitFunding
 from .funding import ExchangeFunding
-from .hyperliquid import hyperliquid_candles, hyperliquid_funding
+from .hyperliquid import (
+    hyperliquid_candles,
+    hyperliquid_funding,
+    hyperliquid_trades,
+)
 from .hyperliquid.funding import HyperliquidFunding
 
 BYBIT_EXCHANGES = {
@@ -173,6 +177,8 @@ def trades_api(
         coinbase_trades(symbol, **kwargs)
     elif exchange == Exchange.DERIBIT:
         deribit_trades(symbol, **kwargs)
+    elif exchange == Exchange.HYPERLIQUID:
+        hyperliquid_trades(symbol, **kwargs)
 
 
 def candles_api(

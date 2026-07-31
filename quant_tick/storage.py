@@ -261,12 +261,20 @@ def convert_trade_data(
         )
         json_data = {"candle": candle}
 
+    validation_states = {obj.ok for obj in objs}
+    if False in validation_states:
+        validation_state = False
+    elif None in validation_states:
+        validation_state = None
+    else:
+        validation_state = True
+
     target = TradeData(
         symbol=symbol,
         timestamp=first.timestamp,
         uid=first.uid,
         frequency=frequency,
-        ok=all(obj.ok for obj in objs),
+        ok=validation_state,
         json_data=json_data,
     )
     source_state = {

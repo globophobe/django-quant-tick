@@ -158,6 +158,7 @@ class ExchangeREST(BaseController):
     """Base controller for REST trade ingestion."""
 
     partition_scoped = False
+    write_unvalidated_websocket_partitions = False
 
     def get_pagination_id(self, timestamp_to: datetime) -> None:
         raise NotImplementedError
@@ -319,7 +320,10 @@ class ExchangeREST(BaseController):
                 aggregated_trades=aggregated_trades,
                 filtered_trades=filtered_trades,
             )
-            if ok is not True:
+            if (
+                ok is not True
+                and not self.write_unvalidated_websocket_partitions
+            ):
                 return None
             raw_trades, aggregated_trades, filtered_trades = (
                 TradeData._prepare_partition_data(
@@ -670,6 +674,8 @@ class ExchangeREST(BaseController):
 
 class ExchangeWebSocket(ExchangeREST):
     """WebSocket trades."""
+
+    write_unvalidated_websocket_partitions = True
 
     def main(self) -> None:
         if self.retry:
