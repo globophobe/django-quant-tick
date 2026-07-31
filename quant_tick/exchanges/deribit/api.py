@@ -14,6 +14,17 @@ def to_millis(timestamp: datetime) -> int:
     return int(timestamp.timestamp() * 1000)
 
 
+def get_deribit_instrument_creation_timestamp(api_symbol: str) -> datetime:
+    result = get_deribit_result(
+        "get_instrument",
+        {"instrument_name": str(api_symbol).strip()},
+    )
+    return datetime.fromtimestamp(
+        int(result["creation_timestamp"]) / 1000,
+        tz=UTC,
+    )
+
+
 def get_deribit_result(
     method: str,
     params: dict,
