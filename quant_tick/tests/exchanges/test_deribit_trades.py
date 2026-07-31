@@ -276,21 +276,51 @@ class DeribitTradesTest(SimpleTestCase):
         )
 
     def test_deribit_trades_uses_exchange_controller(self):
-        timestamp_to = self.timestamp_from + timedelta(minutes=1)
-        symbol = SimpleNamespace(symbol_type=SymbolType.PERPETUAL)
+        requested_from = self.timestamp_from - timedelta(days=1)
+        timestamp_to = self.timestamp_from + timedelta(days=1)
+        symbol = SimpleNamespace(
+            symbol_type=SymbolType.PERPETUAL,
+            api_symbol="BTC-PERPETUAL",
+            date_from=None,
+            save=Mock(),
+        )
 
-        with patch(
-            "quant_tick.exchanges.deribit.controllers.DeribitTrades"
-        ) as controller:
+        with (
+            patch(
+                "quant_tick.exchanges.deribit.controllers.get_deribit_instrument_creation_timestamp",
+                return_value=self.timestamp_from + timedelta(hours=13),
+            ) as get_creation_timestamp,
+            patch(
+                "quant_tick.exchanges.deribit.controllers.DeribitTrades"
+            ) as controller,
+        ):
             deribit_trades(
                 symbol,
-                self.timestamp_from,
+                requested_from,
+                timestamp_to,
+                on_data_frame=Mock(),
+            )
+            deribit_trades(
+                symbol,
+                requested_from,
                 timestamp_to,
                 on_data_frame=Mock(),
             )
 
-        controller.assert_called_once()
-        controller.return_value.main.assert_called_once_with()
+        get_creation_timestamp.assert_called_once_with("BTC-PERPETUAL")
+        self.assertEqual(symbol.date_from, self.timestamp_from.date())
+        symbol.save.assert_called_once_with(update_fields=["date_from"])
+        self.assertEqual(controller.call_count, 2)
+        self.assertEqual(
+            controller.call_args_list[0].kwargs["timestamp_from"],
+            self.timestamp_from + timedelta(hours=13),
+        )
+        self.assertEqual(
+            controller.call_args_list[1].kwargs["timestamp_from"],
+            self.timestamp_from,
+        )
+        self.assertEqual(controller.return_value.main.call_count, 2)
+
     def test_mixin_maps_spot_amount_as_base_asset(self):
         controller = DeribitTrades.__new__(DeribitTrades)
         controller.symbol = SimpleNamespace(
