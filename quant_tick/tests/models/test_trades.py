@@ -615,23 +615,36 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(candle["buyTicks"], candles.buyTicks.sum())
 
     def test_convert_trade_data_to_daily_compacts_complete_day(self):
-        symbol = self.get_symbol(save_raw=False)
         day_from = get_min_time(self.timestamp_from, "1d")
+        cases = (
+            ("all-true", [True] * 24, True),
+            ("true-and-none", [True] * 23 + [None], None),
+            ("all-none", [None] * 24, None),
+            ("false-wins", [True] * 22 + [None, False], False),
+        )
 
-        for hour in range(24):
-            TradeData.objects.create(
-                symbol=symbol,
-                timestamp=day_from + pd.Timedelta(f"{hour}h"),
-                frequency=Frequency.HOUR,
-                ok=True,
-            )
+        for name, validation_states, expected in cases:
+            with self.subTest(name=name):
+                symbol = self.get_symbol(api_symbol=name, save_raw=False)
+                for hour, ok in enumerate(validation_states):
+                    TradeData.objects.create(
+                        symbol=symbol,
+                        timestamp=day_from + pd.Timedelta(f"{hour}h"),
+                        frequency=Frequency.HOUR,
+                        ok=ok,
+                    )
 
-        convert_trade_data_to_daily(symbol, day_from, day_from + pd.Timedelta("1d"))
+                convert_trade_data_to_daily(
+                    symbol,
+                    day_from,
+                    day_from + pd.Timedelta("1d"),
+                )
 
-        trades = list(TradeData.objects.filter(symbol=symbol))
-        self.assertEqual(len(trades), 1)
-        self.assertEqual(trades[0].timestamp, day_from)
-        self.assertEqual(trades[0].frequency, Frequency.DAY)
+                trades = list(TradeData.objects.filter(symbol=symbol))
+                self.assertEqual(len(trades), 1)
+                self.assertEqual(trades[0].timestamp, day_from)
+                self.assertEqual(trades[0].frequency, Frequency.DAY)
+                self.assertIs(trades[0].ok, expected)
 
     def test_convert_trade_data_to_daily_does_not_compact_incomplete_day(self):
         symbol = self.get_symbol(save_raw=False)
