@@ -32,6 +32,7 @@ def use_s3() -> datetime:
 class ExchangeS3(BaseController):
     """Base controller for daily exchange S3 archives."""
 
+    archive_publication_grace_days = 7
     missing_archive_dates = frozenset()
 
     def get_url(self, date: datetime.date) -> str:
@@ -66,7 +67,6 @@ class ExchangeS3(BaseController):
     def main(self) -> None:
         """Fetch daily S3 files and persist matching partitions."""
         iterator = TradeDataIterator(self.symbol)
-        archive_started = False
         for timestamp_from, timestamp_to, existing in iterator.iter_days(
             self.timestamp_from,
             self.timestamp_to,
@@ -75,7 +75,6 @@ class ExchangeS3(BaseController):
             date = timestamp_from.date()
             data_frame = self.get_data_frame(date)
             if data_frame is not None:
-                archive_started = True
                 is_full_day = (
                     timestamp_from.time() == datetime.time.min
                     and timestamp_to == timestamp_from + pd.Timedelta("1d")
@@ -88,12 +87,16 @@ class ExchangeS3(BaseController):
                     df = filter_by_timestamp(data_frame, ts_from, ts_to)
                     candles = self.get_candles(ts_from, ts_to)
                     self.on_data_frame(self.symbol, ts_from, ts_to, df, candles)
-            # No data
-            elif date in self.missing_archive_dates:
-                pass
-            # Complete
-            elif archive_started:
+            elif self._should_stop_after_missing_archive(date):
                 break
+
+    def _should_stop_after_missing_archive(self, date: datetime.date) -> bool:
+        if date in self.missing_archive_dates:
+            return False
+        cutoff = get_current_time().date() - datetime.timedelta(
+            days=self.archive_publication_grace_days
+        )
+        return date < cutoff
 
     def get_data_frame(self, date: datetime.date) -> DataFrame | None:
         """Download and parse one daily S3 file."""
@@ -201,7 +204,6 @@ class ChunkedExchangeS3(ExchangeS3):
     def main(self) -> None:
         """Fetch daily archives and persist bounded hourly frames."""
         iterator = TradeDataIterator(self.symbol)
-        archive_started = False
         for timestamp_from, timestamp_to, existing in iterator.iter_days(
             self.timestamp_from,
             self.timestamp_to,
@@ -209,12 +211,11 @@ class ChunkedExchangeS3(ExchangeS3):
         ):
             chunks = self.get_data_frame_chunks(timestamp_from.date())
             if chunks is None:
-                if timestamp_from.date() in self.missing_archive_dates:
-                    continue
-                if archive_started:
+                if self._should_stop_after_missing_archive(
+                    timestamp_from.date()
+                ):
                     break
                 continue
-            archive_started = True
             windows = sorted(
                 iterator.iter_hours(timestamp_from, timestamp_to, existing),
                 key=lambda value: value[0],
