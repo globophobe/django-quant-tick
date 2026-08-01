@@ -1076,6 +1076,7 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
         self.assertEqual(controller.frames[0][1], expected_to)
         self.assertEqual(list(controller.frames[0][2].timestamp), [expected_from])
 
+    @time_machine.travel(datetime(2009, 1, 10), tick=False)
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 4, tzinfo=UTC),
