@@ -1,5 +1,5 @@
-from quant_tick.management.base import BaseTradeDataCommand
 from quant_tick.lib import get_current_time
+from quant_tick.management.base import BaseTradeDataCommand
 from quant_tick.storage import convert_trade_data_to_daily, get_compact_max_timestamp_to
 
 

@@ -14,7 +14,7 @@ from quant_tick.models import TradeData, WebSocketData
 from ..base import BaseSymbolTest
 
 
-@time_machine.travel(datetime(2009, 1, 3), tick=False)
+@time_machine.travel(datetime(2009, 1, 3, tzinfo=UTC), tick=False)
 class TradeDataIteratorTest(BaseSymbolTest, TestCase):
     def setUp(self):
         super().setUp()
@@ -34,7 +34,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 3).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 3, tzinfo=UTC),
     )
     def test_iter_all_with_no_results(self, mock_get_max_timestamp_to):
         values = self.get_values()
@@ -42,7 +42,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
     )
     def test_iter_all_with_head(self, mock_get_max_timestamp_to):
         TradeData.objects.create(
@@ -58,7 +58,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
     )
     def test_iter_all_with_one_ok(self, mock_get_max_timestamp_to):
         obj = TradeData.objects.create(
@@ -76,7 +76,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
     )
     def test_iter_all_with_two_ok(self, mock_get_max_timestamp_to):
         obj_one = TradeData.objects.create(
@@ -102,7 +102,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
     )
     def test_iter_all_with_tail(self, mock_get_max_timestamp_to):
         TradeData.objects.create(
@@ -118,7 +118,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
     )
     def test_iter_all_with_retry_and_one_not_ok(self, mock_get_max_timestamp_to):
         TradeData.objects.create(
@@ -134,7 +134,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
     )
     def test_iter_all_with_retry_and_one_unknown_ok(self, mock_get_max_timestamp_to):
         TradeData.objects.create(
@@ -150,7 +150,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
     )
     def test_iter_all_with_retry_indeterminate_and_one_unknown_ok(
         self, mock_get_max_timestamp_to
@@ -168,7 +168,7 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
     )
     def test_iter_all_ignores_overlapping_coverage_when_minutes_are_complete(
         self, mock_get_max_timestamp_to
@@ -277,14 +277,14 @@ class DummyBitmexExchangeS3(BitmexS3Mixin, DummyExchangeS3):
 
 
 class DummyMissingBitmexExchangeS3(DummyBitmexExchangeS3):
-    missing_archive_dates = frozenset({datetime(2009, 1, 3).date()})
+    missing_archive_dates = frozenset({datetime(2009, 1, 3, tzinfo=UTC).date()})
 
     def get_data_frame(self, date: datetime.date) -> pd.DataFrame | None:
         self.download_calls += 1
         return None
 
 
-@time_machine.travel(datetime(2009, 1, 3), tick=False)
+@time_machine.travel(datetime(2009, 1, 3, tzinfo=UTC), tick=False)
 class ExchangeRESTTest(BaseSymbolTest, TestCase):
     def setUp(self):
         super().setUp()
@@ -296,9 +296,9 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
             "uid": str(uid),
             "timestamp": self.timestamp_from + (self.one_minute * minute),
             "nanoseconds": 0,
-            "price": Decimal("100"),
-            "volume": Decimal("100"),
-            "notional": Decimal("1"),
+            "price": Decimal(100),
+            "volume": Decimal(100),
+            "notional": Decimal(1),
             "tickRule": 1,
             "index": uid,
         }
@@ -432,7 +432,7 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
             verbose=False,
             api_results=[],
         )
-        candles = self.get_candles({2: Decimal("0"), 4: Decimal("0")})
+        candles = self.get_candles({2: Decimal(0), 4: Decimal(0)})
 
         with (
             patch(
@@ -464,9 +464,9 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
         )
         candles = self.get_candles(
             {
-                0: Decimal("0"),
-                1: Decimal("0"),
-                2: Decimal("0"),
+                0: Decimal(0),
+                1: Decimal(0),
+                2: Decimal(0),
             }
         )
 
@@ -508,7 +508,7 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
             verbose=False,
             api_results=[],
         )
-        candles = self.get_candles({0: Decimal("1"), 2: Decimal("1")})
+        candles = self.get_candles({0: Decimal(1), 2: Decimal(1)})
 
         with (
             patch(
@@ -939,7 +939,7 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
         self.assertEqual(len(controller.frames), 2)
 
 
-@time_machine.travel(datetime(2009, 1, 3), tick=False)
+@time_machine.travel(datetime(2009, 1, 3, tzinfo=UTC), tick=False)
 class ExchangeS3Test(BaseSymbolTest, TestCase):
     def setUp(self):
         super().setUp()
@@ -1011,7 +1011,7 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 3, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 3, 4, tzinfo=UTC),
     )
     def test_main_writes_hours_for_partial_range_with_no_existing_coverage(
         self, mock_get_max_timestamp_to
@@ -1053,7 +1053,7 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
     )
     def test_main_writes_only_missing_minute_inside_existing_day(
         self, mock_get_max_timestamp_to
@@ -1076,7 +1076,7 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
         self.assertEqual(controller.frames[0][1], expected_to)
         self.assertEqual(list(controller.frames[0][2].timestamp), [expected_from])
 
-    @time_machine.travel(datetime(2009, 1, 10), tick=False)
+    @time_machine.travel(datetime(2009, 1, 10, tzinfo=UTC), tick=False)
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
         return_value=datetime(2009, 1, 4, tzinfo=UTC),
@@ -1103,9 +1103,9 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
         self.assertEqual(
             [call.args[0] for call in controller.get_data_frame.call_args_list],
             [
-                datetime(2009, 1, 3).date(),
-                datetime(2009, 1, 2).date(),
-                datetime(2009, 1, 1).date(),
+                datetime(2009, 1, 3, tzinfo=UTC).date(),
+                datetime(2009, 1, 2, tzinfo=UTC).date(),
+                datetime(2009, 1, 1, tzinfo=UTC).date(),
             ],
         )
         self.assertEqual(len(controller.frames), 1)
@@ -1128,7 +1128,7 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
 
     @patch(
         "quant_tick.controllers.iterators.TradeDataIterator.get_max_timestamp_to",
-        return_value=datetime(2009, 1, 4).replace(tzinfo=UTC),
+        return_value=datetime(2009, 1, 4, tzinfo=UTC),
     )
     def test_bitmex_main_writes_only_missing_minute_inside_existing_day(
         self, mock_get_max_timestamp_to

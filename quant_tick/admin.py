@@ -9,12 +9,12 @@ from django.urls import reverse
 from django.utils.html import format_html
 
 from quant_tick.filters import (
+    HAS_SEMANTIC_FILTERS,
     CandleCacheFilter,
     CandleDataFilter,
     CandleFilter,
     ExchangeCandleDataFilter,
     FundingDataFilter,
-    HAS_SEMANTIC_FILTERS,
     SymbolFilter,
     TaskStateFilter,
     TradeDataFilter,

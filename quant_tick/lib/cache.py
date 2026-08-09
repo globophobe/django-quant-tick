@@ -34,10 +34,8 @@ def merge_cache(previous: dict, current: dict) -> dict:
     current["timestamp"] = previous["timestamp"]
     curr_open = current.get("open")
     current["open"] = previous["open"]
-    if previous["high"] > current["high"]:
-        current["high"] = previous["high"]
-    if previous["low"] < current["low"]:
-        current["low"] = previous["low"]
+    current["high"] = max(current["high"], previous["high"])
+    current["low"] = min(current["low"], previous["low"])
 
     for key in (
         "volume",
@@ -56,9 +54,7 @@ def merge_cache(previous: dict, current: dict) -> dict:
         "roundBuyNotionalSumVolume",
     ):
         if key in previous or key in current:
-            current[key] = current.get(key, Decimal("0")) + previous.get(
-                key, Decimal("0")
-            )
+            current[key] = current.get(key, Decimal(0)) + previous.get(key, Decimal(0))
 
     cross_var = _calc_cross_segment_variance(previous.get("close"), curr_open)
     current["realizedVariance"] += previous["realizedVariance"] + cross_var
@@ -71,10 +67,10 @@ def _calc_cross_segment_variance(
 ) -> Decimal:
     """Calculate cross-segment variance from log return squared."""
     if prev_close is None or curr_open is None:
-        return Decimal("0")
+        return Decimal(0)
     prev_close_float = float(prev_close)
     curr_open_float = float(curr_open)
     if prev_close_float > 0 and curr_open_float > 0:
         log_ret = math.log(curr_open_float) - math.log(prev_close_float)
         return Decimal(str(log_ret**2))
-    return Decimal("0")
+    return Decimal(0)

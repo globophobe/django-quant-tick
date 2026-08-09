@@ -60,7 +60,6 @@ class BybitTradesS3(BybitS3Mixin, ChunkedExchangeS3):
         )
 
 
-
 class BybitSpotTradesS3(BybitSpotS3Mixin, ChunkedExchangeS3):
     """Bybit spot trades S3."""
 

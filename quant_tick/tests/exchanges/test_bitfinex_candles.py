@@ -15,7 +15,6 @@ from quant_tick.exchanges.bitfinex.candles import (
 
 
 class BitfinexCandleTest(SimpleTestCase):
-
     def test_get_bitfinex_fetch_time_frame_uses_hourly_fetch_for_2h(self):
         target_minutes, fetch_time_frame = get_bitfinex_fetch_time_frame("2h")
 
@@ -39,7 +38,7 @@ class BitfinexCandleTest(SimpleTestCase):
                     "high": Decimal(str(hour + 11)),
                     "low": Decimal(str(hour)),
                     "close": Decimal(str(hour + 2)),
-                    "notional": Decimal("10"),
+                    "notional": Decimal(10),
                 }
                 for hour in range(2)
             ]
@@ -65,11 +64,11 @@ class BitfinexCandleTest(SimpleTestCase):
         )
         self.assertEqual(list(result.index), [timestamp_from])
         candle = result.iloc[0]
-        self.assertEqual(candle.open, Decimal("1"))
-        self.assertEqual(candle.high, Decimal("12"))
-        self.assertEqual(candle.low, Decimal("0"))
-        self.assertEqual(candle.close, Decimal("3"))
-        self.assertEqual(candle.notional, Decimal("20"))
+        self.assertEqual(candle.open, Decimal(1))
+        self.assertEqual(candle.high, Decimal(12))
+        self.assertEqual(candle.low, Decimal(0))
+        self.assertEqual(candle.close, Decimal(3))
+        self.assertEqual(candle.notional, Decimal(20))
 
     def test_candles_api_passes_resolution_to_bitfinex(self):
         symbol = SimpleNamespace(exchange=Exchange.BITFINEX, api_symbol="tBTCUSD")

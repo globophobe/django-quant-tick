@@ -89,10 +89,10 @@ class ConstantCandleTest(TestCase):
         self.assertEqual(cache["sample_value"], 0)
 
 
-@time_machine.travel(datetime(2009, 1, 4), tick=False)
+@time_machine.travel(datetime(2009, 1, 4, tzinfo=UTC), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=UTC),
+    return_value=datetime(2009, 1, 4, 3, tzinfo=UTC),
 )
 class ConstantNotionalHourFrequencyCandleTest(
     BaseHourIteratorTest,
@@ -120,39 +120,37 @@ class ConstantNotionalHourFrequencyCandleTest(
         self.assertEqual(candle_cache[0].json_data["sample_value"], expected)
 
     def test_one_candle_from_trade_in_the_first_hour(self, mock_get_current_time):
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
         self.candle.candles(self.timestamp_from, self.one_hour_from_now)
         candle_data = CandleData.objects.all()
         self.assertEqual(candle_data.count(), 1)
         self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
 
-    def test_cache_is_rolled_back_when_data_write_fails(
-        self, mock_get_current_time
-    ):
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+    def test_cache_is_rolled_back_when_data_write_fails(self, mock_get_current_time):
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
         self.write_trade_data(
             self.timestamp_from,
             self.one_hour_from_now,
             filtered,
         )
 
-        with patch.object(
-            self.candle,
-            "write_data",
-            side_effect=RuntimeError("boom"),
+        with (
+            patch.object(
+                self.candle,
+                "write_data",
+                side_effect=RuntimeError("boom"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "boom"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "boom"):
-                self.candle.candles(self.timestamp_from, self.one_hour_from_now)
+            self.candle.candles(self.timestamp_from, self.one_hour_from_now)
 
         self.assertFalse(CandleCache.objects.exists())
         self.assertFalse(CandleData.objects.exists())
 
-    def test_lease_loss_stops_before_next_partition_commit(
-        self, mock_get_current_time
-    ):
-        first = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
-        second = self.get_filtered(self.one_hour_from_now, notional=Decimal("1"))
+    def test_lease_loss_stops_before_next_partition_commit(self, mock_get_current_time):
+        first = self.get_filtered(self.timestamp_from, notional=Decimal(1))
+        second = self.get_filtered(self.one_hour_from_now, notional=Decimal(1))
         self.write_trade_data(
             self.timestamp_from,
             self.one_hour_from_now,
@@ -186,7 +184,7 @@ class ConstantNotionalHourFrequencyCandleTest(
     def test_one_candle_from_trade_in_the_first_hour_with_retry(
         self, mock_get_current_time
     ):
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
         for i in range(2):
             self.candle.candles(
@@ -202,7 +200,7 @@ class ConstantNotionalHourFrequencyCandleTest(
     def test_one_candle_from_one_trade_in_the_first_hour_then_two_trades_with_retry(
         self, mock_get_current_time
     ):
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
         for i in range(2):
             retry = bool(i)
             if retry:
@@ -217,7 +215,7 @@ class ConstantNotionalHourFrequencyCandleTest(
             CandleCache: CandleCache.objects.all(),
             CandleData: CandleData.objects.all(),
         }
-        for model, queryset in querysets.items():
+        for queryset in querysets.values():
             self.assertEqual(queryset.count(), 1)
         self.assertEqual(querysets[CandleData][0].timestamp, self.timestamp_from)
 
@@ -284,9 +282,9 @@ class ConstantNotionalHourFrequencyCandleTest(
     def test_two_candles_from_trades_in_the_first_and_second_hour(
         self, mock_get_current_time
     ):
-        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal(1))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=Decimal("1"))
+        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=Decimal(1))
         self.write_trade_data(
             self.one_hour_from_now, self.two_hours_from_now, filtered_2
         )
@@ -302,7 +300,7 @@ class ConstantNotionalHourFrequencyCandleTest(
         self.write_trade_data(
             self.timestamp_from,
             self.one_hour_from_now,
-            self.get_filtered(self.timestamp_from, notional=Decimal("1")),
+            self.get_filtered(self.timestamp_from, notional=Decimal(1)),
         )
         TradeData.objects.create(
             symbol=self.symbol,
@@ -312,7 +310,7 @@ class ConstantNotionalHourFrequencyCandleTest(
         self.write_trade_data(
             self.two_hours_from_now,
             self.three_hours_from_now,
-            self.get_filtered(self.two_hours_from_now, notional=Decimal("1")),
+            self.get_filtered(self.two_hours_from_now, notional=Decimal(1)),
         )
         self.candle.candles(self.timestamp_from, self.three_hours_from_now)
         candle_data = CandleData.objects.all()
@@ -334,10 +332,10 @@ class ConstantNotionalHourFrequencyCandleTest(
         self.assertEqual(CandleCache.objects.count(), 1)
 
 
-@time_machine.travel(datetime(2009, 1, 4), tick=False)
+@time_machine.travel(datetime(2009, 1, 4, tzinfo=UTC), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 5).replace(tzinfo=UTC),
+    return_value=datetime(2009, 1, 5, tzinfo=UTC),
 )
 class ConstantNotionalDayFrequencyIrregularCandleTest(
     BaseDayIteratorTest,

@@ -74,7 +74,7 @@ class BaseRandomTradeTest:
         tick_rule: int | None = None,
         total_ticks: int = 1,
     ) -> dict:
-        timestamp = timestamp or datetime.now()
+        timestamp = timestamp or datetime.now(tz=UTC)
         price = price or Decimal(str(round(random.random() * 10, 2)))
         notional = notional or Decimal(str(random.random() * 10))
         volume = price * notional
@@ -129,7 +129,6 @@ class BaseSymbolTest:
 
 
 class BaseWriteTradeDataTest(BaseRandomTradeTest, BaseSymbolTest):
-
     def get_raw(
         self,
         timestamp: datetime,

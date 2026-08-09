@@ -4,9 +4,8 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 from pandas import DataFrame
 
-from quant_tick.exchanges.funding import ExchangeFunding
-
 from quant_tick.exchanges.binance.api import get_binance_api_response
+from quant_tick.exchanges.funding import ExchangeFunding
 
 from .constants import API_URL
 from .market_history import binance_market_history, empty_market_history
@@ -65,9 +64,7 @@ def get_binance_futures_funding_interval(api_symbol: str) -> timedelta:
     try:
         hours = int(matching[0]["fundingIntervalHours"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError(
-            f"Binance funding interval is invalid for {symbol}."
-        ) from exc
+        raise ValueError(f"Binance funding interval is invalid for {symbol}.") from exc
     if hours <= 0:
         raise ValueError(f"Binance funding interval is invalid for {symbol}.")
     return timedelta(hours=hours)
@@ -119,8 +116,7 @@ def binance_futures_funding(
             ),
             "funding_rate": [Decimal(str(item["fundingRate"])) for item in rows],
             "mark_price": [
-                parse_optional_decimal(item.get("markPrice"))
-                for item in rows
+                parse_optional_decimal(item.get("markPrice")) for item in rows
             ],
         }
     )

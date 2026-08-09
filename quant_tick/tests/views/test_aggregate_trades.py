@@ -49,7 +49,10 @@ class AggregateTradeViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(mock_api.call_count, 4)
         self.assertEqual(
-            [(call.args[0].api_symbol, call.args[3]) for call in mock_api.call_args_list],
+            [
+                (call.args[0].api_symbol, call.args[3])
+                for call in mock_api.call_args_list
+            ],
             [
                 ("test-1", RETRY_INDETERMINATE),
                 ("test-1", False),
@@ -58,7 +61,10 @@ class AggregateTradeViewTest(TestCase):
             ],
         )
         self.assertTrue(
-            all(callable(call.kwargs["assert_lease_owned"]) for call in mock_api.call_args_list)
+            all(
+                callable(call.kwargs["assert_lease_owned"])
+                for call in mock_api.call_args_list
+            )
         )
         task_states = TaskState.objects.filter(
             task_type=TaskType.AGGREGATE_TRADES,
@@ -82,7 +88,9 @@ class AggregateTradeViewTest(TestCase):
 
     def test_get_floors_time_ago_start_to_day_boundary(self, mock_api):
         now = datetime(2026, 5, 2, 0, 10, 42, tzinfo=UTC)
-        with patch("quant_tick.views.aggregate_trades.get_current_time", return_value=now):
+        with patch(
+            "quant_tick.views.aggregate_trades.get_current_time", return_value=now
+        ):
             response = self.client.get(
                 self.get_url(),
                 {"time_ago": "7d", "api_symbol": "test-1"},
@@ -108,7 +116,9 @@ class AggregateTradeViewTest(TestCase):
 
     def test_get_ignores_retry_query_param(self, mock_api):
         now = datetime(2026, 5, 2, 0, 10, 42, tzinfo=UTC)
-        with patch("quant_tick.views.aggregate_trades.get_current_time", return_value=now):
+        with patch(
+            "quant_tick.views.aggregate_trades.get_current_time", return_value=now
+        ):
             response = self.client.get(
                 self.get_url(),
                 {"time_ago": "7d", "api_symbol": "test-1", "retry": "true"},
@@ -138,7 +148,9 @@ class AggregateTradeViewTest(TestCase):
         )
 
         with (
-            patch("quant_tick.views.aggregate_trades.get_current_time", return_value=now),
+            patch(
+                "quant_tick.views.aggregate_trades.get_current_time", return_value=now
+            ),
             patch(
                 "quant_tick.views.aggregate_trades.aggregate_candle_data",
                 return_value={"ok": True, "processed": 0},
@@ -205,9 +217,11 @@ class AggregateTradeViewTest(TestCase):
     def test_get_marks_error_when_collection_fails(self, mock_api):
         mock_api.side_effect = [None, RuntimeError("boom")]
 
-        with self.assertLogs("django.request", level="ERROR"):
-            with self.assertRaises(RuntimeError):
-                self.client.get(self.get_url())
+        with (
+            self.assertLogs("django.request", level="ERROR"),
+            self.assertRaises(RuntimeError),
+        ):
+            self.client.get(self.get_url())
 
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_TRADES,
@@ -220,9 +234,11 @@ class AggregateTradeViewTest(TestCase):
     def test_get_marks_transport_error_without_backoff(self, mock_api):
         mock_api.side_effect = httpx.RemoteProtocolError("server disconnected")
 
-        with self.assertLogs("django.request", level="ERROR"):
-            with self.assertRaises(httpx.RemoteProtocolError):
-                self.client.get(self.get_url())
+        with (
+            self.assertLogs("django.request", level="ERROR"),
+            self.assertRaises(httpx.RemoteProtocolError),
+        ):
+            self.client.get(self.get_url())
 
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_TRADES,
@@ -236,9 +252,11 @@ class AggregateTradeViewTest(TestCase):
     def test_get_marks_transient_task_error_without_backoff(self, mock_api):
         mock_api.side_effect = OperationalError("server closed the connection")
 
-        with self.assertLogs("django.request", level="ERROR"):
-            with self.assertRaises(OperationalError):
-                self.client.get(self.get_url())
+        with (
+            self.assertLogs("django.request", level="ERROR"),
+            self.assertRaises(OperationalError),
+        ):
+            self.client.get(self.get_url())
 
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_TRADES,
@@ -279,9 +297,11 @@ class AggregateTradeViewTest(TestCase):
     def test_get_does_not_mark_error_for_archive_download_failure(self, mock_api):
         mock_api.side_effect = ArchiveDownloadError("archive boom")
 
-        with self.assertLogs("django.request", level="ERROR"):
-            with self.assertRaises(ArchiveDownloadError):
-                self.client.get(self.get_url())
+        with (
+            self.assertLogs("django.request", level="ERROR"),
+            self.assertRaises(ArchiveDownloadError),
+        ):
+            self.client.get(self.get_url())
 
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_TRADES,

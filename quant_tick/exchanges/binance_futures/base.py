@@ -107,9 +107,7 @@ class BinanceFuturesS3Mixin(BinanceFuturesMixin):
         ]
 
     def prepare_archive_chunk(self, df: DataFrame) -> DataFrame:
-        header_rows = (
-            df["agg_trade_id"].astype(str).str.lower() == "agg_trade_id"
-        )
+        header_rows = df["agg_trade_id"].astype(str).str.lower() == "agg_trade_id"
         return df.loc[~header_rows].copy() if header_rows.any() else df
 
     @staticmethod

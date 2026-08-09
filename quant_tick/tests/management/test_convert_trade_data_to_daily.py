@@ -21,7 +21,9 @@ class ConvertTradeDataToDailyCommandTest(BaseSymbolTest, TestCase):
             "time_to": "00:10",
         }
 
-    @patch("quant_tick.management.commands.convert_trade_data_to_daily.get_current_time")
+    @patch(
+        "quant_tick.management.commands.convert_trade_data_to_daily.get_current_time"
+    )
     @patch(
         "quant_tick.management.commands.convert_trade_data_to_daily."
         "convert_trade_data_to_daily"
@@ -37,7 +39,9 @@ class ConvertTradeDataToDailyCommandTest(BaseSymbolTest, TestCase):
         Command().handle(**self.get_options())
 
         mock_convert_trade_data_to_daily.assert_called_once()
-        self.assertEqual(mock_convert_trade_data_to_daily.call_args.kwargs["symbol"], symbol)
+        self.assertEqual(
+            mock_convert_trade_data_to_daily.call_args.kwargs["symbol"], symbol
+        )
         self.assertEqual(
             mock_convert_trade_data_to_daily.call_args.kwargs["timestamp_from"],
             datetime(2026, 5, 1, tzinfo=UTC),

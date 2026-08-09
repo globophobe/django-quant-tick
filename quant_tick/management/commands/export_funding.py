@@ -1,6 +1,6 @@
+import re
 from datetime import UTC, datetime
 from decimal import Decimal
-import re
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -15,7 +15,9 @@ from ..base import BaseDateCommand
 
 def _token(value: object) -> str:
     token = str(value).strip().lower()
-    token = token.replace("/", "-").replace("_", "-").replace(" ", "-").replace(".", "p")
+    token = (
+        token.replace("/", "-").replace("_", "-").replace(" ", "-").replace(".", "p")
+    )
     token = re.sub(r"[^a-z0-9-]+", "-", token)
     return re.sub(r"-+", "-", token).strip("-")
 
@@ -127,6 +129,6 @@ class Command(BaseDateCommand):
         )
         timestamp_from = date_from.replace(tzinfo=UTC) if date_from else None
         timestamp_to = date_to.replace(tzinfo=UTC) if date_to else None
-        today = datetime.now().strftime("%Y%m%d")
+        today = datetime.now(tz=UTC).strftime("%Y%m%d")
         for symbol in self.get_symbols(options["code_name"]):
             self.export_symbol(symbol, timestamp_from, timestamp_to, today)

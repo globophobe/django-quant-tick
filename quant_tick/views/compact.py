@@ -4,8 +4,8 @@ import pandas as pd
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
-from quant_tick.lib import get_min_time
 from quant_tick.constants import TaskType
+from quant_tick.lib import get_min_time
 from quant_tick.models import Candle, Symbol, TaskState
 from quant_tick.models.task_state import TASK_STATE_EXCHANGE_ALL
 from quant_tick.services.task_lease import (

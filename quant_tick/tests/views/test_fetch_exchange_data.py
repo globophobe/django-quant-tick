@@ -101,7 +101,9 @@ class FetchExchangeDataViewTest(TestCase):
         candle_symbols = {
             call.args[0].api_symbol for call in mock_candles.call_args_list
         }
-        self.assertEqual(candle_symbols, {"BTC", "BTC-PERPETUAL", "SOL", "BTC-USD", "tBTCF0:USTF0"})
+        self.assertEqual(
+            candle_symbols, {"BTC", "BTC-PERPETUAL", "SOL", "BTC-USD", "tBTCF0:USTF0"}
+        )
         candle_resolutions = {
             call.kwargs["resolution"] for call in mock_candles.call_args_list
         }
@@ -121,7 +123,10 @@ class FetchExchangeDataViewTest(TestCase):
             task_type=TaskType.FETCH_EXCHANGE_DATA,
         ).order_by("exchange", "api_symbol")
         self.assertEqual(
-            [(task_state.exchange, task_state.api_symbol) for task_state in task_states],
+            [
+                (task_state.exchange, task_state.api_symbol)
+                for task_state in task_states
+            ],
             [
                 (Exchange.BINANCE_FUTURES, "BTCUSDT"),
                 (Exchange.BITFINEX, "tBTCF0:USTF0"),

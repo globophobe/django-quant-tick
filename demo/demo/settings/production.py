@@ -6,7 +6,7 @@ from sentry_sdk.integrations.django import DjangoIntegration
 
 from quant_tick.testing import is_test
 
-from .base import *  # noqa
+from .base import *
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
@@ -36,7 +36,7 @@ DATABASES = {
         "PASSWORD": os.environ["DATABASE_PASSWORD"],
         "HOST": f"/cloudsql/{os.environ['PRODUCTION_DATABASE_HOST']}",
         "PORT": os.environ["DATABASE_PORT"],
-        "TEST": {"NAME": f'test_{os.environ["DATABASE_NAME"]}'},
+        "TEST": {"NAME": f"test_{os.environ['DATABASE_NAME']}"},
     },
 }
 
@@ -47,7 +47,7 @@ STORAGES = {
 }
 
 GS_BUCKET_NAME = (
-    f'test-{os.environ["GCS_BUCKET_NAME"]}'
+    f"test-{os.environ['GCS_BUCKET_NAME']}"
     if is_test()
     else os.environ["GCS_BUCKET_NAME"]
 )
@@ -69,7 +69,9 @@ def scrub_sentry_event(event, _hint):
             return {
                 key: (
                     "[Filtered]"
-                    if any(fragment in str(key).lower() for fragment in sensitive_fragments)
+                    if any(
+                        fragment in str(key).lower() for fragment in sensitive_fragments
+                    )
                     else scrub(item)
                 )
                 for key, item in value.items()

@@ -6,12 +6,13 @@ from pandas import DataFrame
 
 from quant_tick.exchanges.binance.api import get_binance_api_response
 from quant_tick.lib import filter_by_timestamp, get_current_time, zip_downloader
+
 from .constants import (
     DATA_API_URL,
-    METRICS_S3_URL,
     MARKET_HISTORY_INTERVAL,
     MARKET_HISTORY_MAX_RESULTS,
     MARKET_HISTORY_REST_RETENTION,
+    METRICS_S3_URL,
 )
 
 ARCHIVE_COLUMNS = [

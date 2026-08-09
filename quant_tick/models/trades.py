@@ -9,7 +9,6 @@ from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
 from quant_tick.constants import Exchange, FileData, Frequency
-from quant_tick.testing import is_test
 from quant_tick.lib import (
     aggregate_candle,
     aggregate_candles,
@@ -23,6 +22,7 @@ from quant_tick.lib import (
     validate_totals,
     volume_filter_with_time_window,
 )
+from quant_tick.testing import is_test
 
 from .base import AbstractDataStorage, JSONField
 from .symbols import Symbol
@@ -244,15 +244,13 @@ class TradeData(AbstractDataStorage):
         frequency = delta.total_seconds() / 60
         if frequency > Frequency.DAY:
             raise ValueError("frequency cannot exceed daily.")
-        if (
-            timestamp_from == get_min_time(timestamp_from, "1d")
-            and timestamp_from == timestamp_to - pd.Timedelta("1d")
-        ):
+        if timestamp_from == get_min_time(
+            timestamp_from, "1d"
+        ) and timestamp_from == timestamp_to - pd.Timedelta("1d"):
             return Frequency.DAY
-        if (
-            timestamp_from == get_min_time(timestamp_from, "1h")
-            and timestamp_from == timestamp_to - pd.Timedelta("1h")
-        ):
+        if timestamp_from == get_min_time(
+            timestamp_from, "1h"
+        ) and timestamp_from == timestamp_to - pd.Timedelta("1h"):
             return Frequency.HOUR
         if timestamp_from != get_min_time(timestamp_from, "1min") or (
             timestamp_to != get_min_time(timestamp_to, "1min")
@@ -407,9 +405,8 @@ class TradeData(AbstractDataStorage):
         filtered_trades: DataFrame | None = None,
     ) -> tuple[DataFrame | None, DataFrame | None, DataFrame | None]:
         if raw_trades is not None and len(raw_trades):
-            if (
-                aggregated_trades is None
-                and (symbol.save_aggregated or symbol.significant_trade_filter)
+            if aggregated_trades is None and (
+                symbol.save_aggregated or symbol.significant_trade_filter
             ):
                 aggregated_trades = aggregate_trades(raw_trades)
             if symbol.significant_trade_filter and filtered_trades is None:
@@ -418,12 +415,16 @@ class TradeData(AbstractDataStorage):
                     min_volume=symbol.significant_trade_filter,
                 )
 
-        if aggregated_trades is not None and len(aggregated_trades):
-            if symbol.significant_trade_filter and filtered_trades is None:
-                filtered_trades = volume_filter_with_time_window(
-                    aggregated_trades,
-                    min_volume=symbol.significant_trade_filter,
-                )
+        if (
+            aggregated_trades is not None
+            and len(aggregated_trades)
+            and symbol.significant_trade_filter
+            and filtered_trades is None
+        ):
+            filtered_trades = volume_filter_with_time_window(
+                aggregated_trades,
+                min_volume=symbol.significant_trade_filter,
+            )
 
         return raw_trades, aggregated_trades, filtered_trades
 

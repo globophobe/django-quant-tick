@@ -112,7 +112,7 @@ class WebSocketDataTest(TestCase):
             filtered_trades.iloc[0].timestamp.to_pydatetime(),
             datetime(2026, 5, 10, 10, 0, 10, tzinfo=UTC),
         )
-        self.assertEqual(filtered_trades.iloc[0].totalVolume, Decimal("1000"))
+        self.assertEqual(filtered_trades.iloc[0].totalVolume, Decimal(1000))
 
     def test_get_data_frames_preserves_equal_timestamp_order(self):
         symbol = Symbol.objects.create(

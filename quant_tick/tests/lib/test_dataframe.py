@@ -3,14 +3,21 @@ from unittest import TestCase
 
 import pandas as pd
 
-from quant_tick.lib import get_frame_totals, has_column_group, is_decimal_close, validate_totals
+from quant_tick.lib import (
+    get_frame_totals,
+    has_column_group,
+    is_decimal_close,
+    validate_totals,
+)
 
 
 class DataFrameValidationTest(TestCase):
     def test_is_decimal_close_uses_absolute_epsilon_only(self):
-        self.assertTrue(is_decimal_close(Decimal("1.000000001"), Decimal("1.000000002")))
-        self.assertFalse(is_decimal_close(Decimal("100000"), Decimal("100001")))
-        self.assertFalse(is_decimal_close(Decimal("100"), Decimal("100.001")))
+        self.assertTrue(
+            is_decimal_close(Decimal("1.000000001"), Decimal("1.000000002"))
+        )
+        self.assertFalse(is_decimal_close(Decimal(100000), Decimal(100001)))
+        self.assertFalse(is_decimal_close(Decimal(100), Decimal("100.001")))
 
     def test_has_column_group_rejects_partial_groups(self):
         data = pd.DataFrame([{"a": 1, "b": 2}])
@@ -22,32 +29,32 @@ class DataFrameValidationTest(TestCase):
         data = pd.DataFrame(
             [
                 {
-                    "volume": Decimal("999"),
+                    "volume": Decimal(999),
                     "notional": Decimal("9.99"),
-                    "totalVolume": Decimal("1000"),
-                    "totalNotional": Decimal("10"),
+                    "totalVolume": Decimal(1000),
+                    "totalNotional": Decimal(10),
                 },
                 {
-                    "volume": Decimal("1"),
+                    "volume": Decimal(1),
                     "notional": Decimal("0.01"),
-                    "totalVolume": Decimal("2000"),
-                    "totalNotional": Decimal("20"),
+                    "totalVolume": Decimal(2000),
+                    "totalNotional": Decimal(20),
                 },
             ]
         )
 
         volume, notional = get_frame_totals(data)
 
-        self.assertEqual(volume, Decimal("3000"))
-        self.assertEqual(notional, Decimal("30"))
+        self.assertEqual(volume, Decimal(3000))
+        self.assertEqual(notional, Decimal(30))
 
     def test_get_frame_totals_rejects_partial_filtered_trade_totals(self):
         data = pd.DataFrame(
             [
                 {
-                    "volume": Decimal("3000"),
-                    "notional": Decimal("30"),
-                    "totalVolume": Decimal("3000"),
+                    "volume": Decimal(3000),
+                    "notional": Decimal(30),
+                    "totalVolume": Decimal(3000),
                 }
             ]
         )
@@ -59,16 +66,16 @@ class DataFrameValidationTest(TestCase):
         raw = pd.DataFrame(
             [
                 {
-                    "volume": Decimal("3000"),
-                    "notional": Decimal("30"),
+                    "volume": Decimal(3000),
+                    "notional": Decimal(30),
                 }
             ]
         )
         totalized = pd.DataFrame(
             [
                 {
-                    "totalVolume": Decimal("3000"),
-                    "totalNotional": Decimal("30"),
+                    "totalVolume": Decimal(3000),
+                    "totalNotional": Decimal(30),
                 }
             ]
         )
@@ -76,9 +83,9 @@ class DataFrameValidationTest(TestCase):
         validate_totals(raw=raw, totalized=totalized)
 
     def test_validate_totals_rejects_mismatched_totals(self):
-        raw = pd.DataFrame([{"volume": Decimal("3000"), "notional": Decimal("30")}])
+        raw = pd.DataFrame([{"volume": Decimal(3000), "notional": Decimal(30)}])
         totalized = pd.DataFrame(
-            [{"totalVolume": Decimal("3000"), "totalNotional": Decimal("31")}]
+            [{"totalVolume": Decimal(3000), "totalNotional": Decimal(31)}]
         )
 
         with self.assertRaisesRegex(ValueError, "totalized notional"):

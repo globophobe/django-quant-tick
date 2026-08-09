@@ -81,7 +81,7 @@ class BaseTradeDataCommand(BaseDateTimeCommand):
                 )
                 if timestamp_range is None:
                     continue
-                logger.info("{symbol}: starting...".format(**{"symbol": str(symbol)}))
+                logger.info(f"{symbol!s}: starting...")
                 ts_from, ts_to = timestamp_range
                 yield {
                     "symbol": symbol,
@@ -145,7 +145,7 @@ class BaseCandleCommand(BaseDateTimeCommand):
                 time_to=options["time_to"],
             )
             for candle in candles:
-                logger.info("{candle}: starting...".format(**{"candle": str(candle)}))
+                logger.info(f"{candle!s}: starting...")
                 yield {
                     "candle": candle,
                     "timestamp_from": timestamp_from,

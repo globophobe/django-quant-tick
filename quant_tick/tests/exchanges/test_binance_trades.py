@@ -24,9 +24,7 @@ class BinanceTradesTest(SimpleTestCase):
             patch(
                 "quant_tick.exchanges.binance.controllers.BinanceTradesS3"
             ) as archive,
-            patch(
-                "quant_tick.exchanges.binance.controllers.BinanceTradesREST"
-            ) as rest,
+            patch("quant_tick.exchanges.binance.controllers.BinanceTradesREST") as rest,
         ):
             archive.return_value.main.side_effect = lambda: calls.append("archive")
             rest.return_value.main.side_effect = lambda: calls.append("rest")

@@ -34,9 +34,9 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                     "uid": uid,
                     "timestamp": self.timestamp_from + pd.Timedelta("10s"),
                     "nanoseconds": 0,
-                    "price": Decimal("100"),
-                    "volume": Decimal("1000"),
-                    "notional": Decimal("10"),
+                    "price": Decimal(100),
+                    "volume": Decimal(1000),
+                    "notional": Decimal(10),
                     "tickRule": 1,
                     "ticks": 1,
                 }
@@ -50,17 +50,17 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                     "uid": uid,
                     "timestamp": self.timestamp_from + pd.Timedelta("10s"),
                     "nanoseconds": 0,
-                    "price": Decimal("100"),
-                    "volume": Decimal("1000"),
-                    "notional": Decimal("10"),
+                    "price": Decimal(100),
+                    "volume": Decimal(1000),
+                    "notional": Decimal(10),
                     "tickRule": 1,
                     "ticks": 1,
-                    "high": Decimal("101"),
-                    "low": Decimal("99"),
-                    "totalBuyVolume": Decimal("1000"),
-                    "totalVolume": Decimal("1000"),
-                    "totalBuyNotional": Decimal("10"),
-                    "totalNotional": Decimal("10"),
+                    "high": Decimal(101),
+                    "low": Decimal(99),
+                    "totalBuyVolume": Decimal(1000),
+                    "totalVolume": Decimal(1000),
+                    "totalBuyNotional": Decimal(10),
+                    "totalNotional": Decimal(10),
                     "totalBuyTicks": 1,
                     "totalTicks": 1,
                 }
@@ -153,7 +153,12 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         )
 
     def test_write_trade_data_validates_exchange_candle(self):
-        for name, symbol_kwargs, trade_kwargs, stored_data in self.get_validation_cases():
+        for (
+            name,
+            symbol_kwargs,
+            trade_kwargs,
+            stored_data,
+        ) in self.get_validation_cases():
             with self.subTest(name=name):
                 symbol = self.get_symbol(api_symbol=name, **symbol_kwargs)
 
@@ -176,11 +181,16 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                     )
                 self.assertEqual(
                     trade_data.json_data["candle"]["notional"],
-                    Decimal("10"),
+                    Decimal(10),
                 )
 
     def test_write_trade_data_marks_mismatched_candle_not_ok(self):
-        for name, symbol_kwargs, trade_kwargs, _stored_data in self.get_validation_cases():
+        for (
+            name,
+            symbol_kwargs,
+            trade_kwargs,
+            _stored_data,
+        ) in self.get_validation_cases():
             with self.subTest(name=name):
                 symbol = self.get_symbol(api_symbol=name, **symbol_kwargs)
 
@@ -249,19 +259,21 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         aggregated = self.get_aggregated_validation_data("aggregated-1")
         filtered = self.get_aggregated_validation_data("filtered-1")
 
-        with patch("quant_tick.models.trades.aggregate_trades") as aggregate_mock:
-            with patch(
+        with (
+            patch("quant_tick.models.trades.aggregate_trades") as aggregate_mock,
+            patch(
                 "quant_tick.models.trades.volume_filter_with_time_window"
-            ) as filter_mock:
-                rows = TradeData.write(
-                    symbol,
-                    self.timestamp_from,
-                    self.timestamp_to,
-                    self.get_exchange_candles("10"),
-                    raw_trades=raw,
-                    aggregated_trades=aggregated,
-                    filtered_trades=filtered,
-                )
+            ) as filter_mock,
+        ):
+            rows = TradeData.write(
+                symbol,
+                self.timestamp_from,
+                self.timestamp_to,
+                self.get_exchange_candles("10"),
+                raw_trades=raw,
+                aggregated_trades=aggregated,
+                filtered_trades=filtered,
+            )
 
         aggregate_mock.assert_not_called()
         filter_mock.assert_not_called()
@@ -303,14 +315,14 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                 "aggregated-volume",
                 "aggregated_trades",
                 "totalVolume",
-                Decimal("999"),
+                Decimal(999),
                 "aggregated_trades volume",
             ),
             (
                 "filtered-notional",
                 "filtered_trades",
                 "totalNotional",
-                Decimal("11"),
+                Decimal(11),
                 "filtered_trades notional",
             ),
         )
@@ -440,7 +452,9 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             raw_trades=self.get_raw(day_from),
         )
 
-        rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
+        rows = list(
+            TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency")
+        )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, day_from)
         self.assertEqual(rows[0].frequency, Frequency.DAY)
@@ -468,7 +482,9 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             raw_trades=self.get_raw(hour_from),
         )
 
-        rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
+        rows = list(
+            TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency")
+        )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, hour_from)
         self.assertEqual(rows[0].frequency, Frequency.HOUR)
@@ -483,15 +499,17 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         )
 
         for timestamp_from, delta in cases:
-            with self.subTest(timestamp_from=timestamp_from, delta=delta):
-                with self.assertRaises(ValueError):
-                    TradeData.write(
-                        symbol,
-                        timestamp_from,
-                        timestamp_from + delta,
-                        pd.DataFrame([]),
-                        raw_trades=self.get_raw(timestamp_from),
-                    )
+            with (
+                self.subTest(timestamp_from=timestamp_from, delta=delta),
+                self.assertRaises(ValueError),
+            ):
+                TradeData.write(
+                    symbol,
+                    timestamp_from,
+                    timestamp_from + delta,
+                    pd.DataFrame([]),
+                    raw_trades=self.get_raw(timestamp_from),
+                )
 
     def test_clean_trade_data_overlaps_deletes_hourly_and_minute_rows(self):
         symbol = self.get_symbol()
@@ -521,7 +539,9 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             hour_from + pd.Timedelta("2min"),
         )
 
-        rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
+        rows = list(
+            TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency")
+        )
         self.assertEqual(deleted, 2)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, day_from)
@@ -550,7 +570,9 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             minute_from + pd.Timedelta("1min"),
         )
 
-        rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency"))
+        rows = list(
+            TradeData.objects.filter(symbol=symbol).order_by("timestamp", "frequency")
+        )
         self.assertEqual(deleted, 1)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, hour_from)
@@ -653,9 +675,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         for hour in range(4):
             TradeData.objects.create(
                 symbol=symbol,
-                timestamp=day_from
-                + pd.Timedelta(f"{hour}h")
-                + pd.Timedelta("1min"),
+                timestamp=day_from + pd.Timedelta(f"{hour}h") + pd.Timedelta("1min"),
                 frequency=Frequency.HOUR,
                 ok=True,
             )
@@ -711,14 +731,16 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
             return original_delete(instance, *args, **kwargs)
 
         try:
-            with patch.object(TradeData, "delete", new=fail_second_delete):
-                with self.assertRaises(RuntimeError):
-                    convert_trade_data(
-                        symbol,
-                        queryset,
-                        timestamp_from,
-                        get_next_time(timestamp_from, value="1h"),
-                    )
+            with (
+                patch.object(TradeData, "delete", new=fail_second_delete),
+                self.assertRaises(RuntimeError),
+            ):
+                convert_trade_data(
+                    symbol,
+                    queryset,
+                    timestamp_from,
+                    get_next_time(timestamp_from, value="1h"),
+                )
 
             self.assertEqual(delete_calls, 2)
             self.assertEqual(
@@ -769,14 +791,16 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         target_name = target.raw_data.name
         storage = target.raw_data.storage
 
-        with patch.object(storage, "save", wraps=storage.save) as save:
-            with self.assertRaises(IntegrityError):
-                convert_trade_data(
-                    symbol,
-                    queryset,
-                    timestamp_from,
-                    timestamp_from + pd.Timedelta("1h"),
-                )
+        with (
+            patch.object(storage, "save", wraps=storage.save) as save,
+            self.assertRaises(IntegrityError),
+        ):
+            convert_trade_data(
+                symbol,
+                queryset,
+                timestamp_from,
+                timestamp_from + pd.Timedelta("1h"),
+            )
 
         save.assert_not_called()
         with storage.open(target_name, "rb") as target_file:
@@ -837,4 +861,6 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         self.assertFalse(raw_storage.exists(orphan_name))
         for row in (early, current, late, following):
             self.assertTrue(raw_storage.exists(row.raw_data.name))
-        self.assertTrue(current.aggregated_data.storage.exists(current.aggregated_data.name))
+        self.assertTrue(
+            current.aggregated_data.storage.exists(current.aggregated_data.name)
+        )

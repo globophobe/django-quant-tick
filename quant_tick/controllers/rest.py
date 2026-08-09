@@ -93,7 +93,7 @@ def iter_api(
                 t = timestamp.replace(tzinfo=None).isoformat()
                 if not timestamp.microsecond:
                     t += ".000000"
-                logger.info(log_format.format(**{"timestamp": t}))
+                logger.info(log_format.format(timestamp=t))
         # Throttle requests
         elapsed = time.time() - start
         if elapsed < min_elapsed_per_request:
@@ -320,10 +320,7 @@ class ExchangeREST(BaseController):
                 aggregated_trades=aggregated_trades,
                 filtered_trades=filtered_trades,
             )
-            if (
-                ok is not True
-                and not self.write_unvalidated_websocket_partitions
-            ):
+            if ok is not True and not self.write_unvalidated_websocket_partitions:
                 return None
             raw_trades, aggregated_trades, filtered_trades = (
                 TradeData._prepare_partition_data(

@@ -34,8 +34,8 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
         )
         raw = self.get_raw(
             timestamp_from,
-            price=Decimal("1"),
-            notional=Decimal("123"),
+            price=Decimal(1),
+            notional=Decimal(123),
         )
         TradeData.write(
             symbol,
@@ -56,10 +56,10 @@ class AdaptiveCandleTest(BaseWriteTradeDataTest, TestCase):
         self.assertEqual(cache["target_value"], 123)
 
 
-@time_machine.travel(datetime(2009, 1, 4), tick=False)
+@time_machine.travel(datetime(2009, 1, 4, tzinfo=UTC), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=UTC),
+    return_value=datetime(2009, 1, 4, 3, tzinfo=UTC),
 )
 class AdaptiveNotionalCandleTest(
     BaseHourIteratorTest,
@@ -98,7 +98,7 @@ class AdaptiveNotionalCandleTest(
         self.assertEqual(candle_cache[0].json_data["sample_value"], expected)
 
     def test_one_candle_from_trade_in_the_first_hour(self, mock_get_current_time):
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
         self.candle.candles(self.timestamp_from, self.one_hour_from_now)
         candle_data = CandleData.objects.all()
@@ -108,7 +108,7 @@ class AdaptiveNotionalCandleTest(
     def test_one_candle_from_trade_in_the_first_hour_with_retry(
         self, mock_get_current_time
     ):
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
         for i in range(2):
             self.candle.candles(
@@ -124,7 +124,7 @@ class AdaptiveNotionalCandleTest(
     def test_one_candle_from_one_trade_in_the_first_hour_then_two_trades_with_retry(
         self, mock_get_current_time
     ):
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
         for i in range(2):
             retry = bool(i)
             if retry:
@@ -174,9 +174,9 @@ class AdaptiveNotionalCandleTest(
     def test_two_candles_from_trades_in_the_first_and_second_hour(
         self, mock_get_current_time
     ):
-        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal("1"))
+        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal(1))
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=Decimal("1"))
+        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=Decimal(1))
         self.write_trade_data(
             self.one_hour_from_now, self.two_hours_from_now, filtered_2
         )
@@ -192,7 +192,7 @@ class AdaptiveNotionalCandleTest(
         self.write_trade_data(
             self.timestamp_from,
             self.one_hour_from_now,
-            self.get_filtered(self.timestamp_from, notional=Decimal("1")),
+            self.get_filtered(self.timestamp_from, notional=Decimal(1)),
         )
         TradeData.objects.create(
             symbol=self.symbol,
@@ -202,7 +202,7 @@ class AdaptiveNotionalCandleTest(
         self.write_trade_data(
             self.two_hours_from_now,
             self.three_hours_from_now,
-            self.get_filtered(self.two_hours_from_now, notional=Decimal("1")),
+            self.get_filtered(self.two_hours_from_now, notional=Decimal(1)),
         )
         self.candle.candles(self.timestamp_from, self.three_hours_from_now)
         candle_data = CandleData.objects.all()

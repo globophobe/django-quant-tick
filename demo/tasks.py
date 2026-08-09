@@ -15,7 +15,9 @@ load_dotenv(Path(__file__).resolve().with_name(".env"))
 @task
 def django_settings(ctx: Any, proxy: bool = False) -> Any:
     os.environ["DJANGO_SETTINGS_MODULE"] = (
-        "demo.settings.development.proxy" if proxy else "demo.settings.development.local"
+        "demo.settings.development.proxy"
+        if proxy
+        else "demo.settings.development.local"
     )
     import django
 
@@ -40,7 +42,9 @@ def start_proxy(ctx: Any) -> None:
     host = os.environ["PRODUCTION_DATABASE_HOST"]
     port = os.environ["PROXY_DATABASE_PORT"]
     home = Path.home()
-    credentials = home.joinpath("keys", os.environ["GOOGLE_APPLICATION_CREDENTIALS"]).resolve()
+    credentials = home.joinpath(
+        "keys", os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+    ).resolve()
     proxy = home.joinpath("cloud-tools", "cloud-sql-proxy").resolve()
     ctx.run(f"{proxy} -c {credentials} {host} -p {port}")
 
@@ -153,7 +157,6 @@ def _optional_int_env(name: str) -> int | None:
     return int(value)
 
 
-
 def _parse_callback_strategies(raw: str | None) -> list[str] | None:
     if raw is None:
         return None
@@ -189,8 +192,12 @@ def _callback_ready_condition(
     callback_window_period_minutes: int | None = None,
 ) -> str:
     if callback_window_period_minutes is None:
-        raise ValueError("CALLBACK_WINDOW_PERIOD_MINUTES is required when CALLBACK_URL is set.")
-    _validate_positive_minutes("CALLBACK_WINDOW_PERIOD_MINUTES", callback_window_period_minutes)
+        raise ValueError(
+            "CALLBACK_WINDOW_PERIOD_MINUTES is required when CALLBACK_URL is set."
+        )
+    _validate_positive_minutes(
+        "CALLBACK_WINDOW_PERIOD_MINUTES", callback_window_period_minutes
+    )
     return f"runMinutes % {callback_window_period_minutes} == 0"
 
 
@@ -199,14 +206,23 @@ def _callback_condition(
     callback_window_period_minutes: int | None = None,
     callback_window_duration_minutes: int | None = None,
 ) -> str:
-    if callback_window_period_minutes is None or callback_window_duration_minutes is None:
+    if (
+        callback_window_period_minutes is None
+        or callback_window_duration_minutes is None
+    ):
         raise ValueError(
             "CALLBACK_WINDOW_PERIOD_MINUTES and CALLBACK_WINDOW_DURATION_MINUTES are required when CALLBACK_URL is set."
         )
-    _validate_positive_minutes("CALLBACK_WINDOW_PERIOD_MINUTES", callback_window_period_minutes)
-    _validate_positive_minutes("CALLBACK_WINDOW_DURATION_MINUTES", callback_window_duration_minutes)
+    _validate_positive_minutes(
+        "CALLBACK_WINDOW_PERIOD_MINUTES", callback_window_period_minutes
+    )
+    _validate_positive_minutes(
+        "CALLBACK_WINDOW_DURATION_MINUTES", callback_window_duration_minutes
+    )
     if callback_window_duration_minutes > callback_window_period_minutes:
-        raise ValueError("CALLBACK_WINDOW_DURATION_MINUTES must be <= CALLBACK_WINDOW_PERIOD_MINUTES.")
+        raise ValueError(
+            "CALLBACK_WINDOW_DURATION_MINUTES must be <= CALLBACK_WINDOW_PERIOD_MINUTES."
+        )
     return f"runMinutes % {callback_window_period_minutes} <= {callback_window_duration_minutes}"
 
 
@@ -324,10 +340,15 @@ def get_workflow(
                                                                         "call": "http.get",
                                                                         "args": {
                                                                             "url": "${readyTarget.url}",
-                                                                            "auth": {"type": "OIDC"},
+                                                                            "auth": {
+                                                                                "type": "OIDC"
+                                                                            },
                                                                         },
                                                                     },
-                                                                    "except": {"as": "e", "steps": []},
+                                                                    "except": {
+                                                                        "as": "e",
+                                                                        "steps": [],
+                                                                    },
                                                                 }
                                                             }
                                                         ],
@@ -342,7 +363,11 @@ def get_workflow(
                                                 "next": "readyDone",
                                             }
                                         },
-                                        {"readyDone": {"assign": [{"readyDone": True}]}},
+                                        {
+                                            "readyDone": {
+                                                "assign": [{"readyDone": True}]
+                                            }
+                                        },
                                     ]
                                 }
                             },
@@ -381,7 +406,11 @@ def get_workflow(
                         "for": {
                             "value": "callbackTarget",
                             "in": [
-                                {"url": _callback_strategy_url(callback_url, strategy_name)}
+                                {
+                                    "url": _callback_strategy_url(
+                                        callback_url, strategy_name
+                                    )
+                                }
                                 for strategy_name in callback_strategies
                             ],
                             "steps": [
@@ -459,9 +488,13 @@ def push_workflow(
 
     url = os.environ["PRODUCTION_API_URL"]
     callback_url = os.environ.get("CALLBACK_URL") or None
-    callback_strategies = _parse_callback_strategies(os.environ.get("CALLBACK_STRATEGIES"))
+    callback_strategies = _parse_callback_strategies(
+        os.environ.get("CALLBACK_STRATEGIES")
+    )
     callback_window_period_minutes = _optional_int_env("CALLBACK_WINDOW_PERIOD_MINUTES")
-    callback_window_duration_minutes = _optional_int_env("CALLBACK_WINDOW_DURATION_MINUTES")
+    callback_window_duration_minutes = _optional_int_env(
+        "CALLBACK_WINDOW_DURATION_MINUTES"
+    )
 
     workflow = get_workflow(
         url,
@@ -475,6 +508,5 @@ def push_workflow(
         json.dump(workflow, f)
         f.seek(0)
         ctx.run(
-            f"gcloud workflows deploy {name} "
-            f"--source={f.name} --location={location}"
+            f"gcloud workflows deploy {name} --source={f.name} --location={location}"
         )

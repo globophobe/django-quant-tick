@@ -58,8 +58,7 @@ class Symbol(AbstractCodeName):
         for char in ("-", "/", "_"):
             symbol = symbol.replace(char, "")
         if self.exchange == Exchange.BITFINEX:
-            if symbol.startswith("t"):
-                symbol = symbol[1:]  # Trading symbols are prepended with t.
+            symbol = symbol.removeprefix("t")  # Trading symbols are prepended with t.
             base_quote = symbol.split(":")
             if (
                 len(base_quote) == 2

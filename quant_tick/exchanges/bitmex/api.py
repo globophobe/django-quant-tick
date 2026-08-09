@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from functools import partial
 
@@ -67,7 +67,7 @@ def get_bitmex_api_response(
                 remaining = int(remaining)
                 reset = int(reset)
                 if remaining == 0:
-                    timestamp = datetime.utcnow().timestamp()
+                    timestamp = datetime.now(tz=UTC).timestamp()
                     if reset > timestamp:
                         sleep_duration = reset - timestamp
                         time.sleep(sleep_duration)

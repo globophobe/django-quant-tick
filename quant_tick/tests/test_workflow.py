@@ -2,11 +2,15 @@ import os
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, TestCase
+from tasks import (
+    _callback_condition,
+    _callback_ready_condition,
+    get_workflow,
+    push_workflow,
+)
 
 from quant_tick.constants import Exchange
 from quant_tick.models import Symbol
-
-from tasks import _callback_condition, _callback_ready_condition, get_workflow, push_workflow
 
 
 class WorkflowTest(SimpleTestCase):
@@ -32,7 +36,9 @@ class WorkflowTest(SimpleTestCase):
             ],
         )
         branches = steps[1]["process"]["parallel"]["branches"]
-        self.assertEqual([next(iter(branch)) for branch in branches], ["maybeReady", "getData"])
+        self.assertEqual(
+            [next(iter(branch)) for branch in branches], ["maybeReady", "getData"]
+        )
         ready_steps = branches[0]["maybeReady"]["steps"]
         check_ready = ready_steps[0]["checkReady"]
         self.assertEqual(
@@ -93,7 +99,6 @@ class WorkflowTest(SimpleTestCase):
             steps[5]["compact"]["args"]["url"],
             "https://test.123/compact/?time_ago=7d",
         )
-
 
     def test_callback_ready_condition_uses_exact_period_boundary(self):
         condition = _callback_ready_condition(callback_window_period_minutes=15)
@@ -167,9 +172,7 @@ class WorkflowTest(SimpleTestCase):
                 {"exchange": "binance-futures", "api_symbol": "BTC/USDT"},
             ],
         )
-        requests = workflow["main"]["steps"][0]["getTradeData"]["parallel"]["for"][
-            "in"
-        ]
+        requests = workflow["main"]["steps"][0]["getTradeData"]["parallel"]["for"]["in"]
 
         self.assertEqual(
             requests,
@@ -268,10 +271,17 @@ class WorkflowDeployTest(TestCase):
 
         push_workflow.body(Mock())
 
-        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_url"], "https://test.456/callback/")
+        self.assertEqual(
+            mock_get_workflow.call_args.kwargs["callback_url"],
+            "https://test.456/callback/",
+        )
         self.assertEqual(
             mock_get_workflow.call_args.kwargs["callback_strategies"],
             ["callback-target-a", "callback-target-b"],
         )
-        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_window_period_minutes"], 15)
-        self.assertEqual(mock_get_workflow.call_args.kwargs["callback_window_duration_minutes"], 5)
+        self.assertEqual(
+            mock_get_workflow.call_args.kwargs["callback_window_period_minutes"], 15
+        )
+        self.assertEqual(
+            mock_get_workflow.call_args.kwargs["callback_window_duration_minutes"], 5
+        )

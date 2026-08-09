@@ -80,7 +80,7 @@ class TradeDataIterator:
                     ts_from, ts_to, existing, reverse=True
                 ):
                     max_ts_to = self.get_max_timestamp_to()
-                    end = max_ts_to if end_time > max_ts_to else end_time
+                    end = min(end_time, max_ts_to)
                     if start_time != end:
                         yield start_time, end
 

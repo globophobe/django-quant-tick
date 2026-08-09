@@ -4,8 +4,8 @@ from typing import Literal, TypeAlias
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-ZERO = Decimal("0")
-ONE = Decimal("1")
+ZERO = Decimal(0)
+ONE = Decimal(1)
 
 RETRY_INDETERMINATE = "indeterminate"
 TradeDataRetry: TypeAlias = bool | Literal["indeterminate"]

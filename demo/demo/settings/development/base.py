@@ -1,6 +1,6 @@
-# ruff: noqa: F403, F405
-from ..base import *
 from quant_tick.testing import is_test
+
+from ..base import *
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True

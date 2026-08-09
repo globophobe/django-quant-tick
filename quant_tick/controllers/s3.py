@@ -80,7 +80,9 @@ class ExchangeS3(BaseController):
                     and timestamp_to == timestamp_from + pd.Timedelta("1d")
                 )
                 if existing or not is_full_day:
-                    windows = iterator.iter_hours(timestamp_from, timestamp_to, existing)
+                    windows = iterator.iter_hours(
+                        timestamp_from, timestamp_to, existing
+                    )
                 else:
                     windows = ((timestamp_from, timestamp_to),)
                 for ts_from, ts_to in windows:
@@ -211,9 +213,7 @@ class ChunkedExchangeS3(ExchangeS3):
         ):
             chunks = self.get_data_frame_chunks(timestamp_from.date())
             if chunks is None:
-                if self._should_stop_after_missing_archive(
-                    timestamp_from.date()
-                ):
+                if self._should_stop_after_missing_archive(timestamp_from.date()):
                     break
                 continue
             windows = sorted(
@@ -223,9 +223,7 @@ class ChunkedExchangeS3(ExchangeS3):
             windows_by_hour = {}
             for window_from, window_to in windows:
                 hour = get_min_time(window_from, "1h")
-                windows_by_hour.setdefault(hour, []).append(
-                    (window_from, window_to)
-                )
+                windows_by_hour.setdefault(hour, []).append((window_from, window_to))
             try:
                 candles = self.get_candles(timestamp_from, timestamp_to)
                 for hour, raw_data in self.iter_archive_hours(chunks):

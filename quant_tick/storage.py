@@ -92,7 +92,7 @@ def convert_candle_cache_to_daily(
                     with transaction.atomic():
                         if assert_lease_owned is not None:
                             assert_lease_owned()
-                        daily_cache, created = CandleCache.objects.get_or_create(
+                        daily_cache, _created = CandleCache.objects.get_or_create(
                             candle=candle,
                             timestamp=daily_ts_from,
                             frequency=Frequency.DAY,
@@ -102,10 +102,8 @@ def convert_candle_cache_to_daily(
                         )
                         daily_cache.save()
                         target_cache.delete()
-                    logging.info(
-                        _("Converted {date} to daily").format(
-                            **{"date": daily_ts_from.date()}
-                        )
+                    logger.info(
+                        _("Converted {date} to daily").format(date=daily_ts_from.date())
                     )
 
 
@@ -129,11 +127,9 @@ def convert_trade_data_to_daily(
         first = trade_data.first()
         last = trade_data.last()
         min_timestamp_from = first.timestamp
-        if timestamp_from < min_timestamp_from:
-            timestamp_from = min_timestamp_from
+        timestamp_from = max(timestamp_from, min_timestamp_from)
         max_timestamp_to = last.timestamp + pd.Timedelta(f"{last.frequency}min")
-        if timestamp_to > max_timestamp_to:
-            timestamp_to = max_timestamp_to
+        timestamp_to = min(timestamp_to, max_timestamp_to)
         for daily_ts_from, daily_ts_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d", reverse=True
         ):
@@ -172,10 +168,9 @@ def convert_trade_data_to_daily(
                 timestamp__lt=daily_ts_to,
                 frequency=Frequency.HOUR,
             )
-            is_complete_day = (
-                daily_ts_from == get_min_time(daily_ts_from, "1d")
-                and daily_ts_to == daily_ts_from + pd.Timedelta("1d")
-            )
+            is_complete_day = daily_ts_from == get_min_time(
+                daily_ts_from, "1d"
+            ) and daily_ts_to == daily_ts_from + pd.Timedelta("1d")
             hourly_values = list(hourly_trade_data.values("timestamp", "frequency"))
             hourly_existing = get_existing(hourly_values)
             if (
@@ -190,7 +185,7 @@ def convert_trade_data_to_daily(
                     daily_ts_to,
                     assert_lease_owned=assert_lease_owned,
                 )
-    logger.info("{symbol}: done".format(symbol=str(symbol)))
+    logger.info(f"{symbol!s}: done")
 
 
 def convert_trade_data(
@@ -344,13 +339,11 @@ def convert_trade_data(
             obj._skip_signal = True
             obj.delete()
 
-    logging.info(
+    logger.info(
         _("Converted {timestamp_from} {timestamp_to} to {frequency}").format(
-            **{
-                "timestamp_from": timestamp_from,
-                "timestamp_to": timestamp_to,
-                "frequency": "daily" if frequency == Frequency.DAY else "hourly",
-            }
+            timestamp_from=timestamp_from,
+            timestamp_to=timestamp_to,
+            frequency="daily" if frequency == Frequency.DAY else "hourly",
         )
     )
 
@@ -359,7 +352,7 @@ def clean_trade_data_with_non_existing_files(
     symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ) -> None:
     """Clean trade data with non-existing files."""
-    logging.info(_("Checking objects with non existent files"))
+    logger.info(_("Checking objects with non existent files"))
 
     fields = symbol.trade_data_fields
     if not fields:
@@ -378,29 +371,21 @@ def clean_trade_data_with_non_existing_files(
         )
         .only("timestamp", *fields)
     )
-    count = 0
     deleted = 0
     total = trade_data.count()
     first_row = trade_data.first()
-    next_progress_year = first_row.timestamp.year + 1 if first_row else timestamp_from.year + 1
-    for obj in trade_data:
+    next_progress_year = (
+        first_row.timestamp.year + 1 if first_row else timestamp_from.year + 1
+    )
+    for count, obj in enumerate(trade_data):
         row_timestamp = obj.timestamp
         while row_timestamp.year >= next_progress_year:
-            logging.info(
-                (
-                    "{symbol}: checked {year}, {count}/{total} items, "
-                    "deleted {deleted} items"
-                ).format(
-                    symbol=str(symbol),
-                    year=next_progress_year - 1,
-                    count=count,
-                    total=total,
-                    deleted=deleted,
-                )
+            logger.info(
+                f"{symbol!s}: checked {next_progress_year - 1}, {count}/{total} items, "
+                f"deleted {deleted} items"
             )
             next_progress_year += 1
 
-        count += 1
         for field in fields:
             if getattr(obj, field):
                 f = getattr(obj, field)
@@ -410,12 +395,11 @@ def clean_trade_data_with_non_existing_files(
                     break
 
 
-
 def clean_unlinked_trade_data_files(
     symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ) -> None:
     """Clean unlinked trade data files."""
-    logging.info(_("Checking unlinked trade data files"))
+    logger.info(_("Checking unlinked trade data files"))
 
     fields = symbol.trade_data_fields
     if not fields:
@@ -445,12 +429,10 @@ def clean_unlinked_trade_data_files(
     }
     if t.exists():
         min_timestamp_from = t.first().timestamp
-        if timestamp_from < min_timestamp_from:
-            timestamp_from = min_timestamp_from
+        timestamp_from = max(timestamp_from, min_timestamp_from)
         last = t.last()
         max_timestamp_to = last.timestamp + pd.Timedelta(minutes=last.frequency)
-        if timestamp_to > max_timestamp_to:
-            timestamp_to = max_timestamp_to
+        timestamp_to = min(timestamp_to, max_timestamp_to)
         next_progress_year = timestamp_from.year + 1
         for daily_timestamp_from, daily_timestamp_to in iter_timeframe(
             timestamp_from, timestamp_to, value="1d"
@@ -489,18 +471,10 @@ def clean_unlinked_trade_data_files(
 
             if daily_timestamp_to.year >= next_progress_year:
                 logger.info(
-                    (
-                        "{symbol}: checked {year}, {checked_days} items, "
-                        "deleted {deleted} items"
-                    ).format(
-                        symbol=str(symbol),
-                        year=next_progress_year - 1,
-                        checked_days=checked_days,
-                        deleted=deleted,
-                    )
+                    f"{symbol!s}: checked {next_progress_year - 1}, {checked_days} items, "
+                    f"deleted {deleted} items"
                 )
                 next_progress_year = daily_timestamp_to.year + 1
-
 
 
 def _clean_overlapping_trade_data_rows(
@@ -512,26 +486,16 @@ def _clean_overlapping_trade_data_rows(
     label: str,
 ) -> int:
     deleted = 0
-    count = 0
     total = len(rows)
     if not rows:
         return deleted
 
     next_progress_year = rows[0].timestamp.year + 1
-    for row in rows:
+    for count, row in enumerate(rows):
         while row.timestamp.year >= next_progress_year:
             logger.info(
-                (
-                    "{symbol}: checked {label} overlap rows {year}, "
-                    "{count}/{total} items, deleted {deleted} items"
-                ).format(
-                    symbol=str(symbol),
-                    label=label,
-                    year=next_progress_year - 1,
-                    count=count,
-                    total=total,
-                    deleted=deleted,
-                )
+                f"{symbol!s}: checked {label} overlap rows {next_progress_year - 1}, "
+                f"{count}/{total} items, deleted {deleted} items"
             )
             next_progress_year += 1
 
@@ -541,7 +505,6 @@ def _clean_overlapping_trade_data_rows(
             row.timestamp + coverage_delta,
             cleanup_frequency,
         )
-        count += 1
 
     return deleted
 
@@ -550,7 +513,7 @@ def clean_trade_data_overlaps(
     symbol: Symbol, timestamp_from: datetime.datetime, timestamp_to: datetime.datetime
 ) -> int:
     """Delete lower-frequency rows already covered by higher-frequency TradeData."""
-    logging.info(_("Checking overlapping trade data rows"))
+    logger.info(_("Checking overlapping trade data rows"))
 
     daily_rows = list(
         TradeData.objects.overlapping(
@@ -579,5 +542,5 @@ def clean_trade_data_overlaps(
     )
 
     if not daily_rows and not hourly_rows:
-        logger.info("{symbol}: no overlapping trade-data rows".format(symbol=str(symbol)))
+        logger.info(f"{symbol!s}: no overlapping trade-data rows")
     return deleted

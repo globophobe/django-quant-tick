@@ -77,7 +77,7 @@ class HyperliquidWebSocketValidationTest(BaseWriteTradeDataTest, TestCase):
 
     @staticmethod
     def get_filtered_trade(uid: str, timestamp: datetime, notional: str) -> dict:
-        price = Decimal("64000")
+        price = Decimal(64000)
         base_quantity = Decimal(notional)
         quote_quantity = price * base_quantity
         return {

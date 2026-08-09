@@ -43,7 +43,9 @@ class ExportCandlesFilenameTest(SimpleTestCase):
             "binance-btcusdt-adaptive-filtered-notional-50cpd-ma50d-round-weekly-cache-reset-candles-20260421.parquet",
         )
 
-    def test_get_output_path_for_adaptive_candle_with_calendar_cache_reset(self) -> None:
+    def test_get_output_path_for_adaptive_candle_with_calendar_cache_reset(
+        self,
+    ) -> None:
         candle = AdaptiveCandle(
             symbol=Symbol(exchange="binance", api_symbol="BTCUSDT"),
             json_data={

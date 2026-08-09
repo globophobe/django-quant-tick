@@ -45,8 +45,8 @@ class HyperliquidCandleTest(SimpleTestCase):
             df = hyperliquid_candles("BTC", timestamp_from, timestamp_to)
 
         self.assertEqual(list(df.index), [pd.Timestamp(timestamp_from)])
-        self.assertEqual(df.iloc[0].open, Decimal("1"))
-        self.assertEqual(df.iloc[0].notional, Decimal("10"))
+        self.assertEqual(df.iloc[0].open, Decimal(1))
+        self.assertEqual(df.iloc[0].notional, Decimal(10))
         self.assertEqual(df.iloc[0].trades, 3)
 
     def test_exchange_candles_api_dispatches_hyperliquid(self):
@@ -127,11 +127,11 @@ class ExchangeCandleFetchTest(BaseSymbolTest, TestCase):
             [
                 {
                     "timestamp": timestamp,
-                    "open": Decimal("1"),
-                    "high": Decimal("2"),
+                    "open": Decimal(1),
+                    "high": Decimal(2),
                     "low": Decimal("0.5"),
                     "close": Decimal("1.5"),
-                    "notional": Decimal("10"),
+                    "notional": Decimal(10),
                 }
                 for timestamp in timestamps
             ]

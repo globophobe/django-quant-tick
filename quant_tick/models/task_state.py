@@ -17,7 +17,7 @@ TASK_STATE_EXCHANGE_ALL = "all"
 TASK_STATE_EXCHANGE_CHOICES = ((TASK_STATE_EXCHANGE_ALL, _("All")), *Exchange.choices)
 
 
-def _as_timedelta(value: int | float | timedelta | None, default: timedelta) -> timedelta:
+def _as_timedelta(value: float | timedelta | None, default: timedelta) -> timedelta:
     """Coerce a setting value to timedelta."""
     if value is None:
         return default
@@ -116,11 +116,13 @@ class TaskState(models.Model):
         current_time = now or timezone.now()
         locked_until = current_time + get_task_lock_lease()
         lock_token = uuid4()
-        updated = TaskState.objects.filter(pk=self.pk).filter(
-            Q(locked_until__isnull=True) | Q(locked_until__lte=current_time)
-        ).update(
-            locked_until=locked_until,
-            lock_token=lock_token,
+        updated = (
+            TaskState.objects.filter(pk=self.pk)
+            .filter(Q(locked_until__isnull=True) | Q(locked_until__lte=current_time))
+            .update(
+                locked_until=locked_until,
+                lock_token=lock_token,
+            )
         )
         if not updated:
             return False
@@ -185,7 +187,7 @@ class TaskState(models.Model):
 
     class Meta:
         db_table = "quant_tick_task_state"
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=("task_type", "exchange", "api_symbol"),
                 name="quant_tick_task_state_unique",

@@ -106,7 +106,9 @@ class FundingAdapterTest(SimpleTestCase):
         self.assertIsNone(df.iloc[1].mark_price)
 
     def test_binance_funding_response_uses_shared_api_helper(self):
-        from quant_tick.exchanges.binance_futures.funding import get_binance_funding_response
+        from quant_tick.exchanges.binance_futures.funding import (
+            get_binance_funding_response,
+        )
 
         with patch(
             "quant_tick.exchanges.binance_futures.funding.get_binance_api_response",
@@ -329,9 +331,7 @@ class FundingAdapterTest(SimpleTestCase):
                 "quant_tick.exchanges.api.hyperliquid_funding",
                 return_value=expected,
             ) as mocked,
-            patch(
-                "quant_tick.exchanges.api.refresh_funding_interval"
-            ) as refresh,
+            patch("quant_tick.exchanges.api.refresh_funding_interval") as refresh,
         ):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
@@ -355,9 +355,7 @@ class FundingAdapterTest(SimpleTestCase):
                 "quant_tick.exchanges.api.binance_futures_funding",
                 return_value=expected,
             ) as mocked,
-            patch(
-                "quant_tick.exchanges.api.refresh_funding_interval"
-            ) as refresh,
+            patch("quant_tick.exchanges.api.refresh_funding_interval") as refresh,
         ):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
@@ -386,9 +384,7 @@ class FundingAdapterTest(SimpleTestCase):
                 "quant_tick.exchanges.api.bitfinex_funding",
                 return_value=expected,
             ) as mocked,
-            patch(
-                "quant_tick.exchanges.api.refresh_funding_interval"
-            ) as refresh,
+            patch("quant_tick.exchanges.api.refresh_funding_interval") as refresh,
         ):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 

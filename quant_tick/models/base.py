@@ -40,7 +40,7 @@ def quant_tick_json_decoder(data: dict) -> dict:
     """Decode Decimal, date, and datetime strings from JSON payloads."""
     for key, value in data.items():
         if key not in {"uid"}:
-            if isinstance(data[key], str):
+            if isinstance(value, str):
                 try:
                     data[key] = Decimal(value)
                 except decimal.InvalidOperation:
@@ -68,7 +68,7 @@ class QuantTickDecoder(JSONDecoder):
         super().__init__(*args, **kwargs)
 
 
-def JSONField(name: str, **kwargs) -> models.JSONField:  # noqa: N802
+def JSONField(name: str, **kwargs) -> models.JSONField:
     """Return a JSONField with the quant_tick encoder and decoder."""
     if "encoder" not in kwargs:
         kwargs["encoder"] = QuantTickEncoder
@@ -77,7 +77,7 @@ def JSONField(name: str, **kwargs) -> models.JSONField:  # noqa: N802
     return models.JSONField(name, **kwargs)
 
 
-def BigDecimalField(name: str, **kwargs) -> models.DecimalField:  # noqa: N802
+def BigDecimalField(name: str, **kwargs) -> models.DecimalField:
     """Return a DecimalField with project-wide precision defaults."""
     if "max_digits" not in kwargs:
         kwargs["max_digits"] = NUMERIC_PRECISION
