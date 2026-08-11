@@ -89,5 +89,5 @@ sentry_sdk.init(
     before_send=scrub_sentry_event,
     include_local_variables=False,
     send_default_pii=False,
-    traces_sample_rate=1.0,
+    traces_sample_rate=0.0,
 )
