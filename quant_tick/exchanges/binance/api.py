@@ -62,12 +62,10 @@ def get_binance_api_response(
                 isinstance(error, httpx.HTTPStatusError)
                 and error.response.status_code in RATE_LIMIT_STATUS_CODES
             ):
-                retry_after = error.response.headers.get("Retry-After")
-                if retry_after is None:
-                    raise
+                retry_after = error.response.headers.get("Retry-After", 1)
                 sleep_duration = max(0.0, float(retry_after))
-                logger.warning(
-                    "Binance HTTP %s, sleeping %s seconds before retry",
+                logger.info(
+                    "HTTP %s, sleeping %s seconds",
                     error.response.status_code,
                     sleep_duration,
                 )

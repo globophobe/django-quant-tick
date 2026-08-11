@@ -56,7 +56,8 @@ class CoinbaseTrades(CoinbaseMixin, ExchangeREST):
             date(2019, 4, 11),
             date(2021, 6, 9),
         }:
-            # Coinbase omitted trades on these dates.
+            # BTC-USD has a missing order on 2019-04-11 and appears to have
+            # skipped 45 IDs on 2021-06-09.
             return
         diff = data_frame["index"].diff().dropna()
         actual = int(abs(diff.sum()))
