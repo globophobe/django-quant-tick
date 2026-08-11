@@ -24,7 +24,7 @@ class FundingDataTest(BaseSymbolTest, TestCase):
                 {
                     "timestamp": timestamp_from,
                     "funding_rate": Decimal("0.0001"),
-                    "mark_price": Decimal("95000"),
+                    "mark_price": Decimal(95000),
                     "raw_timestamp": timestamp_from + pd.Timedelta("5ms"),
                     "timestamp_offset_ms": 5,
                 },
@@ -44,13 +44,13 @@ class FundingDataTest(BaseSymbolTest, TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, timestamp_from)
         self.assertEqual(rows[0].funding_rate, Decimal("0.0001"))
-        self.assertEqual(rows[0].json_data["mark_price"], Decimal("95000"))
+        self.assertEqual(rows[0].json_data["mark_price"], Decimal(95000))
         self.assertEqual(
             rows[0].json_data["raw_timestamp"],
             timestamp_from + pd.Timedelta("5ms"),
         )
         self.assertEqual(rows[0].json_data["timestamp_offset_ms"], 5)
-        self.assertEqual(rows[0].to_row()["mark_price"], Decimal("95000"))
+        self.assertEqual(rows[0].to_row()["mark_price"], Decimal(95000))
 
     def test_write_rejects_lost_lease_before_replacing_rows(self):
         symbol = self.get_symbol(
@@ -84,7 +84,9 @@ class FundingDataTest(BaseSymbolTest, TestCase):
         symbol.refresh_from_db()
         self.assertEqual(symbol.api_symbol, "BTCUSDT")
         self.assertEqual(
-            FundingData.objects.get(symbol=symbol, timestamp=timestamp_from).funding_rate,
+            FundingData.objects.get(
+                symbol=symbol, timestamp=timestamp_from
+            ).funding_rate,
             Decimal("0.0001"),
         )
 

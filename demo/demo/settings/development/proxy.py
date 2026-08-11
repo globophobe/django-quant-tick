@@ -3,8 +3,7 @@ from pathlib import Path
 
 from quant_tick.testing import is_test
 
-# ruff: noqa: F403, F405
-from .base import *  # noqa
+from .base import *
 
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
@@ -17,7 +16,7 @@ DATABASES = {
         "PASSWORD": os.environ["DATABASE_PASSWORD"],
         "HOST": os.environ["DATABASE_HOST"],
         "PORT": os.environ.get("PROXY_DATABASE_PORT"),
-        "TEST": {"NAME": f'test_{os.environ["DATABASE_NAME"]}'},
+        "TEST": {"NAME": f"test_{os.environ['DATABASE_NAME']}"},
     },
 }
 
@@ -37,7 +36,7 @@ STORAGES = {
 }
 
 GS_BUCKET_NAME = (
-    f'test-{os.environ["GCS_BUCKET_NAME"]}'
+    f"test-{os.environ['GCS_BUCKET_NAME']}"
     if is_test()
     else os.environ["GCS_BUCKET_NAME"]
 )

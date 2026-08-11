@@ -1,6 +1,8 @@
 import re
 from collections.abc import Generator
 from datetime import UTC, date, datetime, time
+from datetime import tzinfo as datetime_tzinfo
+from itertools import pairwise
 
 import pandas as pd
 from pandas import Timestamp
@@ -25,8 +27,8 @@ def to_utc_datetime(value: object) -> datetime:
     return to_pydatetime(timestamp)
 
 
-def get_current_time(tzinfo: str = UTC) -> datetime:
-    return datetime.utcnow().replace(tzinfo=tzinfo)
+def get_current_time(tzinfo: datetime_tzinfo = UTC) -> datetime:
+    return datetime.now(tz=tzinfo)
 
 
 def get_min_time(timestamp: datetime, value: str) -> datetime:
@@ -190,7 +192,7 @@ def parse_period_from_to(
     timestamp_to = datetime.combine(date_to, time_to).replace(tzinfo=UTC)
     # Sane defaults.
     timestamp_to = get_min_time(now, "1min") if timestamp_to >= now else timestamp_to
-    timestamp_from = timestamp_to if timestamp_from > timestamp_to else timestamp_from
+    timestamp_from = min(timestamp_from, timestamp_to)
     return timestamp_from, timestamp_to
 
 
@@ -280,7 +282,7 @@ def iter_timestamps(
     """Iter tuples of timestamps, optionally reversed."""
     if reverse:
         values.reverse()
-    for start_time, end_time in zip(values, values[1:], strict=False):
+    for start_time, end_time in pairwise(values):
         if reverse:
             yield end_time, start_time
         else:
@@ -340,8 +342,7 @@ def iter_timeframe(
         values.append(head)
     elif tail and not reverse:
         values.append(tail)
-    for value in values:
-        yield value
+    yield from values
 
 
 def iter_missing(

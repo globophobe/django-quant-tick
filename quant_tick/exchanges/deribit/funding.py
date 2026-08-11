@@ -86,15 +86,9 @@ def deribit_funding(
                 unit="ms",
                 utc=True,
             ),
-            "funding_rate": [
-                Decimal(str(item["interest_1h"])) for item in rows
-            ],
-            "interest_8h": [
-                Decimal(str(item["interest_8h"])) for item in rows
-            ],
-            "index_price": [
-                Decimal(str(item["index_price"])) for item in rows
-            ],
+            "funding_rate": [Decimal(str(item["interest_1h"])) for item in rows],
+            "interest_8h": [Decimal(str(item["interest_8h"])) for item in rows],
+            "index_price": [Decimal(str(item["index_price"])) for item in rows],
             "prev_index_price": [
                 to_decimal_or_none(item.get("prev_index_price")) for item in rows
             ],

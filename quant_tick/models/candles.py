@@ -58,11 +58,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         # Is there a specific date from?
         if self.date_from:
             min_timestamp_from = parse_datetime(self.date_from)
-            ts_from = (
-                min_timestamp_from
-                if timestamp_from < min_timestamp_from
-                else timestamp_from
-            )
+            ts_from = max(timestamp_from, min_timestamp_from)
         else:
             ts_from = timestamp_from
         # Is there a specific date to?
@@ -89,7 +85,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             )
         else:
             max_ts_to = ts_to
-        ts_to = ts_to if max_ts_to > ts_to else max_ts_to
+        ts_to = min(max_ts_to, ts_to)
         # Does it have a cache?
         candle_cache = self.get_candle_cache(ts_from, ts_to, retry)
         if candle_cache:

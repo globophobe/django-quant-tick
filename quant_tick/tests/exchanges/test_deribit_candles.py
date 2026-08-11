@@ -59,12 +59,12 @@ class DeribitCandleTest(SimpleTestCase):
         )
         self.assertEqual(list(result.index), [pd.Timestamp(timestamp_from)])
         row = result.iloc[0]
-        self.assertEqual(row.open, Decimal("100"))
-        self.assertEqual(row.high, Decimal("105"))
-        self.assertEqual(row.low, Decimal("99"))
-        self.assertEqual(row.close, Decimal("104"))
-        self.assertEqual(row.notional, Decimal("10"))
-        self.assertEqual(row.volume, Decimal("1000"))
+        self.assertEqual(row.open, Decimal(100))
+        self.assertEqual(row.high, Decimal(105))
+        self.assertEqual(row.low, Decimal(99))
+        self.assertEqual(row.close, Decimal(104))
+        self.assertEqual(row.notional, Decimal(10))
+        self.assertEqual(row.volume, Decimal(1000))
 
     def test_deribit_candles_uses_non_overlapping_bounded_windows(self):
         timestamp_from = datetime(2026, 1, 1, tzinfo=UTC)

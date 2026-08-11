@@ -74,8 +74,8 @@ class BybitCandleTest(SimpleTestCase):
                 category="linear",
             )
 
-        self.assertEqual(result.iloc[0]["notional"], Decimal("2"))
-        self.assertEqual(result.iloc[0]["volume"], Decimal("210"))
+        self.assertEqual(result.iloc[0]["notional"], Decimal(2))
+        self.assertEqual(result.iloc[0]["volume"], Decimal(210))
 
     def test_inverse_candles_map_contract_and_base_units(self):
         timestamp_from = datetime(2026, 7, 23, tzinfo=UTC)
@@ -92,17 +92,15 @@ class BybitCandleTest(SimpleTestCase):
                 category="inverse",
             )
 
-        self.assertEqual(result.iloc[0]["notional"], Decimal("2"))
-        self.assertEqual(result.iloc[0]["volume"], Decimal("210"))
+        self.assertEqual(result.iloc[0]["notional"], Decimal(2))
+        self.assertEqual(result.iloc[0]["volume"], Decimal(210))
 
     def test_8h_uses_4h_source_resolution(self):
         self.assertEqual(get_bybit_fetch_resolution("8h"), (480, 240, "240"))
 
     def test_bybit_candles_passes_explicit_category(self):
         timestamp_from = datetime(2026, 7, 23, tzinfo=UTC)
-        with patch(
-            "quant_tick.exchanges.bybit.candles.fetch_bybit_candles"
-        ) as fetch:
+        with patch("quant_tick.exchanges.bybit.candles.fetch_bybit_candles") as fetch:
             bybit_candles(
                 "BTCUSDT",
                 timestamp_from,

@@ -29,8 +29,8 @@ class TimeBasedCandleFastPathTest(BaseWriteTradeDataTest, TestCase):
         symbol = self.get_symbol(save_raw=False)
         raw = self.get_raw(
             self.day_from,
-            price=Decimal("1000"),
-            notional=Decimal("1"),
+            price=Decimal(1000),
+            notional=Decimal(1),
             tick_rule=1,
         )
         payload = aggregate_candle(
@@ -66,9 +66,7 @@ class TimeBasedCandleFastPathTest(BaseWriteTradeDataTest, TestCase):
                 side_effect=AssertionError("should not read parquet"),
             ),
         ):
-            data = candle.get_trade_candle(
-                self.day_from, self.one_day_from, trade_data
-            )
+            data = candle.get_trade_candle(self.day_from, self.one_day_from, trade_data)
 
         self.assertEqual(data, payload)
 
@@ -82,8 +80,8 @@ class TimeBasedCandleFastPathTest(BaseWriteTradeDataTest, TestCase):
                 "candle": aggregate_candle(
                     self.get_raw(
                         self.day_from,
-                        price=Decimal("1000"),
-                        notional=Decimal("1"),
+                        price=Decimal(1000),
+                        notional=Decimal(1),
                         tick_rule=1,
                     ),
                     min_volume_exponent=1,
@@ -107,9 +105,7 @@ class TimeBasedCandleFastPathTest(BaseWriteTradeDataTest, TestCase):
                 return_value=FileData.FILTERED,
             ),
         ):
-            data = candle.get_trade_candle(
-                self.day_from, self.one_day_from, trade_data
-            )
+            data = candle.get_trade_candle(self.day_from, self.one_day_from, trade_data)
 
         self.assertIsNone(data)
 
@@ -123,8 +119,8 @@ class TimeBasedCandleFastPathTest(BaseWriteTradeDataTest, TestCase):
                 "candle": aggregate_candle(
                     self.get_raw(
                         self.day_from,
-                        price=Decimal("1000"),
-                        notional=Decimal("1"),
+                        price=Decimal(1000),
+                        notional=Decimal(1),
                         tick_rule=1,
                     ),
                     min_volume_exponent=1,
@@ -148,9 +144,7 @@ class TimeBasedCandleFastPathTest(BaseWriteTradeDataTest, TestCase):
                 return_value=FileData.RAW,
             ),
         ):
-            data = candle.get_trade_candle(
-                self.day_from, self.one_day_from, trade_data
-            )
+            data = candle.get_trade_candle(self.day_from, self.one_day_from, trade_data)
 
         self.assertIsNone(data)
 
@@ -158,14 +152,14 @@ class TimeBasedCandleFastPathTest(BaseWriteTradeDataTest, TestCase):
         symbol = self.get_symbol(save_raw=False)
         first_raw = self.get_raw(
             self.day_from,
-            price=Decimal("1000"),
-            notional=Decimal("1"),
+            price=Decimal(1000),
+            notional=Decimal(1),
             tick_rule=1,
         )
         second_raw = self.get_raw(
             self.one_day_from,
-            price=Decimal("2000"),
-            notional=Decimal("1"),
+            price=Decimal(2000),
+            notional=Decimal(1),
             tick_rule=1,
         )
         first_payload = aggregate_candle(

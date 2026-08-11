@@ -12,8 +12,8 @@ from quant_tick.exchanges.bybit.funding import (
     BybitFunding,
     _fetch_funding_rows,
     bybit_funding,
-    get_bybit_funding_interval,
     bybit_open_interest,
+    get_bybit_funding_interval,
 )
 
 
@@ -106,8 +106,8 @@ class BybitFundingTest(SimpleTestCase):
         self.assertEqual(list(result.index), [timestamp_from, timestamp_mid])
         first = result.iloc[0]
         self.assertEqual(first.funding_rate, Decimal("0.0001"))
-        self.assertEqual(first.open_interest, Decimal("100"))
-        self.assertEqual(first.single_open_interest, Decimal("50"))
+        self.assertEqual(first.open_interest, Decimal(100))
+        self.assertEqual(first.single_open_interest, Decimal(50))
         self.assertEqual(first.long_account_ratio, Decimal("0.55"))
         self.assertEqual(first.short_account_ratio, Decimal("0.45"))
         self.assertEqual(
@@ -177,7 +177,7 @@ class BybitFundingTest(SimpleTestCase):
 
         self.assertEqual(list(result.index), [timestamp_from])
         row = result.iloc[0]
-        self.assertEqual(row.open_interest, Decimal("125000000"))
+        self.assertEqual(row.open_interest, Decimal(125000000))
         self.assertEqual(row.open_interest_unit, "quote_asset")
         self.assertEqual(row.long_account_ratio, Decimal("0.6"))
         self.assertEqual(row.short_account_ratio, Decimal("0.4"))
@@ -350,9 +350,7 @@ class BybitFundingTest(SimpleTestCase):
                 "quant_tick.exchanges.api.bybit_funding",
                 return_value=expected,
             ) as mocked,
-            patch(
-                "quant_tick.exchanges.api.refresh_funding_interval"
-            ) as refresh,
+            patch("quant_tick.exchanges.api.refresh_funding_interval") as refresh,
         ):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 
@@ -381,9 +379,7 @@ class BybitFundingTest(SimpleTestCase):
                 "quant_tick.exchanges.api.bybit_funding",
                 return_value=pd.DataFrame([]),
             ) as mocked,
-            patch(
-                "quant_tick.exchanges.api.refresh_funding_interval"
-            ) as refresh,
+            patch("quant_tick.exchanges.api.refresh_funding_interval") as refresh,
         ):
             funding_api(symbol, timestamp_from, timestamp_to)
 

@@ -43,7 +43,7 @@ def get_coinbase_candle_url(
 
 
 def get_coinbase_candle_timestamp(candle: list) -> datetime:
-    return datetime.fromtimestamp(candle[0]).replace(tzinfo=UTC)
+    return datetime.fromtimestamp(candle[0], tz=UTC)
 
 
 def get_coinbase_candle_pagination_id(

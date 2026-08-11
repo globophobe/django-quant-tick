@@ -12,10 +12,10 @@ from ..base import BaseHourIteratorTest, BaseMinuteIteratorTest
 from .base import BaseTimeBasedCandleTest
 
 
-@time_machine.travel(datetime(2009, 1, 4), tick=False)
+@time_machine.travel(datetime(2009, 1, 4, tzinfo=UTC), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 4, 0, 3).replace(tzinfo=UTC),
+    return_value=datetime(2009, 1, 4, 0, 3, tzinfo=UTC),
 )
 class TimeBasedTwoMinuteFrequencyCandleTest(
     BaseMinuteIteratorTest,
@@ -24,20 +24,18 @@ class TimeBasedTwoMinuteFrequencyCandleTest(
 ):
     window = "2min"
 
-    def test_next_cache_created_if_candle_window_exceeded(
-        self, mock_get_current_time
-    ):
+    def test_next_cache_created_if_candle_window_exceeded(self, mock_get_current_time):
         filtered_1 = self.get_filtered(
             self.timestamp_from,
-            price=Decimal("5"),
-            notional=Decimal("1"),
+            price=Decimal(5),
+            notional=Decimal(1),
             tick_rule=1,
         )
         self.write_trade_data(self.timestamp_from, self.one_minute_from_now, filtered_1)
         filtered_2 = self.get_filtered(
             self.one_minute_from_now,
-            price=Decimal("6"),
-            notional=Decimal("2"),
+            price=Decimal(6),
+            notional=Decimal(2),
             tick_rule=-1,
         )
         self.write_trade_data(
@@ -52,15 +50,15 @@ class TimeBasedTwoMinuteFrequencyCandleTest(
     ):
         filtered_1 = self.get_filtered(
             self.timestamp_from,
-            price=Decimal("5"),
-            notional=Decimal("1"),
+            price=Decimal(5),
+            notional=Decimal(1),
             tick_rule=1,
         )
         self.write_trade_data(self.timestamp_from, self.one_minute_from_now, filtered_1)
         filtered_2 = self.get_filtered(
             self.one_minute_from_now,
-            price=Decimal("6"),
-            notional=Decimal("2"),
+            price=Decimal(6),
+            notional=Decimal(2),
             tick_rule=-1,
         )
         self.write_trade_data(
@@ -83,10 +81,10 @@ class TimeBasedTwoMinuteFrequencyCandleTest(
         self.assert_combined_candle([filtered_1, filtered_2])
 
 
-@time_machine.travel(datetime(2009, 1, 4), tick=False)
+@time_machine.travel(datetime(2009, 1, 4, tzinfo=UTC), tick=False)
 @patch(
     "quant_tick.models.candles.get_current_time",
-    return_value=datetime(2009, 1, 4, 3).replace(tzinfo=UTC),
+    return_value=datetime(2009, 1, 4, 3, tzinfo=UTC),
 )
 class TimeBasedTwoHourFrequencyCandleTest(
     BaseHourIteratorTest,
@@ -95,20 +93,18 @@ class TimeBasedTwoHourFrequencyCandleTest(
 ):
     window = "2h"
 
-    def test_next_cache_created_if_candle_window_exceeded(
-        self, mock_get_current_time
-    ):
+    def test_next_cache_created_if_candle_window_exceeded(self, mock_get_current_time):
         filtered_1 = self.get_filtered(
             self.timestamp_from,
-            price=Decimal("5"),
-            notional=Decimal("1"),
+            price=Decimal(5),
+            notional=Decimal(1),
             tick_rule=1,
         )
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
         filtered_2 = self.get_filtered(
             self.one_hour_from_now,
-            price=Decimal("6"),
-            notional=Decimal("2"),
+            price=Decimal(6),
+            notional=Decimal(2),
             tick_rule=-1,
         )
         self.write_trade_data(
@@ -123,15 +119,15 @@ class TimeBasedTwoHourFrequencyCandleTest(
     ):
         filtered_1 = self.get_filtered(
             self.timestamp_from,
-            price=Decimal("5"),
-            notional=Decimal("1"),
+            price=Decimal(5),
+            notional=Decimal(1),
             tick_rule=1,
         )
         self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
         filtered_2 = self.get_filtered(
             self.one_hour_from_now,
-            price=Decimal("6"),
-            notional=Decimal("2"),
+            price=Decimal(6),
+            notional=Decimal(2),
             tick_rule=-1,
         )
         self.write_trade_data(

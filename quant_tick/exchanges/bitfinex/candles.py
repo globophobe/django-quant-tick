@@ -39,9 +39,7 @@ BITFINEX_TIME_FRAMES_BY_MINUTES = {
     20160: "14D",
 }
 
-BITFINEX_SUPPORTED_TIME_FRAMES = set(BITFINEX_TIME_FRAMES_BY_MINUTES.values()) | {
-    "1M"
-}
+BITFINEX_SUPPORTED_TIME_FRAMES = set(BITFINEX_TIME_FRAMES_BY_MINUTES.values()) | {"1M"}
 
 
 def get_bitfinex_candle_url(url: str, pagination_id: int) -> str:

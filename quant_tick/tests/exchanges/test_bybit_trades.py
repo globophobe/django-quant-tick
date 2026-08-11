@@ -402,9 +402,7 @@ class BybitTradesTest(SimpleTestCase):
         self.assertEqual(first.iloc[1]["nanoseconds"], 0)
         self.assertEqual(second["uid"].tolist(), ["second-hour"])
         with self.assertRaisesRegex(ValueError, "rows outside BTCUSDT"):
-            controller.prepare_archive_chunk(
-                pd.DataFrame([{"symbol": "ETHUSDT"}])
-            )
+            controller.prepare_archive_chunk(pd.DataFrame([{"symbol": "ETHUSDT"}]))
 
     def test_archive_preserves_source_order_for_exact_timestamp_ties(self):
         rows = []
@@ -460,5 +458,5 @@ class BybitTradesTest(SimpleTestCase):
             Exchange.BYBIT_INVERSE,
         ).parse_dtypes_and_strip_columns(data)
 
-        self.assertEqual(parsed.iloc[0]["volume"], Decimal("100"))
+        self.assertEqual(parsed.iloc[0]["volume"], Decimal(100))
         self.assertEqual(parsed.iloc[0]["notional"], Decimal("0.01"))

@@ -78,10 +78,10 @@ class WebSocketData(models.Model):
     def get_trades(value: list[dict]) -> list[dict]:
         trades = value or []
         if not isinstance(trades, list):
-            raise ValueError("trades must be a list.")
+            raise ValueError("trades must be a list.")  # noqa: TRY004
         for trade in trades:
             if not isinstance(trade, dict):
-                raise ValueError("trades items must be objects.")
+                raise ValueError("trades items must be objects.")  # noqa: TRY004
         return trades
 
     @classmethod
@@ -111,7 +111,7 @@ class WebSocketData(models.Model):
         db_table = "quant_tick_websocket_data"
         ordering = ("timestamp", "exchange", "api_symbol")
         verbose_name = verbose_name_plural = _("websocket data")
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=(
                     "exchange",

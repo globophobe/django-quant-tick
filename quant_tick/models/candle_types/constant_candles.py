@@ -139,11 +139,10 @@ class ConstantCandle(Candle):
         Saved only if cache resets next iteration.
         """
         ts = timestamp + pd.Timedelta("1us")
-        if self.should_reset_cache(ts, cache_data):
-            if "next" in cache_data:
-                candle = cache_data.pop("next")
-                candle["incomplete"] = True
-                data.append(candle)
+        if self.should_reset_cache(ts, cache_data) and "next" in cache_data:
+            candle = cache_data.pop("next")
+            candle["incomplete"] = True
+            data.append(candle)
         return data, cache_data
 
     class Meta:

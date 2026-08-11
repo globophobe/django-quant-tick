@@ -100,21 +100,21 @@ class BinanceFuturesTradesTest(SimpleTestCase):
         self.assertEqual(aggregated["uid"].tolist(), ["10", "11", "12"])
         self.assertEqual(aggregated["tickRule"].tolist(), [-1, 1, 1])
         self.assertEqual(
-            aggregated["notional"].tolist(), [Decimal("2"), Decimal("20"), Decimal("1")]
+            aggregated["notional"].tolist(), [Decimal(2), Decimal(20), Decimal(1)]
         )
         self.assertEqual(
             aggregated["volume"].tolist(),
-            [Decimal("200"), Decimal("2000"), Decimal("100")],
+            [Decimal(200), Decimal(2000), Decimal(100)],
         )
         self.assertEqual(aggregated["ticks"].tolist(), [2, 20, 3])
         self.assertEqual(filtered["uid"].tolist(), ["11", "12"])
-        self.assertEqual(filtered.iloc[0]["volume"], Decimal("2000"))
-        self.assertEqual(filtered.iloc[0]["totalVolume"], Decimal("2200"))
-        self.assertEqual(filtered.iloc[0]["totalBuyVolume"], Decimal("2000"))
+        self.assertEqual(filtered.iloc[0]["volume"], Decimal(2000))
+        self.assertEqual(filtered.iloc[0]["totalVolume"], Decimal(2200))
+        self.assertEqual(filtered.iloc[0]["totalBuyVolume"], Decimal(2000))
         self.assertEqual(filtered.iloc[0]["totalTicks"], 22)
         self.assertEqual(filtered.iloc[0]["totalBuyTicks"], 20)
         self.assertTrue(pd.isna(filtered.iloc[1]["volume"]))
-        self.assertEqual(filtered.iloc[1]["totalVolume"], Decimal("100"))
+        self.assertEqual(filtered.iloc[1]["totalVolume"], Decimal(100))
         self.assertEqual(filtered.iloc[1]["totalTicks"], 3)
 
     def test_s3_uses_aggregate_trade_archive(self):
@@ -125,6 +125,21 @@ class BinanceFuturesTradesTest(SimpleTestCase):
             controller.get_url(date(2026, 7, 20)),
             "https://data.binance.vision/data/futures/um/daily/aggTrades/"
             "BTCUSDT/BTCUSDT-aggTrades-2026-07-20.zip",
+        )
+
+        timestamp_from = datetime(2026, 7, 20, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(days=1)
+        with patch(
+            "quant_tick.exchanges.binance_futures.base.binance_futures_candles",
+            return_value=pd.DataFrame([]),
+        ) as mocked:
+            controller.get_candles(timestamp_from, timestamp_to)
+
+        mocked.assert_called_once_with(
+            "BTCUSDT",
+            timestamp_from,
+            timestamp_to,
+            interval="1m",
         )
 
     def test_s3_normalizes_chunked_archive_schema(self):
@@ -265,7 +280,9 @@ class BinanceFuturesTradesTest(SimpleTestCase):
         self.assertEqual(calls, ["archive", "rest"])
         for controller in (archive, rest):
             self.assertEqual(controller.call_args.args, (symbol,))
-            self.assertEqual(controller.call_args.kwargs["timestamp_from"], timestamp_from)
+            self.assertEqual(
+                controller.call_args.kwargs["timestamp_from"], timestamp_from
+            )
             self.assertEqual(controller.call_args.kwargs["timestamp_to"], timestamp_to)
         callback = archive.call_args.kwargs["on_data_frame"]
         self.assertIs(callback, rest.call_args.kwargs["on_data_frame"])

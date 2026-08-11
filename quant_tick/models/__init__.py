@@ -9,15 +9,15 @@ from .websocket import WebSocketData
 
 __all__ = [
     "AdaptiveCandle",
-    "ConstantCandle",
-    "TimeBasedCandle",
     "Candle",
     "CandleCache",
     "CandleData",
+    "ConstantCandle",
     "ExchangeCandleData",
     "FundingData",
     "Symbol",
     "TaskState",
+    "TimeBasedCandle",
     "TradeData",
     "WebSocketData",
 ]

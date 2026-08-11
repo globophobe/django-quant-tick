@@ -121,7 +121,7 @@ class TaskLeaseHeartbeat:
             close_old_connections()
             try:
                 renew_task_lease(state=self.state)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 self._error = str(exc)
                 self._lost.set()
                 return

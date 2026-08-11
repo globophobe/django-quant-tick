@@ -17,16 +17,15 @@ from quant_tick.exchanges.bitmex.candles import (
 
 
 class BitmexCandleTest(SimpleTestCase):
-
     def test_dedupe_candles_removes_identical_duplicates(self):
         ts = datetime(2015, 10, 20, tzinfo=UTC)
         candle = {
             "timestamp": ts,
-            "open": Decimal("1"),
-            "high": Decimal("1"),
-            "low": Decimal("1"),
-            "close": Decimal("1"),
-            "volume": Decimal("1"),
+            "open": Decimal(1),
+            "high": Decimal(1),
+            "low": Decimal(1),
+            "close": Decimal(1),
+            "volume": Decimal(1),
         }
         next_candle = candle.copy()
         next_candle["timestamp"] = datetime(2015, 10, 20, 0, 1, tzinfo=UTC)
@@ -37,8 +36,8 @@ class BitmexCandleTest(SimpleTestCase):
 
     def test_dedupe_candles_rejects_conflicting_duplicates(self):
         ts = datetime(2015, 10, 20, tzinfo=UTC)
-        candle = {"timestamp": ts, "volume": Decimal("1")}
-        duplicate = {"timestamp": ts, "volume": Decimal("2")}
+        candle = {"timestamp": ts, "volume": Decimal(1)}
+        duplicate = {"timestamp": ts, "volume": Decimal(2)}
 
         with self.assertRaises(ValueError):
             dedupe_candles([candle, duplicate])
@@ -60,7 +59,7 @@ class BitmexCandleTest(SimpleTestCase):
                     "high": Decimal(str(hour + 11)),
                     "low": Decimal(str(hour)),
                     "close": Decimal(str(hour + 2)),
-                    "volume": Decimal("10"),
+                    "volume": Decimal(10),
                 }
                 for hour in range(2)
             ]
@@ -75,11 +74,11 @@ class BitmexCandleTest(SimpleTestCase):
 
         self.assertEqual(list(candles.index), [timestamp_from])
         candle = candles.iloc[0]
-        self.assertEqual(candle.open, Decimal("1"))
-        self.assertEqual(candle.high, Decimal("12"))
-        self.assertEqual(candle.low, Decimal("0"))
-        self.assertEqual(candle.close, Decimal("3"))
-        self.assertEqual(candle.volume, Decimal("20"))
+        self.assertEqual(candle.open, Decimal(1))
+        self.assertEqual(candle.high, Decimal(12))
+        self.assertEqual(candle.low, Decimal(0))
+        self.assertEqual(candle.close, Decimal(3))
+        self.assertEqual(candle.volume, Decimal(20))
 
     def test_bitmex_candles_resamples_to_requested_2h_resolution(self):
         timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
@@ -92,7 +91,7 @@ class BitmexCandleTest(SimpleTestCase):
                     "high": Decimal(str(hour + 11)),
                     "low": Decimal(str(hour)),
                     "close": Decimal(str(hour + 2)),
-                    "volume": Decimal("10"),
+                    "volume": Decimal(10),
                 }
                 for hour in range(2)
             ]
@@ -118,11 +117,11 @@ class BitmexCandleTest(SimpleTestCase):
         )
         self.assertEqual(list(result.index), [timestamp_from])
         candle = result.iloc[0]
-        self.assertEqual(candle.open, Decimal("1"))
-        self.assertEqual(candle.high, Decimal("12"))
-        self.assertEqual(candle.low, Decimal("0"))
-        self.assertEqual(candle.close, Decimal("3"))
-        self.assertEqual(candle.volume, Decimal("20"))
+        self.assertEqual(candle.open, Decimal(1))
+        self.assertEqual(candle.high, Decimal(12))
+        self.assertEqual(candle.low, Decimal(0))
+        self.assertEqual(candle.close, Decimal(3))
+        self.assertEqual(candle.volume, Decimal(20))
 
     def test_candles_api_passes_resolution_to_bitmex(self):
         symbol = SimpleNamespace(exchange=Exchange.BITMEX, api_symbol="XBTUSD")

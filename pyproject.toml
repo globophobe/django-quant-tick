@@ -66,6 +66,9 @@ dev = [
     "time-machine>=2.19.0",
 ]
 
+[tool.ruff]
+extend-exclude = ["quant_tick/migrations"]
+
 [tool.uv]
 exclude-newer = "P7D"
 exclude-newer-package = { django-semantic-admin = false, django-semantic-forms = false }

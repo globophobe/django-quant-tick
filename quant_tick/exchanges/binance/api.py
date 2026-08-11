@@ -12,6 +12,8 @@ from .constants import BINANCE_API_KEY, BINANCE_MAX_WEIGHT, MAX_WEIGHT
 
 logger = logging.getLogger(__name__)
 
+RATE_LIMIT_STATUS_CODES = {418, 429}
+
 
 def format_binance_api_timestamp(timestamp: datetime) -> int:
     return int(timestamp.timestamp() * 1000)  # Millisecond
@@ -41,7 +43,6 @@ def get_binance_api_response(
         )
         response = httpx.get(url, headers=headers)
         if response.status_code == 200:
-            # Response 429, when x-mbx-used-weight-1m is 1200
             weight = response.headers.get("x-mbx-used-weight-1m", 0)
             max_weight = os.environ.get(BINANCE_MAX_WEIGHT, MAX_WEIGHT)
             if int(weight) >= int(max_weight):
@@ -54,9 +55,21 @@ def get_binance_api_response(
             return data
         else:
             response.raise_for_status()
-    except HTTPX_ERRORS:
+    except HTTPX_ERRORS as error:
         if retry > 0:
-            time.sleep(1)
+            sleep_duration = 1.0
+            if (
+                isinstance(error, httpx.HTTPStatusError)
+                and error.response.status_code in RATE_LIMIT_STATUS_CODES
+            ):
+                retry_after = error.response.headers.get("Retry-After", 1)
+                sleep_duration = max(0.0, float(retry_after))
+                logger.info(
+                    "HTTP %s, sleeping %s seconds",
+                    error.response.status_code,
+                    sleep_duration,
+                )
+            time.sleep(sleep_duration)
             retry -= 1
             return get_binance_api_response(
                 get_api_url,

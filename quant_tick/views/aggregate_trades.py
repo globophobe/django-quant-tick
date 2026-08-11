@@ -9,6 +9,11 @@ from django.views import View
 
 from quant_tick.constants import RETRY_INDETERMINATE, TaskType
 from quant_tick.exchanges import api
+from quant_tick.forms import (
+    AggregateTradeRequestForm,
+    TimeRangeRequestForm,
+    format_form_errors,
+)
 from quant_tick.lib import get_current_time, get_min_time
 from quant_tick.lib.download import ArchiveDownloadError
 from quant_tick.lib.task_errors import is_transient_task_error
@@ -19,11 +24,6 @@ from quant_tick.services.task_lease import (
     TaskLeaseLost,
     clear_task_recent_error,
     mark_task_recent_error,
-)
-from quant_tick.forms import (
-    AggregateTradeRequestForm,
-    TimeRangeRequestForm,
-    format_form_errors,
 )
 
 logger = logging.getLogger(__name__)
@@ -171,9 +171,7 @@ class AggregateTradeDataView(View):
                 lease_heartbeat = TaskLeaseHeartbeat(state=task_state)
                 try:
                     lease_heartbeat.start()
-                    logger.info(
-                        "{symbol}: starting...".format(**{"symbol": str(symbol)})
-                    )
+                    logger.info(f"{symbol!s}: starting...")
                     candle_retry_from = None
                     retry_window = self.get_recent_retry_window(
                         timestamp_from,
@@ -229,8 +227,6 @@ class AggregateTradeDataView(View):
                     lease_heartbeat.stop()
                     task_state.release()
                     released.add(task_state.pk)
-        except ArchiveDownloadError:
-            raise
         finally:
             for task_state, *_rest in tasks:
                 if task_state.pk not in locals().get("released", set()):

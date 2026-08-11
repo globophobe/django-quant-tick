@@ -93,8 +93,8 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
         assert isinstance(df.timestamp, datetime)
         assert_1 = ("price", "tickRule")
         assert_2 = ("volume", "notional", "ticks")
-        self.assertTrue(all([df[key] == 1 for key in assert_1]))
-        self.assertTrue(all([df[key] == 2 for key in assert_2]))
+        self.assertTrue(all(df[key] == 1 for key in assert_1))
+        self.assertTrue(all(df[key] == 2 for key in assert_2))
 
     def assert_not_min_volume(
         self, df: DataFrame, buy: int = 0, total: int = 2
@@ -102,9 +102,9 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
         assert_1 = ("high", "low")
         assert_buy = ("totalBuyVolume", "totalBuyNotional", "totalBuyTicks")
         assert_total = ("totalVolume", "totalNotional", "totalTicks")
-        self.assertTrue(all([df[key] == 1 for key in assert_1]))
-        self.assertTrue(all([df[key] == buy for key in assert_buy]))
-        self.assertTrue(all([df[key] == total for key in assert_total]))
+        self.assertTrue(all(df[key] == 1 for key in assert_1))
+        self.assertTrue(all(df[key] == buy for key in assert_buy))
+        self.assertTrue(all(df[key] == total for key in assert_total))
 
     def test_volume_filter(self):
         now = get_current_time()

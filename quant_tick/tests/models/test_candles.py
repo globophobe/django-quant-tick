@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pandas as pd
 import time_machine
@@ -40,7 +40,7 @@ class CandleDataFrameTest(BaseWriteTradeDataTest, TestCase):
         self.assertTrue(all(data_frame == df))
 
 
-@time_machine.travel(datetime(2009, 1, 4), tick=False)
+@time_machine.travel(datetime(2009, 1, 4, tzinfo=UTC), tick=False)
 class CandleInitializeTest(BaseSymbolTest, BaseDayIteratorTest, TestCase):
     def setUp(self):
         super().setUp()
@@ -78,7 +78,7 @@ class CandleInitializeTest(BaseSymbolTest, BaseDayIteratorTest, TestCase):
 
     def test_initial_timestamp_from_with_candle_date_from(self):
         self.candle.date_from = self.one_day_from_now.date()
-        timestamp_from, timestamp_to, _ = self.candle.initialize(
+        timestamp_from, _timestamp_to, _ = self.candle.initialize(
             self.timestamp_from, self.three_days_from_now
         )
         self.assertEqual(timestamp_from, self.one_day_from_now)

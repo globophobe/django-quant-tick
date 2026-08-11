@@ -25,7 +25,6 @@ def _archive_timestamp_nanoseconds(values: pd.Series) -> pd.Series:
     return seconds * NANOSECONDS_PER_SECOND + fractions
 
 
-
 class BybitMixin:
     """Bybit mixin."""
 
@@ -144,9 +143,7 @@ class BybitSpotS3Mixin(BybitMixin):
 
 def validate_bybit_trade_symbol(symbol) -> str:
     category = get_bybit_category(symbol.exchange)
-    expected_type = (
-        SymbolType.SPOT if category == "spot" else SymbolType.PERPETUAL
-    )
+    expected_type = SymbolType.SPOT if category == "spot" else SymbolType.PERPETUAL
     if symbol.symbol_type != expected_type:
         raise ValueError(f"{symbol.exchange} must use {expected_type} symbols.")
     return category

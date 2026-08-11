@@ -17,7 +17,6 @@ from quant_tick.exchanges.binance.candles import (
 
 
 class BinanceCandleTest(SimpleTestCase):
-
     def test_get_binance_interval_has_2h(self):
         interval = get_binance_interval("2h")
 
@@ -39,7 +38,7 @@ class BinanceCandleTest(SimpleTestCase):
                     "high": Decimal(str(hour + 3)),
                     "low": Decimal(str(hour)),
                     "close": Decimal(str(hour + 2)),
-                    "notional": Decimal("10"),
+                    "notional": Decimal(10),
                 }
                 for hour in range(2)
             ]
@@ -56,9 +55,11 @@ class BinanceCandleTest(SimpleTestCase):
                 resolution="2h",
             )
 
-        self.assertEqual(list(result.index), [timestamp_from, timestamp_from + pd.Timedelta("2h")])
-        self.assertEqual(result.iloc[0].open, Decimal("1"))
-        self.assertEqual(result.iloc[1].close, Decimal("3"))
+        self.assertEqual(
+            list(result.index), [timestamp_from, timestamp_from + pd.Timedelta("2h")]
+        )
+        self.assertEqual(result.iloc[0].open, Decimal(1))
+        self.assertEqual(result.iloc[1].close, Decimal(3))
         mocked.assert_called_once_with(
             "BTCUSDT",
             timestamp_from,

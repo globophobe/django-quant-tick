@@ -4,8 +4,8 @@ import pandas as pd
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
-from quant_tick.lib import get_min_time
 from quant_tick.constants import TaskType
+from quant_tick.lib import get_min_time
 from quant_tick.models import Candle, Symbol, TaskState
 from quant_tick.models.task_state import TASK_STATE_EXCHANGE_ALL
 from quant_tick.services.task_lease import (
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 COMPACT_TASK_EXCHANGE = TASK_STATE_EXCHANGE_ALL
 COMPACT_TASK_API_SYMBOL = "all"
+
 
 class CompactView(View):
     """Compact trade data and candle cache."""
@@ -59,9 +60,14 @@ class CompactView(View):
         lease_heartbeat = TaskLeaseHeartbeat(state=task_state)
         try:
             lease_heartbeat.start()
-            for symbol in self.symbol_queryset:
+            for symbol in self.symbol_queryset.all():
                 try:
-                    convert_trade_data_to_daily(symbol, timestamp_from, timestamp_to)
+                    convert_trade_data_to_daily(
+                        symbol,
+                        timestamp_from,
+                        timestamp_to,
+                        assert_lease_owned=lease_heartbeat.assert_owned,
+                    )
                 except Exception:
                     lease_heartbeat.assert_owned()
                     failed += 1
@@ -69,9 +75,12 @@ class CompactView(View):
                 else:
                     lease_heartbeat.assert_owned()
 
-            for candle in self.candle_queryset:
+            for candle in self.candle_queryset.all():
                 try:
-                    convert_candle_cache_to_daily(candle)
+                    convert_candle_cache_to_daily(
+                        candle,
+                        assert_lease_owned=lease_heartbeat.assert_owned,
+                    )
                 except Exception:
                     lease_heartbeat.assert_owned()
                     failed += 1

@@ -102,17 +102,19 @@ class DeribitTradesTest(SimpleTestCase):
         self.assertEqual(result, [trade])
 
         conflict = trade | {"amount": 200}
-        with patch(
-            "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
-            return_value={"trades": [trade, conflict], "has_more": False},
+        with (
+            patch(
+                "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
+                return_value={"trades": [trade, conflict], "has_more": False},
+            ),
+            self.assertRaisesRegex(ValueError, "conflicting trade sequence 100"),
         ):
-            with self.assertRaisesRegex(ValueError, "conflicting trade sequence 100"):
-                get_trades(
-                    "BTC-PERPETUAL",
-                    self.timestamp_from,
-                    timestamp_to,
-                    history=True,
-                )
+            get_trades(
+                "BTC-PERPETUAL",
+                self.timestamp_from,
+                timestamp_to,
+                history=True,
+            )
 
     def test_get_trades_selects_recent_and_history_apis(self):
         timestamp_to = self.timestamp_from + timedelta(milliseconds=1)
@@ -145,35 +147,40 @@ class DeribitTradesTest(SimpleTestCase):
                 start,
                 history=expected_history,
             )
+
     def test_get_trades_rejects_invalid_window_responses(self):
         timestamp_to = self.timestamp_from + timedelta(milliseconds=1)
         start = int(self.timestamp_from.timestamp() * 1000)
 
         outside = self.trade(100, start + 1)
-        with patch(
-            "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
-            return_value={"trades": [outside], "has_more": False},
+        with (
+            patch(
+                "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
+                return_value={"trades": [outside], "has_more": False},
+            ),
+            self.assertRaisesRegex(ValueError, "outside requested window"),
         ):
-            with self.assertRaisesRegex(ValueError, "outside requested window"):
-                get_trades(
-                    "BTC-PERPETUAL",
-                    self.timestamp_from,
-                    timestamp_to,
-                    history=True,
-                )
+            get_trades(
+                "BTC-PERPETUAL",
+                self.timestamp_from,
+                timestamp_to,
+                history=True,
+            )
 
         inside = self.trade(100, start)
-        with patch(
-            "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
-            return_value={"trades": [inside], "has_more": True},
+        with (
+            patch(
+                "quant_tick.exchanges.deribit.trades.get_deribit_trades_response",
+                return_value={"trades": [inside], "has_more": True},
+            ),
+            self.assertRaisesRegex(ValueError, "within one millisecond"),
         ):
-            with self.assertRaisesRegex(ValueError, "within one millisecond"):
-                get_trades(
-                    "BTC-PERPETUAL",
-                    self.timestamp_from,
-                    timestamp_to,
-                    history=True,
-                )
+            get_trades(
+                "BTC-PERPETUAL",
+                self.timestamp_from,
+                timestamp_to,
+                history=True,
+            )
 
     def test_mixin_maps_inverse_perpetual_units_and_sparse_ordering(self):
         controller = DeribitTrades.__new__(DeribitTrades)
@@ -212,7 +219,7 @@ class DeribitTradesTest(SimpleTestCase):
 
         self.assertEqual(frame["uid"].tolist(), ["100", "102"])
         self.assertEqual(frame["index"].tolist(), [100, 102])
-        self.assertEqual(frame["volume"].tolist(), [Decimal("250"), Decimal("500")])
+        self.assertEqual(frame["volume"].tolist(), [Decimal(250), Decimal(500)])
         self.assertEqual(
             frame["notional"].tolist(),
             [Decimal("0.004"), Decimal("0.008")],
@@ -276,21 +283,51 @@ class DeribitTradesTest(SimpleTestCase):
         )
 
     def test_deribit_trades_uses_exchange_controller(self):
-        timestamp_to = self.timestamp_from + timedelta(minutes=1)
-        symbol = SimpleNamespace(symbol_type=SymbolType.PERPETUAL)
+        requested_from = self.timestamp_from - timedelta(days=1)
+        timestamp_to = self.timestamp_from + timedelta(days=1)
+        symbol = SimpleNamespace(
+            symbol_type=SymbolType.PERPETUAL,
+            api_symbol="BTC-PERPETUAL",
+            date_from=None,
+            save=Mock(),
+        )
 
-        with patch(
-            "quant_tick.exchanges.deribit.controllers.DeribitTrades"
-        ) as controller:
+        with (
+            patch(
+                "quant_tick.exchanges.deribit.controllers.get_deribit_instrument_creation_timestamp",
+                return_value=self.timestamp_from + timedelta(hours=13),
+            ) as get_creation_timestamp,
+            patch(
+                "quant_tick.exchanges.deribit.controllers.DeribitTrades"
+            ) as controller,
+        ):
             deribit_trades(
                 symbol,
-                self.timestamp_from,
+                requested_from,
+                timestamp_to,
+                on_data_frame=Mock(),
+            )
+            deribit_trades(
+                symbol,
+                requested_from,
                 timestamp_to,
                 on_data_frame=Mock(),
             )
 
-        controller.assert_called_once()
-        controller.return_value.main.assert_called_once_with()
+        get_creation_timestamp.assert_called_once_with("BTC-PERPETUAL")
+        self.assertEqual(symbol.date_from, self.timestamp_from.date())
+        symbol.save.assert_called_once_with(update_fields=["date_from"])
+        self.assertEqual(controller.call_count, 2)
+        self.assertEqual(
+            controller.call_args_list[0].kwargs["timestamp_from"],
+            self.timestamp_from + timedelta(hours=13),
+        )
+        self.assertEqual(
+            controller.call_args_list[1].kwargs["timestamp_from"],
+            self.timestamp_from,
+        )
+        self.assertEqual(controller.return_value.main.call_count, 2)
+
     def test_mixin_maps_spot_amount_as_base_asset(self):
         controller = DeribitTrades.__new__(DeribitTrades)
         controller.symbol = SimpleNamespace(
@@ -352,7 +389,7 @@ class DeribitTradesTest(SimpleTestCase):
             ]
         )
 
-        self.assertEqual(parsed[0]["notional"], Decimal("3"))
+        self.assertEqual(parsed[0]["notional"], Decimal(3))
         self.assertEqual(parsed[0]["volume"], Decimal("0.1575"))
         self.assertEqual(
             parsed[0]["timestamp"],

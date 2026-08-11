@@ -89,6 +89,20 @@ class TradesApiTest(BaseSymbolTest, TestCase):
         mocked.assert_called_once()
         self.assertEqual(mocked.call_args.args[0], symbol)
 
+    def test_trades_api_dispatches_hyperliquid(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        ts_to = self.timestamp_from + timedelta(days=1)
+
+        with patch("quant_tick.exchanges.api.hyperliquid_trades") as mocked:
+            trades_api(symbol, self.timestamp_from, ts_to, Mock())
+
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.args[0], symbol)
+
     def test_trades_api_dispatches_deribit_spot(self):
         symbol = self.get_symbol(
             exchange=Exchange.DERIBIT,

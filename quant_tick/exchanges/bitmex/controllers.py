@@ -25,7 +25,7 @@ def bitmex_trades(
     if timestamp_to > use_s3():
         BitmexTradesREST(
             symbol,
-            timestamp_from=timestamp_from if timestamp_from > use_s3() else use_s3(),
+            timestamp_from=max(use_s3(), timestamp_from),
             timestamp_to=timestamp_to,
             on_data_frame=on_data_frame,
             retry=retry,
@@ -35,7 +35,7 @@ def bitmex_trades(
         BitmexTradesS3(
             symbol,
             timestamp_from=timestamp_from,
-            timestamp_to=timestamp_to if timestamp_to < use_s3() else use_s3(),
+            timestamp_to=min(use_s3(), timestamp_to),
             on_data_frame=on_data_frame,
             retry=retry,
             verbose=verbose,

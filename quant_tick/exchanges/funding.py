@@ -110,7 +110,8 @@ class ExchangeFunding:
                 raw_metadata.append(raw_ts.to_pydatetime())
                 offset_metadata.append(offset)
                 anomaly_metadata.append(
-                    abs(offset) > int(cls.timestamp_anomaly_tolerance.total_seconds() * 1000)
+                    abs(offset)
+                    > int(cls.timestamp_anomaly_tolerance.total_seconds() * 1000)
                 )
             else:
                 raw_metadata.append(None)
@@ -142,7 +143,9 @@ class ExchangeFunding:
         anchor = cls.get_anchor()
         interval_ns = interval.value
         offset_ns = raw_timestamp.value - anchor.value
-        bucket_ns = anchor.value + ((offset_ns + interval_ns // 2) // interval_ns) * interval_ns
+        bucket_ns = (
+            anchor.value + ((offset_ns + interval_ns // 2) // interval_ns) * interval_ns
+        )
         timestamp = pd.Timestamp(bucket_ns, tz=UTC)
         offset_ms = round((raw_timestamp - timestamp).total_seconds() * 1000)
         if offset_ms == 0:

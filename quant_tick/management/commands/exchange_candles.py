@@ -20,8 +20,6 @@ class Command(BaseTradeDataWithRetryCommand):
             symbol = k["symbol"]
             resolution = resolution_override or symbol.exchange_candle_resolution
             if not resolution:
-                raise CommandError(
-                    f"{symbol}: exchange candle resolution is required."
-                )
+                raise CommandError(f"{symbol}: exchange candle resolution is required.")
             k["resolution"] = resolution
             exchange_candles(**k)

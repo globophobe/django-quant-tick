@@ -8,7 +8,13 @@ from django.views import View
 from quant_tick.constants import Exchange, SymbolType, TaskType
 from quant_tick.exchanges.api import (
     exchange_candles as fetch_symbol_exchange_candles,
+)
+from quant_tick.exchanges.api import (
     funding as fetch_symbol_funding,
+)
+from quant_tick.forms import (
+    FetchExchangeDataRequestForm,
+    format_form_errors,
 )
 from quant_tick.lib.task_errors import is_transient_task_error
 from quant_tick.models import Symbol, TaskState
@@ -22,10 +28,6 @@ from quant_tick.views.aggregate_trades import (
     TRANSIENT_COLLECTION_ERRORS,
     get_timestamp_range,
     is_soft_collection_error,
-)
-from quant_tick.forms import (
-    FetchExchangeDataRequestForm,
-    format_form_errors,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,9 +53,7 @@ class FetchExchangeDataView(View):
             symbol_type=SymbolType.PERPETUAL,
         )
         exchanges = (
-            self.queryset.filter(
-                configured_funding | configured_exchange_candles
-            )
+            self.queryset.filter(configured_funding | configured_exchange_candles)
             .order_by("exchange")
             .values_list("exchange", flat=True)
             .distinct()
@@ -112,7 +112,7 @@ class FetchExchangeDataView(View):
             symbol.exchange in FUNDING_SUPPORTED_EXCHANGES
             and symbol.symbol_type == SymbolType.PERPETUAL
         ):
-            logger.info("{symbol}: funding starting...".format(symbol=str(symbol)))
+            logger.info(f"{symbol!s}: funding starting...")
             fetch_symbol_funding(
                 symbol,
                 timestamp_from,
@@ -122,9 +122,7 @@ class FetchExchangeDataView(View):
             )
             counts["funding"] = 1
         if symbol.exchange_candle_resolution:
-            logger.info(
-                "{symbol}: exchange candles starting...".format(symbol=str(symbol))
-            )
+            logger.info(f"{symbol!s}: exchange candles starting...")
             fetch_symbol_exchange_candles(
                 symbol,
                 timestamp_from,
@@ -174,7 +172,9 @@ class FetchExchangeDataView(View):
                     if is_soft_collection_error(exc):
                         lease_heartbeat.assert_owned()
                         counts["failed"] += 1
-                        logger.warning("%s: fetch exchange data skipped: %s", symbol, exc)
+                        logger.warning(
+                            "%s: fetch exchange data skipped: %s", symbol, exc
+                        )
                     elif is_transient_task_error(exc):
                         mark_task_recent_error(state=task_state, backoff=False)
                         counts["failed"] += 1
@@ -225,9 +225,7 @@ class FetchExchangeDataView(View):
             form = self.get_query_form(request)
             query = form.cleaned_data
             exchanges = self.get_exchanges(query["exchange"])
-            timestamp_from, timestamp_to = get_timestamp_range(
-                query["time_ago"]
-            )
+            timestamp_from, timestamp_to = get_timestamp_range(query["time_ago"])
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
         counts = self.fetch_exchange_data_for_exchanges(

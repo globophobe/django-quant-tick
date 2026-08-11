@@ -29,9 +29,7 @@ def get_bybit_funding_interval(api_symbol: str, *, category: str) -> timedelta:
             "symbol": symbol,
         },
     )
-    matching = [
-        item for item in result.get("list", []) if item.get("symbol") == symbol
-    ]
+    matching = [item for item in result.get("list", []) if item.get("symbol") == symbol]
     if len(matching) != 1:
         raise ValueError(f"Bybit funding interval is unavailable for {symbol}.")
     try:
@@ -142,9 +140,7 @@ def bybit_open_interest(
                 unit="ms",
                 utc=True,
             ),
-            "open_interest": [
-                Decimal(str(item["openInterest"])) for item in rows
-            ],
+            "open_interest": [Decimal(str(item["openInterest"])) for item in rows],
             "single_open_interest": [
                 Decimal(str(item["singleOpenInterest"])) for item in rows
             ],
@@ -239,9 +235,7 @@ def bybit_funding(
                 unit="ms",
                 utc=True,
             ),
-            "funding_rate": [
-                Decimal(str(item["fundingRate"])) for item in rows
-            ],
+            "funding_rate": [Decimal(str(item["fundingRate"])) for item in rows],
         }
     ).set_index("timestamp")
     df = df.join(
@@ -261,9 +255,7 @@ def bybit_funding(
         ),
         how="left",
     )
-    df["open_interest_unit"] = (
-        "base_asset" if category == "linear" else "quote_asset"
-    )
+    df["open_interest_unit"] = "base_asset" if category == "linear" else "quote_asset"
     df["market_history_interval"] = MARKET_HISTORY_INTERVAL
     normalized = BybitFunding.normalize_frame(
         df.reset_index(),

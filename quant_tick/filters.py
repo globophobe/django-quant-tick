@@ -89,21 +89,19 @@ if HAS_SEMANTIC_FILTERS:
                 "save_aggregated",
             )
 
-
     class CandleFilter(SemanticFilterSet):
         symbol = SemanticModelChoiceFilter(
             empty_label="",
             queryset=Symbol.objects.filter(
                 is_active=True,
                 pk__in=Candle.objects.values("symbol_id"),
-            )
+            ),
         )
         is_active = SemanticBooleanFilter(label=_("active"))
 
         class Meta:
             model = Candle
             fields = ("symbol", "is_active")
-
 
     class TaskStateFilter(SemanticFilterSet):
         exchange = SemanticBlankChoiceFilter(choices=Exchange.choices)
@@ -113,14 +111,12 @@ if HAS_SEMANTIC_FILTERS:
             model = TaskState
             fields = ("exchange", "api_symbol", "task_type")
 
-
     class TradeDataFilter(SemanticFilterSet):
         symbol = SemanticModelChoiceFilter(
             empty_label="",
             queryset=Symbol.objects.filter(
-                is_active=True,
-                pk__in=TradeData.objects.values("symbol_id")
-            )
+                is_active=True, pk__in=TradeData.objects.values("symbol_id")
+            ),
         )
         frequency = SemanticBlankChoiceFilter(choices=Frequency.choices)
         ok = SemanticBooleanFilter(label=_("ok"))
@@ -129,15 +125,13 @@ if HAS_SEMANTIC_FILTERS:
             model = TradeData
             fields = ("symbol", "frequency", "ok")
 
-
     class CandleDataFilter(SemanticFilterSet):
         symbol = SemanticModelChoiceFilter(
             field_name="candle__symbol",
             label=_("symbol"),
             empty_label="",
             queryset=Symbol.objects.filter(
-                is_active=True,
-                pk__in=CandleData.objects.values("candle__symbol_id")
+                is_active=True, pk__in=CandleData.objects.values("candle__symbol_id")
             ),
         )
 
@@ -145,20 +139,20 @@ if HAS_SEMANTIC_FILTERS:
             model = CandleData
             fields = ("symbol",)
 
-
     class CandleCacheFilter(SemanticFilterSet):
         symbol = SemanticModelChoiceFilter(
             field_name="candle__symbol",
             label=_("symbol"),
             empty_label="",
             queryset=Symbol.objects.filter(
-                is_active=True,
-                pk__in=CandleCache.objects.values("candle__symbol_id")
+                is_active=True, pk__in=CandleCache.objects.values("candle__symbol_id")
             ),
         )
         candle = SemanticModelChoiceFilter(
             empty_label="",
-            queryset=Candle.objects.filter(pk__in=CandleCache.objects.values("candle_id"))
+            queryset=Candle.objects.filter(
+                pk__in=CandleCache.objects.values("candle_id")
+            ),
         )
         frequency = SemanticAllValuesFilter(label=_("frequency"))
 
@@ -166,14 +160,12 @@ if HAS_SEMANTIC_FILTERS:
             model = CandleCache
             fields = ("symbol", "candle", "frequency")
 
-
     class ExchangeCandleDataFilter(SemanticFilterSet):
         symbol = SemanticModelChoiceFilter(
             empty_label="",
             queryset=Symbol.objects.filter(
-                is_active=True,
-                pk__in=ExchangeCandleData.objects.values("symbol_id")
-            )
+                is_active=True, pk__in=ExchangeCandleData.objects.values("symbol_id")
+            ),
         )
         frequency = SemanticAllValuesFilter(label=_("frequency"))
 
@@ -181,14 +173,12 @@ if HAS_SEMANTIC_FILTERS:
             model = ExchangeCandleData
             fields = ("symbol", "frequency")
 
-
     class FundingDataFilter(SemanticFilterSet):
         symbol = SemanticModelChoiceFilter(
             empty_label="",
             queryset=Symbol.objects.filter(
-                is_active=True,
-                pk__in=FundingData.objects.values("symbol_id")
-            )
+                is_active=True, pk__in=FundingData.objects.values("symbol_id")
+            ),
         )
 
         class Meta:

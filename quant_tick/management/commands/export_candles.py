@@ -1,6 +1,6 @@
+import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-import re
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -28,7 +28,9 @@ def _convert_decimals(val: object) -> object:
 
 def _token(value: object) -> str:
     token = str(value).strip().lower().replace("_data", "")
-    token = token.replace("/", "-").replace("_", "-").replace(" ", "-").replace(".", "p")
+    token = (
+        token.replace("/", "-").replace("_", "-").replace(" ", "-").replace(".", "p")
+    )
     token = re.sub(r"[^a-z0-9-]+", "-", token)
     token = re.sub(r"-+", "-", token).strip("-")
     return token
@@ -241,7 +243,7 @@ class Command(BaseDateCommand):
         )
         timestamp_from = date_from.replace(tzinfo=UTC) if date_from else None
         timestamp_to = date_to.replace(tzinfo=UTC) if date_to else None
-        today = datetime.now().strftime("%Y%m%d")
+        today = datetime.now(tz=UTC).strftime("%Y%m%d")
 
         for candle in self.get_candles(options["code_name"]):
             self.export_candle(candle, timestamp_from, timestamp_to, today)

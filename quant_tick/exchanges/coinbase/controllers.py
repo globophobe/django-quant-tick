@@ -52,13 +52,13 @@ class CoinbaseTrades(CoinbaseMixin, ExchangeREST):
         super().assert_data_frame(timestamp_from, timestamp_to, data_frame, trades)
         # Missing orders.
         expected = len(trades) - 1
-        if self.symbol.api_symbol == BTCUSD:
-            # It seems 45 ids may have been skipped for BTC-USD on 2021-06-09
-            if timestamp_from.date() == date(2021, 6, 9):
-                return
-            # There was a missing order for BTC-USD on 2019-04-11
-            elif timestamp_from.date() == date(2019, 4, 11):
-                return
+        if self.symbol.api_symbol == BTCUSD and timestamp_from.date() in {
+            date(2019, 4, 11),
+            date(2021, 6, 9),
+        }:
+            # BTC-USD has a missing order on 2019-04-11 and appears to have
+            # skipped 45 IDs on 2021-06-09.
+            return
         diff = data_frame["index"].diff().dropna()
         actual = int(abs(diff.sum()))
         if actual != expected:

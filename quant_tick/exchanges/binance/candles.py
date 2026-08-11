@@ -59,7 +59,9 @@ def get_binance_interval(resolution: str | int | None) -> str:
     try:
         return BINANCE_INTERVALS_BY_MINUTES[minutes]
     except KeyError as exc:
-        raise ValueError(f"unsupported Binance candle resolution: {resolution}") from exc
+        raise ValueError(
+            f"unsupported Binance candle resolution: {resolution}"
+        ) from exc
 
 
 def get_binance_candle_url(

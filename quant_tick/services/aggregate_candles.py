@@ -110,9 +110,7 @@ class AggregateCandleService:
                 try:
                     lease_heartbeat.start()
                     for candle, timestamp_from, timestamp_to, retry in items:
-                        logger.info(
-                            "{candle}: starting...".format(**{"candle": str(candle)})
-                        )
+                        logger.info(f"{candle!s}: starting...")
                         candle.candles(
                             timestamp_from,
                             timestamp_to,

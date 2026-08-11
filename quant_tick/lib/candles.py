@@ -11,7 +11,7 @@ from .aggregate import filter_by_timestamp
 from .calendar import iter_window
 from .dataframe import has_column_group, is_decimal_close
 
-ZERO = Decimal("0")
+ZERO = Decimal(0)
 
 
 def candles_to_data_frame(
@@ -252,13 +252,11 @@ def is_round_volume(
     return int(volume) % required_unit == 0
 
 
-def is_round_notional(
-    notional: Decimal, min_notional_exponent: int
-) -> bool:
+def is_round_notional(notional: Decimal, min_notional_exponent: int) -> bool:
     """Whether notional matches the configured round-size threshold."""
     if not notional:
         return False
-    required_unit = Decimal("0.1") * (Decimal("10") ** (min_notional_exponent - 1))
+    required_unit = Decimal("0.1") * (Decimal(10) ** (min_notional_exponent - 1))
     return notional % required_unit == 0
 
 
@@ -352,10 +350,8 @@ def validate_aggregated_candles(
     if ok in (True, None):
         # Maybe candle with no volume or notional.
         missing = exchange_candles.index.difference(aggregated_candles.index)
-        if len(missing):
-            # If missing candles have volume or notional, then ok should be False.
+        if len(missing) and exchange_candles.loc[missing, key].sum() != 0:
             # Maybe validates on retry.
-            if exchange_candles.loc[missing, key].sum() != 0:
-                ok = False
+            ok = False
 
     return ok

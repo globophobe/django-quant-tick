@@ -116,9 +116,7 @@ class DeribitFundingTest(SimpleTestCase):
                 "quant_tick.exchanges.api.deribit_funding",
                 return_value=expected,
             ) as mocked,
-            patch(
-                "quant_tick.exchanges.api.refresh_funding_interval"
-            ) as refresh,
+            patch("quant_tick.exchanges.api.refresh_funding_interval") as refresh,
         ):
             result = funding_api(symbol, timestamp_from, timestamp_to)
 

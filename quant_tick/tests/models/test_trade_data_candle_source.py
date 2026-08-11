@@ -14,7 +14,10 @@ from quant_tick.lib import (
     volume_filter_with_time_window,
 )
 from quant_tick.models import TradeData
-from quant_tick.storage import convert_trade_data_to_daily
+from quant_tick.storage import (
+    clean_unlinked_trade_data_files,
+    convert_trade_data_to_daily,
+)
 
 from ..base import BaseWriteTradeDataTest
 
@@ -38,15 +41,15 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
                 self.get_random_trade(
                     timestamp=self.timestamp_from,
                     nanoseconds=0,
-                    price=Decimal("1"),
-                    notional=Decimal("1"),
+                    price=Decimal(1),
+                    notional=Decimal(1),
                     tick_rule=1,
                 ),
                 self.get_random_trade(
                     timestamp=self.timestamp_from,
                     nanoseconds=0,
-                    price=Decimal("3"),
-                    notional=Decimal("1"),
+                    price=Decimal(3),
+                    notional=Decimal(1),
                     tick_rule=1,
                 ),
             ]
@@ -63,7 +66,9 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
         trade_data = TradeData.objects.get()
         aggregated = aggregate_trades(raw)
         check_candle = trade_data.json_data["candle"]
-        self.assertEqual(check_candle, normalize_json_candle(aggregate_candle(aggregated)))
+        self.assertEqual(
+            check_candle, normalize_json_candle(aggregate_candle(aggregated))
+        )
 
     def test_write_check_candle_uses_filtered_dataset_when_available(self):
         symbol = self.get_symbol(
@@ -76,22 +81,22 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
                 self.get_random_trade(
                     timestamp=self.timestamp_from,
                     nanoseconds=0,
-                    price=Decimal("3"),
+                    price=Decimal(3),
                     notional=Decimal("0.1"),
                     tick_rule=1,
                 ),
                 self.get_random_trade(
                     timestamp=self.timestamp_from + pd.Timedelta("10s"),
                     nanoseconds=0,
-                    price=Decimal("1"),
+                    price=Decimal(1),
                     notional=Decimal("0.1"),
                     tick_rule=1,
                 ),
                 self.get_random_trade(
                     timestamp=self.timestamp_from + pd.Timedelta("20s"),
                     nanoseconds=0,
-                    price=Decimal("2"),
-                    notional=Decimal("1"),
+                    price=Decimal(2),
+                    notional=Decimal(1),
                     tick_rule=1,
                 ),
             ]
@@ -111,9 +116,11 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
             min_volume=symbol.significant_trade_filter,
         )
         check_candle = trade_data.json_data["candle"]
-        self.assertEqual(check_candle, normalize_json_candle(aggregate_candle(filtered)))
-        self.assertEqual(check_candle["high"], Decimal("3"))
-        self.assertEqual(check_candle["low"], Decimal("1"))
+        self.assertEqual(
+            check_candle, normalize_json_candle(aggregate_candle(filtered))
+        )
+        self.assertEqual(check_candle["high"], Decimal(3))
+        self.assertEqual(check_candle["low"], Decimal(1))
 
     def test_convert_trade_data_to_daily_preserves_full_candle_payload(self):
         symbol = self.get_symbol(
@@ -131,8 +138,8 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
                     self.get_random_trade(
                         timestamp=ts_from,
                         nanoseconds=0,
-                        price=Decimal("1000"),
-                        notional=Decimal("1"),
+                        price=Decimal(1000),
+                        notional=Decimal(1),
                         tick_rule=1,
                     )
                 ]
@@ -155,3 +162,8 @@ class TradeDataCandleSourceTests(BaseWriteTradeDataTest, TestCase):
 
         trade_data = TradeData.objects.get(symbol=symbol)
         self.assertEqual(trade_data.json_data["candle"], expected)
+        clean_unlinked_trade_data_files(
+            symbol,
+            timestamp_from,
+            timestamp_from + pd.Timedelta("1h"),
+        )

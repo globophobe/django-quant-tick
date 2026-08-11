@@ -95,7 +95,9 @@ def fetch_deribit_candles(
         if result.get("status") == "no_data":
             continue
         if result.get("status") != "ok":
-            raise ValueError(f"Unexpected Deribit candle status: {result.get('status')}")
+            raise ValueError(
+                f"Unexpected Deribit candle status: {result.get('status')}"
+            )
 
         columns = {
             "timestamp": result["ticks"],

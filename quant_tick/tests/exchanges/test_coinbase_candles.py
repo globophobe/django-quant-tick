@@ -17,7 +17,6 @@ from quant_tick.exchanges.coinbase.candles import (
 
 
 class CoinbaseCandleTest(SimpleTestCase):
-
     def test_get_coinbase_fetch_granularity_uses_hourly_fetch_for_2h(self):
         target_minutes, fetch_granularity = get_coinbase_fetch_granularity("2h")
 
@@ -41,7 +40,7 @@ class CoinbaseCandleTest(SimpleTestCase):
                     "high": Decimal(str(hour + 11)),
                     "low": Decimal(str(hour)),
                     "close": Decimal(str(hour + 2)),
-                    "notional": Decimal("10"),
+                    "notional": Decimal(10),
                 }
                 for hour in range(2)
             ]
@@ -67,11 +66,11 @@ class CoinbaseCandleTest(SimpleTestCase):
         )
         self.assertEqual(list(result.index), [timestamp_from])
         candle = result.iloc[0]
-        self.assertEqual(candle.open, Decimal("1"))
-        self.assertEqual(candle.high, Decimal("12"))
-        self.assertEqual(candle.low, Decimal("0"))
-        self.assertEqual(candle.close, Decimal("3"))
-        self.assertEqual(candle.notional, Decimal("20"))
+        self.assertEqual(candle.open, Decimal(1))
+        self.assertEqual(candle.high, Decimal(12))
+        self.assertEqual(candle.low, Decimal(0))
+        self.assertEqual(candle.close, Decimal(3))
+        self.assertEqual(candle.notional, Decimal(20))
 
     def test_get_coinbase_candle_pagination_id_steps_to_oldest_candle(self):
         timestamp = datetime(2026, 4, 1, 5, tzinfo=UTC)

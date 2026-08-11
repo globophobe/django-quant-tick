@@ -23,31 +23,33 @@ class ExchangeCandleDataTest(BaseSymbolTest, TestCase):
             [
                 {
                     "timestamp": timestamp_from,
-                    "open": Decimal("1"),
-                    "high": Decimal("2"),
+                    "open": Decimal(1),
+                    "high": Decimal(2),
                     "low": Decimal("0.5"),
                     "close": Decimal("1.5"),
-                    "notional": Decimal("10"),
+                    "notional": Decimal(10),
                     "trades": 5,
                 },
                 {
                     "timestamp": timestamp_from + pd.Timedelta("1h"),
-                    "open": Decimal("2"),
-                    "high": Decimal("3"),
+                    "open": Decimal(2),
+                    "high": Decimal(3),
                     "low": Decimal("1.5"),
                     "close": Decimal("2.5"),
-                    "notional": Decimal("11"),
+                    "notional": Decimal(11),
                 },
             ]
         )
 
         ExchangeCandleData.write(symbol, 60, timestamp_from, timestamp_to, data)
-        ExchangeCandleData.write(symbol, 60, timestamp_from, timestamp_to, data.iloc[:1])
+        ExchangeCandleData.write(
+            symbol, 60, timestamp_from, timestamp_to, data.iloc[:1]
+        )
 
         rows = list(ExchangeCandleData.objects.filter(symbol=symbol))
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].timestamp, timestamp_from)
-        self.assertEqual(rows[0].notional, Decimal("10"))
+        self.assertEqual(rows[0].notional, Decimal(10))
         self.assertEqual(rows[0].json_data["trades"], 5)
 
     def test_write_rejects_lost_lease_before_replacing_rows(self):
@@ -62,8 +64,8 @@ class ExchangeCandleDataTest(BaseSymbolTest, TestCase):
             [
                 {
                     "timestamp": timestamp_from,
-                    "open": Decimal("1"),
-                    "high": Decimal("2"),
+                    "open": Decimal(1),
+                    "high": Decimal(2),
                     "low": Decimal("0.5"),
                     "close": Decimal("1.5"),
                 }
@@ -109,19 +111,19 @@ class ExchangeCandleDataTest(BaseSymbolTest, TestCase):
             [
                 {
                     "timestamp": timestamp_from,
-                    "open": Decimal("1"),
-                    "high": Decimal("2"),
+                    "open": Decimal(1),
+                    "high": Decimal(2),
                     "low": Decimal("0.5"),
                     "close": Decimal("1.5"),
-                    "notional": Decimal("10"),
+                    "notional": Decimal(10),
                 },
                 {
                     "timestamp": timestamp_from + pd.Timedelta("1h"),
-                    "open": Decimal("2"),
-                    "high": Decimal("3"),
+                    "open": Decimal(2),
+                    "high": Decimal(3),
                     "low": Decimal("1.5"),
                     "close": Decimal("2.5"),
-                    "notional": Decimal("11"),
+                    "notional": Decimal(11),
                 },
             ]
         )

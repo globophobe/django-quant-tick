@@ -110,14 +110,16 @@ class AggregateCandleServiceTest(TestCase):
         Candle.objects.create(symbol=self.symbol)
         now = datetime(2026, 5, 9, 12, 30, 45, tzinfo=UTC)
 
-        with patch(
-            "quant_tick.services.aggregate_candles.get_current_time",
-            return_value=now,
+        with (
+            patch(
+                "quant_tick.services.aggregate_candles.get_current_time",
+                return_value=now,
+            ),
+            patch("quant_tick.models.candles.Candle.candles") as mock_candles,
         ):
-            with patch("quant_tick.models.candles.Candle.candles") as mock_candles:
-                response = aggregate_candle_data(
-                    [{"exchange": Exchange.COINBASE, "api_symbol": "test"}]
-                )
+            response = aggregate_candle_data(
+                [{"exchange": Exchange.COINBASE, "api_symbol": "test"}]
+            )
 
         self.assertEqual(response, {"ok": True, "processed": 1})
         timestamp_from, timestamp_to, retry = mock_candles.call_args.args
@@ -129,20 +131,22 @@ class AggregateCandleServiceTest(TestCase):
         Candle.objects.create(symbol=self.symbol)
         now = datetime(2026, 5, 9, 12, 30, 45, tzinfo=UTC)
 
-        with patch(
-            "quant_tick.services.aggregate_candles.get_current_time",
-            return_value=now,
+        with (
+            patch(
+                "quant_tick.services.aggregate_candles.get_current_time",
+                return_value=now,
+            ),
+            patch("quant_tick.models.candles.Candle.candles") as mock_candles,
         ):
-            with patch("quant_tick.models.candles.Candle.candles") as mock_candles:
-                response = aggregate_candle_data(
-                    [
-                        {
-                            "exchange": Exchange.COINBASE,
-                            "api_symbol": "test",
-                            "timestamp_from": datetime(2026, 5, 9, 11, 42, tzinfo=UTC),
-                        }
-                    ]
-                )
+            response = aggregate_candle_data(
+                [
+                    {
+                        "exchange": Exchange.COINBASE,
+                        "api_symbol": "test",
+                        "timestamp_from": datetime(2026, 5, 9, 11, 42, tzinfo=UTC),
+                    }
+                ]
+            )
 
         self.assertEqual(response, {"ok": True, "processed": 1})
         timestamp_from, timestamp_to, retry = mock_candles.call_args.args
@@ -159,24 +163,26 @@ class AggregateCandleServiceTest(TestCase):
         Candle.objects.create(symbol=binance_symbol)
         now = datetime(2026, 5, 9, 12, 30, 45, tzinfo=UTC)
 
-        with patch(
-            "quant_tick.services.aggregate_candles.get_current_time",
-            return_value=now,
+        with (
+            patch(
+                "quant_tick.services.aggregate_candles.get_current_time",
+                return_value=now,
+            ),
+            patch("quant_tick.models.candles.Candle.candles") as mock_candles,
         ):
-            with patch("quant_tick.models.candles.Candle.candles") as mock_candles:
-                response = aggregate_candle_data(
-                    [
-                        {
-                            "exchange": Exchange.COINBASE,
-                            "api_symbol": "test",
-                            "timestamp_from": datetime(2026, 5, 9, 11, tzinfo=UTC),
-                        },
-                        {
-                            "exchange": Exchange.BINANCE,
-                            "api_symbol": "BTCUSDT",
-                        },
-                    ]
-                )
+            response = aggregate_candle_data(
+                [
+                    {
+                        "exchange": Exchange.COINBASE,
+                        "api_symbol": "test",
+                        "timestamp_from": datetime(2026, 5, 9, 11, tzinfo=UTC),
+                    },
+                    {
+                        "exchange": Exchange.BINANCE,
+                        "api_symbol": "BTCUSDT",
+                    },
+                ]
+            )
 
         self.assertEqual(response, {"ok": True, "processed": 2})
         self.assertEqual(mock_candles.call_count, 2)
@@ -233,13 +239,15 @@ class AggregateCandleServiceTest(TestCase):
             successor["token"] = new_owner.lock_token
             successor["locked_until"] = new_owner.locked_until
 
-        with patch(
-            "quant_tick.models.candles.Candle.candles",
-            autospec=True,
-            side_effect=take_over_lease,
+        with (
+            patch(
+                "quant_tick.models.candles.Candle.candles",
+                autospec=True,
+                side_effect=take_over_lease,
+            ),
+            self.assertRaisesRegex(TaskLeaseLost, "ownership lost"),
         ):
-            with self.assertRaisesRegex(TaskLeaseLost, "ownership lost"):
-                aggregate_candle_data([{}])
+            aggregate_candle_data([{}])
 
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_CANDLES,
@@ -275,9 +283,9 @@ class AggregateCandleServiceTest(TestCase):
                 "quant_tick.services.aggregate_candles.clear_task_recent_error",
                 side_effect=take_over_before_clear,
             ),
+            self.assertRaisesRegex(TaskLeaseLost, "ownership lost"),
         ):
-            with self.assertRaisesRegex(TaskLeaseLost, "ownership lost"):
-                aggregate_candle_data([{}])
+            aggregate_candle_data([{}])
 
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_CANDLES,
@@ -294,13 +302,15 @@ class AggregateCandleServiceTest(TestCase):
         Candle.objects.create(symbol=self.symbol)
         Candle.objects.create(symbol=self.symbol)
 
-        with patch(
-            "quant_tick.models.candles.Candle.candles",
-            autospec=True,
-            side_effect=[None, RuntimeError("boom")],
+        with (
+            patch(
+                "quant_tick.models.candles.Candle.candles",
+                autospec=True,
+                side_effect=[None, RuntimeError("boom")],
+            ),
+            self.assertRaises(RuntimeError),
         ):
-            with self.assertRaises(RuntimeError):
-                aggregate_candle_data([{}])
+            aggregate_candle_data([{}])
 
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_CANDLES,
@@ -313,13 +323,15 @@ class AggregateCandleServiceTest(TestCase):
     def test_aggregate_marks_transient_task_error_without_backoff(self):
         Candle.objects.create(symbol=self.symbol)
 
-        with patch(
-            "quant_tick.models.candles.Candle.candles",
-            autospec=True,
-            side_effect=OperationalError("server closed the connection"),
+        with (
+            patch(
+                "quant_tick.models.candles.Candle.candles",
+                autospec=True,
+                side_effect=OperationalError("server closed the connection"),
+            ),
+            self.assertRaises(OperationalError),
         ):
-            with self.assertRaises(OperationalError):
-                aggregate_candle_data([{}])
+            aggregate_candle_data([{}])
 
         task_state = TaskState.objects.get(
             task_type=TaskType.AGGREGATE_CANDLES,

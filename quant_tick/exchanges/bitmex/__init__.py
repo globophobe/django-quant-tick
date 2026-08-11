@@ -3,4 +3,4 @@ from .constants import XBTUSD
 from .controllers import bitmex_trades
 from .funding import bitmex_funding
 
-__all__ = ["XBTUSD", "bitmex_trades", "bitmex_candles", "bitmex_funding"]
+__all__ = ["XBTUSD", "bitmex_candles", "bitmex_funding", "bitmex_trades"]

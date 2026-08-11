@@ -25,10 +25,7 @@ class FixedIntervalTerminalPageTest(SimpleTestCase):
 
     def test_short_page_with_short_time_span_is_terminal(self):
         timestamp_from = datetime(2025, 10, 22, 12, tzinfo=UTC)
-        data = [
-            timestamp_from + timedelta(hours=hour)
-            for hour in range(295)
-        ]
+        data = [timestamp_from + timedelta(hours=hour) for hour in range(295)]
 
         self.assertTrue(
             is_terminal_page(

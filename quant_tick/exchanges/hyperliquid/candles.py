@@ -107,8 +107,7 @@ def hyperliquid_candles(
             "close": [Decimal(str(item["c"])) for item in rows],
             "notional": [Decimal(str(item["v"])) for item in rows],
             "trades": [
-                None if item.get("n") is None else int(item["n"])
-                for item in rows
+                None if item.get("n") is None else int(item["n"]) for item in rows
             ],
         }
     )

@@ -19,9 +19,9 @@ class CoinbaseTradesTest(SimpleTestCase):
             "uid": str(trade_id),
             "timestamp": timestamp,
             "nanoseconds": 0,
-            "price": Decimal("100"),
-            "volume": Decimal("100"),
-            "notional": Decimal("1"),
+            "price": Decimal(100),
+            "volume": Decimal(100),
+            "notional": Decimal(1),
             "tickRule": 1,
             "index": trade_id,
         }
@@ -53,7 +53,6 @@ class CoinbaseTradesTest(SimpleTestCase):
         message = sentry.capture_message.call_args.args[0]
         self.assertIn(message, logs.output[0])
         self.assertEqual(sentry.capture_message.call_args.kwargs, {"level": "error"})
-
 
     def test_coinbase_trades_uses_exchange_controller(self):
         ts_from = datetime(2026, 5, 4, tzinfo=UTC)
