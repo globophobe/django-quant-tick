@@ -129,6 +129,7 @@ class ChunkedExchangeS3(ExchangeS3):
     """Process complete daily archives in bounded timestamp frames."""
 
     archive_chunksize = 200_000
+    allow_descending_archive = False
 
     def get_data_frame_chunks(
         self,
@@ -145,6 +146,26 @@ class ChunkedExchangeS3(ExchangeS3):
     ) -> pd.Series:
         raise NotImplementedError
 
+    def _combine_archive_hour(
+        self,
+        parts: list[DataFrame],
+        *,
+        descending: bool,
+    ) -> DataFrame:
+        frame = (
+            parts[0]
+            if len(parts) == 1
+            else pd.concat(parts, ignore_index=True, copy=False)
+        )
+        if descending and len(frame) > 1:
+            timestamps = self.get_archive_timestamp_nanoseconds(frame)
+            order = np.argsort(
+                timestamps.to_numpy(dtype="int64", copy=False),
+                kind="stable",
+            )
+            frame = frame.iloc[order].reset_index(drop=True)
+        return frame
+
     def iter_archive_hours(
         self,
         data_frames: Iterable[DataFrame],
@@ -152,6 +173,7 @@ class ChunkedExchangeS3(ExchangeS3):
         current_hour = None
         current_parts = []
         previous_timestamp = None
+        direction = 0
         nanoseconds_per_hour = 3_600_000_000_000
 
         for data_frame in data_frames:
@@ -160,10 +182,22 @@ class ChunkedExchangeS3(ExchangeS3):
                 continue
             timestamps = self.get_archive_timestamp_nanoseconds(data_frame)
             values = timestamps.to_numpy(dtype="int64", copy=False)
-            if previous_timestamp is not None and values[0] < previous_timestamp:
+            increases = False
+            decreases = False
+            if previous_timestamp is not None:
+                increases = values[0] > previous_timestamp
+                decreases = values[0] < previous_timestamp
+            if len(values) > 1:
+                increases = increases or bool(np.any(values[1:] > values[:-1]))
+                decreases = decreases or bool(np.any(values[1:] < values[:-1]))
+            if increases and decreases:
                 raise ValueError("archive timestamps are not monotonic")
-            if len(values) > 1 and np.any(values[1:] < values[:-1]):
+            if decreases and not self.allow_descending_archive:
                 raise ValueError("archive timestamps are not monotonic")
+            chunk_direction = 1 if increases else -1 if decreases else 0
+            if direction and chunk_direction and direction != chunk_direction:
+                raise ValueError("archive timestamps are not monotonic")
+            direction = direction or chunk_direction
             previous_timestamp = int(values[-1])
 
             hours = values // nanoseconds_per_hour
@@ -178,10 +212,9 @@ class ChunkedExchangeS3(ExchangeS3):
                         unit="ns",
                         tz="UTC",
                     ).to_pydatetime()
-                    frame = (
-                        current_parts[0]
-                        if len(current_parts) == 1
-                        else pd.concat(current_parts, ignore_index=True, copy=False)
+                    frame = self._combine_archive_hour(
+                        current_parts,
+                        descending=direction < 0,
                     )
                     current_parts = []
                     yield timestamp, frame
@@ -195,10 +228,9 @@ class ChunkedExchangeS3(ExchangeS3):
                 unit="ns",
                 tz="UTC",
             ).to_pydatetime()
-            frame = (
-                current_parts[0]
-                if len(current_parts) == 1
-                else pd.concat(current_parts, ignore_index=True, copy=False)
+            frame = self._combine_archive_hour(
+                current_parts,
+                descending=direction < 0,
             )
             current_parts = []
             yield timestamp, frame
