@@ -347,6 +347,7 @@ class BybitTradesTest(SimpleTestCase):
                 },
             ]
         )
+        data = data.iloc[::-1].reset_index(drop=True)
         symbol = SimpleNamespace(
             exchange=Exchange.BYBIT_LINEAR,
             api_symbol="BTCUSDT",
@@ -382,12 +383,12 @@ class BybitTradesTest(SimpleTestCase):
         self.assertEqual(
             [(call.args[1], call.args[2]) for call in on_data_frame.call_args_list],
             [
-                (first_hour, second_hour),
                 (second_hour, timestamp_to),
+                (first_hour, second_hour),
             ],
         )
-        first = on_data_frame.call_args_list[0].args[3]
-        second = on_data_frame.call_args_list[1].args[3]
+        second = on_data_frame.call_args_list[0].args[3]
+        first = on_data_frame.call_args_list[1].args[3]
         self.assertEqual(first["uid"].tolist(), ["earlier", "later"])
         self.assertEqual(first["tickRule"].tolist(), [-1, 1])
         self.assertEqual(
@@ -401,6 +402,13 @@ class BybitTradesTest(SimpleTestCase):
         self.assertEqual(first.iloc[1]["timestamp"].microsecond, 64700)
         self.assertEqual(first.iloc[1]["nanoseconds"], 0)
         self.assertEqual(second["uid"].tolist(), ["second-hour"])
+        mixed = data.iloc[[0, 2, 1]].copy()
+        with self.assertRaisesRegex(ValueError, "timestamps are not monotonic"):
+            list(
+                controller.iter_archive_hours(
+                    [mixed.iloc[:2].copy(), mixed.iloc[2:].copy()]
+                )
+            )
         with self.assertRaisesRegex(ValueError, "rows outside BTCUSDT"):
             controller.prepare_archive_chunk(pd.DataFrame([{"symbol": "ETHUSDT"}]))
 
