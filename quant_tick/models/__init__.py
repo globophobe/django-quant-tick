@@ -1,5 +1,6 @@
 from .candle_types import AdaptiveCandle, ConstantCandle, TimeBasedCandle
 from .candles import Candle, CandleCache, CandleData
+from .derivative_market import DerivativeMarketData
 from .exchange_candles import ExchangeCandleData
 from .funding import FundingData
 from .symbols import Symbol
@@ -13,6 +14,7 @@ __all__ = [
     "CandleCache",
     "CandleData",
     "ConstantCandle",
+    "DerivativeMarketData",
     "ExchangeCandleData",
     "FundingData",
     "Symbol",
