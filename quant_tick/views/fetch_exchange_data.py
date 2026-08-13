@@ -12,11 +12,11 @@ from quant_tick.exchanges.api import (
 from quant_tick.exchanges.api import (
     funding as fetch_symbol_funding,
 )
-from quant_tick.exchanges.derivative_market import (
-    DERIVATIVE_MARKET_SUPPORTED_EXCHANGES,
+from quant_tick.exchanges.perpetual_stats import (
+    PERPETUAL_STATS_SUPPORTED_EXCHANGES,
 )
-from quant_tick.exchanges.derivative_market import (
-    derivative_market_data as fetch_symbol_derivative_market_data,
+from quant_tick.exchanges.perpetual_stats import (
+    perpetual_stats as fetch_symbol_perpetual_stats,
 )
 from quant_tick.forms import (
     FetchExchangeDataRequestForm,
@@ -115,7 +115,7 @@ class FetchExchangeDataView(View):
     ) -> dict:
         counts = {
             "funding": 0,
-            "derivative_market_data": 0,
+            "perpetual_stats": 0,
             "exchange_candles": 0,
         }
         if (
@@ -132,18 +132,18 @@ class FetchExchangeDataView(View):
             )
             counts["funding"] = 1
         if (
-            symbol.exchange in DERIVATIVE_MARKET_SUPPORTED_EXCHANGES
+            symbol.exchange in PERPETUAL_STATS_SUPPORTED_EXCHANGES
             and symbol.symbol_type == SymbolType.PERPETUAL
         ):
-            logger.info(f"{symbol!s}: derivative market data starting...")
-            fetch_symbol_derivative_market_data(
+            logger.info(f"{symbol!s}: perpetual stats data starting...")
+            fetch_symbol_perpetual_stats(
                 symbol,
                 timestamp_from,
                 timestamp_to,
                 retry,
                 assert_lease_owned=assert_lease_owned,
             )
-            counts["derivative_market_data"] = 1
+            counts["perpetual_stats"] = 1
         if symbol.exchange_candle_resolution:
             logger.info(f"{symbol!s}: exchange candles starting...")
             fetch_symbol_exchange_candles(
@@ -167,7 +167,7 @@ class FetchExchangeDataView(View):
     ) -> dict:
         counts = {
             "funding": 0,
-            "derivative_market_data": 0,
+            "perpetual_stats": 0,
             "exchange_candles": 0,
             "failed": 0,
             "skipped": 0,
@@ -215,8 +215,8 @@ class FetchExchangeDataView(View):
                 else:
                     clear_task_recent_error(state=task_state)
                     counts["funding"] += symbol_counts["funding"]
-                    counts["derivative_market_data"] += symbol_counts[
-                        "derivative_market_data"
+                    counts["perpetual_stats"] += symbol_counts[
+                        "perpetual_stats"
                     ]
                     counts["exchange_candles"] += symbol_counts["exchange_candles"]
             except TaskLeaseLost:
@@ -238,7 +238,7 @@ class FetchExchangeDataView(View):
         data = {}
         totals = {
             "funding": 0,
-            "derivative_market_data": 0,
+            "perpetual_stats": 0,
             "exchange_candles": 0,
             "failed": 0,
             "skipped": 0,
@@ -253,7 +253,7 @@ class FetchExchangeDataView(View):
             )
             data[exchange] = counts
             totals["funding"] += counts["funding"]
-            totals["derivative_market_data"] += counts["derivative_market_data"]
+            totals["perpetual_stats"] += counts["perpetual_stats"]
             totals["exchange_candles"] += counts["exchange_candles"]
             totals["failed"] += counts["failed"]
             totals["skipped"] += counts["skipped"]

@@ -17,7 +17,7 @@ from quant_tick.lib import (
 from .base import BigDecimalField, JSONField, get_model_json_data
 from .symbols import Symbol
 
-DERIVATIVE_MARKET_VALUE_FIELDS = (
+PERPETUAL_STATS_VALUE_FIELDS = (
     "open_interest",
     "open_interest_value",
     "single_open_interest",
@@ -28,7 +28,7 @@ DERIVATIVE_MARKET_VALUE_FIELDS = (
     "long_account_ratio",
     "short_account_ratio",
 )
-DERIVATIVE_MARKET_REQUIRED_FIELDS = {
+PERPETUAL_STATS_REQUIRED_FIELDS = {
     Exchange.BINANCE_FUTURES: (
         "open_interest",
         "open_interest_value",
@@ -52,18 +52,18 @@ DERIVATIVE_MARKET_REQUIRED_FIELDS = {
 }
 
 
-def derivative_market_required_fields(exchange: str) -> tuple[str, ...]:
+def perpetual_stats_required_fields(exchange: str) -> tuple[str, ...]:
     """Return fields proving every native endpoint contributed an observation."""
     try:
-        return DERIVATIVE_MARKET_REQUIRED_FIELDS[Exchange(exchange)]
+        return PERPETUAL_STATS_REQUIRED_FIELDS[Exchange(exchange)]
     except (KeyError, ValueError) as exc:
         raise NotImplementedError(
-            f"Derivative market completeness is not defined for {exchange}."
+            f"Perpetual stats completeness is not defined for {exchange}."
         ) from exc
 
 
-class DerivativeMarketDataQuerySet(QuerySet):
-    """QuerySet helpers for native-cadence derivative market observations."""
+class PerpetualStatsDataQuerySet(QuerySet):
+    """QuerySet helpers for native-cadence perpetual stats observations."""
 
     def in_range(
         self,
@@ -81,16 +81,16 @@ class DerivativeMarketDataQuerySet(QuerySet):
 
     def complete_for_exchange(self, exchange: str) -> QuerySet:
         """Return observations populated by every required venue endpoint."""
-        required = derivative_market_required_fields(exchange)
+        required = perpetual_stats_required_fields(exchange)
         return self.filter(**{f"{field}__isnull": False for field in required})
 
 
-class DerivativeMarketData(models.Model):
+class PerpetualStatsData(models.Model):
     """Native-cadence open-interest and positioning observations."""
 
     symbol = models.ForeignKey(
         "quant_tick.Symbol",
-        related_name="derivative_market_data",
+        related_name="perpetual_stats_data",
         on_delete=models.CASCADE,
     )
     timestamp = models.DateTimeField(_("timestamp"), db_index=True)
@@ -124,7 +124,7 @@ class DerivativeMarketData(models.Model):
         _("open interest unit"), max_length=32, blank=True, default=""
     )
     json_data = JSONField(_("json data"), default=dict)
-    objects = DerivativeMarketDataQuerySet.as_manager()
+    objects = PerpetualStatsDataQuerySet.as_manager()
 
     @classmethod
     def write(
@@ -139,9 +139,9 @@ class DerivativeMarketData(models.Model):
     ) -> None:
         """Upsert returned observations without deleting absent timestamps."""
         if symbol.symbol_type != SymbolType.PERPETUAL:
-            raise ValueError("DerivativeMarketData is only for perpetuals.")
+            raise ValueError("PerpetualStatsData is only for perpetuals.")
         if frequency <= 0:
-            raise ValueError("DerivativeMarketData frequency must be positive.")
+            raise ValueError("PerpetualStatsData frequency must be positive.")
 
         rows = []
         frame = normalize_timestamp_data_frame(data_frame)
@@ -149,7 +149,7 @@ class DerivativeMarketData(models.Model):
             "timestamp",
             "frequency",
             "open_interest_unit",
-            *DERIVATIVE_MARKET_VALUE_FIELDS,
+            *PERPETUAL_STATS_VALUE_FIELDS,
         }
         for row in frame.to_dict("records"):
             timestamp = to_utc_datetime(row["timestamp"])
@@ -157,7 +157,7 @@ class DerivativeMarketData(models.Model):
                 continue
             values = {
                 field: to_decimal_or_none(row.get(field))
-                for field in DERIVATIVE_MARKET_VALUE_FIELDS
+                for field in PERPETUAL_STATS_VALUE_FIELDS
             }
             rows.append(
                 cls(
@@ -187,7 +187,7 @@ class DerivativeMarketData(models.Model):
     def to_row(self) -> dict:
         row = {
             "timestamp": self.timestamp,
-            **{field: getattr(self, field) for field in DERIVATIVE_MARKET_VALUE_FIELDS},
+            **{field: getattr(self, field) for field in PERPETUAL_STATS_VALUE_FIELDS},
             "open_interest_unit": self.open_interest_unit,
         }
         if self.json_data:
@@ -195,7 +195,7 @@ class DerivativeMarketData(models.Model):
         return row
 
     class Meta:
-        db_table = "quant_tick_derivative_market_data"
+        db_table = "quant_tick_perpetual_stats_data"
         ordering = ("timestamp",)
         unique_together = (("symbol", "frequency", "timestamp"),)
-        verbose_name = verbose_name_plural = _("derivative market data")
+        verbose_name = verbose_name_plural = _("perpetual stats data")

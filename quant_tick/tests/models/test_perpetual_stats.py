@@ -5,12 +5,12 @@ import pandas as pd
 from django.test import TestCase
 
 from quant_tick.constants import Exchange, SymbolType
-from quant_tick.models import DerivativeMarketData
+from quant_tick.models import PerpetualStatsData
 
 from ..base import BaseSymbolTest
 
 
-class DerivativeMarketDataTest(BaseSymbolTest, TestCase):
+class PerpetualStatsDataTest(BaseSymbolTest, TestCase):
     def test_write_upserts_returned_timestamps_without_deleting_others(self):
         symbol = self.get_symbol(
             exchange=Exchange.BINANCE_FUTURES,
@@ -38,8 +38,8 @@ class DerivativeMarketDataTest(BaseSymbolTest, TestCase):
             ]
         )
 
-        DerivativeMarketData.write(symbol, 5, timestamp_from, timestamp_to, data)
-        DerivativeMarketData.write(
+        PerpetualStatsData.write(symbol, 5, timestamp_from, timestamp_to, data)
+        PerpetualStatsData.write(
             symbol,
             5,
             timestamp_from,
@@ -47,7 +47,7 @@ class DerivativeMarketDataTest(BaseSymbolTest, TestCase):
             data.iloc[:1].assign(open_interest=Decimal(102)),
         )
 
-        rows = list(DerivativeMarketData.objects.filter(symbol=symbol))
+        rows = list(PerpetualStatsData.objects.filter(symbol=symbol))
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0].timestamp, timestamp_from)
         self.assertEqual(rows[0].open_interest, Decimal(102))
@@ -75,7 +75,7 @@ class DerivativeMarketDataTest(BaseSymbolTest, TestCase):
         replacement = pd.DataFrame(
             [{"timestamp": timestamp_from, "open_interest": Decimal(101)}]
         )
-        DerivativeMarketData.write(
+        PerpetualStatsData.write(
             symbol,
             5,
             timestamp_from,
@@ -88,7 +88,7 @@ class DerivativeMarketDataTest(BaseSymbolTest, TestCase):
             raise RuntimeError("lease ownership lost")
 
         with self.assertRaisesRegex(RuntimeError, "ownership lost"):
-            DerivativeMarketData.write(
+            PerpetualStatsData.write(
                 symbol,
                 5,
                 timestamp_from,
@@ -100,7 +100,7 @@ class DerivativeMarketDataTest(BaseSymbolTest, TestCase):
         symbol.refresh_from_db()
         self.assertEqual(symbol.api_symbol, "BTCUSDT")
         self.assertEqual(
-            DerivativeMarketData.objects.get(
+            PerpetualStatsData.objects.get(
                 symbol=symbol,
                 timestamp=timestamp_from,
                 frequency=5,
@@ -116,7 +116,7 @@ class DerivativeMarketDataTest(BaseSymbolTest, TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "only for perpetuals"):
-            DerivativeMarketData.write(
+            PerpetualStatsData.write(
                 symbol,
                 5,
                 timestamp_from,

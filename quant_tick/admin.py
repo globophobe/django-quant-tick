@@ -13,9 +13,9 @@ from quant_tick.filters import (
     CandleCacheFilter,
     CandleDataFilter,
     CandleFilter,
-    DerivativeMarketDataFilter,
     ExchangeCandleDataFilter,
     FundingDataFilter,
+    PerpetualStatsDataFilter,
     SymbolFilter,
     TaskStateFilter,
     TradeDataFilter,
@@ -24,9 +24,9 @@ from quant_tick.models import (
     Candle,
     CandleCache,
     CandleData,
-    DerivativeMarketData,
     ExchangeCandleData,
     FundingData,
+    PerpetualStatsData,
     Symbol,
     TaskState,
     TradeData,
@@ -279,8 +279,8 @@ class FundingDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
         return format_display_rate(obj.funding_rate)
 
 
-class DerivativeMarketDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
-    filterset_class = DerivativeMarketDataFilter
+class PerpetualStatsDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
+    filterset_class = PerpetualStatsDataFilter
     list_display = (
         "timestamp",
         "symbol_link",
@@ -311,5 +311,5 @@ if apps.is_installed("django.contrib.admin"):
     admin.site.register(CandleData, CandleDataAdmin)
     admin.site.register(CandleCache, CandleCacheAdmin)
     admin.site.register(ExchangeCandleData, ExchangeCandleDataAdmin)
-    admin.site.register(DerivativeMarketData, DerivativeMarketDataAdmin)
+    admin.site.register(PerpetualStatsData, PerpetualStatsDataAdmin)
     admin.site.register(FundingData, FundingDataAdmin)

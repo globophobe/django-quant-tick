@@ -1,8 +1,8 @@
 from .candle_types import AdaptiveCandle, ConstantCandle, TimeBasedCandle
 from .candles import Candle, CandleCache, CandleData
-from .derivative_market import DerivativeMarketData
 from .exchange_candles import ExchangeCandleData
 from .funding import FundingData
+from .perpetual_stats import PerpetualStatsData
 from .symbols import Symbol
 from .task_state import TaskState
 from .trades import TradeData
@@ -14,9 +14,9 @@ __all__ = [
     "CandleCache",
     "CandleData",
     "ConstantCandle",
-    "DerivativeMarketData",
     "ExchangeCandleData",
     "FundingData",
+    "PerpetualStatsData",
     "Symbol",
     "TaskState",
     "TimeBasedCandle",
