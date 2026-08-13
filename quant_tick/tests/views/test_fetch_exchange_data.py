@@ -13,6 +13,12 @@ from quant_tick.models import Symbol, TaskState
 class FetchExchangeDataViewTest(TestCase):
     def setUp(self):
         super().setUp()
+        derivative_market_patcher = patch(
+            "quant_tick.views.fetch_exchange_data."
+            "fetch_symbol_derivative_market_data"
+        )
+        self.mock_derivative_market = derivative_market_patcher.start()
+        self.addCleanup(derivative_market_patcher.stop)
         Symbol.objects.create(
             exchange=Exchange.HYPERLIQUID,
             api_symbol="BTC",
@@ -69,12 +75,19 @@ class FetchExchangeDataViewTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["funding"], 5)
+        self.assertEqual(response.json()["derivative_market_data"], 2)
         self.assertEqual(response.json()["exchange_candles"], 5)
         self.assertEqual(mock_funding.call_count, 5)
         self.assertTrue(
             all(
                 callable(call.kwargs["assert_lease_owned"])
                 for call in mock_funding.call_args_list
+            )
+        )
+        self.assertTrue(
+            all(
+                callable(call.kwargs["assert_lease_owned"])
+                for call in self.mock_derivative_market.call_args_list
             )
         )
         self.assertTrue(
@@ -95,6 +108,17 @@ class FetchExchangeDataViewTest(TestCase):
                 (Exchange.BYBIT_LINEAR, "BTCUSDT"),
                 (Exchange.DERIBIT, "BTC-PERPETUAL"),
                 (Exchange.HYPERLIQUID, "BTC"),
+            },
+        )
+        derivative_market_symbols = {
+            (call.args[0].exchange, call.args[0].api_symbol)
+            for call in self.mock_derivative_market.call_args_list
+        }
+        self.assertEqual(
+            derivative_market_symbols,
+            {
+                (Exchange.BINANCE_FUTURES, "BTCUSDT"),
+                (Exchange.BYBIT_LINEAR, "BTCUSDT"),
             },
         )
         self.assertEqual(mock_candles.call_count, 5)
@@ -161,8 +185,10 @@ class FetchExchangeDataViewTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["funding"], 1)
+        self.assertEqual(response.json()["derivative_market_data"], 1)
         self.assertEqual(response.json()["exchange_candles"], 0)
         mock_funding.assert_called_once()
+        self.mock_derivative_market.assert_called_once()
         mock_candles.assert_not_called()
 
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
@@ -176,6 +202,7 @@ class FetchExchangeDataViewTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["funding"], 1)
+        self.assertEqual(response.json()["derivative_market_data"], 0)
         self.assertEqual(response.json()["exchange_candles"], 1)
         mock_funding.assert_called_once()
         self.assertEqual(mock_funding.call_args.args[0].api_symbol, "tBTCF0:USTF0")
@@ -190,6 +217,7 @@ class FetchExchangeDataViewTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["funding"], 0)
+        self.assertEqual(response.json()["derivative_market_data"], 0)
         self.assertEqual(response.json()["exchange_candles"], 1)
         mock_funding.assert_not_called()
         mock_candles.assert_called_once()
@@ -211,6 +239,7 @@ class FetchExchangeDataViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["skipped"], 1)
         self.assertEqual(response.json()["funding"], 4)
+        self.assertEqual(response.json()["derivative_market_data"], 1)
         funding_symbols = {
             (call.args[0].exchange, call.args[0].api_symbol)
             for call in mock_funding.call_args_list
