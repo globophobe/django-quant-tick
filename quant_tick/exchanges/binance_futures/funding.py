@@ -8,7 +8,6 @@ from quant_tick.exchanges.binance.api import get_binance_api_response
 from quant_tick.exchanges.funding import ExchangeFunding
 
 from .constants import API_URL
-from .market_history import binance_market_history, empty_market_history
 
 BINANCE_FUNDING_MAX_RESULTS = 1000
 BINANCE_DEFAULT_FUNDING_INTERVAL = timedelta(hours=8)
@@ -78,7 +77,7 @@ def binance_futures_funding(
     funding_interval: str | timedelta | pd.Timedelta | None = None,
 ) -> DataFrame:
     """Fetch Binance Futures funding."""
-    columns = ["funding_rate", "mark_price", *empty_market_history().columns]
+    columns = ["funding_rate", "mark_price"]
     if timestamp_to <= timestamp_from:
         return BinanceFuturesFunding.empty_frame(columns)
 
@@ -120,11 +119,9 @@ def binance_futures_funding(
             ],
         }
     )
-    normalized = BinanceFuturesFunding.normalize_frame(
+    return BinanceFuturesFunding.normalize_frame(
         df,
         timestamp_from,
         timestamp_to,
         interval=funding_interval,
-    )
-    history = binance_market_history(api_symbol, timestamp_from, timestamp_to)
-    return normalized.join(history, how="left").sort_index(kind="stable")
+    ).sort_index(kind="stable")
