@@ -10,6 +10,7 @@ from quant_tick.models import (
     CandleData,
     ExchangeCandleData,
     FundingData,
+    PerpetualStatsData,
     Symbol,
     TaskState,
     TradeData,
@@ -37,6 +38,7 @@ else:
     CandleDataFilter = None
     CandleCacheFilter = None
     ExchangeCandleDataFilter = None
+    PerpetualStatsDataFilter = None
     FundingDataFilter = None
 
 if HAS_SEMANTIC_FILTERS:
@@ -171,6 +173,20 @@ if HAS_SEMANTIC_FILTERS:
 
         class Meta:
             model = ExchangeCandleData
+            fields = ("symbol", "frequency")
+
+    class PerpetualStatsDataFilter(SemanticFilterSet):
+        symbol = SemanticModelChoiceFilter(
+            empty_label="",
+            queryset=Symbol.objects.filter(
+                is_active=True,
+                pk__in=PerpetualStatsData.objects.values("symbol_id"),
+            ),
+        )
+        frequency = SemanticAllValuesFilter(label=_("frequency"))
+
+        class Meta:
+            model = PerpetualStatsData
             fields = ("symbol", "frequency")
 
     class FundingDataFilter(SemanticFilterSet):

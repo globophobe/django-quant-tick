@@ -197,6 +197,38 @@ def bybit_account_ratio(
     ).set_index("timestamp")
 
 
+def bybit_market_history(
+    api_symbol: str,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    *,
+    category: str,
+) -> DataFrame:
+    """Fetch Bybit native-cadence open-interest and positioning history."""
+    df = bybit_open_interest(
+        api_symbol,
+        timestamp_from,
+        timestamp_to,
+        category=category,
+    ).join(
+        bybit_account_ratio(
+            api_symbol,
+            timestamp_from,
+            timestamp_to,
+            category=category,
+        ),
+        how="outer",
+    )
+    if df.empty:
+        return df
+    df["open_interest_unit"] = (
+        "base_asset" if category == "linear" else "quote_asset"
+    )
+    df["market_history_interval"] = MARKET_HISTORY_INTERVAL
+    df["market_history_source"] = "rest"
+    return df.sort_index(kind="stable")
+
+
 def bybit_funding(
     api_symbol: str,
     timestamp_from: datetime,
@@ -206,16 +238,7 @@ def bybit_funding(
     funding_interval: str | timedelta | pd.Timedelta | None = None,
 ) -> DataFrame:
     """Fetch Bybit funding."""
-    columns = [
-        "funding_rate",
-        "open_interest",
-        "single_open_interest",
-        "open_interest_unit",
-        "long_account_ratio",
-        "short_account_ratio",
-        "long_short_account_ratio",
-        "market_history_interval",
-    ]
+    columns = ["funding_rate"]
     if timestamp_to <= timestamp_from:
         return BybitFunding.empty_frame(columns)
 
@@ -237,30 +260,10 @@ def bybit_funding(
             ),
             "funding_rate": [Decimal(str(item["fundingRate"])) for item in rows],
         }
-    ).set_index("timestamp")
-    df = df.join(
-        bybit_open_interest(
-            api_symbol,
-            timestamp_from,
-            timestamp_to,
-            category=category,
-        ),
-        how="left",
-    ).join(
-        bybit_account_ratio(
-            api_symbol,
-            timestamp_from,
-            timestamp_to,
-            category=category,
-        ),
-        how="left",
     )
-    df["open_interest_unit"] = "base_asset" if category == "linear" else "quote_asset"
-    df["market_history_interval"] = MARKET_HISTORY_INTERVAL
-    normalized = BybitFunding.normalize_frame(
-        df.reset_index(),
+    return BybitFunding.normalize_frame(
+        df,
         timestamp_from,
         timestamp_to,
         interval=funding_interval,
-    )
-    return normalized.sort_index(kind="stable")
+    ).sort_index(kind="stable")

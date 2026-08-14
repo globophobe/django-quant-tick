@@ -12,6 +12,12 @@ from quant_tick.exchanges.api import (
 from quant_tick.exchanges.api import (
     funding as fetch_symbol_funding,
 )
+from quant_tick.exchanges.perpetual_stats import (
+    PERPETUAL_STATS_SUPPORTED_EXCHANGES,
+)
+from quant_tick.exchanges.perpetual_stats import (
+    perpetual_stats as fetch_symbol_perpetual_stats,
+)
 from quant_tick.forms import (
     FetchExchangeDataRequestForm,
     format_form_errors,
@@ -107,7 +113,11 @@ class FetchExchangeDataView(View):
         retry: bool,
         assert_lease_owned: Callable[[], None] | None = None,
     ) -> dict:
-        counts = {"funding": 0, "exchange_candles": 0}
+        counts = {
+            "funding": 0,
+            "perpetual_stats": 0,
+            "exchange_candles": 0,
+        }
         if (
             symbol.exchange in FUNDING_SUPPORTED_EXCHANGES
             and symbol.symbol_type == SymbolType.PERPETUAL
@@ -121,6 +131,19 @@ class FetchExchangeDataView(View):
                 assert_lease_owned=assert_lease_owned,
             )
             counts["funding"] = 1
+        if (
+            symbol.exchange in PERPETUAL_STATS_SUPPORTED_EXCHANGES
+            and symbol.symbol_type == SymbolType.PERPETUAL
+        ):
+            logger.info(f"{symbol!s}: perpetual stats data starting...")
+            fetch_symbol_perpetual_stats(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                retry,
+                assert_lease_owned=assert_lease_owned,
+            )
+            counts["perpetual_stats"] = 1
         if symbol.exchange_candle_resolution:
             logger.info(f"{symbol!s}: exchange candles starting...")
             fetch_symbol_exchange_candles(
@@ -142,7 +165,13 @@ class FetchExchangeDataView(View):
         retry: bool,
         api_symbol: str,
     ) -> dict:
-        counts = {"funding": 0, "exchange_candles": 0, "failed": 0, "skipped": 0}
+        counts = {
+            "funding": 0,
+            "perpetual_stats": 0,
+            "exchange_candles": 0,
+            "failed": 0,
+            "skipped": 0,
+        }
         for symbol in self.get_symbols(exchange, api_symbol):
             task_state = self.get_task_state(symbol)
             if not task_state.can_run():
@@ -186,6 +215,9 @@ class FetchExchangeDataView(View):
                 else:
                     clear_task_recent_error(state=task_state)
                     counts["funding"] += symbol_counts["funding"]
+                    counts["perpetual_stats"] += symbol_counts[
+                        "perpetual_stats"
+                    ]
                     counts["exchange_candles"] += symbol_counts["exchange_candles"]
             except TaskLeaseLost:
                 counts["failed"] += 1
@@ -204,7 +236,13 @@ class FetchExchangeDataView(View):
         api_symbol: str,
     ) -> dict:
         data = {}
-        totals = {"funding": 0, "exchange_candles": 0, "failed": 0, "skipped": 0}
+        totals = {
+            "funding": 0,
+            "perpetual_stats": 0,
+            "exchange_candles": 0,
+            "failed": 0,
+            "skipped": 0,
+        }
         for exchange in exchanges:
             counts = self.fetch_exchange_data(
                 exchange,
@@ -215,6 +253,7 @@ class FetchExchangeDataView(View):
             )
             data[exchange] = counts
             totals["funding"] += counts["funding"]
+            totals["perpetual_stats"] += counts["perpetual_stats"]
             totals["exchange_candles"] += counts["exchange_candles"]
             totals["failed"] += counts["failed"]
             totals["skipped"] += counts["skipped"]

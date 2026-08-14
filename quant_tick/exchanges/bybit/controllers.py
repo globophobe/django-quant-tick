@@ -50,6 +50,7 @@ class BybitTradesS3(BybitS3Mixin, ChunkedExchangeS3):
     """Bybit trades S3."""
 
     archive_chunksize = 200_000
+    allow_descending_archive = True
 
     def get_data_frame_chunks(self, value: date):
         """Download one complete archive and return its CSV chunks."""
@@ -62,6 +63,8 @@ class BybitTradesS3(BybitS3Mixin, ChunkedExchangeS3):
 
 class BybitSpotTradesS3(BybitSpotS3Mixin, ChunkedExchangeS3):
     """Bybit spot trades S3."""
+
+    allow_descending_archive = True
 
     def get_data_frame_chunks(self, value: date):
         return gzip_chunk_downloader(

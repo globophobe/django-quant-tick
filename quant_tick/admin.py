@@ -15,6 +15,7 @@ from quant_tick.filters import (
     CandleFilter,
     ExchangeCandleDataFilter,
     FundingDataFilter,
+    PerpetualStatsDataFilter,
     SymbolFilter,
     TaskStateFilter,
     TradeDataFilter,
@@ -25,6 +26,7 @@ from quant_tick.models import (
     CandleData,
     ExchangeCandleData,
     FundingData,
+    PerpetualStatsData,
     Symbol,
     TaskState,
     TradeData,
@@ -277,6 +279,30 @@ class FundingDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
         return format_display_rate(obj.funding_rate)
 
 
+class PerpetualStatsDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
+    filterset_class = PerpetualStatsDataFilter
+    list_display = (
+        "timestamp",
+        "symbol_link",
+        "frequency",
+        "open_interest_display",
+        "long_short_account_ratio_display",
+    )
+    list_filter = get_list_filter("symbol", "frequency")
+    list_select_related = ("symbol",)
+
+    @admin.display(description="open interest", ordering="open_interest")
+    def open_interest_display(self, obj):
+        return format_display_number(obj.open_interest)
+
+    @admin.display(
+        description="long/short account ratio",
+        ordering="long_short_account_ratio",
+    )
+    def long_short_account_ratio_display(self, obj):
+        return format_display_rate(obj.long_short_account_ratio)
+
+
 if apps.is_installed("django.contrib.admin"):
     admin.site.register(Symbol, SymbolAdmin)
     admin.site.register(Candle, CandleAdmin)
@@ -285,4 +311,5 @@ if apps.is_installed("django.contrib.admin"):
     admin.site.register(CandleData, CandleDataAdmin)
     admin.site.register(CandleCache, CandleCacheAdmin)
     admin.site.register(ExchangeCandleData, ExchangeCandleDataAdmin)
+    admin.site.register(PerpetualStatsData, PerpetualStatsDataAdmin)
     admin.site.register(FundingData, FundingDataAdmin)

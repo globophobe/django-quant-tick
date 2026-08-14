@@ -12,6 +12,7 @@ from quant_tick.exchanges.bybit.funding import (
     BybitFunding,
     _fetch_funding_rows,
     bybit_funding,
+    bybit_market_history,
     bybit_open_interest,
     get_bybit_funding_interval,
 )
@@ -39,7 +40,7 @@ class BybitFundingTest(SimpleTestCase):
             {"category": "linear", "symbol": "BTCUSDT"},
         )
 
-    def test_funding_aligns_open_interest_and_account_positioning(self):
+    def test_funding_returns_only_scheduled_settlements(self):
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
         timestamp_to = timestamp_from + timedelta(hours=16)
         timestamp_mid = timestamp_from + timedelta(hours=8)
@@ -57,7 +58,31 @@ class BybitFundingTest(SimpleTestCase):
                         "fundingRateTimestamp": millis(timestamp_from),
                     },
                 ]
-            },
+            }
+        ]
+
+        with patch(
+            "quant_tick.exchanges.bybit.funding.get_bybit_result",
+            side_effect=responses,
+        ) as mocked:
+            result = bybit_funding(
+                "btcusdt",
+                timestamp_from,
+                timestamp_to,
+                category="linear",
+            )
+
+        self.assertEqual(list(result.index), [timestamp_from, timestamp_mid])
+        self.assertEqual(result.iloc[0].funding_rate, Decimal("0.0001"))
+        self.assertNotIn("open_interest", result.columns)
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.args[0], "/v5/market/funding/history")
+
+    def test_market_history_preserves_native_linear_observations(self):
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_to = timestamp_from + timedelta(hours=8)
+        timestamp_mid = timestamp_from + timedelta(hours=4)
+        responses = [
             {
                 "list": [
                     {
@@ -91,12 +116,11 @@ class BybitFundingTest(SimpleTestCase):
                 "nextPageCursor": "",
             },
         ]
-
         with patch(
             "quant_tick.exchanges.bybit.funding.get_bybit_result",
             side_effect=responses,
         ) as mocked:
-            result = bybit_funding(
+            result = bybit_market_history(
                 "btcusdt",
                 timestamp_from,
                 timestamp_to,
@@ -104,22 +128,20 @@ class BybitFundingTest(SimpleTestCase):
             )
 
         self.assertEqual(list(result.index), [timestamp_from, timestamp_mid])
-        first = result.iloc[0]
-        self.assertEqual(first.funding_rate, Decimal("0.0001"))
-        self.assertEqual(first.open_interest, Decimal(100))
-        self.assertEqual(first.single_open_interest, Decimal(50))
-        self.assertEqual(first.long_account_ratio, Decimal("0.55"))
-        self.assertEqual(first.short_account_ratio, Decimal("0.45"))
+        row = result.iloc[0]
+        self.assertEqual(row.open_interest, Decimal(100))
+        self.assertEqual(row.single_open_interest, Decimal(50))
+        self.assertEqual(row.long_account_ratio, Decimal("0.55"))
+        self.assertEqual(row.short_account_ratio, Decimal("0.45"))
         self.assertEqual(
-            first.long_short_account_ratio,
+            row.long_short_account_ratio,
             Decimal("0.55") / Decimal("0.45"),
         )
-        self.assertEqual(first.open_interest_unit, "base_asset")
-        self.assertEqual(first.market_history_interval, "4h")
+        self.assertEqual(row.open_interest_unit, "base_asset")
+        self.assertEqual(row.market_history_interval, "4h")
         self.assertEqual(
             [item.args[0] for item in mocked.call_args_list],
             [
-                "/v5/market/funding/history",
                 "/v5/market/open-interest",
                 "/v5/market/account-ratio",
             ],
@@ -128,19 +150,10 @@ class BybitFundingTest(SimpleTestCase):
             self.assertEqual(item.args[1]["category"], "linear")
             self.assertEqual(item.args[1]["symbol"], "BTCUSDT")
 
-    def test_inverse_funding_uses_inverse_market_history_and_quote_oi(self):
+    def test_inverse_market_history_uses_quote_open_interest(self):
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
         timestamp_to = timestamp_from + timedelta(hours=8)
         responses = [
-            {
-                "list": [
-                    {
-                        "symbol": "BTCUSD",
-                        "fundingRate": "0.0001",
-                        "fundingRateTimestamp": millis(timestamp_from),
-                    }
-                ]
-            },
             {
                 "list": [
                     {
@@ -168,7 +181,7 @@ class BybitFundingTest(SimpleTestCase):
             "quant_tick.exchanges.bybit.funding.get_bybit_result",
             side_effect=responses,
         ) as mocked:
-            result = bybit_funding(
+            result = bybit_market_history(
                 "BTCUSD",
                 timestamp_from,
                 timestamp_to,
@@ -184,39 +197,6 @@ class BybitFundingTest(SimpleTestCase):
         for item in mocked.call_args_list:
             self.assertEqual(item.args[1]["category"], "inverse")
             self.assertEqual(item.args[1]["symbol"], "BTCUSD")
-
-    def test_market_history_absence_does_not_remove_funding(self):
-        timestamp_from = datetime(2020, 3, 25, 16, tzinfo=UTC)
-        timestamp_to = timestamp_from + timedelta(hours=8)
-        responses = [
-            {
-                "list": [
-                    {
-                        "symbol": "BTCUSDT",
-                        "fundingRate": "0.0001",
-                        "fundingRateTimestamp": millis(timestamp_from),
-                    }
-                ]
-            },
-            {"list": [], "nextPageCursor": ""},
-            {"list": [], "nextPageCursor": ""},
-        ]
-
-        with patch(
-            "quant_tick.exchanges.bybit.funding.get_bybit_result",
-            side_effect=responses,
-        ):
-            result = bybit_funding(
-                "BTCUSDT",
-                timestamp_from,
-                timestamp_to,
-                category="linear",
-            )
-
-        self.assertEqual(list(result.index), [timestamp_from])
-        self.assertEqual(result.iloc[0].funding_rate, Decimal("0.0001"))
-        self.assertTrue(pd.isna(result.iloc[0].open_interest))
-        self.assertTrue(pd.isna(result.iloc[0].long_account_ratio))
 
     def test_funding_paginates_newest_to_oldest(self):
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)

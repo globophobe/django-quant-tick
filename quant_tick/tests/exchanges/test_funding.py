@@ -70,19 +70,9 @@ class FundingAdapterTest(SimpleTestCase):
             },
         ]
 
-        history = pd.DataFrame(
-            {"open_interest": [Decimal("123.4")]},
-            index=pd.DatetimeIndex([timestamp_from], name="timestamp"),
-        )
-        with (
-            patch(
-                "quant_tick.exchanges.binance_futures.funding.get_binance_funding_response",
-                return_value=data,
-            ),
-            patch(
-                "quant_tick.exchanges.binance_futures.funding.binance_market_history",
-                return_value=history,
-            ),
+        with patch(
+            "quant_tick.exchanges.binance_futures.funding.get_binance_funding_response",
+            return_value=data,
         ):
             df = binance_futures_funding("BTCUSDT", timestamp_from, timestamp_to)
 
@@ -101,7 +91,7 @@ class FundingAdapterTest(SimpleTestCase):
         )
         self.assertEqual(df.iloc[0].timestamp_offset_ms, 5)
         self.assertFalse(df.iloc[0].timestamp_anomaly)
-        self.assertEqual(df.iloc[0].open_interest, Decimal("123.4"))
+        self.assertNotIn("open_interest", df.columns)
         self.assertEqual(df.iloc[1].funding_rate, Decimal("0.0002"))
         self.assertIsNone(df.iloc[1].mark_price)
 

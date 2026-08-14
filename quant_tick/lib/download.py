@@ -15,18 +15,22 @@ class ArchiveDownloadError(RuntimeError):
 
 
 def download_content(url: str) -> bytes | None:
-    """Download response content."""
+    """Download content, returning ``None`` only for a missing archive."""
     try:
         response = httpx.get(url)
     except httpx.RequestError as exc:
         raise ArchiveDownloadError(f"Archive download failed: {url}") from exc
     if response.status_code == 200:
+        if not response.content:
+            raise ArchiveDownloadError(f"Archive is empty: {url}")
         return response.content
     if response.status_code == 404:
         logger.info(f"Archive not found: {url}")
         return None
     logger.error(f"Error {response.status_code}: {url}")
-    return None
+    raise ArchiveDownloadError(
+        f"Archive download failed with HTTP {response.status_code}: {url}"
+    )
 
 
 def gzip_downloader(url: str, columns: Iterable[str]) -> DataFrame | None:
@@ -38,8 +42,7 @@ def gzip_downloader(url: str, columns: Iterable[str]) -> DataFrame | None:
     if content is None:
         return None
     if not content:
-        logger.warning(f"No data: {url}")
-        return None
+        raise ArchiveDownloadError(f"Archive is empty: {url}")
     return pd.read_csv(
         BytesIO(content),
         usecols=columns,
@@ -59,8 +62,7 @@ def gzip_chunk_downloader(
     if content is None:
         return None
     if not content:
-        logger.warning(f"No data: {url}")
-        return None
+        raise ArchiveDownloadError(f"Archive is empty: {url}")
     return pd.read_csv(
         BytesIO(content),
         usecols=columns,
@@ -81,14 +83,15 @@ def zip_chunk_downloader(
     content = download_content(url)
     if content is None:
         return None
+    if not content:
+        raise ArchiveDownloadError(f"Archive is empty: {url}")
     archive = BytesIO(content)
     zf = zipfile.ZipFile(archive)
     csv_files = [name for name in zf.namelist() if name.endswith(".csv")]
     if not csv_files:
-        logger.warning(f"No CSV in ZIP: {url}")
         zf.close()
         archive.close()
-        return None
+        raise ArchiveDownloadError(f"Archive contains no CSV: {url}")
     selected_columns = list(usecols or columns)
     csv_file = zf.open(csv_files[0])
     try:
@@ -126,6 +129,8 @@ def zip_downloader(url: str, columns: Iterable[str]) -> DataFrame | None:
     content = download_content(url)
     if content is None:
         return None
+    if not content:
+        raise ArchiveDownloadError(f"Archive is empty: {url}")
     with zipfile.ZipFile(BytesIO(content)) as zf:
         csv_files = [f for f in zf.namelist() if f.endswith(".csv")]
         if csv_files:
@@ -135,5 +140,4 @@ def zip_downloader(url: str, columns: Iterable[str]) -> DataFrame | None:
                     names=columns,
                     dtype={col: "str" for col in columns},
                 )
-        logger.warning(f"No CSV in ZIP: {url}")
-    return None
+        raise ArchiveDownloadError(f"Archive contains no CSV: {url}")
