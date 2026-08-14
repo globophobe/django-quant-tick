@@ -7,6 +7,9 @@ import pandas as pd
 from django.test import SimpleTestCase, TestCase
 
 from quant_tick.constants import Exchange, SymbolType
+from quant_tick.exchanges.binance_futures.market_history import (
+    HISTORY_EXHAUSTED_ATTR,
+)
 from quant_tick.exchanges.perpetual_stats import (
     perpetual_stats,
     perpetual_stats_api,
@@ -262,3 +265,39 @@ class PerpetualStatsCollectionTest(BaseSymbolTest, TestCase):
             )
 
         mocked.assert_not_called()
+
+    def test_history_exhaustion_writes_partial_frame_and_stops_older_chunks(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        timestamp_from = datetime(2020, 1, 1, tzinfo=UTC)
+        timestamp_to = datetime(2020, 7, 1, tzinfo=UTC)
+        newest_chunk_from = timestamp_to - timedelta(days=90)
+        frame = pd.DataFrame(
+            [binance_market_row(newest_chunk_from)]
+        ).set_index("timestamp")
+        frame.attrs[HISTORY_EXHAUSTED_ATTR] = True
+
+        with patch(
+            "quant_tick.exchanges.perpetual_stats.perpetual_stats_api",
+            return_value=frame,
+        ) as mocked:
+            perpetual_stats(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                retry=True,
+            )
+
+        mocked.assert_called_once_with(symbol, newest_chunk_from, timestamp_to)
+        self.assertEqual(
+            list(
+                PerpetualStatsData.objects.filter(symbol=symbol).values_list(
+                    "timestamp",
+                    flat=True,
+                )
+            ),
+            [newest_chunk_from],
+        )

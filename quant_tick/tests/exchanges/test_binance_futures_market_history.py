@@ -6,6 +6,7 @@ import pandas as pd
 from django.test import SimpleTestCase
 
 from quant_tick.exchanges.binance_futures.market_history import (
+    HISTORY_EXHAUSTED_ATTR,
     MARKET_HISTORY_COLUMNS,
     _fetch_rest_series,
     binance_market_history,
@@ -284,3 +285,41 @@ class BinanceMarketHistoryTest(SimpleTestCase):
             list(result.market_history_source),
             ["data_vision", "rest"],
         )
+        self.assertFalse(result.attrs[HISTORY_EXHAUSTED_ATTR])
+
+    def test_old_missing_archive_marks_history_exhausted_after_partial_data(self):
+        timestamp_from = datetime(2020, 8, 31, tzinfo=UTC)
+        timestamp_to = datetime(2020, 9, 3, tzinfo=UTC)
+        newest = market_frame(datetime(2020, 9, 2, tzinfo=UTC), "data_vision")
+        prior = market_frame(datetime(2020, 9, 1, tzinfo=UTC), "data_vision")
+
+        with (
+            patch(
+                "quant_tick.exchanges.binance_futures.market_history.get_current_time",
+                return_value=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+            patch(
+                "quant_tick.exchanges.binance_futures.market_history."
+                "get_binance_metrics_archive",
+                side_effect=[newest, prior, None],
+            ) as archive_mock,
+        ):
+            result = binance_market_history(
+                "BTCUSDT",
+                timestamp_from,
+                timestamp_to,
+            )
+
+        self.assertEqual(
+            [call.args[1] for call in archive_mock.call_args_list],
+            [date(2020, 9, 2), date(2020, 9, 1), date(2020, 8, 31)],
+        )
+        self.assertEqual(
+            list(result.index),
+            list(
+                pd.to_datetime(
+                    ["2020-09-01T00:00:00Z", "2020-09-02T00:00:00Z"]
+                )
+            ),
+        )
+        self.assertTrue(result.attrs[HISTORY_EXHAUSTED_ATTR])
