@@ -15,7 +15,10 @@ from quant_tick.models import PerpetualStatsData, Symbol
 from quant_tick.models.perpetual_stats import perpetual_stats_required_fields
 
 from .binance_futures.constants import MARKET_HISTORY_INTERVAL as BINANCE_INTERVAL
-from .binance_futures.market_history import binance_market_history
+from .binance_futures.market_history import (
+    HISTORY_EXHAUSTED_ATTR,
+    binance_market_history,
+)
 from .bybit.candles import get_bybit_category
 from .bybit.constants import MARKET_HISTORY_INTERVAL as BYBIT_INTERVAL
 from .bybit.funding import bybit_market_history
@@ -142,6 +145,7 @@ def perpetual_stats(
 
         for fetch_from, fetch_to in windows:
             df = perpetual_stats_api(symbol, fetch_from, fetch_to)
+            history_exhausted = df.attrs.get(HISTORY_EXHAUSTED_ATTR) is True
             df = complete_perpetual_stats_frame(symbol, df)
             PerpetualStatsData.write(
                 symbol,
@@ -151,3 +155,5 @@ def perpetual_stats(
                 df,
                 assert_lease_owned=assert_lease_owned,
             )
+            if history_exhausted:
+                return

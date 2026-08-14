@@ -54,6 +54,7 @@ REST_SERIES = {
         "buySellRatio": "taker_long_short_volume_ratio",
     },
 }
+HISTORY_EXHAUSTED_ATTR = "history_exhausted"
 
 
 def empty_market_history() -> DataFrame:
@@ -229,6 +230,7 @@ def binance_market_history(
     first_date = pd.Timestamp(timestamp_from).date()
     rest_cutoff = get_current_time() - MARKET_HISTORY_REST_RETENTION
     frames = []
+    history_exhausted = False
     while archive_date >= first_date:
         frame = get_binance_metrics_archive(api_symbol, archive_date)
         if frame is None:
@@ -241,6 +243,7 @@ def binance_market_history(
             rest_from = max(timestamp_from, day_from, rest_cutoff)
             rest_to = min(timestamp_to, day_to)
             if rest_from >= rest_to:
+                history_exhausted = True
                 break
             frame = binance_market_history_rest(
                 api_symbol,
@@ -252,8 +255,11 @@ def binance_market_history(
         archive_date -= timedelta(days=1)
 
     if not frames:
-        return empty_market_history()
-    df = pd.concat(frames)
-    df = filter_by_timestamp(df.reset_index(), timestamp_from, timestamp_to)
-    df = df.set_index("timestamp")
-    return df[~df.index.duplicated(keep="last")].sort_index(kind="stable")
+        df = empty_market_history()
+    else:
+        df = pd.concat(frames)
+        df = filter_by_timestamp(df.reset_index(), timestamp_from, timestamp_to)
+        df = df.set_index("timestamp")
+        df = df[~df.index.duplicated(keep="last")].sort_index(kind="stable")
+    df.attrs[HISTORY_EXHAUSTED_ATTR] = history_exhausted
+    return df
