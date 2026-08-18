@@ -298,7 +298,7 @@ class FetchExchangeDataViewTest(TestCase):
         mock_funding,
         mock_candles,
     ):
-        request = httpx.Request("GET", "https://www.bitmex.com/api/v1/trade")
+        request = httpx.Request("GET", "https://example.test/trades")
         response = httpx.Response(530, request=request)
         mock_funding.side_effect = httpx.HTTPStatusError(
             "Server error",

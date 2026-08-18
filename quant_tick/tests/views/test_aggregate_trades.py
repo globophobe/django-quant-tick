@@ -268,7 +268,7 @@ class AggregateTradeViewTest(TestCase):
         self.assertIsNone(task_state.locked_until)
 
     def test_get_skips_http_530_without_backoff(self, mock_api):
-        request = httpx.Request("GET", "https://www.bitmex.com/api/v1/trade")
+        request = httpx.Request("GET", "https://example.test/trades")
         response = httpx.Response(530, request=request)
         mock_api.side_effect = httpx.HTTPStatusError(
             "Server error",

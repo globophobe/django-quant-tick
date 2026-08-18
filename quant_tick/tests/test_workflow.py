@@ -215,6 +215,11 @@ class WorkflowDeployTest(TestCase):
             save_aggregated=True,
         )
         filtered = Symbol.objects.create(
+            exchange=Exchange.BYBIT,
+            api_symbol="BTCUSDT",
+            significant_trade_filter=1000,
+        )
+        Symbol.objects.create(
             exchange=Exchange.BITMEX,
             api_symbol="XBTUSD",
             significant_trade_filter=1000,

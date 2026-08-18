@@ -9,6 +9,7 @@ from django.views import View
 
 from quant_tick.constants import RETRY_INDETERMINATE, TaskType
 from quant_tick.exchanges import api
+from quant_tick.exchanges.api import TRADE_SUPPORTED_EXCHANGES
 from quant_tick.forms import (
     AggregateTradeRequestForm,
     TimeRangeRequestForm,
@@ -58,7 +59,10 @@ def get_candle_retry_min_timestamp_from(timestamp: datetime) -> datetime:
 
 
 class AggregateTradeDataView(View):
-    queryset = Symbol.objects.filter(is_active=True)
+    queryset = Symbol.objects.filter(
+        is_active=True,
+        exchange__in=TRADE_SUPPORTED_EXCHANGES,
+    )
 
     def get_query_form(self, request: HttpRequest) -> AggregateTradeRequestForm:
         data = request.GET.copy()

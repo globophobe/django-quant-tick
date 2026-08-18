@@ -471,10 +471,14 @@ def push_workflow(
 ) -> None:
     """Push workflow."""
     django_settings(ctx, proxy=True)
+    from quant_tick.exchanges.api import TRADE_SUPPORTED_EXCHANGES
     from quant_tick.models import Symbol
 
     symbols = list(
-        Symbol.objects.filter(is_active=True)
+        Symbol.objects.filter(
+            is_active=True,
+            exchange__in=TRADE_SUPPORTED_EXCHANGES,
+        )
         .filter(
             Q(save_raw=True)
             | Q(save_aggregated=True)

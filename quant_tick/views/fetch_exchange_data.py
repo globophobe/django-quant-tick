@@ -5,7 +5,11 @@ from django.db.models import Q
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
-from quant_tick.constants import Exchange, SymbolType, TaskType
+from quant_tick.constants import SymbolType, TaskType
+from quant_tick.exchanges.api import (
+    EXCHANGE_CANDLE_SUPPORTED_EXCHANGES,
+    FUNDING_SUPPORTED_EXCHANGES,
+)
 from quant_tick.exchanges.api import (
     exchange_candles as fetch_symbol_exchange_candles,
 )
@@ -38,19 +42,13 @@ from quant_tick.views.aggregate_trades import (
 
 logger = logging.getLogger(__name__)
 
-FUNDING_SUPPORTED_EXCHANGES = (
-    Exchange.BINANCE_FUTURES,
-    Exchange.BITFINEX,
-    Exchange.BITMEX,
-    Exchange.BYBIT_LINEAR,
-    Exchange.BYBIT_INVERSE,
-    Exchange.DERIBIT,
-    Exchange.HYPERLIQUID,
-)
-
-
 class FetchExchangeDataView(View):
-    queryset = Symbol.objects.filter(is_active=True)
+    queryset = Symbol.objects.filter(
+        is_active=True,
+        exchange__in=(
+            EXCHANGE_CANDLE_SUPPORTED_EXCHANGES | FUNDING_SUPPORTED_EXCHANGES
+        ),
+    )
 
     def get_configured_exchanges(self) -> tuple[str, ...]:
         configured_exchange_candles = ~Q(exchange_candle_resolution="")
