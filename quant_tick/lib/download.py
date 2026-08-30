@@ -3,7 +3,7 @@ import zipfile
 from collections.abc import Iterable
 from io import BytesIO
 
-import httpx
+import httpx2
 import pandas as pd
 from pandas import DataFrame
 
@@ -17,8 +17,8 @@ class ArchiveDownloadError(RuntimeError):
 def download_content(url: str) -> bytes | None:
     """Download content, returning ``None`` only for a missing archive."""
     try:
-        response = httpx.get(url)
-    except httpx.RequestError as exc:
+        response = httpx2.get(url)
+    except httpx2.RequestError as exc:
         raise ArchiveDownloadError(f"Archive download failed: {url}") from exc
     if response.status_code == 200:
         if not response.content:

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-import httpx
+import httpx2
 from django.db import OperationalError
 from django.test import TestCase
 from django.urls import reverse
@@ -232,11 +232,11 @@ class AggregateTradeViewTest(TestCase):
         self.assertIsNone(task_state.locked_until)
 
     def test_get_marks_transport_error_without_backoff(self, mock_api):
-        mock_api.side_effect = httpx.RemoteProtocolError("server disconnected")
+        mock_api.side_effect = httpx2.RemoteProtocolError("server disconnected")
 
         with (
             self.assertLogs("django.request", level="ERROR"),
-            self.assertRaises(httpx.RemoteProtocolError),
+            self.assertRaises(httpx2.RemoteProtocolError),
         ):
             self.client.get(self.get_url())
 
@@ -268,9 +268,9 @@ class AggregateTradeViewTest(TestCase):
         self.assertIsNone(task_state.locked_until)
 
     def test_get_skips_http_530_without_backoff(self, mock_api):
-        request = httpx.Request("GET", "https://example.test/trades")
-        response = httpx.Response(530, request=request)
-        mock_api.side_effect = httpx.HTTPStatusError(
+        request = httpx2.Request("GET", "https://example.test/trades")
+        response = httpx2.Response(530, request=request)
+        mock_api.side_effect = httpx2.HTTPStatusError(
             "Server error",
             request=request,
             response=response,

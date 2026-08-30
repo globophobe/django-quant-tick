@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-import httpx
+import httpx2
 from django.db import OperationalError
 from django.test import TestCase
 from django.urls import reverse
@@ -298,9 +298,9 @@ class FetchExchangeDataViewTest(TestCase):
         mock_funding,
         mock_candles,
     ):
-        request = httpx.Request("GET", "https://example.test/trades")
-        response = httpx.Response(530, request=request)
-        mock_funding.side_effect = httpx.HTTPStatusError(
+        request = httpx2.Request("GET", "https://example.test/trades")
+        response = httpx2.Response(530, request=request)
+        mock_funding.side_effect = httpx2.HTTPStatusError(
             "Server error",
             request=request,
             response=response,

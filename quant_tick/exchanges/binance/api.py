@@ -3,7 +3,7 @@ import os
 import time
 from datetime import datetime, timedelta
 
-import httpx
+import httpx2
 
 from quant_tick.controllers import HTTPX_ERRORS
 from quant_tick.lib import get_current_time
@@ -41,7 +41,7 @@ def get_binance_api_response(
         url = get_api_url(
             base_url, timestamp_from=timestamp_from, pagination_id=pagination_id
         )
-        response = httpx.get(url, headers=headers)
+        response = httpx2.get(url, headers=headers)
         if response.status_code == 200:
             weight = response.headers.get("x-mbx-used-weight-1m", 0)
             max_weight = os.environ.get(BINANCE_MAX_WEIGHT, MAX_WEIGHT)
@@ -59,7 +59,7 @@ def get_binance_api_response(
         if retry > 0:
             sleep_duration = 1.0
             if (
-                isinstance(error, httpx.HTTPStatusError)
+                isinstance(error, httpx2.HTTPStatusError)
                 and error.response.status_code in RATE_LIMIT_STATUS_CODES
             ):
                 retry_after = error.response.headers.get("Retry-After", 1)

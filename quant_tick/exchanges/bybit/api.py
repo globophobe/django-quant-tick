@@ -1,7 +1,7 @@
 import time
 from datetime import UTC, datetime
 
-import httpx
+import httpx2
 
 from quant_tick.controllers import HTTPX_ERRORS
 
@@ -20,7 +20,7 @@ def get_bybit_result(path: str, params: dict, retry: int = 30) -> dict:
     for attempt in range(attempts):
         start = time.time()
         try:
-            response = httpx.get(
+            response = httpx2.get(
                 f"{API_URL}{path}",
                 params=params,
                 timeout=30,

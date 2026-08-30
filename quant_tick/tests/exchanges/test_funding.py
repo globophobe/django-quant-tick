@@ -209,7 +209,7 @@ class FundingAdapterTest(SimpleTestCase):
 
         with (
             patch(
-                "quant_tick.exchanges.hyperliquid.api.httpx.post",
+                "quant_tick.exchanges.hyperliquid.api.httpx2.post",
                 return_value=response,
             ),
             patch("quant_tick.exchanges.hyperliquid.api.time.time", side_effect=[0, 0]),

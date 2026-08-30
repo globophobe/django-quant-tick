@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 
-import httpx
+import httpx2
 import pandas as pd
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
@@ -30,12 +30,12 @@ from quant_tick.services.task_lease import (
 logger = logging.getLogger(__name__)
 
 SOFT_COLLECTION_STATUS_CODES = {530}
-TRANSIENT_COLLECTION_ERRORS = (httpx.TransportError,)
+TRANSIENT_COLLECTION_ERRORS = (httpx2.TransportError,)
 
 
 def is_soft_collection_error(exc: Exception) -> bool:
     return (
-        isinstance(exc, httpx.HTTPStatusError)
+        isinstance(exc, httpx2.HTTPStatusError)
         and exc.response.status_code in SOFT_COLLECTION_STATUS_CODES
     )
 
@@ -209,7 +209,7 @@ class AggregateTradeDataView(View):
                 except ArchiveDownloadError:
                     lease_heartbeat.assert_owned()
                     raise
-                except httpx.HTTPStatusError as exc:
+                except httpx2.HTTPStatusError as exc:
                     lease_heartbeat.assert_owned()
                     if is_soft_collection_error(exc):
                         logger.warning("%s: collection skipped: %s", symbol, exc)
