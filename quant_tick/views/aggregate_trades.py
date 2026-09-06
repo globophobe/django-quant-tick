@@ -40,8 +40,13 @@ def is_soft_collection_error(exc: Exception) -> bool:
     )
 
 
-def get_timestamp_range(delta: pd.Timedelta) -> tuple[pd.Timestamp, pd.Timestamp]:
-    timestamp_to = get_min_time(get_current_time(), "1min")
+def get_timestamp_range(
+    delta: pd.Timedelta,
+    *,
+    current_time: datetime | None = None,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    current_time = get_current_time() if current_time is None else current_time
+    timestamp_to = get_min_time(current_time, "1min")
     timestamp_from = get_min_time(timestamp_to - delta, "1d")
     return timestamp_from, timestamp_to
 

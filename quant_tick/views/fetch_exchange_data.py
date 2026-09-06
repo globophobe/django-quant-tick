@@ -26,6 +26,7 @@ from quant_tick.forms import (
     FetchExchangeDataRequestForm,
     format_form_errors,
 )
+from quant_tick.lib import get_current_time
 from quant_tick.lib.task_errors import is_transient_task_error
 from quant_tick.models import Symbol, TaskState
 from quant_tick.services.task_lease import (
@@ -109,6 +110,8 @@ class FetchExchangeDataView(View):
         timestamp_from,
         timestamp_to,
         retry: bool,
+        *,
+        funding_timestamp_to,
         assert_lease_owned: Callable[[], None] | None = None,
     ) -> dict:
         counts = {
@@ -124,7 +127,7 @@ class FetchExchangeDataView(View):
             fetch_symbol_funding(
                 symbol,
                 timestamp_from,
-                timestamp_to,
+                funding_timestamp_to,
                 retry,
                 assert_lease_owned=assert_lease_owned,
             )
@@ -162,6 +165,8 @@ class FetchExchangeDataView(View):
         timestamp_to,
         retry: bool,
         api_symbol: str,
+        *,
+        funding_timestamp_to,
     ) -> dict:
         counts = {
             "funding": 0,
@@ -187,6 +192,7 @@ class FetchExchangeDataView(View):
                         timestamp_from,
                         timestamp_to,
                         retry,
+                        funding_timestamp_to=funding_timestamp_to,
                         assert_lease_owned=lease_heartbeat.assert_owned,
                     )
                 except TaskLeaseLost:
@@ -232,6 +238,8 @@ class FetchExchangeDataView(View):
         timestamp_to,
         retry: bool,
         api_symbol: str,
+        *,
+        funding_timestamp_to,
     ) -> dict:
         data = {}
         totals = {
@@ -248,6 +256,7 @@ class FetchExchangeDataView(View):
                 timestamp_to,
                 retry,
                 api_symbol,
+                funding_timestamp_to=funding_timestamp_to,
             )
             data[exchange] = counts
             totals["funding"] += counts["funding"]
@@ -262,7 +271,11 @@ class FetchExchangeDataView(View):
             form = self.get_query_form(request)
             query = form.cleaned_data
             exchanges = self.get_exchanges(query["exchange"])
-            timestamp_from, timestamp_to = get_timestamp_range(query["time_ago"])
+            current_time = get_current_time()
+            timestamp_from, timestamp_to = get_timestamp_range(
+                query["time_ago"],
+                current_time=current_time,
+            )
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
         counts = self.fetch_exchange_data_for_exchanges(
@@ -271,5 +284,6 @@ class FetchExchangeDataView(View):
             timestamp_to,
             False,
             query["api_symbol"],
+            funding_timestamp_to=current_time,
         )
         return JsonResponse({"ok": counts["failed"] == 0, **counts})
