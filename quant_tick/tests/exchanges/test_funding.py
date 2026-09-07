@@ -109,7 +109,7 @@ class FundingAdapterTest(SimpleTestCase):
         self.assertEqual(mocked.call_args.args[1], "https://example.test/funding")
         self.assertFalse(mocked.call_args.kwargs["reverse"])
 
-    def test_bitfinex_funding_uses_latest_status_before_event(self):
+    def test_bitfinex_funding_uses_current_rate_from_latest_status_before_event(self):
         timestamp_from = datetime(2026, 5, 5, tzinfo=UTC)
         timestamp_to = datetime(2026, 5, 5, 8, tzinfo=UTC)
 
@@ -162,10 +162,14 @@ class FundingAdapterTest(SimpleTestCase):
         )
         self.assertIn("limit=5000", mocked.call_args.args[0])
         self.assertEqual(list(df.index), [pd.Timestamp(timestamp_from)])
-        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.00044342"))
+        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.00001"))
         self.assertEqual(
             df.iloc[0].status_timestamp,
             pd.Timestamp(timestamp_from - timedelta(seconds=2)),
+        )
+        self.assertEqual(
+            df.iloc[0].next_funding_accrued,
+            Decimal("0.00044342"),
         )
         self.assertEqual(df.iloc[0].current_funding, Decimal("0.00001"))
         self.assertEqual(df.iloc[0].mark_price, Decimal("79846.619"))

@@ -98,10 +98,9 @@ class FetchExchangeDataViewTest(TestCase):
                 for call in self.mock_perpetual_stats.call_args_list
             )
         )
-        completed_minute = datetime(2026, 5, 2, 0, 0, tzinfo=UTC)
         self.assertTrue(
             all(
-                call.args[2] == completed_minute
+                call.args[2] == current_time
                 for call in self.mock_perpetual_stats.call_args_list
             )
         )
@@ -111,6 +110,7 @@ class FetchExchangeDataViewTest(TestCase):
                 for call in mock_candles.call_args_list
             )
         )
+        completed_minute = datetime(2026, 5, 2, 0, 0, tzinfo=UTC)
         self.assertTrue(
             all(call.args[2] == completed_minute for call in mock_candles.call_args_list)
         )
