@@ -112,7 +112,13 @@ class PerpetualStatsCollectionTest(BaseSymbolTest, TestCase):
                     flat=True,
                 )
             ),
-            expected_timestamps[:-1],
+            expected_timestamps,
+        )
+        self.assertEqual(
+            PerpetualStatsData.objects.complete_for_exchange(
+                symbol.exchange
+            ).count(),
+            11,
         )
 
         with patch(
@@ -204,7 +210,15 @@ class PerpetualStatsCollectionTest(BaseSymbolTest, TestCase):
             return_value=partial_frame,
         ):
             perpetual_stats(symbol, timestamp_from, timestamp_to)
-        self.assertFalse(PerpetualStatsData.objects.filter(symbol=symbol).exists())
+        self.assertEqual(
+            PerpetualStatsData.objects.filter(symbol=symbol).count(),
+            1,
+        )
+        self.assertFalse(
+            PerpetualStatsData.objects.complete_for_exchange(
+                symbol.exchange
+            ).exists()
+        )
 
         with patch(
             "quant_tick.exchanges.perpetual_stats.perpetual_stats_api",
