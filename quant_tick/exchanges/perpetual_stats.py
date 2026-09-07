@@ -74,6 +74,15 @@ def perpetual_stats_api(
 
 def complete_perpetual_stats_frame(symbol: Symbol, df: DataFrame) -> DataFrame:
     """Keep only observations populated by every required venue endpoint."""
+    df = validate_perpetual_stats_frame(symbol, df)
+    if df.empty:
+        return df
+    required = perpetual_stats_required_fields(symbol.exchange)
+    return df.dropna(subset=list(required))
+
+
+def validate_perpetual_stats_frame(symbol: Symbol, df: DataFrame) -> DataFrame:
+    """Require the adapter schema while retaining partial observations."""
     if df.empty:
         return df
     required = perpetual_stats_required_fields(symbol.exchange)
@@ -83,7 +92,7 @@ def complete_perpetual_stats_frame(symbol: Symbol, df: DataFrame) -> DataFrame:
             f"Perpetual stats response for {symbol.exchange} omitted required "
             f"columns: {missing}"
         )
-    return df.dropna(subset=list(required))
+    return df
 
 
 def perpetual_stats(
@@ -146,7 +155,7 @@ def perpetual_stats(
         for fetch_from, fetch_to in windows:
             df = perpetual_stats_api(symbol, fetch_from, fetch_to)
             history_exhausted = df.attrs.get(HISTORY_EXHAUSTED_ATTR) is True
-            df = complete_perpetual_stats_frame(symbol, df)
+            df = validate_perpetual_stats_frame(symbol, df)
             PerpetualStatsData.write(
                 symbol,
                 frequency,

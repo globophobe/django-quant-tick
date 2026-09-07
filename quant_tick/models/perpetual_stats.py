@@ -174,12 +174,46 @@ class PerpetualStatsData(models.Model):
             if assert_lease_owned is not None:
                 assert_lease_owned()
             if rows:
+                existing_by_timestamp = {
+                    item.timestamp: item
+                    for item in cls.objects.select_for_update().filter(
+                        symbol=symbol,
+                        frequency=frequency,
+                        timestamp__in=[row.timestamp for row in rows],
+                    )
+                }
+                required = perpetual_stats_required_fields(symbol.exchange)
+                replacements = []
+                for row in rows:
+                    existing = existing_by_timestamp.get(row.timestamp)
+                    if existing is None:
+                        replacements.append(row)
+                        continue
+                    incoming_complete = all(
+                        getattr(row, field) is not None for field in required
+                    )
+                    existing_complete = all(
+                        getattr(existing, field) is not None for field in required
+                    )
+                    if existing_complete and not incoming_complete:
+                        continue
+                    for field in PERPETUAL_STATS_VALUE_FIELDS:
+                        if getattr(row, field) is None:
+                            setattr(row, field, getattr(existing, field))
+                    if not row.open_interest_unit:
+                        row.open_interest_unit = existing.open_interest_unit
+                    row.json_data = {
+                        **(existing.json_data or {}),
+                        **(row.json_data or {}),
+                    }
+                    replacements.append(row)
+                replacement_timestamps = [row.timestamp for row in replacements]
                 cls.objects.filter(
                     symbol=symbol,
                     frequency=frequency,
-                    timestamp__in=[row.timestamp for row in rows],
+                    timestamp__in=replacement_timestamps,
                 ).delete()
-                cls.objects.bulk_create(rows, batch_size=1000)
+                cls.objects.bulk_create(replacements, batch_size=1000)
 
     def coverage_end(self) -> datetime:
         return self.timestamp + pd.Timedelta(minutes=self.frequency)

@@ -35,6 +35,7 @@ MARKET_HISTORY_COLUMNS = [
     "open_interest_unit",
     "market_history_interval",
     "market_history_source",
+    "market_history_timestamp_convention",
 ]
 REST_SERIES = {
     "openInterestHist": {
@@ -54,6 +55,15 @@ REST_SERIES = {
         "buySellRatio": "taker_long_short_volume_ratio",
     },
 }
+REST_INTERVAL_END_SERIES = frozenset(
+    {
+        "openInterestHist",
+        "topLongShortAccountRatio",
+        "topLongShortPositionRatio",
+        "globalLongShortAccountRatio",
+    }
+)
+MARKET_HISTORY_TIMESTAMP_CONVENTION = "interval_start"
 HISTORY_EXHAUSTED_ATTR = "history_exhausted"
 
 
@@ -102,6 +112,9 @@ def get_binance_metrics_archive(
     df["open_interest_unit"] = "base_asset"
     df["market_history_interval"] = MARKET_HISTORY_INTERVAL
     df["market_history_source"] = "data_vision"
+    df["market_history_timestamp_convention"] = (
+        MARKET_HISTORY_TIMESTAMP_CONVENTION
+    )
     return df.set_index("timestamp")[MARKET_HISTORY_COLUMNS]
 
 
@@ -173,17 +186,25 @@ def _fetch_rest_series(
     return rows
 
 
-def _rest_series_frame(rows: list[dict], fields: dict[str, str]) -> DataFrame:
+def _rest_series_frame(
+    rows: list[dict],
+    fields: dict[str, str],
+    *,
+    timestamp_offset: pd.Timedelta | None = None,
+) -> DataFrame:
     columns = ["timestamp", *fields.values()]
     if not rows:
         return DataFrame(columns=columns).set_index("timestamp")
+    timestamps = pd.to_datetime(
+        [int(item["timestamp"]) for item in rows],
+        unit="ms",
+        utc=True,
+    )
+    if timestamp_offset is not None:
+        timestamps += timestamp_offset
     return DataFrame(
         {
-            "timestamp": pd.to_datetime(
-                [int(item["timestamp"]) for item in rows],
-                unit="ms",
-                utc=True,
-            ),
+            "timestamp": timestamps,
             **{
                 target: [Decimal(str(item[source])) for item in rows]
                 for source, target in fields.items()
@@ -202,9 +223,18 @@ def binance_market_history_rest(
 
     df = None
     for endpoint, fields in REST_SERIES.items():
+        # Data Vision labels each observation by interval start. These four
+        # REST endpoints label the same observation by interval end; taker
+        # buy/sell volume already uses interval start.
+        timestamp_offset = (
+            -pd.Timedelta(MARKET_HISTORY_INTERVAL)
+            if endpoint in REST_INTERVAL_END_SERIES
+            else None
+        )
         frame = _rest_series_frame(
             _fetch_rest_series(api_symbol, endpoint, timestamp_from, timestamp_to),
             fields,
+            timestamp_offset=timestamp_offset,
         )
         df = frame if df is None else df.join(frame, how="outer")
 
@@ -213,6 +243,9 @@ def binance_market_history_rest(
     df["open_interest_unit"] = "base_asset"
     df["market_history_interval"] = MARKET_HISTORY_INTERVAL
     df["market_history_source"] = "rest"
+    df["market_history_timestamp_convention"] = (
+        MARKET_HISTORY_TIMESTAMP_CONVENTION
+    )
     df = filter_by_timestamp(df.reset_index(), timestamp_from, timestamp_to)
     return df.set_index("timestamp").sort_index(kind="stable")
 
