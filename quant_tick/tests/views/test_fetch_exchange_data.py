@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-import httpx
+import httpx2
 from django.db import OperationalError
 from django.test import TestCase
 from django.urls import reverse
@@ -71,7 +71,12 @@ class FetchExchangeDataViewTest(TestCase):
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
     def test_get_fetches_supported_exchange_data(self, mock_funding, mock_candles):
-        response = self.client.get(self.get_url())
+        current_time = datetime(2026, 5, 2, 0, 0, 5, 123000, tzinfo=UTC)
+        with patch(
+            "quant_tick.views.fetch_exchange_data.get_current_time",
+            return_value=current_time,
+        ):
+            response = self.client.get(self.get_url())
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["funding"], 5)
@@ -85,8 +90,17 @@ class FetchExchangeDataViewTest(TestCase):
             )
         )
         self.assertTrue(
+            all(call.args[2] == current_time for call in mock_funding.call_args_list)
+        )
+        self.assertTrue(
             all(
                 callable(call.kwargs["assert_lease_owned"])
+                for call in self.mock_perpetual_stats.call_args_list
+            )
+        )
+        self.assertTrue(
+            all(
+                call.args[2] == current_time
                 for call in self.mock_perpetual_stats.call_args_list
             )
         )
@@ -95,6 +109,10 @@ class FetchExchangeDataViewTest(TestCase):
                 callable(call.kwargs["assert_lease_owned"])
                 for call in mock_candles.call_args_list
             )
+        )
+        completed_minute = datetime(2026, 5, 2, 0, 0, tzinfo=UTC)
+        self.assertTrue(
+            all(call.args[2] == completed_minute for call in mock_candles.call_args_list)
         )
         funding_symbols = {
             (call.args[0].exchange, call.args[0].api_symbol)
@@ -298,9 +316,9 @@ class FetchExchangeDataViewTest(TestCase):
         mock_funding,
         mock_candles,
     ):
-        request = httpx.Request("GET", "https://www.bitmex.com/api/v1/trade")
-        response = httpx.Response(530, request=request)
-        mock_funding.side_effect = httpx.HTTPStatusError(
+        request = httpx2.Request("GET", "https://example.test/trades")
+        response = httpx2.Response(530, request=request)
+        mock_funding.side_effect = httpx2.HTTPStatusError(
             "Server error",
             request=request,
             response=response,

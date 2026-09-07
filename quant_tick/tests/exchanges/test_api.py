@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 from django.test import TestCase
 
 from quant_tick.constants import Exchange, SymbolType
-from quant_tick.exchanges.api import trades_api
+from quant_tick.exchanges.api import candles_api, funding_api, trades_api
 
 from ..base import BaseSymbolTest
 
@@ -155,3 +155,18 @@ class TradesApiTest(BaseSymbolTest, TestCase):
                 )
                 with self.assertRaises(ValueError):
                     trades_api(symbol, self.timestamp_from, ts_to, Mock())
+
+    def test_bitmex_collectors_are_retired_but_symbol_identity_remains_valid(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BITMEX,
+            api_symbol="XBTUSD",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        ts_to = self.timestamp_from + timedelta(days=1)
+
+        with self.assertRaisesRegex(NotImplementedError, "Trade collection"):
+            trades_api(symbol, self.timestamp_from, ts_to, Mock())
+        with self.assertRaisesRegex(NotImplementedError, "candle collection"):
+            candles_api(symbol, self.timestamp_from, ts_to)
+        with self.assertRaisesRegex(NotImplementedError, "Funding is not implemented"):
+            funding_api(symbol, self.timestamp_from, ts_to)

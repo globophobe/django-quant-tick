@@ -2,7 +2,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 
-import httpx
+import httpx2
 
 from quant_tick.controllers import HTTPX_ERRORS
 
@@ -18,7 +18,7 @@ def get_coinbase_api_response(
         url = get_api_url(
             base_url, timestamp_from=timestamp_from, pagination_id=pagination_id
         )
-        response = httpx.get(url)
+        response = httpx2.get(url)
         if response.status_code == 200:
             return response.json()
         else:

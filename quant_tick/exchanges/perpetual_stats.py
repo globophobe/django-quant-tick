@@ -31,6 +31,12 @@ PERPETUAL_STATS_INTERVALS = {
     Exchange.BYBIT_INVERSE: BYBIT_INTERVAL,
 }
 PERPETUAL_STATS_SUPPORTED_EXCHANGES = frozenset(PERPETUAL_STATS_INTERVALS)
+PERPETUAL_STATS_BOUNDARY_SNAPSHOT_EXCHANGES = frozenset(
+    {
+        Exchange.BYBIT_LINEAR,
+        Exchange.BYBIT_INVERSE,
+    }
+)
 
 
 def perpetual_stats_frequency(symbol: Symbol) -> int:
@@ -74,6 +80,15 @@ def perpetual_stats_api(
 
 def complete_perpetual_stats_frame(symbol: Symbol, df: DataFrame) -> DataFrame:
     """Keep only observations populated by every required venue endpoint."""
+    df = validate_perpetual_stats_frame(symbol, df)
+    if df.empty:
+        return df
+    required = perpetual_stats_required_fields(symbol.exchange)
+    return df.dropna(subset=list(required))
+
+
+def validate_perpetual_stats_frame(symbol: Symbol, df: DataFrame) -> DataFrame:
+    """Require the adapter schema while retaining partial observations."""
     if df.empty:
         return df
     required = perpetual_stats_required_fields(symbol.exchange)
@@ -83,7 +98,20 @@ def complete_perpetual_stats_frame(symbol: Symbol, df: DataFrame) -> DataFrame:
             f"Perpetual stats response for {symbol.exchange} omitted required "
             f"columns: {missing}"
         )
-    return df.dropna(subset=list(required))
+    return df
+
+
+def perpetual_stats_persistence_end(
+    symbol: Symbol,
+    timestamp_to: datetime,
+    *,
+    frequency: int,
+    persistence_frequency: int,
+) -> datetime:
+    """Return the exclusive end covering observations available by timestamp_to."""
+    if symbol.exchange in PERPETUAL_STATS_BOUNDARY_SNAPSHOT_EXCHANGES:
+        return pd.Timestamp(timestamp_to).ceil(f"{frequency}min").to_pydatetime()
+    return get_complete_interval_end(timestamp_to, persistence_frequency)
 
 
 def perpetual_stats(
@@ -99,6 +127,7 @@ def perpetual_stats(
     if timestamp_range is None:
         return
     timestamp_from, timestamp_to = timestamp_range
+    requested_timestamp_to = timestamp_to
     frequency = perpetual_stats_frequency(symbol)
     persistence_frequency = max(
         frequency,
@@ -111,7 +140,12 @@ def perpetual_stats(
     timestamp_from = pd.Timestamp(timestamp_from).ceil(
         f"{frequency}min"
     ).to_pydatetime()
-    timestamp_to = get_complete_interval_end(timestamp_to, persistence_frequency)
+    timestamp_to = perpetual_stats_persistence_end(
+        symbol,
+        timestamp_to,
+        frequency=frequency,
+        persistence_frequency=persistence_frequency,
+    )
     if timestamp_to <= timestamp_from:
         return
 
@@ -144,9 +178,13 @@ def perpetual_stats(
             )
 
         for fetch_from, fetch_to in windows:
-            df = perpetual_stats_api(symbol, fetch_from, fetch_to)
+            df = perpetual_stats_api(
+                symbol,
+                fetch_from,
+                min(fetch_to, requested_timestamp_to),
+            )
             history_exhausted = df.attrs.get(HISTORY_EXHAUSTED_ATTR) is True
-            df = complete_perpetual_stats_frame(symbol, df)
+            df = validate_perpetual_stats_frame(symbol, df)
             PerpetualStatsData.write(
                 symbol,
                 frequency,

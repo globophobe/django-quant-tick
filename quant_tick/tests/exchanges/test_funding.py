@@ -19,7 +19,6 @@ from quant_tick.exchanges.binance_futures.funding import (
     get_binance_futures_funding_interval,
 )
 from quant_tick.exchanges.bitfinex.funding import bitfinex_funding
-from quant_tick.exchanges.bitmex.funding import bitmex_funding
 from quant_tick.exchanges.hyperliquid.api import post_hyperliquid_info
 from quant_tick.exchanges.hyperliquid.funding import hyperliquid_funding
 from quant_tick.models import FundingData
@@ -110,91 +109,7 @@ class FundingAdapterTest(SimpleTestCase):
         self.assertEqual(mocked.call_args.args[1], "https://example.test/funding")
         self.assertFalse(mocked.call_args.kwargs["reverse"])
 
-    def test_bitmex_funding_preserves_extra_rates(self):
-        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
-        timestamp_to = datetime(2026, 4, 25, 16, tzinfo=UTC)
-        data = [
-            {
-                "timestamp": "2026-04-25T12:00:01.000Z",
-                "fundingRate": "0.0002",
-                "fundingRateDaily": "0.0006",
-            }
-        ]
-
-        with patch(
-            "quant_tick.exchanges.bitmex.funding.get_bitmex_funding_response",
-            return_value=data,
-        ) as mocked:
-            df = bitmex_funding("XBTUSD", timestamp_from, timestamp_to)
-
-        self.assertEqual(
-            mocked.call_args.args[0],
-            "https://www.bitmex.com/api/v1/funding?symbol=XBTUSD&count=500"
-            "&reverse=true&endTime=2026-04-25T16:00:00Z",
-        )
-        self.assertEqual(list(df.index), [pd.Timestamp("2026-04-25T12:00:00Z")])
-        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.0002"))
-        self.assertEqual(df.iloc[0].funding_rate_daily, Decimal("0.0006"))
-        self.assertEqual(
-            df.iloc[0].raw_timestamp,
-            pd.Timestamp("2026-04-25T12:00:01Z"),
-        )
-        self.assertEqual(df.iloc[0].timestamp_offset_ms, 1000)
-        self.assertFalse(df.iloc[0].timestamp_anomaly)
-
-    def test_bitmex_funding_keeps_audit_metadata_aligned_after_sort(self):
-        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
-        timestamp_to = datetime(2026, 4, 25, 16, tzinfo=UTC)
-        data = [
-            {
-                "timestamp": "2026-04-25T12:00:02.000Z",
-                "fundingRate": "0.0002",
-            },
-            {
-                "timestamp": "2026-04-25T04:00:01.000Z",
-                "fundingRate": "0.0001",
-            },
-        ]
-
-        with patch(
-            "quant_tick.exchanges.bitmex.funding.get_bitmex_funding_response",
-            return_value=data,
-        ):
-            df = bitmex_funding("XBTUSD", timestamp_from, timestamp_to)
-
-        self.assertEqual(
-            list(df.index),
-            [
-                pd.Timestamp("2026-04-25T04:00:00Z"),
-                pd.Timestamp("2026-04-25T12:00:00Z"),
-            ],
-        )
-        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.0001"))
-        self.assertEqual(
-            df.iloc[0].raw_timestamp,
-            pd.Timestamp("2026-04-25T04:00:01Z"),
-        )
-        self.assertEqual(df.iloc[0].timestamp_offset_ms, 1000)
-        self.assertEqual(df.iloc[1].funding_rate, Decimal("0.0002"))
-        self.assertEqual(
-            df.iloc[1].raw_timestamp,
-            pd.Timestamp("2026-04-25T12:00:02Z"),
-        )
-        self.assertEqual(df.iloc[1].timestamp_offset_ms, 2000)
-
-    def test_bitmex_funding_response_uses_shared_api_helper(self):
-        from quant_tick.exchanges.bitmex.funding import get_bitmex_funding_response
-
-        with patch(
-            "quant_tick.exchanges.bitmex.funding.get_bitmex_api_response",
-            return_value=[],
-        ) as mocked:
-            result = get_bitmex_funding_response("https://example.test/funding")
-
-        self.assertEqual(result, [])
-        self.assertEqual(mocked.call_args.args[1], "https://example.test/funding")
-
-    def test_bitfinex_funding_uses_latest_status_before_event(self):
+    def test_bitfinex_funding_uses_current_rate_from_latest_status_before_event(self):
         timestamp_from = datetime(2026, 5, 5, tzinfo=UTC)
         timestamp_to = datetime(2026, 5, 5, 8, tzinfo=UTC)
 
@@ -247,10 +162,14 @@ class FundingAdapterTest(SimpleTestCase):
         )
         self.assertIn("limit=5000", mocked.call_args.args[0])
         self.assertEqual(list(df.index), [pd.Timestamp(timestamp_from)])
-        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.00044342"))
+        self.assertEqual(df.iloc[0].funding_rate, Decimal("0.00001"))
         self.assertEqual(
             df.iloc[0].status_timestamp,
             pd.Timestamp(timestamp_from - timedelta(seconds=2)),
+        )
+        self.assertEqual(
+            df.iloc[0].next_funding_accrued,
+            Decimal("0.00044342"),
         )
         self.assertEqual(df.iloc[0].current_funding, Decimal("0.00001"))
         self.assertEqual(df.iloc[0].mark_price, Decimal("79846.619"))
@@ -294,7 +213,7 @@ class FundingAdapterTest(SimpleTestCase):
 
         with (
             patch(
-                "quant_tick.exchanges.hyperliquid.api.httpx.post",
+                "quant_tick.exchanges.hyperliquid.api.httpx2.post",
                 return_value=response,
             ),
             patch("quant_tick.exchanges.hyperliquid.api.time.time", side_effect=[0, 0]),
@@ -413,13 +332,6 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
             symbol_type=SymbolType.PERPETUAL,
         )
 
-    def get_bitmex_symbol(self):
-        return self.get_symbol(
-            exchange=Exchange.BITMEX,
-            api_symbol="XBTUSD",
-            symbol_type=SymbolType.PERPETUAL,
-        )
-
     def write_existing_rows(self, symbol, *timestamps):
         FundingData.objects.bulk_create(
             [
@@ -489,18 +401,18 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
         )
 
     def test_funding_fetches_missing_middle_window_without_retry(self):
-        symbol = self.get_bitmex_symbol()
+        symbol = self.get_binance_futures_symbol()
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 26, tzinfo=UTC)
         self.write_existing_rows(
             symbol,
-            timestamp_from + timedelta(hours=4),
-            timestamp_from + timedelta(hours=20),
+            timestamp_from,
+            timestamp_from + timedelta(hours=16),
         )
         data = pd.DataFrame(
             [
                 {
-                    "timestamp": timestamp_from + timedelta(hours=12),
+                    "timestamp": timestamp_from + timedelta(hours=8),
                     "funding_rate": Decimal("0.0003"),
                 }
             ]
@@ -514,16 +426,16 @@ class FundingFetchTest(BaseSymbolTest, TestCase):
 
         mocked.assert_called_once_with(
             symbol,
-            timestamp_from + timedelta(hours=12),
-            timestamp_from + timedelta(hours=20),
+            timestamp_from + timedelta(hours=8),
+            timestamp_from + timedelta(hours=16),
         )
         rows = list(FundingData.objects.filter(symbol=symbol))
         self.assertEqual(
             [row.timestamp for row in rows],
             [
-                timestamp_from + timedelta(hours=4),
-                timestamp_from + timedelta(hours=12),
-                timestamp_from + timedelta(hours=20),
+                timestamp_from,
+                timestamp_from + timedelta(hours=8),
+                timestamp_from + timedelta(hours=16),
             ],
         )
 

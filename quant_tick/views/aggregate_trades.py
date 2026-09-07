@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 
-import httpx
+import httpx2
 import pandas as pd
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
@@ -9,6 +9,7 @@ from django.views import View
 
 from quant_tick.constants import RETRY_INDETERMINATE, TaskType
 from quant_tick.exchanges import api
+from quant_tick.exchanges.api import TRADE_SUPPORTED_EXCHANGES
 from quant_tick.forms import (
     AggregateTradeRequestForm,
     TimeRangeRequestForm,
@@ -29,18 +30,23 @@ from quant_tick.services.task_lease import (
 logger = logging.getLogger(__name__)
 
 SOFT_COLLECTION_STATUS_CODES = {530}
-TRANSIENT_COLLECTION_ERRORS = (httpx.TransportError,)
+TRANSIENT_COLLECTION_ERRORS = (httpx2.TransportError,)
 
 
 def is_soft_collection_error(exc: Exception) -> bool:
     return (
-        isinstance(exc, httpx.HTTPStatusError)
+        isinstance(exc, httpx2.HTTPStatusError)
         and exc.response.status_code in SOFT_COLLECTION_STATUS_CODES
     )
 
 
-def get_timestamp_range(delta: pd.Timedelta) -> tuple[pd.Timestamp, pd.Timestamp]:
-    timestamp_to = get_min_time(get_current_time(), "1min")
+def get_timestamp_range(
+    delta: pd.Timedelta,
+    *,
+    current_time: datetime | None = None,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    current_time = get_current_time() if current_time is None else current_time
+    timestamp_to = get_min_time(current_time, "1min")
     timestamp_from = get_min_time(timestamp_to - delta, "1d")
     return timestamp_from, timestamp_to
 
@@ -58,7 +64,10 @@ def get_candle_retry_min_timestamp_from(timestamp: datetime) -> datetime:
 
 
 class AggregateTradeDataView(View):
-    queryset = Symbol.objects.filter(is_active=True)
+    queryset = Symbol.objects.filter(
+        is_active=True,
+        exchange__in=TRADE_SUPPORTED_EXCHANGES,
+    )
 
     def get_query_form(self, request: HttpRequest) -> AggregateTradeRequestForm:
         data = request.GET.copy()
@@ -205,7 +214,7 @@ class AggregateTradeDataView(View):
                 except ArchiveDownloadError:
                     lease_heartbeat.assert_owned()
                     raise
-                except httpx.HTTPStatusError as exc:
+                except httpx2.HTTPStatusError as exc:
                     lease_heartbeat.assert_owned()
                     if is_soft_collection_error(exc):
                         logger.warning("%s: collection skipped: %s", symbol, exc)
