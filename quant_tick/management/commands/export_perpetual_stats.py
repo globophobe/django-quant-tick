@@ -1,3 +1,5 @@
+"""Export native-cadence stats complete for the selected numeric fields."""
+
 import re
 from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime, timedelta
@@ -89,7 +91,10 @@ def _build_table(
         else:
             arrays.append(
                 pa.array(
-                    [str(value) if value not in (None, "") else None for value in values],
+                    [
+                        str(value) if value not in (None, "") else None
+                        for value in values
+                    ],
                     type=pa.string(),
                 )
             )
@@ -98,8 +103,8 @@ def _build_table(
 
 class Command(BaseDateCommand):
     help = (
-        "Export complete native-cadence PerpetualStatsData to a bounded-memory "
-        "Parquet file for research and benchmark fixtures."
+        "Export native-cadence PerpetualStatsData complete for the selected fields "
+        "to a bounded-memory Parquet file for research and benchmark fixtures."
     )
 
     def get_queryset(self) -> QuerySet:
@@ -118,8 +123,10 @@ class Command(BaseDateCommand):
             choices=EXPORTABLE_FIELDS,
             nargs="+",
             help=(
-                "Columns to export after timestamp. Defaults to the exchange's "
-                "required fields plus open_interest_unit."
+                "Columns to export after timestamp. Rows must contain every selected "
+                "numeric field. "
+                "Defaults to the exchange's required fields plus the optional "
+                "open_interest_unit metadata."
             ),
         )
         parser.add_argument(
@@ -148,15 +155,11 @@ class Command(BaseDateCommand):
 
     def get_timestamp_bounds(
         self,
-        symbol: Symbol,
+        queryset: QuerySet,
         frequency: int,
         timestamp_from: datetime | None,
         timestamp_to: datetime | None,
     ) -> tuple[datetime, datetime] | None:
-        queryset = PerpetualStatsData.objects.filter(
-            symbol=symbol,
-            frequency=frequency,
-        ).complete_for_exchange(symbol.exchange)
         if timestamp_from:
             queryset = queryset.filter(timestamp__gte=timestamp_from)
         if timestamp_to:
@@ -178,8 +181,17 @@ class Command(BaseDateCommand):
         timestamp_to: datetime | None,
         output_path: Path,
     ) -> None:
+        queryset = PerpetualStatsData.objects.filter(
+            symbol=symbol,
+            frequency=frequency,
+            **{
+                f"{field}__isnull": False
+                for field in fields
+                if field in PERPETUAL_STATS_VALUE_FIELDS
+            },
+        )
         bounds = self.get_timestamp_bounds(
-            symbol,
+            queryset,
             frequency,
             timestamp_from,
             timestamp_to,
@@ -187,21 +199,18 @@ class Command(BaseDateCommand):
         if bounds is None:
             self.stdout.write(
                 self.style.WARNING(
-                    f"No complete perpetual stats found for '{symbol.code_name}' "
+                    f"No matching perpetual stats found for '{symbol.code_name}' "
                     f"at {frequency}m."
                 )
             )
             return
 
         ts_min, ts_max = bounds
-        queryset = (
-            PerpetualStatsData.objects.filter(
-                symbol=symbol,
-                frequency=frequency,
+        rows = (
+            queryset.filter(
                 timestamp__gte=ts_min,
                 timestamp__lt=ts_max,
             )
-            .complete_for_exchange(symbol.exchange)
             .order_by("timestamp", "id")
             .values("timestamp", *fields)
             .iterator(chunk_size=EXPORT_BATCH_SIZE)
@@ -212,7 +221,7 @@ class Command(BaseDateCommand):
         total_rows = 0
         try:
             try:
-                for batch in _iter_batches(queryset, batch_size=EXPORT_BATCH_SIZE):
+                for batch in _iter_batches(rows, batch_size=EXPORT_BATCH_SIZE):
                     table = _build_table(batch, fields)
                     if writer is None:
                         with NamedTemporaryFile(
@@ -236,7 +245,7 @@ class Command(BaseDateCommand):
         if staged_path is None:
             self.stdout.write(
                 self.style.WARNING(
-                    f"No complete perpetual stats found for '{symbol.code_name}' "
+                    f"No matching perpetual stats found for '{symbol.code_name}' "
                     f"at {frequency}m."
                 )
             )
@@ -264,9 +273,7 @@ class Command(BaseDateCommand):
         )
         timestamp_from = date_from.replace(tzinfo=UTC) if date_from else None
         timestamp_to = date_to.replace(tzinfo=UTC) if date_to else None
-        fields = tuple(
-            dict.fromkeys(options["field"] or ())
-        )
+        fields = tuple(dict.fromkeys(options["field"] or ()))
         today = datetime.now(tz=UTC).strftime("%Y%m%d")
 
         targets = [
