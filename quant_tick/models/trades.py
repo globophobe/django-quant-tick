@@ -534,6 +534,9 @@ class TradeData(AbstractDataStorage):
         aggregated_candles: DataFrame,
         exchange_candles: DataFrame,
     ) -> bool | None:
+        if symbol.exchange == Exchange.BYBIT_INVERSE:
+            # Bybit truncates BTC turnover per trade; validate native USD contracts.
+            exchange_candles = exchange_candles.drop(columns="notional", errors="ignore")
         return validate_aggregated_candles(
             aggregated_candles,
             exchange_candles,
