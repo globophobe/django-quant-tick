@@ -158,7 +158,7 @@ class DeribitCandleTest(SimpleTestCase):
 
         with (
             patch(
-                "quant_tick.exchanges.deribit.api.httpx.get",
+                "quant_tick.exchanges.deribit.api.httpx2.get",
                 return_value=response,
             ) as mocked_get,
             patch(

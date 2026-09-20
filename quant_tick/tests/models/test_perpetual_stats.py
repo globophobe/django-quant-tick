@@ -108,6 +108,50 @@ class PerpetualStatsDataTest(BaseSymbolTest, TestCase):
             Decimal(100),
         )
 
+    def test_write_does_not_downgrade_complete_row_with_partial_retry(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BINANCE_FUTURES,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        timestamp = datetime(2026, 4, 25, tzinfo=UTC)
+        complete = pd.DataFrame(
+            [
+                {
+                    "timestamp": timestamp,
+                    "open_interest": Decimal(100),
+                    "open_interest_value": Decimal(1_000_000),
+                    "top_trader_long_short_account_ratio": Decimal("1.1"),
+                    "top_trader_long_short_position_ratio": Decimal("1.2"),
+                    "long_short_account_ratio": Decimal("1.3"),
+                    "taker_long_short_volume_ratio": Decimal("1.4"),
+                }
+            ]
+        )
+        partial = complete.assign(
+            open_interest=Decimal(999),
+            taker_long_short_volume_ratio=None,
+        )
+
+        PerpetualStatsData.write(
+            symbol,
+            5,
+            timestamp,
+            timestamp + timedelta(minutes=5),
+            complete,
+        )
+        PerpetualStatsData.write(
+            symbol,
+            5,
+            timestamp,
+            timestamp + timedelta(minutes=5),
+            partial,
+        )
+
+        row = PerpetualStatsData.objects.get(symbol=symbol, timestamp=timestamp)
+        self.assertEqual(row.open_interest, Decimal(100))
+        self.assertEqual(row.taker_long_short_volume_ratio, Decimal("1.4"))
+
     def test_write_rejects_spot_symbol(self):
         symbol = self.get_symbol(symbol_type=SymbolType.SPOT)
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)

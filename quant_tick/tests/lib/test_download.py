@@ -13,7 +13,7 @@ from quant_tick.lib.download import (
 
 
 class DownloadContentTest(SimpleTestCase):
-    @patch("quant_tick.lib.download.httpx.get")
+    @patch("quant_tick.lib.download.httpx2.get")
     def test_archive_not_found_is_not_logged_as_error(self, get):
         get.return_value = Mock(status_code=404)
 
@@ -23,7 +23,7 @@ class DownloadContentTest(SimpleTestCase):
         self.assertIsNone(result)
         error.assert_not_called()
 
-    @patch("quant_tick.lib.download.httpx.get")
+    @patch("quant_tick.lib.download.httpx2.get")
     def test_other_http_error_is_logged(self, get):
         get.return_value = Mock(status_code=503)
 
@@ -37,7 +37,7 @@ class DownloadContentTest(SimpleTestCase):
             "Error 503: https://example.com/archive.zip"
         )
 
-    @patch("quant_tick.lib.download.httpx.get")
+    @patch("quant_tick.lib.download.httpx2.get")
     def test_empty_success_response_raises(self, get):
         get.return_value = Mock(status_code=200, content=b"")
 

@@ -98,6 +98,10 @@ class BinanceMarketHistoryTest(SimpleTestCase):
         )
         self.assertEqual(result.iloc[0].open_interest_unit, "base_asset")
         self.assertEqual(result.iloc[0].market_history_source, "data_vision")
+        self.assertEqual(
+            result.iloc[0].market_history_timestamp_convention,
+            "interval_start",
+        )
         self.assertIn(
             "BTCUSDT/BTCUSDT-metrics-2021-01-01.zip",
             mocked.call_args.args[0],
@@ -196,22 +200,23 @@ class BinanceMarketHistoryTest(SimpleTestCase):
     def test_rest_combines_all_market_history_series(self):
         timestamp = datetime(2026, 1, 1, tzinfo=UTC)
         timestamp_ms = int(timestamp.timestamp() * 1000)
+        interval_end_ms = int((timestamp + timedelta(minutes=5)).timestamp() * 1000)
         rows = {
             "openInterestHist": {
-                "timestamp": timestamp_ms,
+                "timestamp": interval_end_ms,
                 "sumOpenInterest": "100",
                 "sumOpenInterestValue": "9000000",
             },
             "topLongShortAccountRatio": {
-                "timestamp": timestamp_ms,
+                "timestamp": interval_end_ms,
                 "longShortRatio": "1.1",
             },
             "topLongShortPositionRatio": {
-                "timestamp": timestamp_ms,
+                "timestamp": interval_end_ms,
                 "longShortRatio": "1.2",
             },
             "globalLongShortAccountRatio": {
-                "timestamp": timestamp_ms,
+                "timestamp": interval_end_ms,
                 "longShortRatio": "1.3",
             },
             "takerlongshortRatio": {
@@ -234,6 +239,7 @@ class BinanceMarketHistoryTest(SimpleTestCase):
                 timestamp + timedelta(minutes=5),
             )
 
+        self.assertEqual(list(result.index), [pd.Timestamp(timestamp)])
         row = result.iloc[0]
         self.assertEqual(row.open_interest, Decimal(100))
         self.assertEqual(row.open_interest_value, Decimal(9000000))
@@ -243,6 +249,42 @@ class BinanceMarketHistoryTest(SimpleTestCase):
         self.assertEqual(row.taker_long_short_volume_ratio, Decimal("1.4"))
         self.assertEqual(row.market_history_interval, "5m")
         self.assertEqual(row.market_history_source, "rest")
+        self.assertEqual(row.market_history_timestamp_convention, "interval_start")
+
+    def test_rest_retains_current_interval_when_taker_series_is_delayed(self):
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        interval_end_ms = int((timestamp + timedelta(minutes=5)).timestamp() * 1000)
+
+        def fetch(api_symbol, endpoint, timestamp_from, timestamp_to):
+            if endpoint == "takerlongshortRatio":
+                return []
+            fields = {
+                "openInterestHist": {
+                    "sumOpenInterest": "100",
+                    "sumOpenInterestValue": "9000000",
+                },
+                "topLongShortAccountRatio": {"longShortRatio": "1.1"},
+                "topLongShortPositionRatio": {"longShortRatio": "1.2"},
+                "globalLongShortAccountRatio": {"longShortRatio": "1.3"},
+            }
+            return [{"timestamp": interval_end_ms, **fields[endpoint]}]
+
+        with patch(
+            "quant_tick.exchanges.binance_futures.market_history._fetch_rest_series",
+            side_effect=fetch,
+        ):
+            result = binance_market_history_rest(
+                "BTCUSDT",
+                timestamp,
+                timestamp + timedelta(minutes=5),
+            )
+
+        self.assertEqual(list(result.index), [pd.Timestamp(timestamp)])
+        self.assertEqual(
+            result.iloc[0].top_trader_long_short_account_ratio,
+            Decimal("1.1"),
+        )
+        self.assertTrue(pd.isna(result.iloc[0].taker_long_short_volume_ratio))
 
     def test_missing_recent_archive_uses_rest_before_older_archive(self):
         timestamp_from = datetime(2026, 1, 3, tzinfo=UTC)

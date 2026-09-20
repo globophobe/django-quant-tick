@@ -534,6 +534,15 @@ class TradeData(AbstractDataStorage):
         aggregated_candles: DataFrame,
         exchange_candles: DataFrame,
     ) -> bool | None:
+        """Return minute-candle agreement for ``TradeData.ok``.
+
+        ``False`` reports a quantity mismatch, not proof of collector loss.
+        For Binance futures' known aggregate-boundary limitation, see
+        ``quant_tick.exchanges.binance_futures.base.BinanceFuturesMixin``.
+        """
+        if symbol.exchange == Exchange.BYBIT_INVERSE and len(exchange_candles):
+            # Bybit truncates BTC turnover per trade; validate native USD contracts.
+            exchange_candles = exchange_candles[["volume"]]
         return validate_aggregated_candles(
             aggregated_candles,
             exchange_candles,

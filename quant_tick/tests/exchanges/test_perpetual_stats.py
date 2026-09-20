@@ -112,7 +112,13 @@ class PerpetualStatsCollectionTest(BaseSymbolTest, TestCase):
                     flat=True,
                 )
             ),
-            expected_timestamps[:-1],
+            expected_timestamps,
+        )
+        self.assertEqual(
+            PerpetualStatsData.objects.complete_for_exchange(
+                symbol.exchange
+            ).count(),
+            11,
         )
 
         with patch(
@@ -204,7 +210,15 @@ class PerpetualStatsCollectionTest(BaseSymbolTest, TestCase):
             return_value=partial_frame,
         ):
             perpetual_stats(symbol, timestamp_from, timestamp_to)
-        self.assertFalse(PerpetualStatsData.objects.filter(symbol=symbol).exists())
+        self.assertEqual(
+            PerpetualStatsData.objects.filter(symbol=symbol).count(),
+            1,
+        )
+        self.assertFalse(
+            PerpetualStatsData.objects.complete_for_exchange(
+                symbol.exchange
+            ).exists()
+        )
 
         with patch(
             "quant_tick.exchanges.perpetual_stats.perpetual_stats_api",
@@ -217,6 +231,44 @@ class PerpetualStatsCollectionTest(BaseSymbolTest, TestCase):
                 symbol.exchange
             ).count(),
             1,
+        )
+
+    def test_bybit_collects_boundary_snapshot_before_next_boundary(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BYBIT_LINEAR,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)
+        requested_to = timestamp_from + timedelta(hours=2, minutes=52)
+        frame = pd.DataFrame(
+            [
+                {
+                    "timestamp": timestamp_from,
+                    "open_interest": Decimal(100),
+                    "single_open_interest": Decimal(50),
+                    "long_account_ratio": Decimal("0.6"),
+                    "short_account_ratio": Decimal("0.4"),
+                    "long_short_account_ratio": Decimal("1.5"),
+                }
+            ]
+        ).set_index("timestamp")
+
+        with patch(
+            "quant_tick.exchanges.perpetual_stats.perpetual_stats_api",
+            return_value=frame,
+        ) as mocked:
+            perpetual_stats(symbol, timestamp_from, requested_to)
+
+        mocked.assert_called_once_with(symbol, timestamp_from, requested_to)
+        self.assertEqual(
+            list(
+                PerpetualStatsData.objects.filter(symbol=symbol).values_list(
+                    "timestamp",
+                    flat=True,
+                )
+            ),
+            [timestamp_from],
         )
 
     def test_aligns_partial_range_to_native_grid_and_complete_hour(self):

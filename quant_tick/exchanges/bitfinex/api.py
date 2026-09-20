@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from functools import partial
 
-import httpx
+import httpx2
 
 from quant_tick.controllers import (
     HTTPX_ERRORS,
@@ -76,7 +76,7 @@ def get_bitfinex_api_response(
     )
     try:
         url = get_api_url(base_url, pagination_id=pagination_id)
-        response = httpx.get(url)
+        response = httpx2.get(url)
         increment_api_total_requests(BITFINEX_TOTAL_REQUESTS)
         if response.status_code == 200:
             result = response.read()

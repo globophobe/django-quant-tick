@@ -3,7 +3,7 @@ import time
 from datetime import UTC, datetime
 from decimal import Decimal
 
-import httpx
+import httpx2
 
 from quant_tick.controllers import HTTPX_ERRORS
 
@@ -28,7 +28,7 @@ def normalize_coin(api_symbol: str) -> str:
 def post_hyperliquid_info(payload: dict, retry: int = 30) -> list[dict]:
     start = time.time()
     try:
-        response = httpx.post(
+        response = httpx2.post(
             f"{API_URL}{INFO_PATH}",
             json=payload,
             headers={"Content-Type": "application/json"},

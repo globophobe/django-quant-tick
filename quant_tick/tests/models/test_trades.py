@@ -9,7 +9,7 @@ from django.core.files.base import ContentFile
 from django.db import IntegrityError
 from django.test import TestCase
 
-from quant_tick.constants import Exchange, FileData, Frequency
+from quant_tick.constants import Exchange, FileData, Frequency, SymbolType
 from quant_tick.lib import get_min_time, get_next_time
 from quant_tick.models import TradeData
 from quant_tick.storage import (
@@ -218,6 +218,97 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
 
         self.assertTrue(ok)
         self.assertFalse(TradeData.objects.filter(symbol=symbol).exists())
+
+    def test_bybit_inverse_validates_contract_volume_despite_rounded_turnover(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BYBIT_INVERSE,
+            api_symbol="BTCUSD",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        raw = pd.DataFrame(
+            [
+                {
+                    "uid": f"inverse-{index}",
+                    "timestamp": self.timestamp_from + pd.Timedelta(seconds=index),
+                    "nanoseconds": 0,
+                    "price": Decimal(price),
+                    "volume": Decimal(size),
+                    "notional": Decimal(size) / Decimal(price),
+                    "tickRule": side,
+                    "ticks": 1,
+                }
+                for index, (size, price, side) in enumerate(
+                    [
+                        ("13", "81268.00", -1),
+                        ("6", "81268.10", 1),
+                        ("13", "81268.00", -1),
+                        ("6", "81268.10", 1),
+                    ]
+                )
+            ]
+        )
+        candles = self.get_exchange_candles("0.00046756")
+        candles["volume"] = Decimal(38)
+        original_candles = candles.copy()
+
+        for name, frame, reference, expected in (
+            ("complete", raw, candles, True),
+            ("missing_trade", raw.iloc[:-1], candles, False),
+            ("missing_minute", raw.iloc[:0], candles, False),
+            ("missing_reference", raw, pd.DataFrame([]), None),
+        ):
+            with self.subTest(name=name):
+                self.assertIs(
+                    TradeData.validate(
+                        symbol,
+                        self.timestamp_from,
+                        self.timestamp_to,
+                        reference,
+                        raw_trades=frame,
+                    ),
+                    expected,
+                )
+                rows = TradeData.write(
+                    symbol,
+                    self.timestamp_from,
+                    self.timestamp_to,
+                    reference,
+                    raw_trades=frame,
+                )
+                stored = TradeData.objects.get(pk=rows[0].pk)
+                self.assertIs(stored.ok, expected)
+                if not frame.empty:
+                    self.assertEqual(
+                        stored.json_data["candle"]["notional"],
+                        frame["notional"].sum(),
+                    )
+                pd.testing.assert_frame_equal(candles, original_candles)
+
+    def test_bybit_spot_and_linear_validate_base_quantity(self):
+        raw = self.get_raw_validation_data("trade")
+        for exchange, symbol_type in (
+            (Exchange.BYBIT, SymbolType.SPOT),
+            (Exchange.BYBIT_LINEAR, SymbolType.PERPETUAL),
+        ):
+            symbol = self.get_symbol(
+                exchange=exchange,
+                api_symbol="BTCUSDT",
+                symbol_type=symbol_type,
+            )
+            for notional, expected in (("10", True), ("11", False)):
+                with self.subTest(exchange=exchange, notional=notional):
+                    candles = self.get_exchange_candles(notional)
+                    candles["volume"] = Decimal("999.99999998")
+                    self.assertIs(
+                        TradeData.validate(
+                            symbol,
+                            self.timestamp_from,
+                            self.timestamp_to,
+                            candles,
+                            raw_trades=raw,
+                        ),
+                        expected,
+                    )
 
     def test_write_trade_data_marks_bitfinex_omitted_candle_no_trade_ok(self):
         symbol = self.get_symbol(exchange=Exchange.BITFINEX, api_symbol="tBTCF0:USTF0")

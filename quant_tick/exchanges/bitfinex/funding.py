@@ -101,10 +101,13 @@ def get_bitfinex_event_rows(rows: list[list]) -> list[dict]:
     for row in rows:
         status_ms = get_status_value(row, STATUS_MTS)
         event_ms = get_status_value(row, NEXT_FUNDING_EVT_MTS)
-        funding_rate = parse_optional_decimal(
+        next_funding_accrued = parse_optional_decimal(
             get_status_value(row, NEXT_FUNDING_ACCRUED)
         )
-        if status_ms is None or event_ms is None or funding_rate is None:
+        current_funding = parse_optional_decimal(
+            get_status_value(row, CURRENT_FUNDING)
+        )
+        if status_ms is None or event_ms is None or current_funding is None:
             continue
         status_timestamp = pd.to_datetime(int(status_ms), unit="ms", utc=True)
         event_timestamp = pd.to_datetime(int(event_ms), unit="ms", utc=True)
@@ -113,12 +116,11 @@ def get_bitfinex_event_rows(rows: list[list]) -> list[dict]:
         event_rows.append(
             {
                 "timestamp": event_timestamp,
-                "funding_rate": funding_rate,
+                "funding_rate": current_funding,
                 "status_timestamp": status_timestamp,
+                "next_funding_accrued": next_funding_accrued,
                 "next_funding_step": get_status_value(row, NEXT_FUNDING_STEP),
-                "current_funding": parse_optional_decimal(
-                    get_status_value(row, CURRENT_FUNDING)
-                ),
+                "current_funding": current_funding,
                 "mark_price": parse_optional_decimal(get_status_value(row, MARK_PRICE)),
                 "open_interest": parse_optional_decimal(
                     get_status_value(row, OPEN_INTEREST)
@@ -143,6 +145,7 @@ def bitfinex_funding(
     columns = [
         "funding_rate",
         "status_timestamp",
+        "next_funding_accrued",
         "next_funding_step",
         "current_funding",
         "mark_price",

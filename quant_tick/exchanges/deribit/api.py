@@ -1,7 +1,7 @@
 import time
 from datetime import UTC, datetime
 
-import httpx
+import httpx2
 
 from quant_tick.controllers import HTTPX_ERRORS
 
@@ -37,7 +37,7 @@ def get_deribit_result(
     for attempt in range(attempts):
         start = time.time()
         try:
-            response = httpx.get(
+            response = httpx2.get(
                 f"{api_url}/{method}",
                 params=params,
                 timeout=30,

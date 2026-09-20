@@ -25,8 +25,6 @@ from .binance_futures.funding import (
 )
 from .bitfinex import bitfinex_candles, bitfinex_funding, bitfinex_trades
 from .bitfinex.funding import BitfinexFunding
-from .bitmex import bitmex_candles, bitmex_funding, bitmex_trades
-from .bitmex.funding import BitmexFunding
 from .bybit import bybit_candles, bybit_funding, bybit_trades
 from .bybit.candles import get_bybit_category
 from .bybit.funding import BybitFunding, get_bybit_funding_interval
@@ -51,11 +49,32 @@ BYBIT_DERIVATIVE_EXCHANGES = {
     Exchange.BYBIT_INVERSE,
 }
 
+TRADE_SUPPORTED_EXCHANGES = frozenset(
+    {
+        Exchange.BINANCE,
+        Exchange.BINANCE_FUTURES,
+        Exchange.BITFINEX,
+        *BYBIT_EXCHANGES,
+        Exchange.COINBASE,
+        Exchange.DERIBIT,
+        Exchange.HYPERLIQUID,
+    }
+)
+EXCHANGE_CANDLE_SUPPORTED_EXCHANGES = TRADE_SUPPORTED_EXCHANGES
+FUNDING_SUPPORTED_EXCHANGES = frozenset(
+    {
+        Exchange.BINANCE_FUTURES,
+        Exchange.BITFINEX,
+        *BYBIT_DERIVATIVE_EXCHANGES,
+        Exchange.DERIBIT,
+        Exchange.HYPERLIQUID,
+    }
+)
+
 FUNDING_FETCH_WINDOW = timedelta(days=90)
 FUNDING_CHUNKED_EXCHANGES = {
     Exchange.BINANCE_FUTURES,
     Exchange.BITFINEX,
-    Exchange.BITMEX,
     Exchange.BYBIT_LINEAR,
     Exchange.BYBIT_INVERSE,
     Exchange.DERIBIT,
@@ -64,7 +83,6 @@ FUNDING_CHUNKED_EXCHANGES = {
 FUNDING_MODEL = {
     Exchange.BINANCE_FUTURES: BinanceFuturesFunding,
     Exchange.BITFINEX: BitfinexFunding,
-    Exchange.BITMEX: BitmexFunding,
     Exchange.BYBIT_LINEAR: BybitFunding,
     Exchange.BYBIT_INVERSE: BybitFunding,
     Exchange.DERIBIT: DeribitFunding,
@@ -153,6 +171,8 @@ def trades_api(
         return
     timestamp_from, timestamp_to = timestamp_range
     exchange = symbol.exchange
+    if exchange not in TRADE_SUPPORTED_EXCHANGES:
+        raise NotImplementedError(f"Trade collection is not implemented for {exchange}.")
     kwargs = {
         "timestamp_from": timestamp_from,
         "timestamp_to": timestamp_to,
@@ -168,8 +188,6 @@ def trades_api(
         binance_futures_trades(symbol, **kwargs)
     elif exchange == Exchange.BITFINEX:
         bitfinex_trades(symbol, **kwargs)
-    elif exchange == Exchange.BITMEX:
-        bitmex_trades(symbol, **kwargs)
     elif exchange in BYBIT_EXCHANGES:
         get_bybit_symbol_type(symbol)
         bybit_trades(symbol, **kwargs)
@@ -189,6 +207,10 @@ def candles_api(
 ) -> DataFrame:
     """Dispatch candle fetching to the exchange-specific adapter."""
     exchange = symbol.exchange
+    if exchange not in EXCHANGE_CANDLE_SUPPORTED_EXCHANGES:
+        raise NotImplementedError(
+            f"Exchange candle collection is not implemented for {exchange}."
+        )
     api_symbol = symbol.api_symbol
     kwargs = {"timestamp_from": timestamp_from, "timestamp_to": timestamp_to}
     if resolution is not None:
@@ -201,8 +223,6 @@ def candles_api(
         candles = binance_futures_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BITFINEX:
         candles = bitfinex_candles(api_symbol, **kwargs)
-    elif exchange == Exchange.BITMEX:
-        candles = bitmex_candles(api_symbol, **kwargs)
     elif exchange in BYBIT_EXCHANGES:
         get_bybit_symbol_type(symbol)
         candles = bybit_candles(
@@ -236,8 +256,6 @@ def _funding_api(
         )
     if exchange == Exchange.BITFINEX:
         return bitfinex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
-    if exchange == Exchange.BITMEX:
-        return bitmex_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange in BYBIT_DERIVATIVE_EXCHANGES:
         return bybit_funding(
             symbol.api_symbol,
