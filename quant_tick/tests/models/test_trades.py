@@ -251,10 +251,11 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         candles["volume"] = Decimal(38)
         original_candles = candles.copy()
 
-        for name, frame, expected in (
-            ("complete", raw, True),
-            ("missing_trade", raw.iloc[:-1], False),
-            ("missing_minute", raw.iloc[:0], False),
+        for name, frame, reference, expected in (
+            ("complete", raw, candles, True),
+            ("missing_trade", raw.iloc[:-1], candles, False),
+            ("missing_minute", raw.iloc[:0], candles, False),
+            ("missing_reference", raw, pd.DataFrame([]), None),
         ):
             with self.subTest(name=name):
                 self.assertIs(
@@ -262,7 +263,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                         symbol,
                         self.timestamp_from,
                         self.timestamp_to,
-                        candles,
+                        reference,
                         raw_trades=frame,
                     ),
                     expected,
@@ -271,7 +272,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                     symbol,
                     self.timestamp_from,
                     self.timestamp_to,
-                    candles,
+                    reference,
                     raw_trades=frame,
                 )
                 stored = TradeData.objects.get(pk=rows[0].pk)
