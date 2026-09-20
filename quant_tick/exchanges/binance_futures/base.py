@@ -16,7 +16,15 @@ from .trades import (
 
 
 class BinanceFuturesMixin(SequentialIntegerMixin):
-    """Binance Futures mixin."""
+    """Normalize Binance USD-M aggregate trades from REST and S3.
+
+    Binance combines fills at the same price and taker side within 100 ms,
+    retaining one timestamp per aggregate. Fills can straddle a UTC minute
+    boundary, so assigning the full quantity to ``T`` (S3 ``transact_time``)
+    can disagree with exchange kline quantities despite complete aggregates.
+    The websocket ``aggTrade`` source has the same timestamp granularity.
+    Re-fetching aggregates cannot recover the individual fill timestamps.
+    """
 
     @property
     def columns(self) -> list[str]:
