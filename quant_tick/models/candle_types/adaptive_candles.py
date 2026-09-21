@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pandas as pd
@@ -63,17 +63,51 @@ class AdaptiveCandle(ConstantCandle):
         )
         return total / days / self.json_data["target_candles_per_day"]
 
-    def has_moving_average_history(self, timestamp: datetime) -> bool:
-        """Return whether the adaptive threshold has enough daily history."""
-        trade_data = self.get_trade_data_for_moving_average(timestamp)
-        minutes = trade_data.aggregate(minutes=Sum("frequency"))["minutes"] or 0
+    def has_moving_average_history(
+        self, timestamp: datetime, *, max_gap: timedelta = timedelta(0)
+    ) -> bool:
+        """Require the configured warmup, with complete coverage by default.
+
+        Callbacks permit gaps up to max_gap within the averaging window, while
+        requiring history reaching its start and a positive observed threshold.
+        The average still divides observed activity by the configured days.
+        """
         days = self.json_data["moving_average_number_of_days"]
+        trade_data = self.get_trade_data_for_moving_average(timestamp)
+        if max_gap > timedelta(0):
+            window_end = get_min_time(timestamp, "1d")
+            window_start = window_end - timedelta(days=days)
+            if not TradeData.objects.filter(
+                symbol=self.symbol, timestamp__lte=window_start
+            ).exists():
+                return False
+            covered_until = window_start
+            for row_from, frequency in trade_data.order_by("timestamp").values_list(
+                "timestamp", "frequency"
+            ):
+                if row_from - covered_until > max_gap:
+                    return False
+                covered_until = max(
+                    covered_until, row_from + timedelta(minutes=frequency)
+                )
+            if window_end - covered_until > max_gap:
+                return False
+            return self.get_moving_average_value(timestamp) > 0
+        minutes = trade_data.aggregate(minutes=Sum("frequency"))["minutes"] or 0
         return minutes >= Frequency.DAY * days
 
-    def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+    def can_aggregate(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        *,
+        max_gap: timedelta = timedelta(0),
+    ) -> bool:
         """Require enough daily history to compute the adaptive threshold."""
-        can_agg = super().can_aggregate(timestamp_from, timestamp_to)
-        return can_agg and self.has_moving_average_history(timestamp_from)
+        can_agg = super().can_aggregate(timestamp_from, timestamp_to, max_gap=max_gap)
+        return can_agg and self.has_moving_average_history(
+            timestamp_from, max_gap=max_gap
+        )
 
     def should_aggregate_candle(self, data: dict) -> bool:
         return data["sample_value"] >= data["target_value"]
