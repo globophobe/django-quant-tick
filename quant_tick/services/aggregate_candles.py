@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from django.db.models import QuerySet
 
@@ -17,10 +17,11 @@ from quant_tick.services.task_lease import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMESTAMP_FROM = datetime(2009, 1, 3, tzinfo=UTC)
+MAX_CALLBACK_CANDLE_GAP = timedelta(hours=1)
 
 
 class AggregateCandleService:
-    """Aggregate candle data with per-symbol lock and backoff state."""
+    """Aggregate callbacks across gaps up to one hour with per-symbol leases."""
 
     def get_task_state(self, symbol: Symbol) -> TaskState:
         task_state, _ = TaskState.objects.get_or_create(
@@ -116,6 +117,7 @@ class AggregateCandleService:
                             timestamp_to,
                             retry,
                             assert_lease_owned=lease_heartbeat.assert_owned,
+                            max_gap=MAX_CALLBACK_CANDLE_GAP,
                         )
                         lease_heartbeat.assert_owned()
                         processed += 1

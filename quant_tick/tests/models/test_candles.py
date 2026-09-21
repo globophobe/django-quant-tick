@@ -1,16 +1,21 @@
 from datetime import UTC, datetime
+from decimal import Decimal
+from unittest.mock import patch
 
 import pandas as pd
 import time_machine
 from django.test import TestCase
 
 from quant_tick.constants import FileData, Frequency, SampleType
-from quant_tick.lib import get_current_time, get_min_time, get_previous_time
-from quant_tick.models import Candle, CandleCache, TradeData
-from quant_tick.storage import convert_candle_cache_to_daily
+from quant_tick.models import Candle, CandleCache, CandleData, ConstantCandle, TradeData
+from quant_tick.services.task_lease import TaskLeaseLost
 
 from ..base import BaseSymbolTest, BaseWriteTradeDataTest
-from .candle_types.base import BaseDayIteratorTest
+from .candle_types.base import (
+    BaseDayIteratorTest,
+    BaseHourIteratorTest,
+    BaseTradeDataCandleTest,
+)
 
 
 class CandleDataFrameTest(BaseWriteTradeDataTest, TestCase):
@@ -167,95 +172,72 @@ class CandleInitializeTest(BaseSymbolTest, BaseDayIteratorTest, TestCase):
         self.assertEqual(timestamp_to, self.three_days_from_now)
 
 
-class CandleCacheTest(BaseSymbolTest, TestCase):
-    def setUp(self):
-        super().setUp()
-        self.candle = Candle.objects.create(
-            symbol=self.get_symbol(), json_data={"sample_type": SampleType.NOTIONAL}
+@time_machine.travel(datetime(2009, 1, 4, tzinfo=UTC), tick=False)
+@patch(
+    "quant_tick.models.candles.get_current_time",
+    return_value=datetime(2009, 1, 4, 3, tzinfo=UTC),
+)
+class CandleTransactionTest(BaseHourIteratorTest, BaseTradeDataCandleTest, TestCase):
+    def get_candle(self) -> ConstantCandle:
+        return ConstantCandle.objects.create(
+            symbol=self.symbol,
+            json_data={
+                "source_data": FileData.RAW,
+                "sample_type": SampleType.NOTIONAL,
+                "target_value": 1,
+            },
         )
 
-    def test_convert_candle_cache_to_daily(self):
-        timestamp_to = get_min_time(get_current_time(), value="1d")
-        timestamp_from = get_previous_time(timestamp_to, value="1d")
-        total = 24
-        target_value = 25
-        for value in range(total):
-            ts = timestamp_from + pd.Timedelta(f"{value}h")
-            val = value + 1
-            expected_next = {
-                "open": 0,
-                "high": val,
-                "low": -val,
-                "close": 1,
-                "volume": val * 1000,
-                "buyVolume": val * 500,
-                "notional": val * 100,
-                "buyNotional": val * 50,
-                "ticks": val * 10,
-                "buyTicks": val * 5,
-            }
-            CandleCache.objects.create(
-                candle=self.candle,
-                timestamp=ts,
-                frequency=Frequency.HOUR,
-                json_data={
-                    "sample_value": val,
-                    "target_value": target_value,
-                    "next": expected_next,
-                },
+    def test_cache_is_rolled_back_when_data_write_fails(self, mock_get_current_time):
+        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
+        self.write_trade_data(
+            self.timestamp_from,
+            self.one_hour_from_now,
+            filtered,
+        )
+
+        with (
+            patch.object(
+                self.candle,
+                "write_data",
+                side_effect=RuntimeError("boom"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "boom"),
+        ):
+            self.candle.candles(self.timestamp_from, self.one_hour_from_now)
+
+        self.assertFalse(CandleCache.objects.exists())
+        self.assertFalse(CandleData.objects.exists())
+
+    def test_lease_loss_stops_before_next_partition_commit(self, mock_get_current_time):
+        first = self.get_filtered(self.timestamp_from, notional=Decimal(1))
+        second = self.get_filtered(self.one_hour_from_now, notional=Decimal(1))
+        self.write_trade_data(
+            self.timestamp_from,
+            self.one_hour_from_now,
+            first,
+        )
+        self.write_trade_data(
+            self.one_hour_from_now,
+            self.two_hours_from_now,
+            second,
+        )
+        assertion_count = 0
+
+        def assert_lease_owned():
+            nonlocal assertion_count
+            assertion_count += 1
+            if assertion_count == 2:
+                raise TaskLeaseLost("lease ownership lost")
+
+        with self.assertRaisesRegex(TaskLeaseLost, "ownership lost"):
+            self.candle.candles(
+                self.timestamp_from,
+                self.two_hours_from_now,
+                assert_lease_owned=assert_lease_owned,
             )
-        convert_candle_cache_to_daily(self.candle)
-        candle_cache = CandleCache.objects.filter(candle=self.candle)
-        self.assertFalse(candle_cache.filter(frequency=Frequency.HOUR).exists())
-        daily = candle_cache.filter(frequency=Frequency.DAY)
-        self.assertEqual(daily.count(), 1)
-        daily = daily[0]
-        self.assertEqual(daily.timestamp, timestamp_from)
-        self.assertEqual(daily.json_data["sample_value"], total)
-        self.assertEqual(daily.json_data["target_value"], target_value)
-        self.assertEqual(daily.json_data["next"], expected_next)
 
-    def test_candle_cache_is_not_converted_to_daily_without_all_timestamps(self):
-        timestamp_to = get_min_time(get_current_time(), value="1d")
-        timestamp_from = get_previous_time(timestamp_to, value="1d")
-        CandleCache.objects.create(
-            candle=self.candle,
-            timestamp=timestamp_from,
-            frequency=Frequency.HOUR,
-            json_data={"sample_value": 0},
-        )
-        convert_candle_cache_to_daily(self.candle)
-        candle_cache = CandleCache.objects.filter(candle=self.candle)
-        self.assertFalse(candle_cache.filter(frequency=Frequency.DAY).exists())
-        self.assertEqual(candle_cache.filter(frequency=Frequency.HOUR).count(), 1)
-
-    def test_convert_candle_cache_to_daily_with_existing_daily_cache(self):
-        timestamp_to = get_min_time(get_current_time(), value="1d")
-        day_three_from = get_previous_time(timestamp_to, value="3d")
-        day_two_from = get_previous_time(timestamp_to, value="2d")
-        CandleCache.objects.create(
-            candle=self.candle,
-            timestamp=timestamp_to,
-            frequency=Frequency.DAY,
-            json_data={"sample_value": 24},
-        )
-        for day_from in (day_three_from, day_two_from):
-            for hour in range(24):
-                CandleCache.objects.create(
-                    candle=self.candle,
-                    timestamp=day_from + pd.Timedelta(f"{hour}h"),
-                    frequency=Frequency.HOUR,
-                    json_data={"sample_value": hour + 1},
-                )
-
-        convert_candle_cache_to_daily(self.candle)
-
-        candle_cache = CandleCache.objects.filter(candle=self.candle)
-        self.assertEqual(candle_cache.filter(frequency=Frequency.DAY).count(), 3)
-        self.assertFalse(
-            candle_cache.filter(
-                frequency=Frequency.HOUR,
-                timestamp__gte=day_three_from,
-                timestamp__lt=timestamp_to,
-            ).exists()
-        )
+        self.assertEqual(CandleCache.objects.count(), 1)
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)

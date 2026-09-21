@@ -9,9 +9,13 @@ from django.test import TestCase
 from quant_tick.constants import FileData, Frequency, SampleType
 from quant_tick.lib import get_current_time
 from quant_tick.models import CandleCache, CandleData, ConstantCandle, TradeData
-from quant_tick.services.task_lease import TaskLeaseLost
 
-from .base import BaseDayIteratorTest, BaseHourIteratorTest, BaseTradeDataCandleTest
+from .base import (
+    BaseDayIteratorTest,
+    BaseHourIteratorTest,
+    BaseThresholdCandleTest,
+    BaseTradeDataCandleTest,
+)
 
 
 class ConstantCandleTest(TestCase):
@@ -96,7 +100,7 @@ class ConstantCandleTest(TestCase):
 )
 class ConstantNotionalHourFrequencyCandleTest(
     BaseHourIteratorTest,
-    BaseTradeDataCandleTest,
+    BaseThresholdCandleTest,
     TestCase,
 ):
     def get_candle(self) -> ConstantCandle:
@@ -108,94 +112,6 @@ class ConstantNotionalHourFrequencyCandleTest(
                 "target_value": 1,
             },
         )
-
-    def test_no_candles_from_trade_in_the_first_hour(self, mock_get_current_time):
-        expected = Decimal("0.5")
-        filtered = self.get_filtered(self.timestamp_from, notional=expected)
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
-        self.candle.candles(self.timestamp_from, self.one_hour_from_now)
-        self.assertFalse(CandleData.objects.exists())
-        candle_cache = CandleCache.objects.all()
-        self.assertEqual(candle_cache.count(), 1)
-        self.assertEqual(candle_cache[0].json_data["sample_value"], expected)
-
-    def test_one_candle_from_trade_in_the_first_hour(self, mock_get_current_time):
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
-        self.candle.candles(self.timestamp_from, self.one_hour_from_now)
-        candle_data = CandleData.objects.all()
-        self.assertEqual(candle_data.count(), 1)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
-
-    def test_cache_is_rolled_back_when_data_write_fails(self, mock_get_current_time):
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
-        self.write_trade_data(
-            self.timestamp_from,
-            self.one_hour_from_now,
-            filtered,
-        )
-
-        with (
-            patch.object(
-                self.candle,
-                "write_data",
-                side_effect=RuntimeError("boom"),
-            ),
-            self.assertRaisesRegex(RuntimeError, "boom"),
-        ):
-            self.candle.candles(self.timestamp_from, self.one_hour_from_now)
-
-        self.assertFalse(CandleCache.objects.exists())
-        self.assertFalse(CandleData.objects.exists())
-
-    def test_lease_loss_stops_before_next_partition_commit(self, mock_get_current_time):
-        first = self.get_filtered(self.timestamp_from, notional=Decimal(1))
-        second = self.get_filtered(self.one_hour_from_now, notional=Decimal(1))
-        self.write_trade_data(
-            self.timestamp_from,
-            self.one_hour_from_now,
-            first,
-        )
-        self.write_trade_data(
-            self.one_hour_from_now,
-            self.two_hours_from_now,
-            second,
-        )
-        assertion_count = 0
-
-        def assert_lease_owned():
-            nonlocal assertion_count
-            assertion_count += 1
-            if assertion_count == 2:
-                raise TaskLeaseLost("lease ownership lost")
-
-        with self.assertRaisesRegex(TaskLeaseLost, "ownership lost"):
-            self.candle.candles(
-                self.timestamp_from,
-                self.two_hours_from_now,
-                assert_lease_owned=assert_lease_owned,
-            )
-
-        self.assertEqual(CandleCache.objects.count(), 1)
-        candle_data = CandleData.objects.all()
-        self.assertEqual(candle_data.count(), 1)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
-
-    def test_one_candle_from_trade_in_the_first_hour_with_retry(
-        self, mock_get_current_time
-    ):
-        filtered = self.get_filtered(self.timestamp_from, notional=Decimal(1))
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered)
-        for i in range(2):
-            self.candle.candles(
-                self.timestamp_from,
-                self.one_hour_from_now,
-                retry=bool(i),
-            )
-        self.assertEqual(CandleCache.objects.count(), 1)
-        candle_data = CandleData.objects.all()
-        self.assertEqual(candle_data.count(), 1)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
 
     def test_one_candle_from_one_trade_in_the_first_hour_then_two_trades_with_retry(
         self, mock_get_current_time
@@ -247,76 +163,6 @@ class ConstantNotionalHourFrequencyCandleTest(
         candle_data = CandleData.objects.all()
         self.assertEqual(candle_data.count(), 1)
         self.assertEqual(candle_data[0].timestamp, first_trade_ts)
-
-    def test_one_candle_from_trade_in_the_first_and_second_hour(
-        self, mock_get_current_time
-    ):
-        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal("0.5"))
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
-        self.candle.candles(self.timestamp_from, self.one_hour_from_now)
-        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=Decimal("0.5"))
-        self.write_trade_data(
-            self.one_hour_from_now, self.two_hours_from_now, filtered_2
-        )
-        self.candle.candles(self.one_hour_from_now, self.two_hours_from_now)
-        candle_data = CandleData.objects.all()
-        self.assertEqual(candle_data.count(), 1)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
-        trade_data = TradeData.objects.filter(
-            symbol=self.symbol,
-            timestamp__gte=self.timestamp_from,
-            timestamp__lt=self.two_hours_from_now,
-        ).order_by("timestamp")
-        total_notional = sum(
-            self.candle.get_data_frame(
-                self.timestamp_from, self.two_hours_from_now, td
-            )["totalNotional"].sum()
-            for td in trade_data
-        )
-        self.assertEqual(candle_data[0].notional, total_notional)
-        candle_cache = CandleCache.objects.all()
-        self.assertEqual(candle_cache.count(), 2)
-        self.assertIn("next", candle_cache[0].json_data)
-        self.assertNotIn("next", candle_cache[1].json_data)
-
-    def test_two_candles_from_trades_in_the_first_and_second_hour(
-        self, mock_get_current_time
-    ):
-        filtered_1 = self.get_filtered(self.timestamp_from, notional=Decimal(1))
-        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_1)
-        filtered_2 = self.get_filtered(self.one_hour_from_now, notional=Decimal(1))
-        self.write_trade_data(
-            self.one_hour_from_now, self.two_hours_from_now, filtered_2
-        )
-        self.candle.candles(self.timestamp_from, self.two_hours_from_now)
-        candle_data = CandleData.objects.all()
-        self.assertEqual(candle_data.count(), 2)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
-        self.assertEqual(candle_data[1].timestamp, self.one_hour_from_now)
-
-    def test_two_candles_from_trades_in_first_and_third_hour(
-        self, mock_get_current_time
-    ):
-        self.write_trade_data(
-            self.timestamp_from,
-            self.one_hour_from_now,
-            self.get_filtered(self.timestamp_from, notional=Decimal(1)),
-        )
-        TradeData.objects.create(
-            symbol=self.symbol,
-            timestamp=self.one_hour_from_now,
-            frequency=Frequency.HOUR,
-        )
-        self.write_trade_data(
-            self.two_hours_from_now,
-            self.three_hours_from_now,
-            self.get_filtered(self.two_hours_from_now, notional=Decimal(1)),
-        )
-        self.candle.candles(self.timestamp_from, self.three_hours_from_now)
-        candle_data = CandleData.objects.all()
-        self.assertEqual(candle_data.count(), 2)
-        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
-        self.assertEqual(candle_data[1].timestamp, self.two_hours_from_now)
 
     def test_no_candles_without_prior_cache(self, mock_get_current_time):
         CandleCache.objects.create(

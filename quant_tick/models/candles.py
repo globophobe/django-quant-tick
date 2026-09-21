@@ -1,7 +1,7 @@
 import logging
 import re
 from collections.abc import Callable, Generator, Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pandas as pd
@@ -149,14 +149,27 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Hook for per-slice cache updates."""
         return data
 
+    def get_incomplete_candle(
+        self, timestamp: datetime, data: list, cache_data: dict
+    ) -> tuple[list, dict]:
+        """Emit a pending candle before a calendar reset, if the type requires it."""
+        return data, cache_data
+
     def candles(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
         retry: bool = False,
         assert_lease_owned: Callable[[], None] | None = None,
+        *,
+        max_gap: timedelta = timedelta(0),
     ) -> None:
-        """Aggregate and persist candles over a time range."""
+        """Aggregate observed trades, stopping at missing partitions by default.
+
+        Callbacks allow gaps up to max_gap; larger gaps stop iteration. Error
+        logs report both cases to Sentry. Cache endpoints record processed
+        partitions, not continuous coverage. Management commands remain strict.
+        """
         min_ts_from, max_ts_to, cache_data = self.initialize(
             timestamp_from, timestamp_to, retry
         )
@@ -172,12 +185,17 @@ class Candle(AbstractCodeName, PolymorphicModel):
                     max_ts_to,
                     timestamp_delete_from=timestamp_delete_from,
                 )
-        for ts_from, ts_to, trade_data in self.iter_all(min_ts_from, max_ts_to):
+        for ts_from, ts_to, trade_data in self.iter_all(
+            min_ts_from, max_ts_to, max_gap=max_gap
+        ):
             trade_candle = self.get_trade_candle(ts_from, ts_to, trade_data)
             df = (
                 pd.DataFrame([])
                 if trade_candle is not None
                 else self.get_data_frame(ts_from, ts_to, trade_data)
+            )
+            boundary_data, cache_data = self.get_incomplete_candle(
+                ts_from, [], cache_data
             )
             cache_data = self.get_cache_data(ts_from, cache_data)
             data, cache_data = self.aggregate(
@@ -191,7 +209,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
                 if assert_lease_owned is not None:
                     assert_lease_owned()
                 self.write_cache(ts_from, ts_to, cache_data)
-                self.write_data(ts_from, ts_to, data)
+                self.write_data(ts_from, ts_to, boundary_data + data)
             ts = ts_to.replace(tzinfo=None)
             logger.info(f"Candle {self}: {ts}")
 
@@ -287,9 +305,13 @@ class Candle(AbstractCodeName, PolymorphicModel):
         return deleted
 
     def iter_all(
-        self, timestamp_from: datetime, timestamp_to: datetime
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        *,
+        max_gap: timedelta = timedelta(0),
     ) -> Generator[tuple[datetime, datetime, TradeData], None, None]:
-        """Iterate TradeData slices in the requested range without gaps."""
+        """Yield slices until a gap exceeds max_gap; zero preserves strict reads."""
         max_ts_to = get_min_time(get_current_time(), value="1min")
         ts_to = min(timestamp_to, max_ts_to)
         if timestamp_from < ts_to:
@@ -309,19 +331,38 @@ class Candle(AbstractCodeName, PolymorphicModel):
                 obj_to = obj.timestamp + pd.Timedelta(f"{obj.frequency}min")
                 if obj_to <= expected_from:
                     continue
-                # Stop on gap between TradeData
                 if obj_from > expected_from:
-                    logger.warning(
-                        "Candle %s stopped on TradeData gap: expected next timestamp %s but found %s",
+                    if max_gap <= timedelta(0):
+                        logger.warning(
+                            "Candle %s stopped on TradeData gap: expected next timestamp %s but found %s",
+                            self,
+                            expected_from,
+                            obj_from,
+                        )
+                        break
+                    gap = obj_from - expected_from
+                    missing_minutes = gap.total_seconds() / 60
+                    oversized = gap > max_gap
+                    action = "stopped on oversized" if oversized else "skipping"
+                    logger.error(
+                        "Candle %s (%s %s) %s TradeData gap: %s to %s (%s missing minutes; limit %s)",
                         self,
+                        self.symbol.exchange,
+                        self.symbol.api_symbol,
+                        action,
                         expected_from,
                         obj_from,
+                        missing_minutes,
+                        max_gap,
                     )
-                    break
+                    if oversized:
+                        break
                 # Clamp to requested range
                 td_from = max(obj_from, expected_from)
                 td_to = min(obj_to, ts_to, max_ts_to)
-                if td_from < td_to and self.can_aggregate(td_from, td_to):
+                if td_from < td_to and self.can_aggregate(
+                    td_from, td_to, max_gap=max_gap
+                ):
                     yield td_from, td_to, obj
                 expected_from = obj_to
 
@@ -348,7 +389,13 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Return a trade candle when this slice can use one."""
         return None
 
-    def can_aggregate(self, timestamp_from: datetime, timestamp_to: datetime) -> bool:
+    def can_aggregate(
+        self,
+        timestamp_from: datetime,
+        timestamp_to: datetime,
+        *,
+        max_gap: timedelta = timedelta(0),
+    ) -> bool:
         """Whether this trade-data slice should be processed."""
         return True
 

@@ -6,7 +6,9 @@ import pandas as pd
 import time_machine
 from django.test import TestCase
 
-from quant_tick.models import CandleCache, CandleData
+from quant_tick.constants import Frequency
+from quant_tick.lib import aggregate_candle, get_next_cache
+from quant_tick.models import CandleCache, CandleData, TradeData
 
 from ..base import BaseHourIteratorTest, BaseMinuteIteratorTest
 from .base import BaseTimeBasedCandleTest
@@ -148,3 +150,102 @@ class TimeBasedTwoHourFrequencyCandleTest(
         self.assertEqual(candle_data.count(), 1)
         self.assertEqual(candle_data.first().timestamp, self.timestamp_from)
         self.assert_combined_candle([filtered_1, filtered_2])
+
+
+@time_machine.travel(datetime(2009, 1, 4, tzinfo=UTC), tick=False)
+@patch(
+    "quant_tick.models.candles.get_current_time",
+    return_value=datetime(2009, 1, 4, 3, tzinfo=UTC),
+)
+class TimeBasedHourlyCacheTest(BaseHourIteratorTest, BaseTimeBasedCandleTest, TestCase):
+    window = "1h"
+
+    def test_retry_initialize_uses_cache_ending_before_retry_start(
+        self, mock_get_current_time
+    ):
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.DAY,
+            ok=True,
+        )
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.HOUR,
+            json_data={"cache": "before"},
+        )
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.one_hour_from_now,
+            frequency=Frequency.HOUR,
+            json_data={"cache": "stale"},
+        )
+        retry_from = self.one_hour_from_now + pd.Timedelta("42min")
+
+        timestamp_from, timestamp_to, data = self.candle.initialize(
+            retry_from,
+            self.three_hours_from_now,
+            retry=True,
+        )
+
+        self.assertEqual(timestamp_from, retry_from)
+        self.assertEqual(timestamp_to, self.three_hours_from_now)
+        self.assertEqual(data, {"cache": "before"})
+
+    def test_retry_deletes_overlapping_cache(self, mock_get_current_time):
+        cache_before = CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.HOUR,
+            json_data={"cache": "before"},
+        )
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.one_hour_from_now,
+            frequency=Frequency.HOUR,
+            json_data={"cache": "overlapping"},
+        )
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.two_hours_from_now,
+            frequency=Frequency.HOUR,
+            json_data={"cache": "future"},
+        )
+        retry_from = self.one_hour_from_now + pd.Timedelta("42min")
+
+        self.candle.on_retry(retry_from, self.three_hours_from_now)
+
+        self.assertEqual(list(CandleCache.objects.all()), [cache_before])
+
+    def test_candle_cache_created_from_trade_in_the_first_minute(
+        self, mock_get_current_time
+    ):
+        filtered = self.get_filtered(self.timestamp_from)
+        one_minute_from_now = self.timestamp_from + pd.Timedelta("1min")
+        self.write_trade_data(self.timestamp_from, one_minute_from_now, filtered)
+        self.candle.candles(self.timestamp_from, one_minute_from_now)
+        self.assertFalse(CandleData.objects.exists())
+        candle_cache = CandleCache.objects.all()
+        self.assertEqual(candle_cache.count(), 1)
+        candle = aggregate_candle(filtered)
+        self.assertEqual(candle_cache.first().json_data["next"], candle)
+
+    def test_one_candle_from_trade_with_existing_one_minute_candle_cache(
+        self, mock_get_current_time
+    ):
+        filtered_1 = self.get_filtered(self.timestamp_from)
+        CandleCache.objects.create(
+            candle=self.candle,
+            timestamp=self.timestamp_from,
+            frequency=Frequency.MINUTE,
+            json_data=get_next_cache(filtered_1, {}),
+        )
+        one_minute_from_now = self.timestamp_from + pd.Timedelta("1min")
+        filtered_2 = self.get_filtered(one_minute_from_now)
+        self.write_trade_data(self.timestamp_from, self.one_hour_from_now, filtered_2)
+        self.candle.candles(self.timestamp_from, self.one_hour_from_now)
+        candle_data = CandleData.objects.all()
+        self.assertEqual(candle_data.count(), 1)
+        self.assertEqual(candle_data[0].timestamp, self.timestamp_from)
+        self.assertEqual(CandleCache.objects.last().json_data, {})
