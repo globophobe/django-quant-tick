@@ -134,9 +134,10 @@ class ConstantCandle(Candle):
     def get_incomplete_candle(
         self, timestamp: datetime, data: list, cache_data: dict
     ) -> tuple[list, dict]:
-        """Get incomplete candle.
+        """Flush observed trades at a reset boundary before discarding the cache.
 
-        Saved only if cache resets next iteration.
+        Called after each slice and before the next slice's cache reset, since
+        missing partitions can skip the final slice of a calendar period.
         """
         ts = timestamp + pd.Timedelta("1us")
         if self.should_reset_cache(ts, cache_data) and "next" in cache_data:

@@ -2,6 +2,7 @@ from datetime import datetime
 
 import pandas as pd
 from django.db import transaction
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from pandas import DataFrame
 
@@ -84,7 +85,9 @@ class TimeBasedCandle(Candle):
         for window_from, window_to in iter_window(ts_from, max_ts_to, window):
             ts_to = window_to
             candle = None
-            if trade_candle is not None:
+            # A gap may leave older windows pending; the summary belongs only
+            # to the window containing this partition.
+            if trade_candle is not None and window_from <= timestamp_from < window_to:
                 candle = dict(trade_candle)
                 candle["timestamp"] = window_from
             elif not data_frame.empty:
@@ -140,10 +143,11 @@ class TimeBasedCandle(Candle):
     def write_data(
         self, timestamp_from: datetime, timestamp_to: datetime, json_data: list[dict]
     ) -> None:
-        """Replace candle data for the requested window."""
+        """Replace the requested range and older windows completed across a gap."""
         with transaction.atomic():
-            CandleData.objects.filter(
-                candle=self, timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+            CandleData.objects.filter(candle=self).filter(
+                Q(timestamp__gte=timestamp_from, timestamp__lt=timestamp_to)
+                | Q(timestamp__in=[row["timestamp"] for row in json_data])
             ).delete()
             data = []
             for j in json_data:

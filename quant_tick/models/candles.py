@@ -149,6 +149,12 @@ class Candle(AbstractCodeName, PolymorphicModel):
         """Hook for per-slice cache updates."""
         return data
 
+    def get_incomplete_candle(
+        self, timestamp: datetime, data: list, cache_data: dict
+    ) -> tuple[list, dict]:
+        """Emit a pending candle before a calendar reset, if the type requires it."""
+        return data, cache_data
+
     def candles(
         self,
         timestamp_from: datetime,
@@ -188,6 +194,9 @@ class Candle(AbstractCodeName, PolymorphicModel):
                 if trade_candle is not None
                 else self.get_data_frame(ts_from, ts_to, trade_data)
             )
+            boundary_data, cache_data = self.get_incomplete_candle(
+                ts_from, [], cache_data
+            )
             cache_data = self.get_cache_data(ts_from, cache_data)
             data, cache_data = self.aggregate(
                 ts_from,
@@ -200,7 +209,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
                 if assert_lease_owned is not None:
                     assert_lease_owned()
                 self.write_cache(ts_from, ts_to, cache_data)
-                self.write_data(ts_from, ts_to, data)
+                self.write_data(ts_from, ts_to, boundary_data + data)
             ts = ts_to.replace(tzinfo=None)
             logger.info(f"Candle {self}: {ts}")
 
