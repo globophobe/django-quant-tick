@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -7,10 +8,42 @@ import time_machine
 from django.test import SimpleTestCase, TestCase
 
 from quant_tick.constants import Exchange
-from quant_tick.controllers import ExchangeREST, is_terminal_page
+from quant_tick.controllers import (
+    ExchangeREST,
+    increment_api_total_requests,
+    is_terminal_page,
+    throttle_api_requests,
+)
 from quant_tick.models import WebSocketData
 
 from ..base import BaseSymbolTest
+
+
+class RateLimitTest(SimpleTestCase):
+    def test_request_budget_initializes_and_resets_at_window_end(self):
+        reset_key, total_key = "TEST_API_RESET", "TEST_API_TOTAL"
+        with (
+            patch.dict(os.environ),
+            time_machine.travel(1000.0, tick=False) as clock,
+            patch("quant_tick.controllers.rest.time.sleep") as sleep,
+        ):
+            os.environ.pop(reset_key, None)
+            os.environ.pop(total_key, None)
+            throttle_api_requests(reset_key, total_key, 60, 10)
+            self.assertEqual(float(os.environ[reset_key]), 1060)
+            self.assertEqual(os.environ[total_key], "0")
+
+            increment_api_total_requests(total_key)
+            clock.shift(59)
+            throttle_api_requests(reset_key, total_key, 60, 10)
+            self.assertEqual(os.environ[total_key], "1")
+            self.assertEqual(float(os.environ[reset_key]), 1060)
+
+            clock.shift(1)
+            throttle_api_requests(reset_key, total_key, 60, 10)
+            self.assertEqual(os.environ[total_key], "0")
+            self.assertEqual(float(os.environ[reset_key]), 1120)
+            sleep.assert_not_called()
 
 
 class FixedIntervalTerminalPageTest(SimpleTestCase):
