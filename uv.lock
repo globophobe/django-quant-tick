@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-08-23T00:00:43.339070967Z"
+exclude-newer = "2026-09-14T01:41:26.458107626Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -458,7 +458,7 @@ wheels = [
 
 [[package]]
 name = "django-quant-tick"
-version = "0.2.2"
+version = "0.2.3"
 source = { editable = "." }
 dependencies = [
     { name = "django", version = "5.2.16", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
