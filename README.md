@@ -40,7 +40,17 @@ Supported exchanges
 
 ✅ Deribit REST API
 
+✅ Phoenix perpetuals REST API: historical fills, exchange candles, and hourly funding
+
 Note: Exchanges without paginated REST APIs or an S3 repository, will never be supported.
+
+Phoenix collection uses `exchange="phoenix"`, `symbol_type="perpetual"`, and the
+market symbol, for example `BTC`. Set `date_from` to the market's trading start;
+the earliest BTC fill returned by the public API was 2025-11-18 03:28:14 UTC.
+Historical fills use cursor pagination and feed the existing trade aggregation
+and validation path. Exchange candles include mark prices and support `8h`
+through aggregation of native `4h` candles. Funding is stored as fractional
+hourly rates. Active symbols use the existing collection callbacks.
 
 Installation
 ------------

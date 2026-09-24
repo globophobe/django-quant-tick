@@ -71,6 +71,12 @@ class FetchExchangeDataViewTest(TestCase):
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
     def test_get_fetches_supported_exchange_data(self, mock_funding, mock_candles):
+        Symbol.objects.create(
+            exchange=Exchange.PHOENIX,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
+            exchange_candle_resolution="8h",
+        )
         current_time = datetime(2026, 5, 2, 0, 0, 5, 123000, tzinfo=UTC)
         with patch(
             "quant_tick.views.fetch_exchange_data.get_current_time",
@@ -79,10 +85,10 @@ class FetchExchangeDataViewTest(TestCase):
             response = self.client.get(self.get_url())
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["funding"], 5)
+        self.assertEqual(response.json()["funding"], 6)
         self.assertEqual(response.json()["perpetual_stats"], 2)
-        self.assertEqual(response.json()["exchange_candles"], 5)
-        self.assertEqual(mock_funding.call_count, 5)
+        self.assertEqual(response.json()["exchange_candles"], 6)
+        self.assertEqual(mock_funding.call_count, 6)
         self.assertTrue(
             all(
                 callable(call.kwargs["assert_lease_owned"])
@@ -126,6 +132,7 @@ class FetchExchangeDataViewTest(TestCase):
                 (Exchange.BYBIT_LINEAR, "BTCUSDT"),
                 (Exchange.DERIBIT, "BTC-PERPETUAL"),
                 (Exchange.HYPERLIQUID, "BTC"),
+                (Exchange.PHOENIX, "BTC"),
             },
         )
         perpetual_stats_symbols = {
@@ -139,7 +146,7 @@ class FetchExchangeDataViewTest(TestCase):
                 (Exchange.BYBIT_LINEAR, "BTCUSDT"),
             },
         )
-        self.assertEqual(mock_candles.call_count, 5)
+        self.assertEqual(mock_candles.call_count, 6)
         candle_symbols = {
             call.args[0].api_symbol for call in mock_candles.call_args_list
         }
@@ -159,6 +166,7 @@ class FetchExchangeDataViewTest(TestCase):
                 Exchange.COINBASE,
                 Exchange.DERIBIT,
                 Exchange.HYPERLIQUID,
+                Exchange.PHOENIX,
             },
         )
         task_states = TaskState.objects.filter(
@@ -177,6 +185,7 @@ class FetchExchangeDataViewTest(TestCase):
                 (Exchange.DERIBIT, "BTC-PERPETUAL"),
                 (Exchange.HYPERLIQUID, "BTC"),
                 (Exchange.HYPERLIQUID, "SOL"),
+                (Exchange.PHOENIX, "BTC"),
             ],
         )
         for task_state in task_states:
