@@ -86,7 +86,7 @@ class FetchExchangeDataViewTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["funding"], 6)
-        self.assertEqual(response.json()["perpetual_stats"], 2)
+        self.assertEqual(response.json()["perpetual_stats"], 3)
         self.assertEqual(response.json()["exchange_candles"], 6)
         self.assertEqual(mock_funding.call_count, 6)
         self.assertTrue(
@@ -144,6 +144,7 @@ class FetchExchangeDataViewTest(TestCase):
             {
                 (Exchange.BINANCE_FUTURES, "BTCUSDT"),
                 (Exchange.BYBIT_LINEAR, "BTCUSDT"),
+                (Exchange.PHOENIX, "BTC"),
             },
         )
         self.assertEqual(mock_candles.call_count, 6)

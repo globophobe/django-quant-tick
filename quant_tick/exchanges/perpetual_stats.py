@@ -22,6 +22,8 @@ from .binance_futures.market_history import (
 from .bybit.candles import get_bybit_category
 from .bybit.constants import MARKET_HISTORY_INTERVAL as BYBIT_INTERVAL
 from .bybit.funding import bybit_market_history
+from .phoenix.constants import MARKET_HISTORY_INTERVAL as PHOENIX_INTERVAL
+from .phoenix.market_history import phoenix_market_history
 
 PERPETUAL_STATS_FETCH_WINDOW = timedelta(days=90)
 PERPETUAL_STATS_MIN_PERSISTENCE_INTERVAL_MINUTES = 60
@@ -29,6 +31,7 @@ PERPETUAL_STATS_INTERVALS = {
     Exchange.BINANCE_FUTURES: BINANCE_INTERVAL,
     Exchange.BYBIT_LINEAR: BYBIT_INTERVAL,
     Exchange.BYBIT_INVERSE: BYBIT_INTERVAL,
+    Exchange.PHOENIX: PHOENIX_INTERVAL,
 }
 PERPETUAL_STATS_SUPPORTED_EXCHANGES = frozenset(PERPETUAL_STATS_INTERVALS)
 PERPETUAL_STATS_BOUNDARY_SNAPSHOT_EXCHANGES = frozenset(
@@ -73,6 +76,8 @@ def perpetual_stats_api(
             timestamp_to,
             category=get_bybit_category(symbol.exchange),
         )
+    if symbol.exchange == Exchange.PHOENIX:
+        return phoenix_market_history(symbol.api_symbol, timestamp_from, timestamp_to)
     raise NotImplementedError(
         f"Perpetual stats data is not implemented for {symbol.exchange}."
     )

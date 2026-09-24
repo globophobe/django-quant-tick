@@ -40,7 +40,7 @@ Supported exchanges
 
 ✅ Deribit REST API
 
-✅ Phoenix perpetuals REST API: historical fills, exchange candles, and hourly funding
+✅ Phoenix perpetuals REST API: historical fills, exchange candles, hourly funding, and open interest
 
 Note: Exchanges without paginated REST APIs or an S3 repository, will never be supported.
 
@@ -50,7 +50,9 @@ the earliest BTC fill returned by the public API was 2025-11-18 03:28:14 UTC.
 Historical fills use cursor pagination and feed the existing trade aggregation
 and validation path. Exchange candles include mark prices and support `8h`
 through aggregation of native `4h` candles. Funding is stored as fractional
-hourly rates. Active symbols use the existing collection callbacks.
+hourly rates. Perpetual statistics contain hourly open interest in base units
+and its mark-price quote value, with mark/spot prices and the source slot retained
+as metadata. Active symbols use the existing collection callbacks.
 
 Installation
 ------------
