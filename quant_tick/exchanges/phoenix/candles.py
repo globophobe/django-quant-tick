@@ -23,9 +23,8 @@ def phoenix_candles(
 ) -> DataFrame:
     """Fetch completed exchange candles, retaining quote/base and mark-price units.
 
-    External candle sources are disabled. Phoenix fills empty buckets with the
-    prior close, including ranges before its first trade; set Symbol.date_from
-    to the market's observed trading start when backfilling.
+    Phoenix can pad empty buckets before its first trade; bound backfills with
+    Symbol.date_from.
     """
     target = parse_fixed_resolution_minutes(resolution)
     source = max(

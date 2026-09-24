@@ -35,7 +35,6 @@ class PhoenixTrades(ExchangeREST):
 
     REST exposes no fill ID. Signature plus occurrence identifies rows within a
     complete partition, and index preserves the response order within a second.
-    These are local ordering fields, not Solana instruction/event coordinates.
     """
 
     partition_scoped = True
