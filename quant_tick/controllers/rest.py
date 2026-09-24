@@ -174,8 +174,16 @@ class ExchangeREST(BaseController):
     ) -> datetime:
         """Clamp timestamp_to to complete exchange data."""
 
+    def is_history_exhausted(self, timestamp_to: datetime) -> bool:
+        """Confirm that no trades remain before an empty backfill slice."""
+        return False
+
     def main(self) -> DataFrame:
-        """Fetch, normalize, validate, and persist TradeData slices."""
+        """Fetch, normalize, validate, and persist TradeData slices.
+
+        Ordinary partition backfills can stop at a venue-confirmed history end;
+        retries keep scanning the requested repair range.
+        """
         buffered_trades = []
         pagination_id = None
         is_last_iteration = False
@@ -221,11 +229,17 @@ class ExchangeREST(BaseController):
                 previous_timestamp_from = None
                 continue
             if self.partition_scoped:
-                self.on_rest_data_frame(
+                data_frame = self.on_rest_data_frame(
                     timestamp_from,
                     timestamp_to,
                     candles,
                 )
+                if (
+                    not self.retry
+                    and data_frame.empty
+                    and self.is_history_exhausted(timestamp_from)
+                ):
+                    break
                 continue
             if previous_timestamp_from == timestamp_to:
                 buffered_trades = [
@@ -536,7 +550,7 @@ class ExchangeREST(BaseController):
         timestamp_from: datetime,
         timestamp_to: datetime,
         candles: DataFrame,
-    ) -> None:
+    ) -> DataFrame:
         data_frame = self.fetch_rest_data_frame(timestamp_from, timestamp_to)
         self.on_data_frame(
             self.symbol,
@@ -545,6 +559,7 @@ class ExchangeREST(BaseController):
             data_frame,
             candles,
         )
+        return data_frame
 
     def fetch_rest_data_frame(
         self,

@@ -1,6 +1,6 @@
 from collections import Counter
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quant_tick.constants import TradeDataRetry
@@ -9,7 +9,7 @@ from quant_tick.lib import parse_datetime
 from quant_tick.models import Symbol
 
 from .candles import phoenix_candles
-from .trades import get_trades
+from .trades import get_trades, has_trades
 
 
 def phoenix_trades(
@@ -35,9 +35,16 @@ class PhoenixTrades(ExchangeREST):
 
     REST exposes no fill ID. Signature plus occurrence identifies rows within a
     complete partition, and index preserves the response order within a second.
+    An empty backfill hour stops collection only if the venue has no older fills,
+    including history before the requested window.
     """
 
     partition_scoped = True
+
+    def is_history_exhausted(self, timestamp_to: datetime) -> bool:
+        return not has_trades(
+            self.symbol.api_symbol, datetime.fromtimestamp(0, UTC), timestamp_to
+        )
 
     def get_pagination_id(self, timestamp_to: datetime) -> datetime:
         return timestamp_to
