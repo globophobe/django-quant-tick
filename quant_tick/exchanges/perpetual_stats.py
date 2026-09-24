@@ -127,7 +127,12 @@ def perpetual_stats(
     *,
     assert_lease_owned: Callable[[], None] | None = None,
 ) -> None:
-    """Fetch and persist native-cadence perpetual stats observations."""
+    """Fetch and persist native-cadence perpetual stats observations.
+
+    Ordinary backfills stop on an empty window only when its chunk and all
+    earlier history have no stored observations, including partial rows. Retries
+    scan the requested range unless the adapter explicitly reports exhaustion.
+    """
     timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
     if timestamp_range is None:
         return
@@ -199,4 +204,14 @@ def perpetual_stats(
                 assert_lease_owned=assert_lease_owned,
             )
             if history_exhausted:
+                return
+            if (
+                not retry
+                and df.empty
+                and not PerpetualStatsData.objects.filter(
+                    symbol=symbol,
+                    frequency=frequency,
+                    timestamp__lt=chunk_to,
+                ).exists()
+            ):
                 return

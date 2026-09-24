@@ -154,7 +154,7 @@ class PhoenixMarketHistoryTest(SimpleTestCase):
 
 
 class PhoenixMarketHistoryCollectionTest(TestCase):
-    def test_management_collection_preserves_gaps_and_repairs_them(self):
+    def test_management_backfill_stops_on_empty_history_and_repairs_gaps(self):
         symbol = Symbol.objects.create(
             exchange=Exchange.PHOENIX,
             api_symbol="BTC",
@@ -163,10 +163,22 @@ class PhoenixMarketHistoryCollectionTest(TestCase):
         start = datetime(2026, 9, 23, tzinfo=UTC)
         end = start + timedelta(hours=3, minutes=15)
         points = [observation(start + timedelta(hours=hour)) for hour in (0, 2)]
+
+        def fetch(path, params):
+            left = datetime.fromisoformat(params["start_time"])
+            right = datetime.fromisoformat(params["end_time"])
+            return response(
+                [
+                    point
+                    for point in points
+                    if left <= datetime.fromisoformat(point["timestamp"]) <= right
+                ]
+            )
+
         with patch(
             "quant_tick.exchanges.phoenix.market_history.get_phoenix_response",
-            return_value=response(points),
-        ):
+            side_effect=fetch,
+        ) as api:
             call_command(
                 "perpetual_stats",
                 "--exchange",
@@ -174,7 +186,7 @@ class PhoenixMarketHistoryCollectionTest(TestCase):
                 "--api-symbol",
                 "BTC",
                 "--date-from",
-                "2026-09-23",
+                (start - timedelta(days=270)).date().isoformat(),
                 "--date-to",
                 "2026-09-23",
                 "--time-to",
@@ -182,6 +194,14 @@ class PhoenixMarketHistoryCollectionTest(TestCase):
                 stdout=StringIO(),
             )
 
+        self.assertEqual(api.call_count, 6)
+        self.assertEqual(
+            min(
+                datetime.fromisoformat(item.args[1]["start_time"])
+                for item in api.call_args_list
+            ),
+            start + timedelta(hours=3) - timedelta(days=180),
+        )
         rows = PerpetualStatsData.objects.filter(symbol=symbol)
         self.assertEqual(rows.count(), 2)
         self.assertEqual(rows.complete_for_exchange(Exchange.PHOENIX).count(), 2)
