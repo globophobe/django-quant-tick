@@ -5,9 +5,20 @@ from decimal import Decimal
 
 import httpx2
 
-from quant_tick.controllers import HTTPX_ERRORS
+from quant_tick.controllers import (
+    HTTPX_ERRORS,
+    increment_api_total_requests,
+    throttle_api_requests,
+)
 
-from .constants import API_URL, MIN_ELAPSED_PER_REQUEST
+from .constants import (
+    API_URL,
+    MAX_REQUESTS,
+    MAX_REQUESTS_RESET,
+    MIN_ELAPSED_PER_REQUEST,
+    PHOENIX_MAX_REQUESTS_RESET,
+    PHOENIX_TOTAL_REQUESTS,
+)
 
 
 def to_millis(timestamp: datetime) -> int:
@@ -18,8 +29,15 @@ def to_millis(timestamp: datetime) -> int:
 
 def get_phoenix_response(path: str, params: dict, retry: int = 30):
     for attempt in range(retry + 1):
-        start = time.monotonic()
+        throttle_api_requests(
+            PHOENIX_MAX_REQUESTS_RESET,
+            PHOENIX_TOTAL_REQUESTS,
+            MAX_REQUESTS_RESET,
+            MAX_REQUESTS,
+        )
+        start = time.time()
         try:
+            increment_api_total_requests(PHOENIX_TOTAL_REQUESTS)
             response = httpx2.get(f"{API_URL}{path}", params=params, timeout=30)
             response.raise_for_status()
             return json.loads(response.text, parse_float=Decimal)
@@ -41,7 +59,7 @@ def get_phoenix_response(path: str, params: dict, retry: int = 30):
                     delay = 2
             time.sleep(delay)
         finally:
-            elapsed = time.monotonic() - start
+            elapsed = time.time() - start
             if elapsed < MIN_ELAPSED_PER_REQUEST:
                 time.sleep(MIN_ELAPSED_PER_REQUEST - elapsed)
     raise AssertionError("unreachable")
