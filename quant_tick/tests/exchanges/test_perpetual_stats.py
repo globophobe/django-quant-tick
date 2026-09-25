@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pandas as pd
 from django.test import SimpleTestCase, TestCase
@@ -74,6 +74,106 @@ class PerpetualStatsAdapterTest(SimpleTestCase):
 
 
 class PerpetualStatsCollectionTest(BaseSymbolTest, TestCase):
+    def test_empty_history_stops_backfill_unless_retry(self):
+        timestamp_to = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_from = timestamp_to - timedelta(days=270)
+        for exchange, api_symbol in (
+            (Exchange.BINANCE_FUTURES, "BTCUSDT"),
+            (Exchange.BYBIT_LINEAR, "BTCUSDT"),
+            (Exchange.BYBIT_INVERSE, "BTCUSD"),
+            (Exchange.PHOENIX, "BTC"),
+        ):
+            symbol = self.get_symbol(
+                exchange=exchange,
+                api_symbol=api_symbol,
+                symbol_type=SymbolType.PERPETUAL,
+            )
+            for retry in (False, True):
+                with self.subTest(exchange=exchange, retry=retry):
+                    with patch(
+                        "quant_tick.exchanges.perpetual_stats.perpetual_stats_api",
+                        return_value=pd.DataFrame(),
+                    ) as mocked:
+                        perpetual_stats(
+                            symbol, timestamp_from, timestamp_to, retry=retry
+                        )
+
+                    expected = [
+                        call(
+                            symbol,
+                            timestamp_to - timedelta(days=90 * (index + 1)),
+                            timestamp_to - timedelta(days=90 * index),
+                        )
+                        for index in range(3 if retry else 1)
+                    ]
+                    self.assertEqual(mocked.call_args_list, expected)
+                    self.assertFalse(
+                        PerpetualStatsData.objects.filter(symbol=symbol).exists()
+                    )
+
+    def test_empty_gaps_preserve_backfill_with_complete_or_partial_history(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.BYBIT_LINEAR,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        timestamp_to = datetime(2026, 4, 25, tzinfo=UTC)
+        timestamp_from = timestamp_to - timedelta(days=270)
+        values = {
+            "open_interest": Decimal(100),
+            "single_open_interest": Decimal(50),
+            "long_account_ratio": Decimal("0.6"),
+            "short_account_ratio": Decimal("0.4"),
+        }
+        returned_timestamp = timestamp_from + timedelta(days=90, hours=4)
+        frame = pd.DataFrame(
+            [{"timestamp": returned_timestamp, **values}]
+        ).set_index("timestamp")
+
+        def fetch(_symbol, start, end):
+            return frame if start <= returned_timestamp < end else pd.DataFrame()
+
+        for age_days in (90, 180):
+            for complete in (False, True):
+                with self.subTest(age_days=age_days, complete=complete):
+                    PerpetualStatsData.objects.filter(symbol=symbol).delete()
+                    stored_values = values | {
+                        "short_account_ratio": Decimal("0.4") if complete else None
+                    }
+                    stored = PerpetualStatsData.objects.create(
+                        symbol=symbol,
+                        frequency=240,
+                        timestamp=timestamp_to - timedelta(days=age_days),
+                        **stored_values,
+                    )
+                    with patch(
+                        "quant_tick.exchanges.perpetual_stats.perpetual_stats_api",
+                        side_effect=fetch,
+                    ) as mocked:
+                        perpetual_stats(symbol, timestamp_from, timestamp_to)
+
+                    self.assertEqual(mocked.call_count, 3)
+                    self.assertEqual(
+                        mocked.call_args,
+                        call(
+                            symbol, timestamp_from, timestamp_from + timedelta(days=90)
+                        ),
+                    )
+                    self.assertEqual(
+                        list(
+                            PerpetualStatsData.objects.filter(
+                                symbol=symbol
+                            ).values_list("timestamp", flat=True)
+                        ),
+                        sorted([returned_timestamp, stored.timestamp]),
+                    )
+                    stored.refresh_from_db()
+                    self.assertEqual(stored.open_interest, Decimal(100))
+                    self.assertEqual(
+                        stored.short_account_ratio,
+                        Decimal("0.4") if complete else None,
+                    )
+
     def test_collects_complete_rows_and_repairs_partial_observations(self):
         symbol = self.get_symbol(
             exchange=Exchange.BINANCE_FUTURES,

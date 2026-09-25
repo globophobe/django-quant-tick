@@ -38,6 +38,8 @@ from .hyperliquid import (
     hyperliquid_trades,
 )
 from .hyperliquid.funding import HyperliquidFunding
+from .phoenix import phoenix_candles, phoenix_funding, phoenix_trades
+from .phoenix.funding import PhoenixFunding
 
 BYBIT_EXCHANGES = {
     Exchange.BYBIT,
@@ -58,6 +60,7 @@ TRADE_SUPPORTED_EXCHANGES = frozenset(
         Exchange.COINBASE,
         Exchange.DERIBIT,
         Exchange.HYPERLIQUID,
+        Exchange.PHOENIX,
     }
 )
 EXCHANGE_CANDLE_SUPPORTED_EXCHANGES = TRADE_SUPPORTED_EXCHANGES
@@ -68,6 +71,7 @@ FUNDING_SUPPORTED_EXCHANGES = frozenset(
         *BYBIT_DERIVATIVE_EXCHANGES,
         Exchange.DERIBIT,
         Exchange.HYPERLIQUID,
+        Exchange.PHOENIX,
     }
 )
 
@@ -79,6 +83,7 @@ FUNDING_CHUNKED_EXCHANGES = {
     Exchange.BYBIT_INVERSE,
     Exchange.DERIBIT,
     Exchange.HYPERLIQUID,
+    Exchange.PHOENIX,
 }
 FUNDING_MODEL = {
     Exchange.BINANCE_FUTURES: BinanceFuturesFunding,
@@ -87,6 +92,7 @@ FUNDING_MODEL = {
     Exchange.BYBIT_INVERSE: BybitFunding,
     Exchange.DERIBIT: DeribitFunding,
     Exchange.HYPERLIQUID: HyperliquidFunding,
+    Exchange.PHOENIX: PhoenixFunding,
 }
 
 
@@ -109,6 +115,11 @@ def get_bybit_symbol_type(symbol: Symbol) -> str:
     if symbol.symbol_type != expected:
         raise ValueError(f"{symbol.exchange} must be {expected}.")
     return expected
+
+
+def require_phoenix_perpetual(symbol: Symbol) -> None:
+    if symbol.symbol_type != SymbolType.PERPETUAL:
+        raise ValueError("Phoenix requires a perpetual symbol.")
 
 
 def api(
@@ -197,6 +208,9 @@ def trades_api(
         deribit_trades(symbol, **kwargs)
     elif exchange == Exchange.HYPERLIQUID:
         hyperliquid_trades(symbol, **kwargs)
+    elif exchange == Exchange.PHOENIX:
+        require_phoenix_perpetual(symbol)
+        phoenix_trades(symbol, **kwargs)
 
 
 def candles_api(
@@ -236,6 +250,9 @@ def candles_api(
         candles = deribit_candles(api_symbol, **kwargs)
     elif exchange == Exchange.HYPERLIQUID:
         candles = hyperliquid_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.PHOENIX:
+        require_phoenix_perpetual(symbol)
+        candles = phoenix_candles(api_symbol, **kwargs)
     else:
         raise NotImplementedError
     return candles
@@ -268,6 +285,8 @@ def _funding_api(
         return deribit_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.HYPERLIQUID:
         return hyperliquid_funding(symbol.api_symbol, timestamp_from, timestamp_to)
+    if exchange == Exchange.PHOENIX:
+        return phoenix_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     raise NotImplementedError(f"Funding is not implemented for {exchange}.")
 
 

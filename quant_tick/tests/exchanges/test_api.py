@@ -138,11 +138,12 @@ class TradesApiTest(BaseSymbolTest, TestCase):
                 mocked.assert_called_once()
                 self.assertEqual(mocked.call_args.args[0], symbol)
 
-    def test_trades_api_rejects_mismatched_bybit_symbol_types(self):
+    def test_api_rejects_mismatched_symbol_types(self):
         cases = [
             (Exchange.BYBIT, SymbolType.PERPETUAL),
             (Exchange.BYBIT_LINEAR, SymbolType.SPOT),
             (Exchange.BYBIT_INVERSE, SymbolType.SPOT),
+            (Exchange.PHOENIX, SymbolType.SPOT),
         ]
         ts_to = self.timestamp_from + timedelta(days=1)
 
@@ -155,6 +156,8 @@ class TradesApiTest(BaseSymbolTest, TestCase):
                 )
                 with self.assertRaises(ValueError):
                     trades_api(symbol, self.timestamp_from, ts_to, Mock())
+                with self.assertRaises(ValueError):
+                    candles_api(symbol, self.timestamp_from, ts_to, resolution="1m")
 
     def test_bitmex_collectors_are_retired_but_symbol_identity_remains_valid(self):
         symbol = self.get_symbol(

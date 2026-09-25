@@ -49,6 +49,7 @@ PERPETUAL_STATS_REQUIRED_FIELDS = {
         "long_account_ratio",
         "short_account_ratio",
     ),
+    Exchange.PHOENIX: ("open_interest", "open_interest_value"),
 }
 
 

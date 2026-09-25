@@ -155,3 +155,35 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
                 "top-trader-long-short-account-ratio-20260814.parquet"
             ),
         )
+
+    def test_phoenix_default_export_uses_open_interest_fields(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.PHOENIX,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        PerpetualStatsData.objects.create(
+            symbol=symbol,
+            timestamp=self.timestamp,
+            frequency=60,
+            open_interest=Decimal("24.4222"),
+            open_interest_value=Decimal("2065800.6314"),
+            open_interest_unit="base_asset",
+        )
+        with TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "phoenix-stats.parquet"
+            call_command(
+                "export_perpetual_stats",
+                "--code-name",
+                symbol.code_name,
+                "--output",
+                str(output),
+                stdout=StringIO(),
+            )
+            frame = pd.read_parquet(output)
+        self.assertEqual(
+            frame.columns.tolist(),
+            ["timestamp", "open_interest", "open_interest_value", "open_interest_unit"],
+        )
+        self.assertEqual(len(frame), 1)
+        self.assertEqual(frame.iloc[0].open_interest, 24.4222)
