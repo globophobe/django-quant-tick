@@ -3,10 +3,12 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import httpx2
 import pandas as pd
 from django.test import SimpleTestCase
 
-from quant_tick.constants import SymbolType
+from quant_tick.constants import RETRY_INDETERMINATE, SymbolType
+from quant_tick.exchanges.binance.api import get_binance_api_response
 from quant_tick.exchanges.binance_futures.controllers import (
     BinanceFuturesTradesREST,
     BinanceFuturesTradesS3,
@@ -59,6 +61,104 @@ class BinanceFuturesTradesTest(SimpleTestCase):
         )
 
         self.assertEqual(result, 1)
+
+    def test_rest_stops_at_venue_history_limit_without_writing_unfinished_window(self):
+        start = datetime(2026, 4, 1, tzinfo=UTC)
+        windows = [
+            (start + timedelta(hours=hour), start + timedelta(hours=hour + 1))
+            for hour in (3, 1, 0)
+        ]
+        url = "https://fapi.binance.com/fapi/v1/aggTrades?symbol=BTCUSDT&limit=1000"
+
+        def page(first_id, timestamp):
+            return httpx2.Response(
+                200,
+                request=httpx2.Request("GET", url),
+                json=[
+                    {
+                        "a": first_id + index,
+                        "p": "100",
+                        "q": "1",
+                        "f": first_id + index,
+                        "l": first_id + index,
+                        "T": int(timestamp.timestamp() * 1000) + index,
+                        "m": False,
+                    }
+                    for index in range(1000)
+                ],
+            )
+
+        for retry in (False, True, RETRY_INDETERMINATE):
+            for partial in (False, True):
+                with self.subTest(retry=retry, partial=partial):
+                    responses = [page(3000, windows[0][0])]
+                    if partial:
+                        responses.append(
+                            page(1000, windows[1][0] + timedelta(minutes=30))
+                        )
+                    responses.append(
+                        httpx2.Response(
+                            400,
+                            request=httpx2.Request("GET", url),
+                            json={
+                                "code": -4166,
+                                "msg": "Search window is restricted to recent 2 days only.",
+                            },
+                        )
+                    )
+                    persisted = Mock()
+                    controller = BinanceFuturesTradesREST(
+                        self.get_symbol(), start, windows[0][1], persisted, retry=retry
+                    )
+                    controller.get_candles = Mock(return_value=pd.DataFrame([]))
+                    controller.get_pagination_id = Mock(side_effect=[3000, 1000])
+                    with (
+                        patch(
+                            "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+                            return_value=windows,
+                        ),
+                        patch(
+                            "quant_tick.exchanges.binance.api.httpx2.get",
+                            side_effect=responses,
+                        ) as get,
+                        patch("quant_tick.exchanges.binance.api.time.sleep") as sleep,
+                    ):
+                        controller.main()
+
+                    self.assertEqual(get.call_count, len(responses))
+                    sleep.assert_not_called()
+                    self.assertEqual(controller.get_candles.call_count, 2)
+                    persisted.assert_called_once()
+                    self.assertEqual(persisted.call_args.args[1:3], windows[0])
+                    self.assertEqual(
+                        persisted.call_args.args[3]["uid"].tolist(),
+                        [str(value) for value in range(3000, 4000)],
+                    )
+
+    def test_rest_does_not_treat_other_http_errors_as_history_exhaustion(self):
+        for status, path, body in (
+            (400, "/fapi/v1/aggTrades", b'{"code": -1121}'),
+            (400, "/fapi/v1/aggTrades", b"not JSON"),
+            (400, "/fapi/v1/aggTrades", b"[]"),
+            (400, "/fapi/v1/klines", b'{"code": -4166}'),
+            (400, "/api/v3/aggTrades", b'{"code": -4166}'),
+            (500, "/fapi/v1/aggTrades", b'{"code": -4166}'),
+        ):
+            url = f"https://fapi.binance.com{path}?symbol=BTCUSDT"
+            response = httpx2.Response(
+                status, request=httpx2.Request("GET", url), content=body
+            )
+            with (
+                self.subTest(status=status, path=path, body=body),
+                patch(
+                    "quant_tick.exchanges.binance.api.httpx2.get",
+                    return_value=response,
+                ) as get,
+                patch("quant_tick.exchanges.binance.api.time.sleep"),
+                self.assertRaises(httpx2.HTTPStatusError),
+            ):
+                get_binance_api_response(get_binance_futures_trade_url, url, retry=1)
+            self.assertEqual(get.call_count, 2)
 
     def test_rest_normalizes_aggregate_trade_schema(self):
         controller = BinanceFuturesTradesREST.__new__(BinanceFuturesTradesREST)
