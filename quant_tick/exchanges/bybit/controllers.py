@@ -6,6 +6,7 @@ from quant_tick.controllers import (
     ChunkedExchangeS3,
     ExchangeWebSocket,
 )
+from quant_tick.controllers.s3 import get_archive_followup_start
 from quant_tick.lib import gzip_chunk_downloader
 from quant_tick.models import Symbol
 
@@ -36,14 +37,16 @@ def bybit_trades(
         retry=retry,
         verbose=verbose,
     ).main()
-    BybitTradesWebSocket(
-        symbol,
-        timestamp_from=timestamp_from,
-        timestamp_to=timestamp_to,
-        on_data_frame=on_data_frame,
-        retry=retry,
-        verbose=verbose,
-    ).main()
+    recent_from = get_archive_followup_start(timestamp_from)
+    if recent_from < timestamp_to:
+        BybitTradesWebSocket(
+            symbol,
+            timestamp_from=recent_from,
+            timestamp_to=timestamp_to,
+            on_data_frame=on_data_frame,
+            retry=retry,
+            verbose=verbose,
+        ).main()
 
 
 class BybitTradesS3(BybitS3Mixin, ChunkedExchangeS3):

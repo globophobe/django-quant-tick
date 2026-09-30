@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pandas as pd
+import time_machine
 from django.test import SimpleTestCase
 
 from quant_tick.exchanges.binance.controllers import (
@@ -13,38 +14,53 @@ from quant_tick.exchanges.binance.trades import get_trades
 
 
 class BinanceTradesTest(SimpleTestCase):
-    def test_trades_probe_archives_then_fill_missing_ranges_with_rest(self):
+    @time_machine.travel(datetime(2026, 4, 4, 12, 0, 30, tzinfo=UTC), tick=False)
+    def test_trades_probe_archives_then_fill_recent_missing_ranges_with_rest(self):
         symbol = SimpleNamespace(api_symbol="BTCUSDT")
-        timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
-        timestamp_to = datetime(2026, 4, 4, tzinfo=UTC)
+        timestamp_to = datetime(2026, 4, 4, 12, tzinfo=UTC)
+        recent_start = timestamp_to - timedelta(days=3)
+        old_start = timestamp_to - timedelta(days=30)
+        cutoff = timestamp_to - timedelta(days=7)
         on_data_frame = Mock()
-        calls = []
 
-        with (
-            patch(
-                "quant_tick.exchanges.binance.controllers.BinanceTradesS3"
-            ) as archive,
-            patch("quant_tick.exchanges.binance.controllers.BinanceTradesREST") as rest,
+        for start, end, expected_start in (
+            (recent_start, timestamp_to, recent_start),
+            (old_start, timestamp_to, cutoff),
+            (old_start, cutoff, None),
         ):
-            archive.return_value.main.side_effect = lambda: calls.append("archive")
-            rest.return_value.main.side_effect = lambda: calls.append("rest")
-            binance_trades(
-                symbol,
-                timestamp_from,
-                timestamp_to,
-                on_data_frame,
-            )
+            calls = []
+            with (
+                self.subTest(start=start, end=end),
+                patch(
+                    "quant_tick.exchanges.binance.controllers.BinanceTradesS3"
+                ) as archive,
+                patch(
+                    "quant_tick.exchanges.binance.controllers.BinanceTradesREST"
+                ) as rest,
+            ):
+                archive.return_value.main.side_effect = lambda calls=calls: (
+                    calls.append("archive")
+                )
+                rest.return_value.main.side_effect = lambda calls=calls: calls.append(
+                    "rest"
+                )
+                binance_trades(symbol, start, end, on_data_frame)
 
-        expected_kwargs = {
-            "timestamp_from": timestamp_from,
-            "timestamp_to": timestamp_to,
-            "on_data_frame": on_data_frame,
-            "retry": False,
-            "verbose": False,
-        }
-        archive.assert_called_once_with(symbol, **expected_kwargs)
-        rest.assert_called_once_with(symbol, **expected_kwargs)
-        self.assertEqual(calls, ["archive", "rest"])
+                kwargs = {
+                    "timestamp_from": start,
+                    "timestamp_to": end,
+                    "on_data_frame": on_data_frame,
+                    "retry": False,
+                    "verbose": False,
+                }
+                archive.assert_called_once_with(symbol, **kwargs)
+                if expected_start is None:
+                    self.assertEqual(calls, ["archive"])
+                    rest.assert_not_called()
+                else:
+                    self.assertEqual(calls, ["archive", "rest"])
+                    kwargs["timestamp_from"] = expected_start
+                    rest.assert_called_once_with(symbol, **kwargs)
 
     def test_get_trades_uses_spot_raw_trade_api(self):
         with patch(

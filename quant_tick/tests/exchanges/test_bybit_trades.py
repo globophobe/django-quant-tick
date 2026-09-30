@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pandas as pd
+import time_machine
 from django.test import SimpleTestCase
 
 from quant_tick.constants import Exchange, SymbolType
@@ -46,43 +47,66 @@ class BybitTradesTest(SimpleTestCase):
             "https://public.bybit.com/spot/BTCUSDT/BTCUSDT_2026-07-23.csv.gz",
         )
 
-    def test_trades_use_archive_then_websocket_without_publication_clamp(self):
-        symbol = SimpleNamespace(
-            exchange=Exchange.BYBIT_LINEAR,
-            api_symbol="BTCUSDT",
-            symbol_type=SymbolType.PERPETUAL,
-        )
-        timestamp_from = datetime(2026, 7, 23, tzinfo=UTC)
-        timestamp_to = timestamp_from + timedelta(days=2)
+    @time_machine.travel(datetime(2026, 7, 25, 12, 0, 30, tzinfo=UTC), tick=False)
+    def test_trades_use_full_archive_range_then_recent_websocket(self):
+        timestamp_to = datetime(2026, 7, 25, 12, tzinfo=UTC)
+        recent_start = timestamp_to - timedelta(days=2)
+        old_start = timestamp_to - timedelta(days=30)
+        cutoff = timestamp_to - timedelta(days=7)
         on_data_frame = Mock()
 
-        calls = []
-        with (
-            patch("quant_tick.exchanges.bybit.controllers.BybitTradesS3") as archive,
-            patch(
-                "quant_tick.exchanges.bybit.controllers.BybitTradesWebSocket"
-            ) as websocket,
+        for exchange, symbol_type, archive_name in (
+            (Exchange.BYBIT, SymbolType.SPOT, "BybitSpotTradesS3"),
+            (Exchange.BYBIT_LINEAR, SymbolType.PERPETUAL, "BybitTradesS3"),
+            (Exchange.BYBIT_INVERSE, SymbolType.PERPETUAL, "BybitTradesS3"),
         ):
-            archive.return_value.main.side_effect = lambda: calls.append("archive")
-            websocket.return_value.main.side_effect = lambda: calls.append("websocket")
-            bybit_trades(
-                symbol,
-                timestamp_from,
-                timestamp_to,
-                on_data_frame,
+            symbol = SimpleNamespace(
+                exchange=exchange,
+                api_symbol="BTCUSD"
+                if exchange == Exchange.BYBIT_INVERSE
+                else "BTCUSDT",
+                symbol_type=symbol_type,
             )
+            for start, end, expected_start in (
+                (recent_start, timestamp_to, recent_start),
+                (old_start, timestamp_to, cutoff),
+                (old_start, cutoff, None),
+            ):
+                calls = []
+                with (
+                    self.subTest(exchange=exchange, start=start, end=end),
+                    patch(
+                        f"quant_tick.exchanges.bybit.controllers.{archive_name}"
+                    ) as archive,
+                    patch(
+                        "quant_tick.exchanges.bybit.controllers.BybitTradesWebSocket"
+                    ) as websocket,
+                ):
+                    archive.return_value.main.side_effect = lambda calls=calls: (
+                        calls.append("archive")
+                    )
+                    websocket.return_value.main.side_effect = lambda calls=calls: (
+                        calls.append("websocket")
+                    )
+                    bybit_trades(symbol, start, end, on_data_frame)
 
-        self.assertEqual(calls, ["archive", "websocket"])
-        for controller in (archive, websocket):
-            controller.assert_called_once_with(
-                symbol,
-                timestamp_from=timestamp_from,
-                timestamp_to=timestamp_to,
-                on_data_frame=on_data_frame,
-                retry=False,
-                verbose=False,
-            )
-            controller.return_value.main.assert_called_once_with()
+                    kwargs = {
+                        "timestamp_from": start,
+                        "timestamp_to": end,
+                        "on_data_frame": on_data_frame,
+                        "retry": False,
+                        "verbose": False,
+                    }
+                    archive.assert_called_once_with(symbol, **kwargs)
+                    archive.return_value.main.assert_called_once_with()
+                    if expected_start is None:
+                        self.assertEqual(calls, ["archive"])
+                        websocket.assert_not_called()
+                    else:
+                        self.assertEqual(calls, ["archive", "websocket"])
+                        kwargs["timestamp_from"] = expected_start
+                        websocket.assert_called_once_with(symbol, **kwargs)
+                        websocket.return_value.main.assert_called_once_with()
 
     def test_websocket_controller_promotes_valid_current_minute(self):
         timestamp_from = datetime(2026, 7, 23, 12, tzinfo=UTC)
@@ -201,36 +225,6 @@ class BybitTradesTest(SimpleTestCase):
             controller.main()
 
         on_data_frame.assert_not_called()
-
-    def test_spot_trades_use_spot_archive_then_websocket(self):
-        symbol = SimpleNamespace(
-            exchange=Exchange.BYBIT,
-            api_symbol="BTCUSDT",
-            symbol_type=SymbolType.SPOT,
-        )
-        calls = []
-        with (
-            patch(
-                "quant_tick.exchanges.bybit.controllers.BybitSpotTradesS3"
-            ) as archive,
-            patch(
-                "quant_tick.exchanges.bybit.controllers.BybitTradesWebSocket"
-            ) as websocket,
-        ):
-            archive.return_value.main.side_effect = lambda: calls.append("archive")
-            websocket.return_value.main.side_effect = lambda: calls.append("websocket")
-            bybit_trades(
-                symbol,
-                datetime(2026, 7, 23, tzinfo=UTC),
-                datetime(2026, 7, 24, tzinfo=UTC),
-                Mock(),
-            )
-
-        self.assertEqual(calls, ["archive", "websocket"])
-        archive.assert_called_once()
-        archive.return_value.main.assert_called_once_with()
-        websocket.assert_called_once()
-        websocket.return_value.main.assert_called_once_with()
 
     def test_spot_archive_normalizes_chunked_hours(self):
         first_hour = datetime(2022, 11, 10, tzinfo=UTC)

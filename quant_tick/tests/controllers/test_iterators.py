@@ -183,5 +183,6 @@ class TradeDataIteratorTest(BaseSymbolTest, TestCase):
             frequency=Frequency.MINUTE,
             ok=True,
         )
-        values = self.get_values()
+        with self.assertNumQueries(1):
+            values = self.get_values()
         self.assertEqual(values, [])

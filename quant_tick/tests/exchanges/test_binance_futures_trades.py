@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import httpx2
 import pandas as pd
+import time_machine
 from django.test import SimpleTestCase
 
 from quant_tick.constants import RETRY_INDETERMINATE, SymbolType
@@ -62,6 +63,7 @@ class BinanceFuturesTradesTest(SimpleTestCase):
 
         self.assertEqual(result, 1)
 
+    @time_machine.travel(datetime(2026, 7, 28, tzinfo=UTC), tick=False)
     def test_rest_stops_at_venue_history_limit_without_writing_unfinished_window(self):
         start = datetime(2026, 4, 1, tzinfo=UTC)
         windows = [
@@ -116,7 +118,7 @@ class BinanceFuturesTradesTest(SimpleTestCase):
                         patch(
                             "quant_tick.controllers.rest.TradeDataIterator.iter_all",
                             return_value=windows,
-                        ),
+                        ) as iterator,
                         patch(
                             "quant_tick.exchanges.binance.api.httpx2.get",
                             side_effect=responses,
@@ -125,6 +127,7 @@ class BinanceFuturesTradesTest(SimpleTestCase):
                     ):
                         controller.main()
 
+                    iterator.assert_called_once_with(start, windows[0][1], retry=retry)
                     self.assertEqual(get.call_count, len(responses))
                     sleep.assert_not_called()
                     self.assertEqual(controller.get_candles.call_count, 2)
@@ -349,55 +352,71 @@ class BinanceFuturesTradesTest(SimpleTestCase):
         )
         self.assertEqual(parsed.iloc[0].nanoseconds, 0)
 
-    def test_controller_persists_futures_rows_as_aggregated_data(self):
-        timestamp_from = datetime(2026, 7, 20, tzinfo=UTC)
-        timestamp_to = timestamp_from + timedelta(days=1)
+    @time_machine.travel(datetime(2026, 7, 28, 12, 34, 56, tzinfo=UTC), tick=False)
+    def test_controller_bounds_recent_followup_and_persists_aggregates(self):
+        timestamp_to = datetime(2026, 7, 28, 12, 34, tzinfo=UTC)
+        cutoff = datetime(2026, 7, 21, 12, 34, tzinfo=UTC)
+        old_start = datetime(2019, 12, 30, tzinfo=UTC)
+        recent_start = timestamp_to - timedelta(days=2)
         symbol = self.get_symbol()
-        on_data_frame = Mock()
         data_frame = pd.DataFrame([{"uid": "1"}])
         candles = pd.DataFrame([])
 
-        calls = []
-        with (
-            patch(
-                "quant_tick.exchanges.binance_futures.controllers."
-                "BinanceFuturesTradesS3"
-            ) as archive,
-            patch(
-                "quant_tick.exchanges.binance_futures.controllers."
-                "BinanceFuturesTradesREST"
-            ) as rest,
+        for start, end, retry, expected_start in (
+            (old_start, timestamp_to, False, cutoff),
+            (old_start, timestamp_to, True, cutoff),
+            (old_start, timestamp_to, RETRY_INDETERMINATE, cutoff),
+            (recent_start, timestamp_to, False, recent_start),
+            (cutoff, cutoff + timedelta(minutes=1), False, cutoff),
+            (old_start, cutoff, False, None),
+            (old_start, cutoff - timedelta(days=1), True, None),
+            (old_start, timestamp_to - timedelta(days=4), False, cutoff),
         ):
-            archive.return_value.main.side_effect = lambda: calls.append("archive")
-            rest.return_value.main.side_effect = lambda: calls.append("rest")
-            binance_futures_trades(
-                symbol,
-                timestamp_from,
-                timestamp_to,
-                on_data_frame,
-            )
+            calls = []
+            on_data_frame = Mock()
+            with (
+                self.subTest(start=start, end=end, retry=retry),
+                patch(
+                    "quant_tick.exchanges.binance_futures.controllers."
+                    "BinanceFuturesTradesS3"
+                ) as archive,
+                patch(
+                    "quant_tick.exchanges.binance_futures.controllers."
+                    "BinanceFuturesTradesREST"
+                ) as rest,
+            ):
+                archive.return_value.main.side_effect = lambda calls=calls: (
+                    calls.append("archive")
+                )
+                rest.return_value.main.side_effect = lambda calls=calls: calls.append(
+                    "rest"
+                )
+                binance_futures_trades(
+                    symbol, start, end, on_data_frame, retry=retry, verbose=True
+                )
 
-        self.assertEqual(calls, ["archive", "rest"])
-        for controller in (archive, rest):
-            self.assertEqual(controller.call_args.args, (symbol,))
-            self.assertEqual(
-                controller.call_args.kwargs["timestamp_from"], timestamp_from
-            )
-            self.assertEqual(controller.call_args.kwargs["timestamp_to"], timestamp_to)
-        callback = archive.call_args.kwargs["on_data_frame"]
-        self.assertIs(callback, rest.call_args.kwargs["on_data_frame"])
-        callback(
-            symbol,
-            timestamp_from,
-            timestamp_to,
-            data_frame,
-            candles,
-        )
-        on_data_frame.assert_called_once_with(
-            symbol,
-            timestamp_from,
-            timestamp_to,
-            data_frame,
-            candles,
-            aggregated_trades=data_frame,
-        )
+                callback = archive.call_args.kwargs["on_data_frame"]
+                kwargs = {
+                    "timestamp_from": start,
+                    "timestamp_to": end,
+                    "on_data_frame": callback,
+                    "retry": retry,
+                    "verbose": True,
+                }
+                archive.assert_called_once_with(symbol, **kwargs)
+                if expected_start is None:
+                    self.assertEqual(calls, ["archive"])
+                    rest.assert_not_called()
+                else:
+                    self.assertEqual(calls, ["archive", "rest"])
+                    kwargs["timestamp_from"] = expected_start
+                    rest.assert_called_once_with(symbol, **kwargs)
+                callback(symbol, start, end, data_frame, candles)
+                on_data_frame.assert_called_once_with(
+                    symbol,
+                    start,
+                    end,
+                    data_frame,
+                    candles,
+                    aggregated_trades=data_frame,
+                )

@@ -29,6 +29,16 @@ def use_s3() -> datetime:
     )
 
 
+def get_archive_followup_start(timestamp_from: datetime.datetime) -> datetime.datetime:
+    """Bound only an archive-backed WebSocket/REST follow-up to seven recent days.
+
+    The archive pass retains the requested range, including retries. REST-only
+    collectors do not use this cutoff. Align it to the stored minute partitions.
+    """
+    cutoff = get_min_time(get_current_time(), "1min") - datetime.timedelta(days=7)
+    return max(timestamp_from, cutoff)
+
+
 class ExchangeS3(BaseController):
     """Base controller for daily exchange S3 archives."""
 
