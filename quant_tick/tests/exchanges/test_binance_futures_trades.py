@@ -355,7 +355,7 @@ class BinanceFuturesTradesTest(SimpleTestCase):
     @time_machine.travel(datetime(2026, 7, 28, 12, 34, 56, tzinfo=UTC), tick=False)
     def test_controller_bounds_recent_followup_and_persists_aggregates(self):
         timestamp_to = datetime(2026, 7, 28, 12, 34, tzinfo=UTC)
-        cutoff = datetime(2026, 7, 21, 12, 34, tzinfo=UTC)
+        cutoff = datetime(2026, 7, 21, tzinfo=UTC)
         old_start = datetime(2019, 12, 30, tzinfo=UTC)
         recent_start = timestamp_to - timedelta(days=2)
         symbol = self.get_symbol()

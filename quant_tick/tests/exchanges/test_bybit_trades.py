@@ -52,7 +52,7 @@ class BybitTradesTest(SimpleTestCase):
         timestamp_to = datetime(2026, 7, 25, 12, tzinfo=UTC)
         recent_start = timestamp_to - timedelta(days=2)
         old_start = timestamp_to - timedelta(days=30)
-        cutoff = timestamp_to - timedelta(days=7)
+        cutoff = datetime(2026, 7, 18, tzinfo=UTC)
         on_data_frame = Mock()
 
         for exchange, symbol_type, archive_name in (

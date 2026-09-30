@@ -1,67 +1,26 @@
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pandas as pd
 import time_machine
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
+from quant_tick.constants import Exchange, Frequency
+from quant_tick.exchanges.api import api
 from quant_tick.exchanges.binance.controllers import (
+    BinanceTradesREST,
     BinanceTradesS3,
-    binance_trades,
 )
 from quant_tick.exchanges.binance.trades import get_trades
+from quant_tick.lib import get_existing
+from quant_tick.models import TradeData
+
+from ..base import BaseSymbolTest
 
 
 class BinanceTradesTest(SimpleTestCase):
-    @time_machine.travel(datetime(2026, 4, 4, 12, 0, 30, tzinfo=UTC), tick=False)
-    def test_trades_probe_archives_then_fill_recent_missing_ranges_with_rest(self):
-        symbol = SimpleNamespace(api_symbol="BTCUSDT")
-        timestamp_to = datetime(2026, 4, 4, 12, tzinfo=UTC)
-        recent_start = timestamp_to - timedelta(days=3)
-        old_start = timestamp_to - timedelta(days=30)
-        cutoff = timestamp_to - timedelta(days=7)
-        on_data_frame = Mock()
-
-        for start, end, expected_start in (
-            (recent_start, timestamp_to, recent_start),
-            (old_start, timestamp_to, cutoff),
-            (old_start, cutoff, None),
-        ):
-            calls = []
-            with (
-                self.subTest(start=start, end=end),
-                patch(
-                    "quant_tick.exchanges.binance.controllers.BinanceTradesS3"
-                ) as archive,
-                patch(
-                    "quant_tick.exchanges.binance.controllers.BinanceTradesREST"
-                ) as rest,
-            ):
-                archive.return_value.main.side_effect = lambda calls=calls: (
-                    calls.append("archive")
-                )
-                rest.return_value.main.side_effect = lambda calls=calls: calls.append(
-                    "rest"
-                )
-                binance_trades(symbol, start, end, on_data_frame)
-
-                kwargs = {
-                    "timestamp_from": start,
-                    "timestamp_to": end,
-                    "on_data_frame": on_data_frame,
-                    "retry": False,
-                    "verbose": False,
-                }
-                archive.assert_called_once_with(symbol, **kwargs)
-                if expected_start is None:
-                    self.assertEqual(calls, ["archive"])
-                    rest.assert_not_called()
-                else:
-                    self.assertEqual(calls, ["archive", "rest"])
-                    kwargs["timestamp_from"] = expected_start
-                    rest.assert_called_once_with(symbol, **kwargs)
-
     def test_get_trades_uses_spot_raw_trade_api(self):
         with patch(
             "quant_tick.exchanges.binance.trades.iter_api",
@@ -188,3 +147,139 @@ class BinanceTradesTest(SimpleTestCase):
         self.assertEqual(first["uid"].tolist(), ["1", "2", "3", "4"])
         self.assertEqual(first["tickRule"].tolist(), [-1, -1, 1, 1])
         self.assertEqual(second["uid"].tolist(), ["5"])
+
+
+@time_machine.travel(datetime(2026, 7, 28, 12, 34, 56, tzinfo=UTC), tick=False)
+@override_settings(
+    STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
+)
+class BinanceTradeCollectionTest(BaseSymbolTest, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.day = datetime(2026, 7, 21, tzinfo=UTC)
+        timestamps = pd.date_range(
+            self.day, self.day + timedelta(days=1), freq="1min", inclusive="left"
+        )
+        self.trades = [
+            {
+                "id": index + 1,
+                "time": int(timestamp.timestamp() * 1000),
+                "price": "100",
+                "qty": "1",
+                "isBuyerMaker": False,
+            }
+            for index, timestamp in enumerate(timestamps)
+        ]
+        self.candles = pd.DataFrame({"notional": Decimal(1)}, index=timestamps)
+
+    def test_followup_preserves_complete_daily_and_hourly_partitions(self):
+        end = self.day + timedelta(days=1)
+        for frequency in (Frequency.DAY, Frequency.HOUR):
+            with self.subTest(frequency=frequency):
+                symbol = self.get_symbol(
+                    exchange=Exchange.BINANCE, api_symbol="BTCUSDT"
+                )
+                controller = BinanceTradesREST(symbol, self.day, end, Mock())
+                raw = controller.get_data_frame(
+                    controller.parse_data(list(reversed(self.trades)))
+                )
+                partitions = []
+                for minute in range(0, Frequency.DAY, frequency):
+                    start = self.day + timedelta(minutes=minute)
+                    partitions.extend(
+                        TradeData.write(
+                            symbol,
+                            start,
+                            start + timedelta(minutes=frequency),
+                            self.candles,
+                            raw_trades=raw,
+                        )
+                    )
+                self.assertTrue(all(partition.ok for partition in partitions))
+
+                with (
+                    patch(
+                        "quant_tick.exchanges.binance.controllers.zip_chunk_downloader",
+                        return_value=None,
+                    ),
+                    patch(
+                        "quant_tick.exchanges.binance.base.binance_candles",
+                        return_value=self.candles,
+                    ),
+                    patch(
+                        "quant_tick.exchanges.binance.base.get_trades",
+                        return_value=(list(reversed(self.trades)), True, None),
+                    ) as rest,
+                ):
+                    api(symbol, self.day - timedelta(days=30), end)
+
+                rows = TradeData.objects.filter(symbol=symbol)
+                covered = get_existing(rows.values("timestamp", "frequency"))
+                self.assertEqual(len(set(covered)), Frequency.DAY)
+                self.assertEqual(
+                    list(rows.values_list("pk", flat=True)),
+                    [partition.pk for partition in partitions],
+                )
+                for partition in partitions:
+                    self.assertTrue(
+                        partition.raw_data.storage.exists(partition.raw_data.name)
+                    )
+                rest.assert_not_called()
+
+    def test_followup_repairs_first_day_with_partial_request_end(self):
+        symbol = self.get_symbol(exchange=Exchange.BINANCE, api_symbol="BTCUSDT")
+        end = datetime(2026, 7, 28, 12, 34, tzinfo=UTC)
+        gap = self.day + timedelta(hours=20, minutes=10)
+        gap_hour = gap.replace(minute=0)
+        last_hour = end.replace(minute=0)
+        partitions = [
+            TradeData(
+                symbol=symbol, timestamp=timestamp, frequency=Frequency.HOUR, ok=True
+            )
+            for timestamp in pd.date_range(
+                self.day, last_hour, freq="1h", inclusive="left"
+            )
+            if timestamp != gap_hour
+        ]
+        for start, stop in (
+            (gap_hour, gap_hour + timedelta(hours=1)),
+            (last_hour, end),
+        ):
+            partitions.extend(
+                TradeData(
+                    symbol=symbol,
+                    timestamp=timestamp,
+                    frequency=Frequency.MINUTE,
+                    ok=True,
+                )
+                for timestamp in pd.date_range(
+                    start, stop, freq="1min", inclusive="left"
+                )
+                if timestamp != gap
+            )
+        TradeData.objects.bulk_create(partitions)
+        self.assertFalse(TradeData.objects.has_timestamps(symbol, self.day, end))
+        trade = self.trades[20 * 60 + 10]
+
+        with (
+            patch(
+                "quant_tick.exchanges.binance.controllers.zip_chunk_downloader",
+                return_value=None,
+            ),
+            patch(
+                "quant_tick.exchanges.binance.base.binance_candles",
+                return_value=self.candles,
+            ),
+            patch(
+                "quant_tick.exchanges.binance.base.get_trades",
+                return_value=([trade], True, None),
+            ) as rest,
+        ):
+            api(symbol, self.day - timedelta(days=30), end)
+
+        self.assertTrue(TradeData.objects.has_timestamps(symbol, self.day, end))
+        repaired = TradeData.objects.get(symbol=symbol, timestamp=gap)
+        self.assertEqual(repaired.uid, str(trade["id"]))
+        self.assertIs(repaired.ok, True)
+        self.assertEqual(repaired.get_data_frame("raw_data").iloc[0].timestamp, gap)
+        rest.assert_called_once()
