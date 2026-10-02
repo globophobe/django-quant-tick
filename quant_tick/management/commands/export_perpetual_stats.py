@@ -1,4 +1,4 @@
-"""Export native-cadence stats complete for the selected numeric fields."""
+"""Export stored native-cadence stats, preserving partial rows and null values."""
 
 import re
 from collections.abc import Iterable, Iterator
@@ -103,8 +103,8 @@ def _build_table(
 
 class Command(BaseDateCommand):
     help = (
-        "Export native-cadence PerpetualStatsData complete for the selected fields "
-        "to a bounded-memory Parquet file for research and benchmark fixtures."
+        "Export native-cadence PerpetualStatsData to bounded-memory Parquet, "
+        "preserving rows with missing values."
     )
 
     def get_queryset(self) -> QuerySet:
@@ -123,8 +123,7 @@ class Command(BaseDateCommand):
             choices=EXPORTABLE_FIELDS,
             nargs="+",
             help=(
-                "Columns to export after timestamp. Rows must contain every selected "
-                "numeric field. "
+                "Columns to export after timestamp. "
                 "Defaults to the exchange's required fields plus the optional "
                 "open_interest_unit metadata."
             ),
@@ -184,11 +183,6 @@ class Command(BaseDateCommand):
         queryset = PerpetualStatsData.objects.filter(
             symbol=symbol,
             frequency=frequency,
-            **{
-                f"{field}__isnull": False
-                for field in fields
-                if field in PERPETUAL_STATS_VALUE_FIELDS
-            },
         )
         bounds = self.get_timestamp_bounds(
             queryset,

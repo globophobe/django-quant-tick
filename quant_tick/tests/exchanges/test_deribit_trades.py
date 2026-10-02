@@ -254,11 +254,13 @@ class DeribitTradesTest(SimpleTestCase):
         )
 
     def test_main_fetches_each_missing_partition_independently(self):
-        controller = DeribitTrades.__new__(DeribitTrades)
-        controller.symbol = SimpleNamespace()
-        controller.timestamp_from = self.timestamp_from
-        controller.timestamp_to = self.timestamp_from + timedelta(hours=2)
-        controller.retry = False
+        controller = DeribitTrades(
+            SimpleNamespace(),
+            self.timestamp_from,
+            self.timestamp_from + timedelta(hours=2),
+            on_data_frame=Mock(),
+            verbose=False,
+        )
         controller.get_candles = Mock(side_effect=["newer", "older"])
         controller.validate_websocket_partitions = Mock(return_value={})
         controller.get_websocket_timestamp_from = Mock(

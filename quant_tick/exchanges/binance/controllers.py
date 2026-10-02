@@ -3,6 +3,7 @@ from collections.abc import Callable
 
 from quant_tick.constants import TradeDataRetry
 from quant_tick.controllers import ChunkedExchangeS3, ExchangeREST
+from quant_tick.controllers.s3 import get_archive_followup_start
 from quant_tick.lib import zip_chunk_downloader
 from quant_tick.models import Symbol
 
@@ -26,7 +27,9 @@ def binance_trades(
         "verbose": verbose,
     }
     BinanceTradesS3(symbol, **kwargs).main()
-    BinanceTradesREST(symbol, **kwargs).main()
+    kwargs["timestamp_from"] = get_archive_followup_start(timestamp_from)
+    if kwargs["timestamp_from"] < timestamp_to:
+        BinanceTradesREST(symbol, **kwargs).main()
 
 
 class BinanceTradesREST(BinanceMixin, ExchangeREST):

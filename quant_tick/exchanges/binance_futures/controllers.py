@@ -6,6 +6,8 @@ from pandas import DataFrame
 
 from quant_tick.constants import TradeDataRetry
 from quant_tick.controllers import ChunkedExchangeS3, ExchangeREST
+from quant_tick.controllers.s3 import get_archive_followup_start
+from quant_tick.exchanges.binance.api import BinanceTradeHistoryExhausted
 from quant_tick.lib import zip_chunk_downloader
 from quant_tick.models import Symbol
 
@@ -53,11 +55,23 @@ def binance_futures_trades(
         "verbose": verbose,
     }
     BinanceFuturesTradesS3(symbol, **kwargs).main()
-    BinanceFuturesTradesREST(symbol, **kwargs).main()
+    kwargs["timestamp_from"] = get_archive_followup_start(timestamp_from)
+    if kwargs["timestamp_from"] < timestamp_to:
+        BinanceFuturesTradesREST(symbol, **kwargs).main()
 
 
 class BinanceFuturesTradesREST(BinanceFuturesMixin, ExchangeREST):
-    """Binance Futures trades REST."""
+    """Walk backward until Binance rejects a query beyond retained REST history.
+
+    The venue response, not a fixed age cutoff, ends collection. An unfinished
+    partition is never persisted as empty or complete, including during retries.
+    """
+
+    def main(self) -> None:
+        try:
+            super().main()
+        except BinanceTradeHistoryExhausted:
+            return
 
 
 class BinanceFuturesTradesS3(BinanceFuturesS3Mixin, ChunkedExchangeS3):

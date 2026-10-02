@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT_STATUS_CODES = {418, 429}
 
 
+class BinanceTradeHistoryExhausted(RuntimeError):
+    """USD-M aggregate trades are outside the venue's retained REST history."""
+
+
 def format_binance_api_timestamp(timestamp: datetime) -> int:
     return int(timestamp.timestamp() * 1000)  # Millisecond
 
@@ -56,6 +60,19 @@ def get_binance_api_response(
         else:
             response.raise_for_status()
     except HTTPX_ERRORS as error:
+        if (
+            isinstance(error, httpx2.HTTPStatusError)
+            and error.response.status_code == 400
+            and error.request.url.path == "/fapi/v1/aggTrades"
+        ):
+            try:
+                payload = error.response.json()
+            except ValueError:
+                payload = None
+            if isinstance(payload, dict) and payload.get("code") == -4166:
+                raise BinanceTradeHistoryExhausted(
+                    "Binance aggregate trade history is exhausted"
+                ) from error
         if retry > 0:
             sleep_duration = 1.0
             if (

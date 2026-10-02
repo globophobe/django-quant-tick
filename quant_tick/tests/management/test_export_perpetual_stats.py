@@ -40,7 +40,9 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
             open_interest_unit="base_asset",
         )
 
-    def test_exports_rows_complete_for_selected_fields_in_bounded_batches(self):
+    def test_exports_partial_rows_in_bounded_batches_regardless_of_selected_fields(
+        self,
+    ):
         self.create_row(0, complete=False)
         self.create_row(1)
         self.create_row(2, complete=False)
@@ -59,20 +61,23 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
             "open_interest_unit",
         ]
         cases = (
-            ((ratio,), [0, 1, 2], [1.1, 1.2, 1.3], {}),
-            ((ratio, "taker_long_short_volume_ratio"), [1], [1.2], {}),
-            ((), [1], [1.2], {}),
+            ((ratio,), [0, 1, 2, 3], {}),
+            ((ratio, "taker_long_short_volume_ratio"), [0, 1, 2, 3], {}),
+            ((), [0, 1, 2, 3], {}),
             (
                 (ratio,),
-                [1],
-                [1.2],
+                [1, 2],
                 {
                     "date_from": "2020-09-01T00:05:00",
-                    "date_to": "2020-09-01T00:10:00",
+                    "date_to": "2020-09-01T00:15:00",
                 },
             ),
         )
-        for fields, indices, ratios, bounds in cases:
+        expected_values = {
+            ratio: [1.1, 1.2, 1.3, float("nan")],
+            "taker_long_short_volume_ratio": [float("nan"), 1.4, float("nan"), 1.4],
+        }
+        for fields, indices, bounds in cases:
             with (
                 self.subTest(fields=fields, bounds=bounds),
                 TemporaryDirectory() as temp_dir,
@@ -107,12 +112,17 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
                     frame["timestamp"].tolist(),
                     [self.timestamp + timedelta(minutes=5 * i) for i in indices],
                 )
-                self.assertEqual(frame[ratio].tolist(), ratios)
+                for field, values in expected_values.items():
+                    if field in frame:
+                        pd.testing.assert_series_equal(
+                            frame[field],
+                            pd.Series([values[i] for i in indices], name=field),
+                        )
                 self.assertEqual(list(Path(temp_dir).iterdir()), [output])
                 expected_message = f"Exported {len(indices)} perpetual stats rows"
                 self.assertIn(expected_message, stdout.getvalue())
 
-    def test_selected_field_exports_without_any_exchange_complete_rows(self):
+    def test_exports_zero_and_null_values_without_any_complete_rows(self):
         row = self.create_row(0, complete=False)
         row.top_trader_long_short_account_ratio = Decimal(0)
         row.open_interest_unit = ""
@@ -120,27 +130,33 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
             update_fields=["top_trader_long_short_account_ratio", "open_interest_unit"]
         )
 
-        with TemporaryDirectory() as temp_dir:
-            output = Path(temp_dir) / "partial-history.parquet"
-            call_command(
-                "export_perpetual_stats",
-                "--code-name",
-                self.symbol.code_name,
-                "--frequency",
-                "5",
-                "--field",
-                "top_trader_long_short_account_ratio",
-                "open_interest_unit",
-                "--output",
-                str(output),
-                stdout=StringIO(),
-            )
-            frame = pd.read_parquet(output)
-            self.assertEqual(frame["timestamp"].tolist(), [self.timestamp])
-            self.assertEqual(
-                frame["top_trader_long_short_account_ratio"].tolist(), [0.0]
-            )
-            self.assertTrue(frame["open_interest_unit"].isna().all())
+        for fields in ((), ("taker_long_short_volume_ratio",)):
+            with self.subTest(fields=fields), TemporaryDirectory() as temp_dir:
+                output = Path(temp_dir) / "partial-history.parquet"
+                args = [
+                    "--code-name",
+                    self.symbol.code_name,
+                    "--frequency",
+                    "5",
+                    "--output",
+                    str(output),
+                ]
+                if fields:
+                    args.extend(["--field", *fields])
+                call_command("export_perpetual_stats", *args, stdout=StringIO())
+                frame = pd.read_parquet(output)
+                self.assertEqual(frame["timestamp"].tolist(), [self.timestamp])
+                self.assertTrue(frame["taker_long_short_volume_ratio"].isna().all())
+                self.assertEqual(
+                    frame["taker_long_short_volume_ratio"].dtype, "float64"
+                )
+                if fields:
+                    self.assertEqual(frame.columns.tolist(), ["timestamp", *fields])
+                else:
+                    self.assertEqual(
+                        frame["top_trader_long_short_account_ratio"].tolist(), [0.0]
+                    )
+                    self.assertTrue(frame["open_interest_unit"].isna().all())
 
     def test_field_specific_default_filename_is_explicit(self):
         self.assertEqual(
@@ -155,3 +171,35 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
                 "top-trader-long-short-account-ratio-20260814.parquet"
             ),
         )
+
+    def test_phoenix_default_export_uses_open_interest_fields(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.PHOENIX,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        PerpetualStatsData.objects.create(
+            symbol=symbol,
+            timestamp=self.timestamp,
+            frequency=60,
+            open_interest=Decimal("24.4222"),
+            open_interest_value=Decimal("2065800.6314"),
+            open_interest_unit="base_asset",
+        )
+        with TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "phoenix-stats.parquet"
+            call_command(
+                "export_perpetual_stats",
+                "--code-name",
+                symbol.code_name,
+                "--output",
+                str(output),
+                stdout=StringIO(),
+            )
+            frame = pd.read_parquet(output)
+        self.assertEqual(
+            frame.columns.tolist(),
+            ["timestamp", "open_interest", "open_interest_value", "open_interest_unit"],
+        )
+        self.assertEqual(len(frame), 1)
+        self.assertEqual(frame.iloc[0].open_interest, 24.4222)

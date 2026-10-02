@@ -30,6 +30,7 @@ class Exchange(models.TextChoices):
     COINBASE = "coinbase", "Coinbase"
     DERIBIT = "deribit", "Deribit"
     HYPERLIQUID = "hyperliquid", "Hyperliquid"
+    PHOENIX = "phoenix", "Phoenix"
 
 
 class SymbolType(models.TextChoices):
