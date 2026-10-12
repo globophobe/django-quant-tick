@@ -99,6 +99,7 @@ def fetch_binance_candles(
     symbol_type: str = SymbolType.SPOT,
     limit: int = CANDLE_MAX_RESULTS,
     log_format: str | None = None,
+    get_response=None,
 ) -> DataFrame:
     """Fetch Binance candles."""
     api_url = get_binance_candle_api_url(symbol_type)
@@ -108,7 +109,7 @@ def fetch_binance_candles(
         url,
         get_binance_candle_pagination_id,
         get_binance_candle_timestamp,
-        partial(get_binance_api_response, get_binance_candle_url),
+        get_response or partial(get_binance_api_response, get_binance_candle_url),
         limit,
         MIN_ELAPSED_PER_REQUEST,
         timestamp_from=timestamp_from,

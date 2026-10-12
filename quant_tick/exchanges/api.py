@@ -13,6 +13,7 @@ from quant_tick.lib import (
 )
 from quant_tick.models import ExchangeCandleData, FundingData, Symbol, TradeData
 
+from .aster import aster_candles, aster_trades
 from .binance import binance_candles, binance_trades
 from .binance_futures import (
     binance_futures_candles,
@@ -23,6 +24,7 @@ from .binance_futures.funding import (
     BinanceFuturesFunding,
     get_binance_futures_funding_interval,
 )
+from .binance_us import binance_us_candles, binance_us_trades
 from .bitfinex import bitfinex_candles, bitfinex_funding, bitfinex_trades
 from .bitfinex.funding import BitfinexFunding
 from .bybit import bybit_candles, bybit_funding, bybit_trades
@@ -38,8 +40,10 @@ from .hyperliquid import (
     hyperliquid_trades,
 )
 from .hyperliquid.funding import HyperliquidFunding
+from .okx import okx_candles, okx_trades
 from .phoenix import phoenix_candles, phoenix_funding, phoenix_trades
 from .phoenix.funding import PhoenixFunding
+from .upbit import upbit_candles, upbit_trades
 
 BYBIT_EXCHANGES = {
     Exchange.BYBIT,
@@ -61,6 +65,10 @@ TRADE_SUPPORTED_EXCHANGES = frozenset(
         Exchange.DERIBIT,
         Exchange.HYPERLIQUID,
         Exchange.PHOENIX,
+        Exchange.ASTER,
+        Exchange.BINANCE_US,
+        Exchange.OKX,
+        Exchange.UPBIT,
     }
 )
 EXCHANGE_CANDLE_SUPPORTED_EXCHANGES = TRADE_SUPPORTED_EXCHANGES
@@ -120,6 +128,11 @@ def get_bybit_symbol_type(symbol: Symbol) -> str:
 def require_phoenix_perpetual(symbol: Symbol) -> None:
     if symbol.symbol_type != SymbolType.PERPETUAL:
         raise ValueError("Phoenix requires a perpetual symbol.")
+
+
+def require_market_type(symbol: Symbol, expected: str) -> None:
+    if symbol.symbol_type != expected:
+        raise ValueError(f"{symbol.exchange} {symbol.api_symbol} requires {expected}.")
 
 
 def api(
@@ -183,7 +196,9 @@ def trades_api(
     timestamp_from, timestamp_to = timestamp_range
     exchange = symbol.exchange
     if exchange not in TRADE_SUPPORTED_EXCHANGES:
-        raise NotImplementedError(f"Trade collection is not implemented for {exchange}.")
+        raise NotImplementedError(
+            f"Trade collection is not implemented for {exchange}."
+        )
     kwargs = {
         "timestamp_from": timestamp_from,
         "timestamp_to": timestamp_to,
@@ -191,7 +206,24 @@ def trades_api(
         "retry": retry,
         "verbose": verbose,
     }
-    if exchange == Exchange.BINANCE:
+    if exchange == Exchange.ASTER:
+        require_market_type(symbol, SymbolType.PERPETUAL)
+        aster_trades(symbol, **kwargs)
+    elif exchange == Exchange.BINANCE_US:
+        require_market_type(symbol, SymbolType.SPOT)
+        binance_us_trades(symbol, **kwargs)
+    elif exchange == Exchange.OKX:
+        require_market_type(
+            symbol,
+            SymbolType.PERPETUAL
+            if symbol.api_symbol.endswith("-SWAP")
+            else SymbolType.SPOT,
+        )
+        okx_trades(symbol, **kwargs)
+    elif exchange == Exchange.UPBIT:
+        require_market_type(symbol, SymbolType.SPOT)
+        upbit_trades(symbol, **kwargs)
+    elif exchange == Exchange.BINANCE:
         get_binance_symbol_type(symbol)
         binance_trades(symbol, **kwargs)
     elif exchange == Exchange.BINANCE_FUTURES:
@@ -229,7 +261,22 @@ def candles_api(
     kwargs = {"timestamp_from": timestamp_from, "timestamp_to": timestamp_to}
     if resolution is not None:
         kwargs["resolution"] = resolution
-    if exchange == Exchange.BINANCE:
+    if exchange == Exchange.ASTER:
+        require_market_type(symbol, SymbolType.PERPETUAL)
+        candles = aster_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.BINANCE_US:
+        require_market_type(symbol, SymbolType.SPOT)
+        candles = binance_us_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.OKX:
+        require_market_type(
+            symbol,
+            SymbolType.PERPETUAL if api_symbol.endswith("-SWAP") else SymbolType.SPOT,
+        )
+        candles = okx_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.UPBIT:
+        require_market_type(symbol, SymbolType.SPOT)
+        candles = upbit_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.BINANCE:
         get_binance_symbol_type(symbol)
         candles = binance_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BINANCE_FUTURES:

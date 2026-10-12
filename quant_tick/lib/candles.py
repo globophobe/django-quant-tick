@@ -287,7 +287,7 @@ def has_zero_trade_candle(
     timestamp_from: datetime,
     timestamp_to: datetime,
 ) -> bool:
-    missing_candle_is_zero = exchange == Exchange.BITFINEX
+    missing_candle_is_zero = exchange in (Exchange.BITFINEX, Exchange.UPBIT)
     if not len(candles):
         return missing_candle_is_zero
     if "notional" in candles.columns:
