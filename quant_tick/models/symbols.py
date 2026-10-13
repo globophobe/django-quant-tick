@@ -31,8 +31,8 @@ class Symbol(AbstractCodeName):
     significant_trade_filter = models.PositiveIntegerField(
         _("significant trade filter"),
         help_text=_(
-            "All trades less than the value of the significant trade filter will be "
-            "aggregated, according to the the algorithm described in the documentation."
+            "Aggregate trades below this amount in the market's quote currency "
+            "(for example, USDT for BTCUSDT or KRW for KRW-BTC)."
         ),
         default=0,
     )
