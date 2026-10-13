@@ -7,10 +7,10 @@ import pandas as pd
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from quant_tick.constants import Exchange, SymbolType
-from quant_tick.exchanges.api import api, candles_api, trades_api
+from quant_tick.exchanges.api import api, candles_api, exchange_candles, trades_api
 from quant_tick.exchanges.upbit.candles import upbit_candles
 from quant_tick.exchanges.upbit.controllers import UpbitArchive, UpbitTrades
-from quant_tick.models import TradeData
+from quant_tick.models import ExchangeCandleData, TradeData
 
 from ..base import BaseSymbolTest
 
@@ -134,6 +134,70 @@ class UpbitMarketTest(SimpleTestCase):
         )
         result = controller.parse_dtypes_and_strip_columns(frame)
         self.assertEqual(result.uid.tolist(), ["20261010:0", "20261011:0"])
+
+
+class UpbitCandleCollectionTest(BaseSymbolTest, TestCase):
+    def test_eight_hour_collection_preserves_traded_windows_with_quiet_intervals(self):
+        start = datetime(2026, 10, 11, tzinfo=UTC)
+        cases = (
+            (
+                "BTC-BAT",
+                (12, 16),
+                [(8, 13, 23, 12, 14, 10, 100), (16, 17, 27, 16, 18, 10, 100)],
+            ),
+            (
+                "KRW-BTC",
+                (0, 4, 8, 12, 16, 20),
+                [
+                    (0, 1, 15, 0, 6, 20, 200),
+                    (8, 9, 23, 8, 14, 20, 200),
+                    (16, 17, 31, 16, 22, 20, 200),
+                ],
+            ),
+        )
+        for market, hours, expected in cases:
+            with self.subTest(market=market):
+                symbol = self.get_symbol(
+                    exchange=Exchange.UPBIT,
+                    api_symbol=market,
+                    exchange_candle_resolution="8h",
+                )
+                page = [
+                    {
+                        "candle_date_time_utc": (
+                            start + timedelta(hours=hour)
+                        ).strftime("%Y-%m-%dT%H:%M:%S"),
+                        "opening_price": Decimal(hour + 1),
+                        "high_price": Decimal(hour + 11),
+                        "low_price": Decimal(hour),
+                        "trade_price": Decimal(hour + 2),
+                        "candle_acc_trade_volume": Decimal(10),
+                        "candle_acc_trade_price": Decimal(100),
+                    }
+                    for hour in reversed(hours)
+                ]
+                with patch(
+                    "quant_tick.exchanges.upbit.candles.get_upbit_response",
+                    side_effect=[page, []],
+                ):
+                    exchange_candles(symbol, start, start + timedelta(days=1))
+                rows = list(
+                    ExchangeCandleData.objects.filter(symbol=symbol, frequency=480)
+                )
+                self.assertEqual(len(rows), len(expected))
+                for row, (hour, *values) in zip(rows, expected, strict=True):
+                    self.assertEqual(row.timestamp, start + timedelta(hours=hour))
+                    self.assertEqual(
+                        [
+                            row.open,
+                            row.high,
+                            row.low,
+                            row.close,
+                            row.notional,
+                            row.volume,
+                        ],
+                        [Decimal(value) for value in values],
+                    )
 
 
 @override_settings(

@@ -12,7 +12,11 @@ from .api import get_upbit_response
 
 
 def upbit_candles(api_symbol, timestamp_from, timestamp_to, resolution="1m"):
-    """Prices and quote turnover retain the market's quote currency, including KRW."""
+    """Retain quote-currency prices and turnover, aggregating traded intervals.
+
+    Upbit omits zero-trade intervals, so elapsed resampled windows can contain
+    fewer source candles than their duration would otherwise require.
+    """
     target = parse_fixed_resolution_minutes(resolution)
     source = max(
         value for value in (1, 3, 5, 10, 15, 30, 60, 240) if target % value == 0
@@ -60,4 +64,5 @@ def upbit_candles(api_symbol, timestamp_from, timestamp_to, resolution="1m"):
         timestamp_to=timestamp_to,
         resolution_minutes=target,
         source_resolution_minutes=source,
+        missing_candles_are_zero=True,
     )
