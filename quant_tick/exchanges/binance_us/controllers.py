@@ -1,4 +1,4 @@
-from ..binance_format import BinanceFormatTrades, format_candles
+from ..binance_format import BinanceFormatTrades, binance_format_candles
 from ..public import get_public_json
 
 
@@ -14,7 +14,7 @@ def get_binance_us_response(path, params):
 
 
 def binance_us_candles(api_symbol, timestamp_from, timestamp_to, resolution="1m"):
-    return format_candles(
+    return binance_format_candles(
         get_binance_us_response, api_symbol, timestamp_from, timestamp_to, resolution
     )
 

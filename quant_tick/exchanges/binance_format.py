@@ -1,4 +1,4 @@
-"""Individual-trade collection for keyless Binance-format market APIs."""
+"""Candle and individual-trade collection for keyless Binance-format market APIs."""
 
 from datetime import datetime
 from urllib.parse import parse_qsl, urlsplit
@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, urlsplit
 from quant_tick.controllers import ExchangeREST
 
 from .binance.base import BinanceMixin
-from .binance.candles import fetch_binance_candles, get_binance_interval
+from .binance.candles import fetch_binance_format_candles, get_binance_interval
 from .binance.trades import get_binance_trades_timestamp
 
 
@@ -83,13 +83,15 @@ def seek_raw_trade(request, api_symbol, start, *, first_id=0):
     return max(int(first[0]["id"]), low - 1)
 
 
-def format_candles(request, api_symbol, timestamp_from, timestamp_to, resolution="1m"):
+def binance_format_candles(
+    request, api_symbol, timestamp_from, timestamp_to, resolution="1m"
+):
     def response(url, timestamp_from, pagination_id):
         params = dict(parse_qsl(urlsplit(url).query))
         params["endTime"] = pagination_id
         return request("/klines", params)[::-1]
 
-    return fetch_binance_candles(
+    return fetch_binance_format_candles(
         api_symbol,
         timestamp_from,
         timestamp_to,
@@ -127,6 +129,6 @@ class BinanceFormatTrades(BinanceMixin, ExchangeREST):
         return not first or get_binance_trades_timestamp(first[0]) >= timestamp_to
 
     def get_candles(self, timestamp_from, timestamp_to):
-        return format_candles(
+        return binance_format_candles(
             self.request, self.symbol.api_symbol, timestamp_from, timestamp_to
         )

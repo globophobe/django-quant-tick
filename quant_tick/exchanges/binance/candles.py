@@ -90,7 +90,7 @@ def get_binance_candle_api_url(symbol_type: str) -> str:
     return SPOT_API_URL
 
 
-def fetch_binance_candles(
+def fetch_binance_format_candles(
     api_symbol: str,
     timestamp_from: datetime,
     timestamp_to: datetime,
@@ -101,7 +101,7 @@ def fetch_binance_candles(
     log_format: str | None = None,
     get_response=None,
 ) -> DataFrame:
-    """Fetch Binance candles."""
+    """Fetch Binance-format candles with the supplied or default Binance requester."""
     api_url = get_binance_candle_api_url(symbol_type)
     url = f"{api_url}/klines?symbol={api_symbol}&interval={interval}&limit={limit}"
     ts_to = get_interval_inclusive_end(timestamp_from, timestamp_to, interval)
@@ -144,7 +144,7 @@ def binance_candles(
     log_format: str | None = None,
 ) -> DataFrame:
     interval = get_binance_interval(resolution if resolution is not None else interval)
-    return fetch_binance_candles(
+    return fetch_binance_format_candles(
         api_symbol,
         timestamp_from,
         timestamp_to,

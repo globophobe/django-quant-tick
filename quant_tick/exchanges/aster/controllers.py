@@ -1,6 +1,6 @@
 """Aster perpetual history includes the predecessor APX/Astherus market."""
 
-from ..binance_format import BinanceFormatTrades, format_candles
+from ..binance_format import BinanceFormatTrades, binance_format_candles
 from ..public import get_public_json
 
 
@@ -11,7 +11,7 @@ def get_aster_response(path, params):
 
 
 def aster_candles(api_symbol, timestamp_from, timestamp_to, resolution="1m"):
-    return format_candles(
+    return binance_format_candles(
         get_aster_response, api_symbol, timestamp_from, timestamp_to, resolution
     )
 
