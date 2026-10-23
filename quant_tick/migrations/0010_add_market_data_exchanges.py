@@ -16,11 +16,6 @@ class Migration(migrations.Migration):
             field=models.CharField(choices=[('aster', 'Aster'), ('binance', 'Binance'), ('binance-futures', 'Binance Futures'), ('binance-us', 'Binance.US'), ('bitfinex', 'Bitfinex'), ('bitmex', 'BitMEX'), ('bybit', 'Bybit'), ('bybit-linear', 'Bybit Linear'), ('bybit-inverse', 'Bybit Inverse'), ('coinbase', 'Coinbase'), ('deribit', 'Deribit'), ('hyperliquid', 'Hyperliquid'), ('okx', 'OKX'), ('phoenix', 'Phoenix'), ('upbit', 'Upbit')], max_length=255, verbose_name='exchange'),
         ),
         migrations.AlterField(
-            model_name='symbol',
-            name='significant_trade_filter',
-            field=models.PositiveIntegerField(default=0, help_text="Aggregate trades below this amount in the market's quote currency (for example, USDT for BTCUSDT or KRW for KRW-BTC).", verbose_name='significant trade filter'),
-        ),
-        migrations.AlterField(
             model_name='taskstate',
             name='exchange',
             field=models.CharField(choices=[('all', 'All'), ('aster', 'Aster'), ('binance', 'Binance'), ('binance-futures', 'Binance Futures'), ('binance-us', 'Binance.US'), ('bitfinex', 'Bitfinex'), ('bitmex', 'BitMEX'), ('bybit', 'Bybit'), ('bybit-linear', 'Bybit Linear'), ('bybit-inverse', 'Bybit Inverse'), ('coinbase', 'Coinbase'), ('deribit', 'Deribit'), ('hyperliquid', 'Hyperliquid'), ('okx', 'OKX'), ('phoenix', 'Phoenix'), ('upbit', 'Upbit')], max_length=255, verbose_name='exchange'),
