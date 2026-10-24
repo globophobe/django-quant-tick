@@ -10,20 +10,37 @@ from .binance.candles import fetch_binance_format_candles, get_binance_interval
 from .binance.trades import get_binance_trades_timestamp
 
 
-def raw_trades(request, api_symbol: str, start: datetime, end: datetime, *, first_id=0):
+def raw_trades(
+    request,
+    api_symbol: str,
+    start: datetime,
+    end: datetime,
+    *,
+    first_id=0,
+    id_range_pages=False,
+):
     """Locate an older raw ID, then walk forward through every fill in [start, end).
 
     Aggregate trades supply only the seek anchor. Starting at its first raw ID
     preserves fills whose aggregate spans the requested lower time boundary.
+    Aster limits ID ranges, not row counts: short or empty pages can precede
+    more history. Its latest raw ID bounds traversal through empty ranges.
     """
-    cursor = seek_raw_trade(request, api_symbol, start, first_id=first_id)
+    latest = None
+    if id_range_pages:
+        page = request("/historicalTrades", {"symbol": api_symbol, "limit": 1})
+        if not page:
+            return [], True, None
+        latest = page[-1]
+    last_id = int(latest["id"]) if latest is not None else None
+    cursor = seek_raw_trade(
+        request, api_symbol, start, first_id=first_id, latest=latest
+    )
     rows = []
     previous_id = cursor - 1
     previous_time = None
     while True:
-        page = request(
-            "/historicalTrades", {"symbol": api_symbol, "fromId": cursor, "limit": 1000}
-        )
+        page = raw_trade_page(request, api_symbol, cursor, 1000, last_id=last_id)
         for row in page:
             trade_id = int(row["id"])
             timestamp = get_binance_trades_timestamp(row)
@@ -36,12 +53,24 @@ def raw_trades(request, api_symbol: str, start: datetime, end: datetime, *, firs
                 return rows[::-1], True, None
             if timestamp >= start:
                 rows.append(row)
-        if len(page) < 1000:
+        if not page or (not id_range_pages and len(page) < 1000):
             return rows[::-1], True, None
         cursor = previous_id + 1
 
 
-def seek_raw_trade(request, api_symbol, start, *, first_id=0):
+def raw_trade_page(request, api_symbol, cursor, limit, *, last_id=None):
+    while last_id is None or cursor <= last_id:
+        page = request(
+            "/historicalTrades",
+            {"symbol": api_symbol, "fromId": cursor, "limit": limit},
+        )
+        if page or last_id is None:
+            return page
+        cursor += limit
+    return []
+
+
+def seek_raw_trade(request, api_symbol, start, *, first_id=0, latest=None):
     timestamp = int(start.timestamp() * 1000)
     anchors = request(
         "/aggTrades",
@@ -56,24 +85,23 @@ def seek_raw_trade(request, api_symbol, start, *, first_id=0):
         if int(anchors[-1]["T"]) >= timestamp:
             raise ValueError("Aggregate trade anchor is outside the seek window")
         return int(anchors[-1]["f"])
-    first = request(
-        "/historicalTrades", {"symbol": api_symbol, "fromId": first_id, "limit": 1}
-    )
+    last_id = int(latest["id"]) if latest is not None else None
+    limit = 1000 if latest is not None else 1
+    first = raw_trade_page(request, api_symbol, first_id, limit, last_id=last_id)
     if not first:
         return first_id
     if int(first[0]["time"]) >= timestamp:
         return int(first[0]["id"])
-    latest = request("/historicalTrades", {"symbol": api_symbol, "limit": 1})
-    if int(latest[0]["time"]) < timestamp:
-        return int(latest[0]["id"])
+    if latest is None:
+        latest = request("/historicalTrades", {"symbol": api_symbol, "limit": 1})[-1]
+    if int(latest["time"]) < timestamp:
+        return int(latest["id"])
     # A quiet seek hour need not mean exhausted history. Find its raw-ID boundary
     # without downloading every trade since listing or scanning empty hours.
-    low, high = int(first[0]["id"]), int(latest[0]["id"])
+    low, high = int(first[0]["id"]), int(latest["id"])
     while low < high:
         middle = (low + high) // 2
-        page = request(
-            "/historicalTrades", {"symbol": api_symbol, "fromId": middle, "limit": 1}
-        )
+        page = raw_trade_page(request, api_symbol, middle, limit, last_id=last_id)
         if page and int(page[0]["id"]) < middle:
             raise ValueError("Raw trade seek did not advance")
         if not page or int(page[0]["time"]) >= timestamp:
@@ -104,6 +132,7 @@ class BinanceFormatTrades(BinanceMixin, ExchangeREST):
     partition_scoped = True
     request = None
     first_trade_id = 0
+    id_range_pages = False
 
     def get_pagination_id(self, timestamp_to):
         return timestamp_to
@@ -115,6 +144,7 @@ class BinanceFormatTrades(BinanceMixin, ExchangeREST):
             timestamp_from,
             pagination_id,
             first_id=self.first_trade_id,
+            id_range_pages=self.id_range_pages,
         )
 
     def is_history_exhausted(self, timestamp_to):

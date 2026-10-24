@@ -40,14 +40,66 @@ class RawTradeHistoryTest(SimpleTestCase):
         controller = AsterTrades(
             Mock(api_symbol="BTCUSDT"), START, START + timedelta(minutes=1), Mock()
         )
-        with patch.object(AsterTrades, "request", side_effect=response) as request:
+        with patch.object(AsterTrades, "request", side_effect=response):
             rows, _, _ = controller.iter_api(START, START + timedelta(minutes=1))
             self.assertFalse(
                 controller.is_history_exhausted(START + timedelta(minutes=1))
             )
             self.assertTrue(controller.is_history_exhausted(START))
         self.assertEqual([row["id"] for row in rows], [1])
-        self.assertEqual(request.call_args_list[1].args[1]["fromId"], 1)
+
+    def test_aster_collects_short_pages_and_crosses_empty_id_ranges(self):
+        history = [
+            trade(1, MS - 1),
+            trade(2),
+            trade(4),
+            trade(1001),
+            trade(3003),
+            trade(3004, MS + 60000),
+        ]
+
+        def response(path, params):
+            if path == "/aggTrades":
+                return [{"f": 1, "T": MS - 1}]
+            if "fromId" not in params:
+                return history[-1:]
+            start = params["fromId"]
+            return [
+                row for row in history if start <= row["id"] < start + params["limit"]
+            ]
+
+        controller = AsterTrades(
+            Mock(api_symbol="BTCUSDT"), START, START + timedelta(minutes=1), Mock()
+        )
+        with patch.object(AsterTrades, "request", side_effect=response):
+            rows, finished, cursor = controller.iter_api(
+                START, START + timedelta(minutes=1)
+            )
+        self.assertEqual([row["id"] for row in rows], [3003, 1001, 4, 2])
+        self.assertTrue(finished)
+        self.assertIsNone(cursor)
+
+    def test_aster_quiet_seek_hour_can_land_on_a_missing_id_range(self):
+        history = [
+            trade(i, MS - 7200000 if i < 3000 else MS) for i in (1, 1500, 3002, 4003)
+        ]
+
+        def response(path, params):
+            if path == "/aggTrades":
+                return []
+            if "fromId" not in params:
+                return history[-1:]
+            start = params["fromId"]
+            return [
+                row for row in history if start <= row["id"] < start + params["limit"]
+            ]
+
+        controller = AsterTrades(
+            Mock(api_symbol="BTCUSDT"), START, START + timedelta(minutes=1), Mock()
+        )
+        with patch.object(AsterTrades, "request", side_effect=response):
+            rows, _, _ = controller.iter_api(START, START + timedelta(minutes=1))
+        self.assertEqual([row["id"] for row in rows], [4003, 3002])
 
     def test_anchor_overlap_and_equal_timestamp_page_boundary(self):
         request = Mock(
@@ -102,29 +154,47 @@ class RawTradeHistoryTest(SimpleTestCase):
 class BinanceFormatCollectionTest(BaseSymbolTest, TestCase):
     def test_individual_trades_persist_and_validate_for_each_venue(self):
         cases = (
-            (Exchange.BINANCE_US, SymbolType.SPOT),
-            (Exchange.ASTER, SymbolType.PERPETUAL),
+            (Exchange.BINANCE_US, SymbolType.SPOT, "0.03", True),
+            (Exchange.ASTER, SymbolType.PERPETUAL, "0.03", True),
+            (Exchange.ASTER, SymbolType.PERPETUAL, "0.04", False),
         )
-        for exchange, symbol_type in cases:
-            with self.subTest(exchange=exchange):
+        for exchange, symbol_type, candle_quantity, expected_ok in cases:
+            with self.subTest(exchange=exchange, candle_quantity=candle_quantity):
                 symbol = self.get_symbol(
                     exchange=exchange, symbol_type=symbol_type, api_symbol="BTCUSDT"
                 )
                 calls = []
 
-                def response(base, path, params, calls=calls, **kwargs):
+                def response(
+                    base,
+                    path,
+                    params,
+                    calls=calls,
+                    exchange=exchange,
+                    candle_quantity=candle_quantity,
+                    **kwargs,
+                ):
                     calls.append((base, path, params))
                     if path == "/klines":
                         if params["endTime"] < MS:
                             return []
-                        return [[MS, "100", "110", "100", "110", "0.03"]]
+                        return [[MS, "100", "110", "100", "110", candle_quantity]]
                     if path == "/aggTrades":
                         return [{"f": 9, "T": MS - 1}]
                     if path == "/historicalTrades":
-                        return [
+                        last_id = 13 if exchange == Exchange.ASTER else 11
+                        history = [
                             trade(9, MS - 1),
                             trade(10),
-                            trade(11, price="110", quantity="0.02"),
+                            trade(last_id, price="110", quantity="0.02"),
+                        ]
+                        if "fromId" not in params:
+                            return history[-1:]
+                        start = params["fromId"]
+                        return [
+                            row
+                            for row in history
+                            if start <= row["id"] < start + params["limit"]
                         ]
                     raise AssertionError(path)
 
@@ -134,7 +204,7 @@ class BinanceFormatCollectionTest(BaseSymbolTest, TestCase):
                 ):
                     api(symbol, START, START + timedelta(minutes=1))
                 stored = TradeData.objects.get(symbol=symbol)
-                self.assertIs(stored.ok, True)
+                self.assertIs(stored.ok, expected_ok)
                 frame = stored.get_data_frame("raw_data")
                 self.assertEqual(stored.uid, "10")
                 self.assertEqual(len(frame), 2)

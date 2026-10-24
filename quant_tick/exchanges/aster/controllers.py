@@ -1,5 +1,7 @@
 """Aster perpetual history includes the predecessor APX/Astherus market."""
 
+from quant_tick.controllers import ExchangeREST
+
 from ..binance_format import BinanceFormatTrades, binance_format_candles
 from ..public import get_public_json
 
@@ -21,5 +23,9 @@ def aster_trades(symbol, **kwargs):
 
 
 class AsterTrades(BinanceFormatTrades):
+    """Raw IDs can have genuine gaps; minute candle quantities validate coverage."""
+
     request = staticmethod(get_aster_response)
     first_trade_id = 1
+    id_range_pages = True
+    assert_data_frame = ExchangeREST.assert_data_frame
