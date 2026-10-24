@@ -4,12 +4,14 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pandas as pd
+import time_machine
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.api import api, candles_api, exchange_candles, trades_api
 from quant_tick.exchanges.upbit.candles import upbit_candles
 from quant_tick.exchanges.upbit.controllers import UpbitArchive, UpbitTrades
+from quant_tick.lib.download import ArchiveDownloadError
 from quant_tick.models import ExchangeCandleData, TradeData
 
 from ..base import BaseSymbolTest
@@ -248,6 +250,62 @@ class UpbitArchiveCollectionTest(BaseSymbolTest, TestCase):
         self.assertEqual(
             rows.get(timestamp=start + timedelta(hours=1)).uid, "20220501:1"
         )
+
+    def test_unpublished_archive_falls_back_to_rest_and_validates_stored_trades(self):
+        for days_ago in (0, 1, 7):
+            with self.subTest(days_ago=days_ago):
+                symbol = self.get_symbol(exchange=Exchange.UPBIT, api_symbol="KRW-BTC")
+                candles = pd.DataFrame(
+                    {"notional": [Decimal("0.02")]},
+                    index=pd.DatetimeIndex([START], name="timestamp"),
+                )
+                with (
+                    time_machine.travel(
+                        START + timedelta(days=days_ago, hours=1), tick=False
+                    ),
+                    patch(
+                        "quant_tick.lib.download.httpx2.get",
+                        return_value=Mock(status_code=403),
+                    ) as archive,
+                    patch(
+                        "quant_tick.exchanges.upbit.controllers.get_upbit_response",
+                        return_value=[trade(2, side="ASK"), trade(1), trade(0, MS - 1)],
+                    ) as rest,
+                    patch(
+                        "quant_tick.exchanges.upbit.controllers.upbit_candles",
+                        return_value=candles,
+                    ),
+                ):
+                    api(symbol, START, START + timedelta(minutes=1))
+                stored = TradeData.objects.get(symbol=symbol)
+                self.assertIs(stored.ok, True)
+                frame = stored.get_data_frame("raw_data")
+                self.assertEqual(stored.uid, "1")
+                self.assertEqual(len(frame), 2)
+                self.assertEqual(frame.tickRule.tolist(), [1, -1])
+                self.assertEqual(frame.notional.sum(), Decimal("0.02"))
+                self.assertEqual(frame.volume.sum(), Decimal(2000000))
+                self.assertEqual(rest.call_args.args[1]["days_ago"], days_ago)
+                self.assertEqual(
+                    archive.call_args.args[0],
+                    "https://crix-data.upbit.com/trade/KRW-BTC/daily/2026/KRW-BTC_trade_20261010.zip",
+                )
+
+    def test_old_forbidden_archive_and_recent_server_error_remain_failures(self):
+        symbol = self.get_symbol(exchange=Exchange.UPBIT, api_symbol="KRW-BTC")
+        for days_ago, status in ((8, 403), (0, 503)):
+            with (
+                self.subTest(days_ago=days_ago, status=status),
+                time_machine.travel(
+                    START + timedelta(days=days_ago, hours=1), tick=False
+                ),
+                patch(
+                    "quant_tick.lib.download.httpx2.get",
+                    return_value=Mock(status_code=status),
+                ),
+                self.assertRaisesRegex(ArchiveDownloadError, f"HTTP {status}"),
+            ):
+                api(symbol, START, START + timedelta(minutes=1))
 
     def test_completed_archive_partitions_skip_recent_rest_followup(self):
         symbol = self.get_symbol(exchange=Exchange.UPBIT, api_symbol="KRW-BTC")

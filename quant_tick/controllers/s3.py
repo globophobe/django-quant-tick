@@ -15,6 +15,7 @@ from quant_tick.lib import (
     gzip_downloader,
     set_dtypes,
 )
+from quant_tick.lib.download import ArchiveDownloadError
 
 from .base import BaseController
 from .iterators import TradeDataIterator
@@ -84,7 +85,7 @@ class ExchangeS3(BaseController):
             retry=self.retry,
         ):
             date = timestamp_from.date()
-            data_frame = self.get_data_frame(date)
+            data_frame = self._load_archive(date, self.get_data_frame)
             if data_frame is not None:
                 is_full_day = (
                     timestamp_from.time() == datetime.time.min
@@ -102,6 +103,25 @@ class ExchangeS3(BaseController):
                     self.on_data_frame(self.symbol, ts_from, ts_to, df, candles)
             elif self._should_stop_after_missing_archive(date):
                 break
+
+    def _load_archive(self, date: datetime.date, loader):
+        """Leave recent unavailable archives for WebSocket/REST follow-up.
+
+        Some public buckets return 403 for unpublished objects. Only tolerate
+        that inside the publication grace window; an older 403 must not silently
+        truncate backfill as though the exchange had no earlier history.
+        """
+        try:
+            return loader(date)
+        except ArchiveDownloadError as exc:
+            today = get_current_time().date()
+            cutoff = today - datetime.timedelta(
+                days=self.archive_publication_grace_days
+            )
+            if exc.status_code != 403 or not cutoff <= date <= today:
+                raise
+            logger.info("Recent archive unavailable; leaving for follow-up: %s", exc)
+            return None
 
     def _should_stop_after_missing_archive(self, date: datetime.date) -> bool:
         if date in self.missing_archive_dates:
@@ -254,7 +274,9 @@ class ChunkedExchangeS3(ExchangeS3):
             self.timestamp_to,
             retry=self.retry,
         ):
-            chunks = self.get_data_frame_chunks(timestamp_from.date())
+            chunks = self._load_archive(
+                timestamp_from.date(), self.get_data_frame_chunks
+            )
             if chunks is None:
                 if self._should_stop_after_missing_archive(timestamp_from.date()):
                     break

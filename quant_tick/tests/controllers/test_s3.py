@@ -7,6 +7,7 @@ from django.test import TestCase
 
 from quant_tick.constants import Frequency
 from quant_tick.controllers import ExchangeS3
+from quant_tick.lib.download import ArchiveDownloadError
 from quant_tick.models import TradeData
 
 from ..base import BaseSymbolTest
@@ -186,25 +187,31 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
         timestamp_to = datetime(2009, 1, 4, tzinfo=UTC)
         available = self.get_data_frame().copy()
         available["timestamp"] = available["timestamp"] - self.one_day
-        controller = DummyExchangeS3(
-            self.symbol,
-            timestamp_from=timestamp_from,
-            timestamp_to=timestamp_to,
-            retry=False,
-            verbose=False,
-            data_frame=available,
-        )
-        controller.get_data_frame = Mock(side_effect=[None, available, None])
+        for unavailable in (None, ArchiveDownloadError("HTTP 403", status_code=403)):
+            with self.subTest(unavailable=unavailable):
+                controller = DummyExchangeS3(
+                    self.symbol,
+                    timestamp_from=timestamp_from,
+                    timestamp_to=timestamp_to,
+                    retry=False,
+                    verbose=False,
+                    data_frame=available,
+                )
+                controller.get_data_frame = Mock(
+                    side_effect=[unavailable, available, None]
+                )
 
-        controller.main()
+                controller.main()
 
-        self.assertEqual(
-            [call.args[0] for call in controller.get_data_frame.call_args_list],
-            [
-                datetime(2009, 1, 3, tzinfo=UTC).date(),
-                datetime(2009, 1, 2, tzinfo=UTC).date(),
-                datetime(2009, 1, 1, tzinfo=UTC).date(),
-            ],
-        )
-        self.assertEqual(len(controller.frames), 1)
-        self.assertEqual(controller.frames[0][0], datetime(2009, 1, 2, tzinfo=UTC))
+                self.assertEqual(
+                    [call.args[0] for call in controller.get_data_frame.call_args_list],
+                    [
+                        datetime(2009, 1, 3, tzinfo=UTC).date(),
+                        datetime(2009, 1, 2, tzinfo=UTC).date(),
+                        datetime(2009, 1, 1, tzinfo=UTC).date(),
+                    ],
+                )
+                self.assertEqual(len(controller.frames), 1)
+                self.assertEqual(
+                    controller.frames[0][0], datetime(2009, 1, 2, tzinfo=UTC)
+                )
