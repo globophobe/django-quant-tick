@@ -79,6 +79,43 @@ class RawTradeHistoryTest(SimpleTestCase):
         self.assertTrue(finished)
         self.assertIsNone(cursor)
 
+    def test_aster_orders_timestamps_and_reads_across_the_time_boundary(self):
+        history = [
+            trade(1, MS - 1),
+            trade(2, MS + 22),
+            trade(3, MS),
+            trade(999, MS + 60000),
+            trade(1001, MS + 59980),
+            trade(1999, MS + 60020),
+            trade(2001, MS + 60050),
+            trade(5000, MS + 120000),
+        ]
+        cursors = []
+
+        def response(path, params):
+            if path == "/aggTrades":
+                return [{"f": 1, "T": MS - 1}]
+            if "fromId" not in params:
+                return history[-1:]
+            start = params["fromId"]
+            cursors.append(start)
+            return [
+                row for row in history if start <= row["id"] < start + params["limit"]
+            ]
+
+        controller = AsterTrades(
+            Mock(api_symbol="BTCUSDT"), START, START + timedelta(minutes=1), Mock()
+        )
+        with patch.object(AsterTrades, "request", side_effect=response):
+            rows, finished, cursor = controller.iter_api(
+                START, START + timedelta(minutes=1)
+            )
+        self.assertEqual([row["id"] for row in rows], [1001, 2, 3])
+        self.assertEqual([row["time"] for row in rows], [MS + 59980, MS + 22, MS])
+        self.assertEqual(cursors, [1, 1000, 2000])
+        self.assertTrue(finished)
+        self.assertIsNone(cursor)
+
     def test_aster_quiet_seek_hour_can_land_on_a_missing_id_range(self):
         history = [
             trade(i, MS - 7200000 if i < 3000 else MS) for i in (1, 1500, 3002, 4003)
@@ -123,14 +160,36 @@ class RawTradeHistoryTest(SimpleTestCase):
         rows, _, _ = raw_trades(request, "BTCUSDT", START, START + timedelta(minutes=1))
         self.assertEqual([row["id"] for row in rows], [1, 0])
 
-    def test_repeated_or_reordered_raw_ids_fail(self):
-        for second in (trade(1), trade(0), trade(2, MS - 1)):
-            with self.subTest(second=second):
-                request = Mock(
-                    side_effect=[[{"f": 1, "T": MS - 1}], [trade(1), second]]
-                )
-                with self.assertRaisesRegex(ValueError, "ordered"):
-                    raw_trades(request, "BTCUSDT", START, START + timedelta(minutes=1))
+    def test_repeated_or_reordered_raw_ids_fail_for_each_venue(self):
+        for controller_type in (AsterTrades, BinanceUSTrades):
+            for second in (trade(1), trade(0)):
+                with self.subTest(controller=controller_type, second=second):
+
+                    def response(path, params, second=second):
+                        if path == "/aggTrades":
+                            return [{"f": 1, "T": MS - 1}]
+                        if "fromId" not in params:
+                            return [trade(3)]
+                        return [trade(1), second]
+
+                    controller = controller_type(
+                        Mock(api_symbol="BTCUSDT"),
+                        START,
+                        START + timedelta(minutes=1),
+                        Mock(),
+                    )
+                    with (
+                        patch.object(controller_type, "request", side_effect=response),
+                        self.assertRaisesRegex(ValueError, "ordered by ID"),
+                    ):
+                        controller.iter_api(START, START + timedelta(minutes=1))
+
+    def test_binance_us_still_rejects_timestamp_regressions(self):
+        request = Mock(
+            side_effect=[[{"f": 1, "T": MS - 1}], [trade(1), trade(2, MS - 1)]]
+        )
+        with self.assertRaisesRegex(ValueError, "ordered"):
+            raw_trades(request, "BTCUSDT", START, START + timedelta(minutes=1))
 
     def test_quiet_seek_hour_uses_raw_ids_without_replaying_full_history(self):
         history = [trade(i, MS - 7200000 if i < 4 else MS) for i in range(7)]
@@ -186,8 +245,13 @@ class BinanceFormatCollectionTest(BaseSymbolTest, TestCase):
                         history = [
                             trade(9, MS - 1),
                             trade(10),
-                            trade(last_id, price="110", quantity="0.02"),
+                            trade(last_id, MS + 22, price="110", quantity="0.02"),
                         ]
+                        if exchange == Exchange.ASTER:
+                            history[1] = trade(
+                                10, MS + 22, price="110", quantity="0.02"
+                            )
+                            history[2] = trade(last_id)
                         if "fromId" not in params:
                             return history[-1:]
                         start = params["fromId"]
@@ -206,11 +270,20 @@ class BinanceFormatCollectionTest(BaseSymbolTest, TestCase):
                 stored = TradeData.objects.get(symbol=symbol)
                 self.assertIs(stored.ok, expected_ok)
                 frame = stored.get_data_frame("raw_data")
-                self.assertEqual(stored.uid, "10")
+                self.assertEqual(
+                    stored.uid, "10" if exchange == Exchange.BINANCE_US else "13"
+                )
                 self.assertEqual(len(frame), 2)
+                self.assertEqual(
+                    frame.timestamp.tolist(),
+                    [START, START + timedelta(milliseconds=22)],
+                )
                 self.assertEqual(frame.price.tolist(), [Decimal(100), Decimal(110)])
                 self.assertEqual(frame.volume.sum(), Decimal("3.2"))
-                self.assertEqual(frame.tickRule.tolist(), [-1, 1])
+                self.assertEqual(
+                    frame.tickRule.tolist(),
+                    [-1, 1] if exchange == Exchange.BINANCE_US else [1, -1],
+                )
                 self.assertTrue(
                     all(
                         exchange.replace("-", ".") in base

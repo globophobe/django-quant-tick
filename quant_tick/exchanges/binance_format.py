@@ -18,6 +18,7 @@ def raw_trades(
     *,
     first_id=0,
     id_range_pages=False,
+    ordered_timestamps=True,
 ):
     """Locate an older raw ID, then walk forward through every fill in [start, end).
 
@@ -25,6 +26,8 @@ def raw_trades(
     preserves fills whose aggregate spans the requested lower time boundary.
     Aster limits ID ranges, not row counts: short or empty pages can precede
     more history. Its latest raw ID bounds traversal through empty ranges.
+    Aster timestamps can regress despite increasing IDs: read complete boundary
+    pages until one lies wholly past end, then order the retained rows by time.
     """
     latest = None
     if id_range_pages:
@@ -41,21 +44,32 @@ def raw_trades(
     previous_time = None
     while True:
         page = raw_trade_page(request, api_symbol, cursor, 1000, last_id=last_id)
+        page_before_end = False
         for row in page:
             trade_id = int(row["id"])
             timestamp = get_binance_trades_timestamp(row)
-            if trade_id <= previous_id or (
-                previous_time is not None and timestamp < previous_time
-            ):
+            if trade_id <= previous_id:
                 raise ValueError("Raw trade pagination is not strictly ordered by ID")
+            if (
+                ordered_timestamps
+                and previous_time is not None
+                and timestamp < previous_time
+            ):
+                raise ValueError("Raw trade timestamps are not ordered")
             previous_id, previous_time = trade_id, timestamp
             if timestamp >= end:
-                return rows[::-1], True, None
+                if ordered_timestamps:
+                    return rows[::-1], True, None
+                continue
+            page_before_end = True
             if timestamp >= start:
                 rows.append(row)
-        if not page or (not id_range_pages and len(page) < 1000):
-            return rows[::-1], True, None
+        if not page_before_end or (not id_range_pages and len(page) < 1000):
+            break
         cursor = previous_id + 1
+    if not ordered_timestamps:
+        rows.sort(key=lambda row: (get_binance_trades_timestamp(row), int(row["id"])))
+    return rows[::-1], True, None
 
 
 def raw_trade_page(request, api_symbol, cursor, limit, *, last_id=None):
@@ -133,6 +147,7 @@ class BinanceFormatTrades(BinanceMixin, ExchangeREST):
     request = None
     first_trade_id = 0
     id_range_pages = False
+    ordered_timestamps = True
 
     def get_pagination_id(self, timestamp_to):
         return timestamp_to
@@ -145,6 +160,7 @@ class BinanceFormatTrades(BinanceMixin, ExchangeREST):
             pagination_id,
             first_id=self.first_trade_id,
             id_range_pages=self.id_range_pages,
+            ordered_timestamps=self.ordered_timestamps,
         )
 
     def is_history_exhausted(self, timestamp_to):
