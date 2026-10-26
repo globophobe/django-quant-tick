@@ -141,7 +141,7 @@ class OKXMarketTest(SimpleTestCase):
     STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
 )
 class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
-    def test_known_boundary_overlap_is_removed_and_utc_partitions_validate(self):
+    def test_archive_sides_and_known_overlap_preserve_utc_partitions(self):
         start = datetime(2023, 2, 9, tzinfo=UTC)
         ms = int(start.timestamp() * 1000)
         boundary = ms + 16 * 3600000
@@ -155,8 +155,16 @@ class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
             boundary,
             ms + 24 * 3600000,
         ]
+        sides = ("buy", "SELL", "BUY", "sell")
         rows = [
-            ["BTC-USDT", str(397123642 + i), "buy", str(100 + i), "1", str(ts)]
+            [
+                "BTC-USDT",
+                str(397123642 + i),
+                sides[i % len(sides)],
+                str(100 + i),
+                "1",
+                str(ts),
+            ]
             for i, ts in enumerate(times)
         ]
         readers = [
@@ -201,16 +209,19 @@ class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
         self.assertEqual(list(partitions.values_list("ok", flat=True)), [True] * 24)
         first = partitions.get(timestamp=start)
         self.assertEqual(first.uid, "397123643")
-        self.assertEqual(
-            first.get_data_frame("raw_data").price.tolist(),
-            [Decimal(101), Decimal(102)],
-        )
+        first_trades = first.get_data_frame("raw_data")
+        self.assertEqual(first_trades.price.tolist(), [Decimal(101), Decimal(102)])
+        self.assertEqual(first_trades.tickRule.tolist(), [-1, 1])
+        self.assertEqual(first_trades.notional.tolist(), [Decimal(1), Decimal(1)])
+        self.assertEqual(first_trades.volume.tolist(), [Decimal(101), Decimal(102)])
         overlap_hour = partitions.get(timestamp=start + timedelta(hours=15))
         self.assertEqual(overlap_hour.uid, "397123645")
+        overlap_trades = overlap_hour.get_data_frame("raw_data")
         self.assertEqual(
-            overlap_hour.get_data_frame("raw_data").price.tolist(),
+            overlap_trades.price.tolist(),
             [Decimal(value) for value in range(103, 108)],
         )
+        self.assertEqual(overlap_trades.tickRule.tolist(), [-1, 1, -1, 1, -1])
         self.assertEqual(
             partitions.get(timestamp=start + timedelta(hours=16)).uid, "397123650"
         )

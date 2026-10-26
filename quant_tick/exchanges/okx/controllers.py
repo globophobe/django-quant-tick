@@ -169,9 +169,10 @@ class OKXArchive(OKXMixin, ChunkedExchangeS3):
         return frame["created_time"].astype("int64") * 1_000_000
 
     def parse_dtypes_and_strip_columns(self, frame):
+        side = frame["side"].str.lower()
         if (
             not frame["instrument_name"].eq(self.symbol.api_symbol).all()
-            or not frame["side"].isin(("buy", "sell")).all()
+            or not side.isin(("buy", "sell")).all()
         ):
             raise ValueError("OKX archive has an invalid market or side")
         result = pd.DataFrame(
@@ -183,7 +184,7 @@ class OKXArchive(OKXMixin, ChunkedExchangeS3):
                 "nanoseconds": 0,
                 "price": frame["price"].map(Decimal),
                 "notional": frame["size"].map(Decimal) * self.base_per_contract,
-                "tickRule": frame["side"].map({"buy": 1, "sell": -1}),
+                "tickRule": side.map({"buy": 1, "sell": -1}),
             }
         )
         result["volume"] = result["price"] * result["notional"]
