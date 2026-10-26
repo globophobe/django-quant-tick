@@ -1,7 +1,6 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from functools import cached_property
-from itertools import chain
 
 import pandas as pd
 
@@ -117,9 +116,10 @@ class OKXArchive(OKXMixin, ChunkedExchangeS3):
 
     def get_data_frame_chunks(self, value):
         readers = []
+        dates = (value, value + timedelta(days=1))
+        symbol = self.symbol.api_symbol
         try:
-            for day in (value, value + timedelta(days=1)):
-                symbol = self.symbol.api_symbol
+            for day in dates:
                 url = (
                     "https://static.okx.com/cdn/okex/traderecords/trades/daily/"
                     f"{day:%Y%m%d}/{symbol}-trades-{day.isoformat()}.zip"
@@ -139,7 +139,22 @@ class OKXArchive(OKXMixin, ChunkedExchangeS3):
 
         class Chunks:
             def __iter__(self):
-                return chain.from_iterable(readers)
+                for day, reader in zip(dates, readers, strict=True):
+                    for frame in reader:
+                        if symbol == "BTC-USDT" and day == date(2023, 2, 10):
+                            # This file repeats the previous archive's last five fills.
+                            frame = frame.loc[
+                                ~frame["trade_id"].isin(
+                                    (
+                                        "397123645",
+                                        "397123646",
+                                        "397123647",
+                                        "397123648",
+                                        "397123649",
+                                    )
+                                )
+                            ]
+                        yield frame
 
             def close(self):
                 for reader in readers:

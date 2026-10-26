@@ -141,28 +141,48 @@ class OKXMarketTest(SimpleTestCase):
     STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
 )
 class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
-    def test_utc_day_joins_two_archives_and_validates_stored_partitions(self):
+    def test_known_boundary_overlap_is_removed_and_utc_partitions_validate(self):
+        start = datetime(2023, 2, 9, tzinfo=UTC)
+        ms = int(start.timestamp() * 1000)
+        boundary = ms + 16 * 3600000
         symbol = self.get_symbol(exchange=Exchange.OKX, api_symbol="BTC-USDT")
-        times = [MS - 1, MS, MS, MS + 16 * 3600000, MS + 24 * 3600000]
+        times = [
+            ms - 1,
+            ms,
+            ms,
+            boundary - 1435,
+            *[boundary - 1341] * 4,
+            boundary,
+            ms + 24 * 3600000,
+        ]
         rows = [
-            ["BTC-USDT", str(i), "buy", str(100 + i), "1", str(ts)]
+            ["BTC-USDT", str(397123642 + i), "buy", str(100 + i), "1", str(ts)]
             for i, ts in enumerate(times)
         ]
-        chunks = [
-            pd.DataFrame(
-                [list(OKXArchive.csv_columns), *rows[:3]],
-                columns=OKXArchive.csv_columns,
+        readers = [
+            ChunkReader(
+                pd.DataFrame(
+                    [list(OKXArchive.csv_columns), *rows[:5]],
+                    columns=OKXArchive.csv_columns,
+                ),
+                pd.DataFrame(rows[5:8], columns=OKXArchive.csv_columns),
             ),
-            pd.DataFrame(rows[3:], columns=OKXArchive.csv_columns),
+            ChunkReader(
+                pd.DataFrame(
+                    [list(OKXArchive.csv_columns), *rows[3:5]],
+                    columns=OKXArchive.csv_columns,
+                ),
+                pd.DataFrame(rows[5:], columns=OKXArchive.csv_columns),
+            ),
         ]
-        readers = [ChunkReader(chunk) for chunk in chunks]
         candles = pd.DataFrame(
             {"notional": [Decimal(0)] * 1440},
-            index=pd.date_range(START, periods=1440, freq="min"),
+            index=pd.date_range(start, periods=1440, freq="min"),
         )
         candles.index.name = "timestamp"
-        candles.loc[START, "notional"] = Decimal(2)
-        candles.loc[START + timedelta(hours=16), "notional"] = Decimal(1)
+        candles.loc[start, "notional"] = Decimal(2)
+        candles.loc[start + timedelta(hours=15, minutes=59), "notional"] = Decimal(5)
+        candles.loc[start + timedelta(hours=16), "notional"] = Decimal(1)
         with (
             patch(
                 "quant_tick.exchanges.okx.controllers.zip_chunk_downloader",
@@ -172,20 +192,28 @@ class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
                 "quant_tick.exchanges.okx.controllers.okx_candles", return_value=candles
             ),
         ):
-            api(symbol, START, START + timedelta(days=1))
-        self.assertIn("20250101/", download.call_args_list[0].args[0])
-        self.assertIn("20250102/", download.call_args_list[1].args[0])
+            api(symbol, start, start + timedelta(days=1))
+        self.assertIn("20230209/", download.call_args_list[0].args[0])
+        self.assertIn("20230210/", download.call_args_list[1].args[0])
         self.assertTrue(all(reader.closed for reader in readers))
         partitions = TradeData.objects.filter(symbol=symbol)
         self.assertEqual(partitions.count(), 24)
-        self.assertFalse(partitions.exclude(ok=True).exists())
-        first = partitions.get(timestamp=START)
-        self.assertEqual(first.uid, "1")
+        self.assertEqual(list(partitions.values_list("ok", flat=True)), [True] * 24)
+        first = partitions.get(timestamp=start)
+        self.assertEqual(first.uid, "397123643")
         self.assertEqual(
             first.get_data_frame("raw_data").price.tolist(),
             [Decimal(101), Decimal(102)],
         )
-        self.assertEqual(partitions.get(timestamp=START + timedelta(hours=16)).uid, "3")
+        overlap_hour = partitions.get(timestamp=start + timedelta(hours=15))
+        self.assertEqual(overlap_hour.uid, "397123645")
+        self.assertEqual(
+            overlap_hour.get_data_frame("raw_data").price.tolist(),
+            [Decimal(value) for value in range(103, 108)],
+        )
+        self.assertEqual(
+            partitions.get(timestamp=start + timedelta(hours=16)).uid, "397123650"
+        )
 
     def test_missing_second_archive_does_not_write_partial_day(self):
         symbol = self.get_symbol(exchange=Exchange.OKX, api_symbol="BTC-USDT")
@@ -233,8 +261,8 @@ class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
 
 
 class ChunkReader:
-    def __init__(self, frame):
-        self.frames = iter([frame])
+    def __init__(self, *frames):
+        self.frames = iter(frames)
         self.closed = False
 
     def __iter__(self):
