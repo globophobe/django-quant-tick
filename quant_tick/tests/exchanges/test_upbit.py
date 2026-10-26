@@ -206,7 +206,7 @@ class UpbitCandleCollectionTest(BaseSymbolTest, TestCase):
     STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
 )
 class UpbitArchiveCollectionTest(BaseSymbolTest, TestCase):
-    def test_archive_orders_across_chunks_and_validates_stored_hours(self):
+    def test_archive_orders_first_day_and_stops_at_history_boundary(self):
         start = datetime(2022, 5, 1, tzinfo=UTC)
         ms = int(start.timestamp() * 1000)
         symbol = self.get_symbol(exchange=Exchange.UPBIT, api_symbol="KRW-BTC")
@@ -224,18 +224,28 @@ class UpbitArchiveCollectionTest(BaseSymbolTest, TestCase):
             index=pd.date_range(start, periods=2, freq="h"),
         )
         candles.index.name = "timestamp"
+
+        def download(url, columns):
+            if url.endswith("KRW-BTC_trade_20220501.zip"):
+                return chunk
+            raise ArchiveDownloadError("HTTP 403", status_code=403)
+
         with (
             patch(
                 "quant_tick.exchanges.upbit.controllers.zip_downloader",
-                return_value=chunk,
-            ),
+                side_effect=download,
+            ) as archive,
             patch.object(UpbitArchive, "archive_chunksize", 2),
             patch(
                 "quant_tick.exchanges.upbit.controllers.upbit_candles",
                 return_value=candles,
             ),
         ):
-            api(symbol, start, start + timedelta(days=1))
+            api(symbol, start - timedelta(days=1), start + timedelta(days=1))
+        archive.assert_called_once_with(
+            "https://crix-data.upbit.com/trade/KRW-BTC/daily/2022/KRW-BTC_trade_20220501.zip",
+            UpbitArchive.csv_columns,
+        )
         rows = TradeData.objects.filter(symbol=symbol)
         self.assertEqual(rows.count(), 24)
         self.assertFalse(rows.exclude(ok=True).exists())

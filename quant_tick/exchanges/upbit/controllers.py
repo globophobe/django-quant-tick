@@ -1,4 +1,4 @@
-from datetime import UTC, timedelta
+from datetime import UTC, date, timedelta
 from decimal import Decimal
 
 import pandas as pd
@@ -97,6 +97,7 @@ class UpbitTrades(UpbitMixin, ExchangeREST):
 class UpbitArchive(UpbitMixin, ChunkedExchangeS3):
     """Archive sequence IDs are file-local; row order resolves second-precision ties.
 
+    Tick archives begin on 2022-05-01 UTC; earlier objects return 403.
     Archives contain timestamp inversions. Sort the whole day by time and sequence
     before dividing it into chunks so late rows reach the correct hour.
     Prices, quote amounts and significant-trade filter thresholds use the market's
@@ -106,6 +107,8 @@ class UpbitArchive(UpbitMixin, ChunkedExchangeS3):
     csv_columns = ("seq", "timestamp", "volume", "price", "ask_bid")
 
     def get_data_frame_chunks(self, value):
+        if value < date(2022, 5, 1):
+            return None
         symbol = self.symbol.api_symbol
         frame = zip_downloader(
             f"https://crix-data.upbit.com/trade/{symbol}/daily/{value:%Y}/"
