@@ -226,6 +226,119 @@ class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
             partitions.get(timestamp=start + timedelta(hours=16)).uid, "397123650"
         )
 
+    def test_known_misfiled_trades_restore_and_retry_incomplete_hour(self):
+        start = datetime(2022, 9, 14, tzinfo=UTC)
+        symbol = self.get_symbol(exchange=Exchange.OKX, api_symbol="BTC-USDT")
+        # Public September 14/15 files: two fills are missing from the first file.
+        values = (
+            ("372030792", "20370.5", "0.00261028", "1663123237478"),
+            ("372030793", "20370.5", "0.00046621", "1663123237478"),
+            ("372030794", "20370.5", "0.02953379", "1663123239265"),
+            ("372030795", "20370.5", "0.00525621", "1663123239265"),
+            ("372030796", "20371.3", "0.05", "1663123243647"),
+            ("372158740", "20176.9", "0.00016852", "1663171196700"),
+            ("372158741", "20176.9", "0.04956162", "1663171197713"),
+            ("372158742", "20176.9", "0.04911295", "1663171200757"),
+        )
+        rows = [
+            ["BTC-USDT", uid, "BUY", price, size, timestamp]
+            for uid, price, size, timestamp in values
+        ]
+        columns = OKXArchive.csv_columns
+        candles = pd.DataFrame(
+            {"notional": [Decimal(0)] * 1440},
+            index=pd.date_range(start, periods=1440, freq="min"),
+        )
+        candles.index.name = "timestamp"
+        candles.loc[start + timedelta(hours=2, minutes=40), "notional"] = Decimal(
+            "0.08786649"
+        )
+        candles.loc[start + timedelta(hours=15, minutes=59), "notional"] = Decimal(
+            "0.04973014"
+        )
+        candles.loc[start + timedelta(hours=16), "notional"] = Decimal("0.04911295")
+        hour = start + timedelta(hours=2)
+        controller = OKXArchive(symbol, start, start + timedelta(days=1), Mock())
+        for chunksize in (1, 3):
+            with self.subTest(chunksize=chunksize):
+                TradeData.objects.filter(symbol=symbol).delete()
+                incomplete = controller.parse_dtypes_and_strip_columns(
+                    pd.DataFrame([rows[0], rows[1], rows[4]], columns=columns)
+                )
+                TradeData.write(
+                    symbol,
+                    hour,
+                    hour + timedelta(hours=1),
+                    candles,
+                    raw_trades=incomplete,
+                )
+                self.assertIs(TradeData.objects.get(symbol=symbol).ok, False)
+                frames = [
+                    pd.DataFrame(
+                        [list(columns), rows[0], rows[1], rows[4], rows[5]],
+                        columns=columns,
+                    ),
+                    pd.DataFrame(
+                        [list(columns), *rows[1:5], *rows[6:]], columns=columns
+                    ),
+                ]
+                readers = [
+                    ChunkReader(
+                        *(
+                            frame.iloc[i : i + chunksize]
+                            for i in range(0, len(frame), chunksize)
+                        )
+                    )
+                    for frame in frames
+                ]
+                with (
+                    patch(
+                        "quant_tick.exchanges.okx.controllers.zip_chunk_downloader",
+                        side_effect=readers,
+                    ),
+                    patch(
+                        "quant_tick.exchanges.okx.controllers.okx_candles",
+                        return_value=candles,
+                    ),
+                ):
+                    api(symbol, start, start + timedelta(days=1), retry=True)
+                self.assertTrue(all(reader.closed for reader in readers))
+                partitions = TradeData.objects.filter(symbol=symbol)
+                self.assertEqual(partitions.count(), 24)
+                self.assertEqual(
+                    list(partitions.values_list("ok", flat=True)), [True] * 24
+                )
+                repaired = partitions.get(timestamp=hour)
+                self.assertEqual(repaired.uid, "372030792")
+                stored = repaired.get_data_frame("raw_data")
+                self.assertEqual(
+                    stored.price.tolist(),
+                    [Decimal("20370.5")] * 4 + [Decimal("20371.3")],
+                )
+                self.assertEqual(
+                    stored.notional.tolist(), [Decimal(v[2]) for v in values[:5]]
+                )
+                self.assertEqual(
+                    stored.volume.tolist(),
+                    [Decimal(v[1]) * Decimal(v[2]) for v in values[:5]],
+                )
+                self.assertEqual(stored.tickRule.tolist(), [1] * 5)
+                self.assertEqual(
+                    stored.timestamp.tolist(),
+                    pd.to_datetime(
+                        [int(v[3]) for v in values[:5]], unit="ms", utc=True
+                    ).tolist(),
+                )
+                before_boundary = partitions.get(timestamp=start + timedelta(hours=15))
+                self.assertEqual(
+                    before_boundary.get_data_frame("raw_data").notional.sum(),
+                    Decimal("0.04973014"),
+                )
+                self.assertEqual(
+                    partitions.get(timestamp=start + timedelta(hours=16)).uid,
+                    "372158742",
+                )
+
     def test_missing_second_archive_does_not_write_partial_day(self):
         symbol = self.get_symbol(exchange=Exchange.OKX, api_symbol="BTC-USDT")
         reader = ChunkReader(pd.DataFrame(columns=OKXArchive.csv_columns))

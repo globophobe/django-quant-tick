@@ -137,30 +137,68 @@ class OKXArchive(OKXMixin, ChunkedExchangeS3):
                 reader.close()
             raise
 
+        repair_chunk = self._repair_archive_chunk
+
         class Chunks:
             def __iter__(self):
                 for day, reader in zip(dates, readers, strict=True):
                     for frame in reader:
-                        if symbol == "BTC-USDT" and day == date(2023, 2, 10):
-                            # This file repeats the previous archive's last five fills.
-                            frame = frame.loc[
-                                ~frame["trade_id"].isin(
-                                    (
-                                        "397123645",
-                                        "397123646",
-                                        "397123647",
-                                        "397123648",
-                                        "397123649",
-                                    )
-                                )
-                            ]
-                        yield frame
+                        yield repair_chunk(day, frame)
 
             def close(self):
                 for reader in readers:
                     reader.close()
 
         return Chunks()
+
+    def _repair_archive_chunk(self, day, frame):
+        if self.symbol.api_symbol != "BTC-USDT":
+            return frame
+        if day == date(2022, 9, 14):
+            before = frame["trade_id"].eq("372030796")
+            if before.any():
+                # These two fills were published in September 15's misplaced prefix.
+                restored = pd.DataFrame(
+                    [
+                        [
+                            "BTC-USDT",
+                            "372030794",
+                            "buy",
+                            "20370.5",
+                            "0.02953379",
+                            "1663123239265",
+                        ],
+                        [
+                            "BTC-USDT",
+                            "372030795",
+                            "buy",
+                            "20370.5",
+                            "0.00525621",
+                            "1663123239265",
+                        ],
+                    ],
+                    columns=self.csv_columns,
+                )
+                offset = before.to_numpy().argmax()
+                return pd.concat(
+                    [frame.iloc[:offset], restored, frame.iloc[offset:]],
+                    ignore_index=True,
+                )
+        elif day == date(2022, 9, 15):
+            # Two duplicates plus the two fills restored to September 14 above.
+            return frame.loc[
+                ~frame["trade_id"].isin(
+                    ("372030793", "372030794", "372030795", "372030796")
+                )
+            ]
+        elif day == date(2023, 2, 10):
+            # This file repeats the previous archive's last five fills.
+            return frame.loc[
+                ~frame["trade_id"].isin(
+                    ("397123645", "397123646", "397123647", "397123648", "397123649")
+                )
+            ]
+        return frame
 
     def prepare_archive_chunk(self, frame):
         return frame.loc[frame["trade_id"] != "trade_id"].copy()
