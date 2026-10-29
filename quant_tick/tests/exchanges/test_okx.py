@@ -339,6 +339,119 @@ class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
                     "372158742",
                 )
 
+    def test_known_july_regressions_preserve_trades_and_quantity_failures(self):
+        start = datetime(2022, 7, 21, tzinfo=UTC)
+        ms = int(start.timestamp() * 1000)
+        symbol = self.get_symbol(exchange=Exchange.OKX, api_symbol="BTC-USDT")
+        columns = OKXArchive.csv_columns
+        values = [
+            ("358584060", "100", "1", ms + 16 * 3600000 - 1),
+            ("358584473", "22683.0", "1.14515773", 1658419282000),
+            ("358584474", "22683.0", "0.331715", 1658419282000),
+            ("358584477", "22683.9", "0.00010359", 1658419281000),
+            ("358584478", "22684.0", "0.00001332", 1658419281000),
+            ("358700000", "101", "2", ms + 24 * 3600000 + 2000),
+            ("358700001", "102", "3", ms + 24 * 3600000 + 1000),
+            ("358912380", "103", "4", ms + 40 * 3600000 - 1000),
+            ("358912381", "104", "5", ms + 40 * 3600000 + 100),
+        ]
+        rows = [
+            ["BTC-USDT", uid, "BUY", price, size, str(timestamp)]
+            for uid, price, size, timestamp in values
+        ]
+        archives = {
+            "2022-07-21": [rows[0]],
+            "2022-07-22": rows[1:8],
+            "2022-07-23": [rows[8]],
+        }
+        candles = pd.DataFrame(
+            {"notional": [Decimal(0)] * 2880},
+            index=pd.date_range(start, periods=2880, freq="min", name="timestamp"),
+        )
+        for _, _, size, timestamp in values:
+            minute = pd.Timestamp(timestamp, unit="ms", tz="UTC").floor("min")
+            candles.loc[minute, "notional"] += Decimal(size)
+        # The public file also lacks quantity; ordering must not hide that result.
+        missing_hour = start + timedelta(days=1)
+        candles.loc[missing_hour, "notional"] = Decimal(6)
+        for chunksize in (1, 3):
+            with self.subTest(chunksize=chunksize):
+                TradeData.objects.filter(symbol=symbol).delete()
+                readers = []
+
+                def download(url, *args, readers=readers, **kwargs):
+                    day = url.rsplit("-trades-", 1)[1].removesuffix(".zip")
+                    size = kwargs["chunksize"]
+                    frame = pd.DataFrame(
+                        [list(columns), *archives[day]], columns=columns
+                    )
+                    reader = ChunkReader(
+                        *(frame.iloc[i : i + size] for i in range(0, len(frame), size))
+                    )
+                    readers.append(reader)
+                    return reader
+
+                with (
+                    patch.object(OKXArchive, "archive_chunksize", chunksize),
+                    patch(
+                        "quant_tick.exchanges.okx.controllers.zip_chunk_downloader",
+                        side_effect=download,
+                    ),
+                    patch(
+                        "quant_tick.exchanges.okx.controllers.okx_candles",
+                        return_value=candles,
+                    ),
+                ):
+                    api(symbol, start, start + timedelta(days=2))
+                self.assertEqual(len(readers), 4)
+                self.assertTrue(all(reader.closed for reader in readers))
+                partitions = TradeData.objects.filter(symbol=symbol)
+                self.assertEqual(partitions.count(), 48)
+                self.assertEqual(
+                    list(
+                        partitions.filter(ok=False).values_list("timestamp", flat=True)
+                    ),
+                    [missing_hour],
+                )
+                self.assertEqual(partitions.filter(ok=True).count(), 47)
+                stored = pd.concat(
+                    [
+                        row.get_data_frame("raw_data")
+                        for row in partitions
+                        if row.raw_data
+                    ],
+                    ignore_index=True,
+                )
+                expected = sorted(values, key=lambda row: row[3])
+                self.assertEqual(
+                    stored.timestamp.tolist(),
+                    pd.to_datetime(
+                        [row[3] for row in expected], unit="ms", utc=True
+                    ).tolist(),
+                )
+                self.assertEqual(
+                    stored.price.tolist(), [Decimal(row[1]) for row in expected]
+                )
+                self.assertEqual(
+                    stored.notional.tolist(), [Decimal(row[2]) for row in expected]
+                )
+                self.assertEqual(
+                    stored.volume.tolist(),
+                    [Decimal(row[1]) * Decimal(row[2]) for row in expected],
+                )
+                self.assertEqual(stored.tickRule.tolist(), [1] * len(values))
+                self.assertEqual(
+                    partitions.get(timestamp=start + timedelta(hours=16)).uid,
+                    "358584477",
+                )
+                self.assertEqual(
+                    partitions.get(timestamp=missing_hour).uid, "358700001"
+                )
+                self.assertEqual(
+                    partitions.get(timestamp=start + timedelta(hours=40)).uid,
+                    "358912381",
+                )
+
     def test_missing_second_archive_does_not_write_partial_day(self):
         symbol = self.get_symbol(exchange=Exchange.OKX, api_symbol="BTC-USDT")
         reader = ChunkReader(pd.DataFrame(columns=OKXArchive.csv_columns))

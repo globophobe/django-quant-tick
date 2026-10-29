@@ -137,19 +137,31 @@ class OKXArchive(OKXMixin, ChunkedExchangeS3):
                 reader.close()
             raise
 
-        repair_chunk = self._repair_archive_chunk
+        repair_chunks = self._repair_archive_chunks
 
         class Chunks:
             def __iter__(self):
                 for day, reader in zip(dates, readers, strict=True):
-                    for frame in reader:
-                        yield repair_chunk(day, frame)
+                    yield from repair_chunks(day, reader)
 
             def close(self):
                 for reader in readers:
                     reader.close()
 
         return Chunks()
+
+    def _repair_archive_chunks(self, day, frames):
+        if self.symbol.api_symbol == "BTC-USDT" and day == date(2022, 7, 22):
+            # This file has one-second regressions across CSV read boundaries.
+            frame = self.prepare_archive_chunk(pd.concat(frames, ignore_index=True))
+            frame = frame.sort_values(
+                "created_time", key=lambda values: values.astype("int64"), kind="stable"
+            )
+            for start in range(0, len(frame), self.archive_chunksize):
+                yield frame.iloc[start : start + self.archive_chunksize]
+            return
+        for frame in frames:
+            yield self._repair_archive_chunk(day, frame)
 
     def _repair_archive_chunk(self, day, frame):
         if self.symbol.api_symbol != "BTC-USDT":
