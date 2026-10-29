@@ -145,86 +145,122 @@ class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
         start = datetime(2023, 2, 9, tzinfo=UTC)
         ms = int(start.timestamp() * 1000)
         boundary = ms + 16 * 3600000
-        symbol = self.get_symbol(exchange=Exchange.OKX, api_symbol="BTC-USDT")
-        times = [
-            ms - 1,
-            ms,
-            ms,
-            boundary - 1435,
-            *[boundary - 1341] * 4,
-            boundary,
-            ms + 24 * 3600000,
-        ]
-        sides = ("buy", "SELL", "BUY", "sell")
-        rows = [
-            [
-                "BTC-USDT",
-                str(397123642 + i),
-                sides[i % len(sides)],
-                str(100 + i),
-                "1",
-                str(ts),
-            ]
-            for i, ts in enumerate(times)
-        ]
-        readers = [
-            ChunkReader(
-                pd.DataFrame(
-                    [list(OKXArchive.csv_columns), *rows[:5]],
-                    columns=OKXArchive.csv_columns,
-                ),
-                pd.DataFrame(rows[5:8], columns=OKXArchive.csv_columns),
-            ),
-            ChunkReader(
-                pd.DataFrame(
-                    [list(OKXArchive.csv_columns), *rows[3:5]],
-                    columns=OKXArchive.csv_columns,
-                ),
-                pd.DataFrame(rows[5:], columns=OKXArchive.csv_columns),
-            ),
-        ]
-        candles = pd.DataFrame(
-            {"notional": [Decimal(0)] * 1440},
-            index=pd.date_range(start, periods=1440, freq="min"),
-        )
-        candles.index.name = "timestamp"
-        candles.loc[start, "notional"] = Decimal(2)
-        candles.loc[start + timedelta(hours=15, minutes=59), "notional"] = Decimal(5)
-        candles.loc[start + timedelta(hours=16), "notional"] = Decimal(1)
-        with (
-            patch(
-                "quant_tick.exchanges.okx.controllers.zip_chunk_downloader",
-                side_effect=readers,
-            ) as download,
-            patch(
-                "quant_tick.exchanges.okx.controllers.okx_candles", return_value=candles
+        # The February 10 files repeat these fills from February 9's tail.
+        for market, symbol_type, first_id, overlap_offsets, quantity in (
+            ("BTC-USDT", SymbolType.SPOT, 397123642, [1435, *[1341] * 4], Decimal(1)),
+            (
+                "BTC-USDT-SWAP",
+                SymbolType.PERPETUAL,
+                478916470,
+                [*[1557] * 8, 1276, 477, 460],
+                Decimal("0.01"),
             ),
         ):
-            api(symbol, start, start + timedelta(days=1))
-        self.assertIn("20230209/", download.call_args_list[0].args[0])
-        self.assertIn("20230210/", download.call_args_list[1].args[0])
-        self.assertTrue(all(reader.closed for reader in readers))
-        partitions = TradeData.objects.filter(symbol=symbol)
-        self.assertEqual(partitions.count(), 24)
-        self.assertEqual(list(partitions.values_list("ok", flat=True)), [True] * 24)
-        first = partitions.get(timestamp=start)
-        self.assertEqual(first.uid, "397123643")
-        first_trades = first.get_data_frame("raw_data")
-        self.assertEqual(first_trades.price.tolist(), [Decimal(101), Decimal(102)])
-        self.assertEqual(first_trades.tickRule.tolist(), [-1, 1])
-        self.assertEqual(first_trades.notional.tolist(), [Decimal(1), Decimal(1)])
-        self.assertEqual(first_trades.volume.tolist(), [Decimal(101), Decimal(102)])
-        overlap_hour = partitions.get(timestamp=start + timedelta(hours=15))
-        self.assertEqual(overlap_hour.uid, "397123645")
-        overlap_trades = overlap_hour.get_data_frame("raw_data")
-        self.assertEqual(
-            overlap_trades.price.tolist(),
-            [Decimal(value) for value in range(103, 108)],
-        )
-        self.assertEqual(overlap_trades.tickRule.tolist(), [-1, 1, -1, 1, -1])
-        self.assertEqual(
-            partitions.get(timestamp=start + timedelta(hours=16)).uid, "397123650"
-        )
+            with self.subTest(market=market):
+                symbol = self.get_symbol(
+                    exchange=Exchange.OKX, api_symbol=market, symbol_type=symbol_type
+                )
+                times = [
+                    ms - 1,
+                    ms,
+                    ms,
+                    *(boundary - offset for offset in overlap_offsets),
+                    boundary,
+                    ms + 24 * 3600000,
+                ]
+                sides = ("buy", "SELL", "BUY", "sell")
+                rows = [
+                    [
+                        market,
+                        str(first_id + i),
+                        sides[i % len(sides)],
+                        str(100 + i),
+                        "1",
+                        str(ts),
+                    ]
+                    for i, ts in enumerate(times)
+                ]
+                readers = [
+                    ChunkReader(
+                        pd.DataFrame(
+                            [list(OKXArchive.csv_columns), *rows[:5]],
+                            columns=OKXArchive.csv_columns,
+                        ),
+                        pd.DataFrame(rows[5:-2], columns=OKXArchive.csv_columns),
+                    ),
+                    ChunkReader(
+                        pd.DataFrame(
+                            [list(OKXArchive.csv_columns), *rows[3:5]],
+                            columns=OKXArchive.csv_columns,
+                        ),
+                        pd.DataFrame(rows[5:], columns=OKXArchive.csv_columns),
+                    ),
+                ]
+                candles = pd.DataFrame(
+                    {"notional": [Decimal(0)] * 1440},
+                    index=pd.date_range(start, periods=1440, freq="min"),
+                )
+                candles.index.name = "timestamp"
+                candles.loc[start, "notional"] = 2 * quantity
+                candles.loc[start + timedelta(hours=15, minutes=59), "notional"] = (
+                    len(overlap_offsets) * quantity
+                )
+                candles.loc[start + timedelta(hours=16), "notional"] = quantity
+                with (
+                    patch(
+                        "quant_tick.exchanges.okx.controllers.contract_value",
+                        return_value=quantity,
+                    ),
+                    patch(
+                        "quant_tick.exchanges.okx.controllers.zip_chunk_downloader",
+                        side_effect=readers,
+                    ) as download,
+                    patch(
+                        "quant_tick.exchanges.okx.controllers.okx_candles",
+                        return_value=candles,
+                    ),
+                ):
+                    api(symbol, start, start + timedelta(days=1))
+                self.assertIn("20230209/", download.call_args_list[0].args[0])
+                self.assertIn("20230210/", download.call_args_list[1].args[0])
+                self.assertTrue(all(reader.closed for reader in readers))
+                partitions = TradeData.objects.filter(symbol=symbol)
+                self.assertEqual(partitions.count(), 24)
+                self.assertEqual(
+                    list(partitions.values_list("ok", flat=True)), [True] * 24
+                )
+                first = partitions.get(timestamp=start)
+                self.assertEqual(first.uid, str(first_id + 1))
+                first_trades = first.get_data_frame("raw_data")
+                self.assertEqual(
+                    first_trades.price.tolist(), [Decimal(101), Decimal(102)]
+                )
+                self.assertEqual(first_trades.tickRule.tolist(), [-1, 1])
+                self.assertEqual(first_trades.notional.tolist(), [quantity, quantity])
+                self.assertEqual(
+                    first_trades.volume.tolist(), [101 * quantity, 102 * quantity]
+                )
+                overlap_hour = partitions.get(timestamp=start + timedelta(hours=15))
+                self.assertEqual(overlap_hour.uid, str(first_id + 3))
+                overlap_trades = overlap_hour.get_data_frame("raw_data")
+                self.assertEqual(
+                    overlap_trades.price.tolist(),
+                    [
+                        Decimal(value)
+                        for value in range(103, 103 + len(overlap_offsets))
+                    ],
+                )
+                self.assertEqual(
+                    overlap_trades.tickRule.tolist(),
+                    ([-1, 1] * len(overlap_offsets))[: len(overlap_offsets)],
+                )
+                self.assertEqual(
+                    overlap_trades.notional.tolist(), [quantity] * len(overlap_offsets)
+                )
+                self.assertEqual(
+                    partitions.get(timestamp=start + timedelta(hours=16)).uid,
+                    str(first_id + 3 + len(overlap_offsets)),
+                )
 
     def test_known_misfiled_trades_restore_and_retry_incomplete_hour(self):
         start = datetime(2022, 9, 14, tzinfo=UTC)
