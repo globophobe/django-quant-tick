@@ -262,6 +262,117 @@ class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
                     str(first_id + 3 + len(overlap_offsets)),
                 )
 
+    def test_misdated_swap_prefix_preserves_originals_and_boundary_fills(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.OKX,
+            api_symbol="BTC-USDT-SWAP",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        # Public September 8 file copies five fills already present in August 25.
+        values = (
+            ("395379126", "sell", "21550.2", "17.0", "1661395484058"),
+            ("395379127", "sell", "21550.2", "3.0", "1661395484058"),
+            ("395379128", "sell", "21550.2", "44.0", "1661395484058"),
+            ("395379129", "sell", "21550.1", "9.0", "1661395484771"),
+            ("395379130", "sell", "21550.0", "56.0", "1661395484771"),
+            ("402847245", "sell", "18869.8", "8.0", "1662566396043"),
+            ("402847246", "buy", "18869.9", "8.0", "1662566399173"),
+            ("402847247", "buy", "18869.9", "3.0", "1662566399173"),
+            ("402847248", "buy", "18869.9", "4.0", "1662566399576"),
+            ("402847249", "buy", "18869.9", "2.0", "1662566399576"),
+            ("402847250", "sell", "18869.8", "8.0", "1662566400772"),
+        )
+        rows = [[symbol.api_symbol, *value] for value in values]
+        archives = {
+            "2022-08-25": rows[:5],
+            "2022-08-26": [],
+            "2022-09-07": [rows[5]],
+            "2022-09-08": [*rows[:5], *rows[6:]],
+        }
+        columns = OKXArchive.csv_columns
+        for start, expected, first_ids in (
+            (datetime(2022, 8, 25, tzinfo=UTC), values[:5], ["395379126"]),
+            (datetime(2022, 9, 7, tzinfo=UTC), values[5:], ["402847245", "402847250"]),
+        ):
+            candles = pd.DataFrame(
+                {"notional": [Decimal(0)] * 1440},
+                index=pd.date_range(start, periods=1440, freq="min", name="timestamp"),
+            )
+            for _, _, _, size, timestamp in expected:
+                minute = pd.Timestamp(int(timestamp), unit="ms", tz="UTC").floor("min")
+                candles.loc[minute, "notional"] += Decimal(size) * Decimal("0.01")
+            for chunksize in (1, 4):
+                with self.subTest(start=start, chunksize=chunksize):
+                    TradeData.objects.filter(symbol=symbol).delete()
+                    readers = []
+
+                    def download(url, *args, readers=readers, **kwargs):
+                        day = url.rsplit("-trades-", 1)[1].removesuffix(".zip")
+                        frame = pd.DataFrame(
+                            [list(columns), *archives[day]], columns=columns
+                        )
+                        size = kwargs["chunksize"]
+                        reader = ChunkReader(
+                            *(
+                                frame.iloc[i : i + size]
+                                for i in range(0, len(frame), size)
+                            )
+                        )
+                        readers.append(reader)
+                        return reader
+
+                    with (
+                        patch.object(OKXArchive, "archive_chunksize", chunksize),
+                        patch(
+                            "quant_tick.exchanges.okx.controllers.zip_chunk_downloader",
+                            side_effect=download,
+                        ),
+                        patch(
+                            "quant_tick.exchanges.okx.controllers.okx_candles",
+                            return_value=candles,
+                        ),
+                        patch(
+                            "quant_tick.exchanges.okx.controllers.contract_value",
+                            return_value=Decimal("0.01"),
+                        ),
+                    ):
+                        api(symbol, start, start + timedelta(days=1))
+                    self.assertTrue(all(reader.closed for reader in readers))
+                    partitions = TradeData.objects.filter(symbol=symbol).order_by(
+                        "timestamp"
+                    )
+                    self.assertEqual(
+                        list(partitions.values_list("ok", flat=True)), [True] * 24
+                    )
+                    stored = pd.concat(
+                        [
+                            row.get_data_frame("raw_data")
+                            for row in partitions
+                            if row.raw_data
+                        ],
+                        ignore_index=True,
+                    )
+                    self.assertEqual(
+                        stored.timestamp.tolist(),
+                        pd.to_datetime(
+                            [int(row[4]) for row in expected], unit="ms", utc=True
+                        ).tolist(),
+                    )
+                    self.assertEqual(
+                        stored.price.tolist(), [Decimal(row[2]) for row in expected]
+                    )
+                    self.assertEqual(
+                        stored.notional.tolist(),
+                        [Decimal(row[3]) * Decimal("0.01") for row in expected],
+                    )
+                    self.assertEqual(
+                        stored.tickRule.tolist(),
+                        [-1 if row[1] == "sell" else 1 for row in expected],
+                    )
+                    self.assertEqual(
+                        [row.uid for row in partitions if row.raw_data], first_ids
+                    )
+
     def test_known_misfiled_trades_restore_and_retry_incomplete_hour(self):
         start = datetime(2022, 9, 14, tzinfo=UTC)
         symbol = self.get_symbol(exchange=Exchange.OKX, api_symbol="BTC-USDT")
