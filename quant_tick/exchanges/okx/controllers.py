@@ -164,6 +164,11 @@ class OKXArchive(OKXMixin, ChunkedExchangeS3):
             yield self._repair_archive_chunk(day, frame)
 
     def _repair_archive_chunk(self, day, frame):
+        if self.symbol.api_symbol == "BTC-USDT-SWAP" and day == date(2022, 7, 26):
+            # This file repeats the July 25 archive's final 27 fills.
+            return frame.loc[
+                ~frame["trade_id"].isin(map(str, range(374195028, 374195055)))
+            ]
         if self.symbol.api_symbol == "BTC-USDT-SWAP" and day == date(2022, 9, 8):
             # This file starts with five exact copies from August 25's archive.
             return frame.loc[

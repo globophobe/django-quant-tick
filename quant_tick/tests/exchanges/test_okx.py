@@ -142,21 +142,36 @@ class OKXMarketTest(SimpleTestCase):
 )
 class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
     def test_archive_sides_and_known_overlap_preserve_utc_partitions(self):
-        start = datetime(2023, 2, 9, tzinfo=UTC)
-        ms = int(start.timestamp() * 1000)
-        boundary = ms + 16 * 3600000
-        # The February 10 files repeat these fills from February 9's tail.
-        for market, symbol_type, first_id, overlap_offsets, quantity in (
-            ("BTC-USDT", SymbolType.SPOT, 397123642, [1435, *[1341] * 4], Decimal(1)),
+        # The following UTC+8 archives repeat the preceding files' final fills.
+        for start, market, symbol_type, first_id, overlap_offsets, quantity in (
             (
+                datetime(2023, 2, 9, tzinfo=UTC),
+                "BTC-USDT",
+                SymbolType.SPOT,
+                397123642,
+                [1435, *[1341] * 4],
+                Decimal(1),
+            ),
+            (
+                datetime(2023, 2, 9, tzinfo=UTC),
                 "BTC-USDT-SWAP",
                 SymbolType.PERPETUAL,
                 478916470,
                 [*[1557] * 8, 1276, 477, 460],
                 Decimal("0.01"),
             ),
+            (
+                datetime(2022, 7, 25, tzinfo=UTC),
+                "BTC-USDT-SWAP",
+                SymbolType.PERPETUAL,
+                374195025,
+                [*[3032] * 19, 2707, 811, *[764] * 3, *[106] * 3],
+                Decimal("0.01"),
+            ),
         ):
-            with self.subTest(market=market):
+            with self.subTest(market=market, start=start):
+                ms = int(start.timestamp() * 1000)
+                boundary = ms + 16 * 3600000
                 symbol = self.get_symbol(
                     exchange=Exchange.OKX, api_symbol=market, symbol_type=symbol_type
                 )
@@ -221,8 +236,9 @@ class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
                     ),
                 ):
                     api(symbol, start, start + timedelta(days=1))
-                self.assertIn("20230209/", download.call_args_list[0].args[0])
-                self.assertIn("20230210/", download.call_args_list[1].args[0])
+                next_day = start + timedelta(days=1)
+                self.assertIn(f"{start:%Y%m%d}/", download.call_args_list[0].args[0])
+                self.assertIn(f"{next_day:%Y%m%d}/", download.call_args_list[1].args[0])
                 self.assertTrue(all(reader.closed for reader in readers))
                 partitions = TradeData.objects.filter(symbol=symbol)
                 self.assertEqual(partitions.count(), 24)
