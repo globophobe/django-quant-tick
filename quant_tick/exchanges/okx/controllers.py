@@ -151,9 +151,15 @@ class OKXArchive(OKXMixin, ChunkedExchangeS3):
         return Chunks()
 
     def _repair_archive_chunks(self, day, frames):
-        if self.symbol.api_symbol == "BTC-USDT" and day == date(2022, 7, 22):
-            # This file has one-second regressions across CSV read boundaries.
+        if day == date(2022, 7, 22) and self.symbol.api_symbol in (
+            "BTC-USDT",
+            "BTC-USDT-SWAP",
+        ):
+            # These files have timestamp regressions across CSV read boundaries.
             frame = self.prepare_archive_chunk(pd.concat(frames, ignore_index=True))
+            if self.symbol.api_symbol == "BTC-USDT-SWAP":
+                # This file reports BTC quantities rather than contract counts.
+                frame["size"] = frame["size"].map(Decimal) / self.base_per_contract
             frame = frame.sort_values(
                 "created_time", key=lambda values: values.astype("int64"), kind="stable"
             )
