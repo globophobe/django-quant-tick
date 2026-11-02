@@ -41,8 +41,14 @@ def resample_candles(
     timestamp_to: datetime,
     resolution_minutes: int,
     source_resolution_minutes: int | None = None,
+    missing_candles_are_zero: bool = False,
 ) -> DataFrame:
-    """Aggregate candle to a coarser resolution."""
+    """Aggregate fully elapsed target intervals from source candles.
+
+    Sources that omit zero-trade intervals may set missing_candles_are_zero.
+    Their traded windows use observed prices and totals; wholly quiet windows
+    remain absent. Other sources require every constituent candle.
+    """
     if data_frame.empty:
         return data_frame
     frame = data_frame.copy()
@@ -58,7 +64,14 @@ def resample_candles(
     frame.index = frame.index.floor(f"{resolution_minutes}min")
     frame.index.name = "timestamp"
     counts = frame.groupby(level=0)["_source_timestamp"].nunique()
-    complete = counts[counts == expected_rows].index
+    complete = (
+        counts.index
+        if missing_candles_are_zero
+        else counts[counts == expected_rows].index
+    )
+    complete = complete[
+        complete + pd.Timedelta(minutes=resolution_minutes) <= timestamp_to
+    ]
     frame = frame[frame.index.isin(complete)]
     if frame.empty:
         return data_frame.iloc[0:0].copy()
@@ -287,7 +300,7 @@ def has_zero_trade_candle(
     timestamp_from: datetime,
     timestamp_to: datetime,
 ) -> bool:
-    missing_candle_is_zero = exchange == Exchange.BITFINEX
+    missing_candle_is_zero = exchange in (Exchange.BITFINEX, Exchange.UPBIT)
     if not len(candles):
         return missing_candle_is_zero
     if "notional" in candles.columns:

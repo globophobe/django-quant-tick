@@ -546,7 +546,8 @@ class TradeData(AbstractDataStorage):
         return validate_aggregated_candles(
             aggregated_candles,
             exchange_candles,
-            missing_candles_are_zero=symbol.exchange == Exchange.BITFINEX,
+            missing_candles_are_zero=symbol.exchange
+            in (Exchange.BITFINEX, Exchange.UPBIT),
         )
 
     class Meta:

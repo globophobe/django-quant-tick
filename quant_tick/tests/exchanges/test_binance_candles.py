@@ -10,7 +10,7 @@ from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.api import candles_api
 from quant_tick.exchanges.binance.candles import (
     binance_candles,
-    fetch_binance_candles,
+    fetch_binance_format_candles,
     get_binance_candle_pagination_id,
     get_binance_interval,
 )
@@ -45,7 +45,7 @@ class BinanceCandleTest(SimpleTestCase):
         ).set_index("timestamp")
 
         with patch(
-            "quant_tick.exchanges.binance.candles.fetch_binance_candles",
+            "quant_tick.exchanges.binance.candles.fetch_binance_format_candles",
             return_value=source_candles,
         ) as mocked:
             result = binance_candles(
@@ -77,7 +77,7 @@ class BinanceCandleTest(SimpleTestCase):
 
         self.assertEqual(pagination_id, int(timestamp.timestamp() * 1000) - 1)
 
-    def test_fetch_binance_candles_backfills_with_iter_api(self):
+    def test_fetch_binance_format_candles_backfills_with_iter_api(self):
         timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 1, 6, tzinfo=UTC)
         results = [
@@ -111,7 +111,7 @@ class BinanceCandleTest(SimpleTestCase):
             "quant_tick.exchanges.binance.candles.iter_api",
             return_value=(results, False, int(timestamp_from.timestamp() * 1000) - 1),
         ) as mocked:
-            result = fetch_binance_candles(
+            result = fetch_binance_format_candles(
                 "BTCUSDT",
                 timestamp_from,
                 timestamp_to,
@@ -134,7 +134,7 @@ class BinanceCandleTest(SimpleTestCase):
             ],
         )
 
-    def test_fetch_binance_candles_uses_futures_api_for_perpetual(self):
+    def test_fetch_binance_format_candles_uses_futures_api_for_perpetual(self):
         timestamp_from = datetime(2026, 4, 1, tzinfo=UTC)
         timestamp_to = datetime(2026, 4, 1, 1, tzinfo=UTC)
 
@@ -142,7 +142,7 @@ class BinanceCandleTest(SimpleTestCase):
             "quant_tick.exchanges.binance.candles.iter_api",
             return_value=([], False, None),
         ) as mocked:
-            fetch_binance_candles(
+            fetch_binance_format_candles(
                 "BTCUSDT",
                 timestamp_from,
                 timestamp_to,

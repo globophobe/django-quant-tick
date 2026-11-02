@@ -223,6 +223,25 @@ class ResampleCandleTest(SimpleTestCase):
 
         self.assertEqual(list(result.index), [timestamp_from])
 
+    def test_zero_trade_source_omissions_preserve_only_elapsed_traded_windows(self):
+        start = datetime(2026, 4, 1, tzinfo=UTC)
+        frame = self.get_hourly_candles(start, [4, 12, 16, 32])
+        result = resample_candles(
+            frame,
+            timestamp_from=start + pd.Timedelta("4h"),
+            timestamp_to=start + pd.Timedelta("36h"),
+            resolution_minutes=480,
+            source_resolution_minutes=240,
+            missing_candles_are_zero=True,
+        )
+        self.assertEqual(
+            list(result.index),
+            [start + pd.Timedelta("8h"), start + pd.Timedelta("16h")],
+        )
+        self.assertEqual(result.open.tolist(), [Decimal(13), Decimal(17)])
+        self.assertEqual(result.close.tolist(), [Decimal(14), Decimal(18)])
+        self.assertEqual(result.notional.tolist(), [Decimal(10), Decimal(10)])
+
 
 class MergeCacheTest(SimpleTestCase):
     def get_candle_data(

@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 class ArchiveDownloadError(RuntimeError):
-    pass
+    def __init__(self, message, *, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def download_content(url: str) -> bytes | None:
@@ -27,9 +29,13 @@ def download_content(url: str) -> bytes | None:
     if response.status_code == 404:
         logger.info(f"Archive not found: {url}")
         return None
-    logger.error(f"Error {response.status_code}: {url}")
+    # Public buckets can return 403 for unpublished objects. The archive
+    # controller uses the requested date to decide whether fallback is possible.
+    if response.status_code != 403:
+        logger.error(f"Error {response.status_code}: {url}")
     raise ArchiveDownloadError(
-        f"Archive download failed with HTTP {response.status_code}: {url}"
+        f"Archive download failed with HTTP {response.status_code}: {url}",
+        status_code=response.status_code,
     )
 
 
