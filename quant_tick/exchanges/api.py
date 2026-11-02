@@ -14,6 +14,7 @@ from quant_tick.lib import (
 from quant_tick.models import ExchangeCandleData, FundingData, Symbol, TradeData
 
 from .aster import aster_candles, aster_trades
+from .aster.funding import AsterFunding, aster_funding, get_aster_funding_interval
 from .binance import binance_candles, binance_trades
 from .binance_futures import (
     binance_futures_candles,
@@ -74,6 +75,7 @@ TRADE_SUPPORTED_EXCHANGES = frozenset(
 EXCHANGE_CANDLE_SUPPORTED_EXCHANGES = TRADE_SUPPORTED_EXCHANGES
 FUNDING_SUPPORTED_EXCHANGES = frozenset(
     {
+        Exchange.ASTER,
         Exchange.BINANCE_FUTURES,
         Exchange.BITFINEX,
         *BYBIT_DERIVATIVE_EXCHANGES,
@@ -85,6 +87,7 @@ FUNDING_SUPPORTED_EXCHANGES = frozenset(
 
 FUNDING_FETCH_WINDOW = timedelta(days=90)
 FUNDING_CHUNKED_EXCHANGES = {
+    Exchange.ASTER,
     Exchange.BINANCE_FUTURES,
     Exchange.BITFINEX,
     Exchange.BYBIT_LINEAR,
@@ -94,6 +97,7 @@ FUNDING_CHUNKED_EXCHANGES = {
     Exchange.PHOENIX,
 }
 FUNDING_MODEL = {
+    Exchange.ASTER: AsterFunding,
     Exchange.BINANCE_FUTURES: BinanceFuturesFunding,
     Exchange.BITFINEX: BitfinexFunding,
     Exchange.BYBIT_LINEAR: BybitFunding,
@@ -311,6 +315,13 @@ def _funding_api(
     timestamp_to: datetime,
 ) -> DataFrame:
     exchange = symbol.exchange
+    if exchange == Exchange.ASTER:
+        return aster_funding(
+            symbol.api_symbol,
+            timestamp_from,
+            timestamp_to,
+            funding_interval=symbol.funding_interval,
+        )
     if exchange == Exchange.BINANCE_FUTURES:
         return binance_futures_funding(
             symbol.api_symbol,
@@ -365,7 +376,9 @@ def refresh_funding_interval(
     symbol: Symbol,
     assert_lease_owned: Callable[[], None] | None = None,
 ) -> timedelta | None:
-    if symbol.exchange == Exchange.BINANCE_FUTURES:
+    if symbol.exchange == Exchange.ASTER:
+        interval = get_aster_funding_interval(symbol.api_symbol)
+    elif symbol.exchange == Exchange.BINANCE_FUTURES:
         interval = get_binance_futures_funding_interval(symbol.api_symbol)
     elif symbol.exchange in BYBIT_DERIVATIVE_EXCHANGES:
         interval = get_bybit_funding_interval(

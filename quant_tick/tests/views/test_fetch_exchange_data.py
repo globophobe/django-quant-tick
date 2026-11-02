@@ -68,6 +68,27 @@ class FetchExchangeDataViewTest(TestCase):
     def get_url(self) -> str:
         return reverse("fetch_exchange_data")
 
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
+    def test_aster_collection_selects_the_active_perpetual(self, mock_funding):
+        symbol = Symbol.objects.create(
+            exchange=Exchange.ASTER,
+            api_symbol="BTCUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        Symbol.objects.create(
+            exchange=Exchange.ASTER,
+            api_symbol="ETHUSDT",
+            symbol_type=SymbolType.PERPETUAL,
+            is_active=False,
+        )
+        response = self.client.get(self.get_url(), {"exchange": "aster"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["funding"], 1)
+        self.assertEqual(response.json()["perpetual_stats"], 0)
+        mock_funding.assert_called_once()
+        self.assertEqual(mock_funding.call_args.args[0], symbol)
+        self.assertTrue(callable(mock_funding.call_args.kwargs["assert_lease_owned"]))
+
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
     def test_get_fetches_supported_exchange_data(self, mock_funding, mock_candles):

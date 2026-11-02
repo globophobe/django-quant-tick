@@ -262,8 +262,13 @@ class BinanceFormatCollectionTest(BaseSymbolTest, TestCase):
                         ]
                     raise AssertionError(path)
 
+                module = (
+                    "aster.api"
+                    if exchange == Exchange.ASTER
+                    else "binance_us.controllers"
+                )
                 with patch(
-                    f"quant_tick.exchanges.{exchange.replace('-', '_')}.controllers.get_public_json",
+                    f"quant_tick.exchanges.{module}.get_public_json",
                     side_effect=response,
                 ):
                     api(symbol, START, START + timedelta(minutes=1))

@@ -30,7 +30,7 @@ Candles are aggregated at 1 minute intervals, and validated with the exchange's 
 Supported exchanges
 -------------------
 
-✅ Aster perpetuals REST API
+✅ Aster perpetuals REST API and funding history
 
 ✅ Binance REST API, and [Binance Market Data](https://data.binance.vision/)
 

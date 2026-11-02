@@ -3,13 +3,7 @@
 from quant_tick.controllers import ExchangeREST
 
 from ..binance_format import BinanceFormatTrades, binance_format_candles
-from ..public import get_public_json
-
-
-def get_aster_response(path, params):
-    return get_public_json(
-        "https://fapi.asterdex.com/fapi/v3", path, params, namespace="ASTER"
-    )
+from .api import get_aster_response
 
 
 def aster_candles(api_symbol, timestamp_from, timestamp_to, resolution="1m"):
