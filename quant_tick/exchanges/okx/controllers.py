@@ -103,7 +103,11 @@ class OKXTrades(OKXMixin, ExchangeREST):
 
 
 class OKXArchive(OKXMixin, ChunkedExchangeS3):
-    """Two UTC+8 archive dates cover one complete UTC partition day."""
+    """Two UTC+8 archive dates cover one complete UTC partition day.
+
+    BTC-USDT-SWAP starts on 2021-11-01 UTC. Older archives report both sides
+    of each fill without identifying the aggressor.
+    """
 
     csv_columns = (
         "instrument_name",
@@ -115,9 +119,11 @@ class OKXArchive(OKXMixin, ChunkedExchangeS3):
     )
 
     def get_data_frame_chunks(self, value):
+        symbol = self.symbol.api_symbol
+        if symbol == "BTC-USDT-SWAP" and value < date(2021, 11, 1):
+            return None
         readers = []
         dates = (value, value + timedelta(days=1))
-        symbol = self.symbol.api_symbol
         try:
             for day in dates:
                 url = (

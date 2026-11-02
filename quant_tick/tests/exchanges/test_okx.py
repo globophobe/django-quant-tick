@@ -640,6 +640,95 @@ class OKXArchiveCollectionTest(BaseSymbolTest, TestCase):
                         "358912381",
                     )
 
+    def test_swap_history_boundary_preserves_first_complete_utc_day(self):
+        start = datetime(2021, 11, 1, tzinfo=UTC)
+        ms = int(start.timestamp() * 1000)
+        symbol = self.get_symbol(
+            exchange=Exchange.OKX,
+            api_symbol="BTC-USDT-SWAP",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        times = [
+            ms - 1,
+            ms,
+            ms + 16 * 3600000 - 1,
+            ms + 16 * 3600000,
+            ms + 24 * 3600000,
+        ]
+        rows = [
+            [
+                "BTC-USDT-SWAP",
+                str(i + 1),
+                "buy" if i % 2 == 0 else "sell",
+                str(100 + i),
+                str(i + 1),
+                str(timestamp),
+            ]
+            for i, timestamp in enumerate(times)
+        ]
+        readers = [
+            ChunkReader(
+                pd.DataFrame(
+                    [list(OKXArchive.csv_columns), *rows[:3]],
+                    columns=OKXArchive.csv_columns,
+                )
+            ),
+            ChunkReader(
+                pd.DataFrame(
+                    [list(OKXArchive.csv_columns), *rows[3:]],
+                    columns=OKXArchive.csv_columns,
+                )
+            ),
+        ]
+        candles = pd.DataFrame(
+            {"notional": [Decimal(0)] * 1440},
+            index=pd.date_range(start, periods=1440, freq="min", name="timestamp"),
+        )
+        for i, timestamp in enumerate(times[1:-1], 1):
+            minute = pd.Timestamp(timestamp, unit="ms", tz="UTC").floor("min")
+            candles.loc[minute, "notional"] = Decimal(i + 1) / 100
+        with (
+            patch(
+                "quant_tick.exchanges.okx.controllers.contract_value",
+                return_value=Decimal("0.01"),
+            ),
+            patch(
+                "quant_tick.exchanges.okx.controllers.zip_chunk_downloader",
+                side_effect=readers,
+            ) as download,
+            patch(
+                "quant_tick.exchanges.okx.controllers.okx_candles", return_value=candles
+            ),
+        ):
+            api(symbol, start - timedelta(days=31), start + timedelta(days=1))
+        self.assertEqual(
+            [call.args[0].rsplit("-trades-", 1)[1] for call in download.call_args_list],
+            ["2021-11-01.zip", "2021-11-02.zip"],
+        )
+        self.assertTrue(all(reader.closed for reader in readers))
+        partitions = TradeData.objects.filter(symbol=symbol).order_by("timestamp")
+        self.assertEqual(
+            list(partitions.values_list("timestamp", "ok")),
+            [(start + timedelta(hours=i), True) for i in range(24)],
+        )
+        stored = pd.concat(
+            [row.get_data_frame("raw_data") for row in partitions if row.raw_data],
+            ignore_index=True,
+        )
+        self.assertEqual(
+            stored.price.tolist(), [Decimal(101), Decimal(102), Decimal(103)]
+        )
+        self.assertEqual(
+            stored.notional.tolist(),
+            [Decimal("0.02"), Decimal("0.03"), Decimal("0.04")],
+        )
+        self.assertEqual(
+            stored.volume.tolist(), [Decimal("2.02"), Decimal("3.06"), Decimal("4.12")]
+        )
+        self.assertEqual(stored.tickRule.tolist(), [-1, 1, -1])
+        self.assertEqual(partitions.get(timestamp=start).uid, "2")
+        self.assertEqual(partitions.get(timestamp=start + timedelta(hours=16)).uid, "4")
+
     def test_missing_second_archive_does_not_write_partial_day(self):
         symbol = self.get_symbol(exchange=Exchange.OKX, api_symbol="BTC-USDT")
         reader = ChunkReader(pd.DataFrame(columns=OKXArchive.csv_columns))
