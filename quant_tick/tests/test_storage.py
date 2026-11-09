@@ -114,9 +114,26 @@ class TradeDataStorageTest(BaseWriteTradeDataTest, TestCase):
             (row.raw_data.storage, row.raw_data.name) for row in source_rows
         ]
 
-        convert_trade_data_to_daily(
-            symbol, timestamp_from, get_next_time(timestamp_from, value="1h")
-        )
+        events = []
+        read_data_frame = TradeData.get_data_frame
+
+        def record_read(instance, *args, **kwargs):
+            events.append("read")
+            return read_data_frame(instance, *args, **kwargs)
+
+        with (
+            patch.object(
+                TradeData, "get_data_frame", autospec=True, side_effect=record_read
+            ),
+            patch(
+                "quant_tick.storage.close_old_connections",
+                side_effect=lambda: events.append("refresh"),
+            ),
+        ):
+            convert_trade_data_to_daily(
+                symbol, timestamp_from, get_next_time(timestamp_from, value="1h")
+            )
+        self.assertEqual(events, ["read"] * 60 + ["refresh"])
 
         trades = list(TradeData.objects.all())
         self.assertEqual(len(trades), 1)
