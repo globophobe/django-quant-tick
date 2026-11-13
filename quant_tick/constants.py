@@ -29,6 +29,7 @@ class Exchange(models.TextChoices):
     BYBIT = "bybit", "Bybit"
     BYBIT_LINEAR = "bybit-linear", "Bybit Linear"
     BYBIT_INVERSE = "bybit-inverse", "Bybit Inverse"
+    COINAPI = "coinapi", "CoinAPI"
     COINBASE = "coinbase", "Coinbase"
     DERIBIT = "deribit", "Deribit"
     HYPERLIQUID = "hyperliquid", "Hyperliquid"

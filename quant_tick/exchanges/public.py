@@ -22,6 +22,7 @@ def get_public_json(
     max_requests: int = 2,
     reset_seconds: int = 1,
     retry: int = 30,
+    headers: dict[str, str] | None = None,
 ):
     total_key = f"{namespace}_TOTAL_REQUESTS"
     reset_key = f"{namespace}_MAX_REQUESTS_RESET"
@@ -29,7 +30,10 @@ def get_public_json(
         throttle_api_requests(reset_key, total_key, reset_seconds, max_requests)
         increment_api_total_requests(total_key)
         try:
-            response = httpx2.get(f"{base_url}{path}", params=params, timeout=30)
+            kwargs = {"headers": headers} if headers is not None else {}
+            response = httpx2.get(
+                f"{base_url}{path}", params=params, timeout=30, **kwargs
+            )
             response.raise_for_status()
             payload = json.loads(response.text, parse_float=Decimal)
             if isinstance(payload, dict) and str(payload.get("code")) in {

@@ -40,6 +40,8 @@ Supported exchanges
 
 ✅ Bybit [S3](https://public.bybit.com/trading/)
 
+✅ CoinAPI spot trades and OHLCV REST API (API key required)
+
 ✅ Coinbase REST API
 
 ✅ Deribit REST API
@@ -79,4 +81,59 @@ Then, configure a Cloud Workflow to collect data in the cloud. There is an examp
 Environment
 -----------
 
-To use the scripts or deploy to Google Cloud, rename `.env.sample` to `.env`, and add the required settings.
+Copy `demo/env.sample` to `demo/.env` if it does not already exist, then add the required settings.
+
+CoinAPI trial
+-------------
+
+Set `COINAPI_API_KEY` in the process environment or `demo/.env`. The adapter uses
+the documented [trade history](https://www.coinapi.io/products/market-data-api/docs/rest-api/trades/trades/symbol_id/history/get)
+and [OHLCV history](https://www.coinapi.io/products/market-data-api/docs/rest-api/ohlcv/ohlcv/symbol_id/history/get)
+endpoints. Start with one completed minute: historical responses consume credits
+per 100 returned items, and a busy minute can require several pages. An API key
+with the appropriate historical-data entitlement is needed; no live trial has
+been validated yet.
+
+From the repository root, prepare the local database and open a shell:
+
+```sh
+cd demo
+DJANGO_SETTINGS_MODULE=demo.settings.development.local ../.venv/bin/python manage.py migrate
+DJANGO_SETTINGS_MODULE=demo.settings.development.local ../.venv/bin/python manage.py shell
+```
+
+Then collect one minute into a separate, inactive comparison symbol:
+
+```python
+from datetime import UTC, datetime, timedelta
+
+from quant_tick.constants import Exchange
+from quant_tick.exchanges.api import api
+from quant_tick.models import Symbol, TradeData
+
+start = datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(days=1)
+symbol, _ = Symbol.objects.get_or_create(
+    exchange=Exchange.COINAPI,
+    api_symbol="BINANCE_SPOT_BTC_USDT",
+    defaults={"save_raw": True, "save_aggregated": True, "is_active": False,
+              "date_from": start.date()},
+)
+api(symbol, start, start + timedelta(minutes=1))
+list(TradeData.objects.filter(symbol=symbol).values("timestamp", "ok"))
+```
+
+Use the full CoinAPI `symbol_id`, not the exchange-native pair. Only spot markets
+are supported initially. The `coinapi` source keeps storage separate from native
+exchange symbols. Existing trade aggregation and adaptive-candle paths apply.
+
+Trade `size` and candle `volume_traded` map to the base-quantity field `notional`.
+Trade quote-value `volume` is `price * size`; OHLCV does not supply quote turnover.
+Raw files retain `coinapi_uuid`, `time_coinapi`, and the exchange `id_trade` when
+provided. Trade direction must be reported `BUY` or `SELL`: estimated and unknown
+sides abort the slice before writing, rather than contaminating flow features.
+
+`ok=True` means collected trades agree with CoinAPI's minute quantities. Compare
+the same venue, pair and UTC window with direct exchange data separately;
+CoinAPI trades and CoinAPI OHLCV are not independent evidence of venue coverage.
+Missing validation candles remain indeterminate, and quantity mismatches remain
+failed validation.

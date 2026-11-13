@@ -31,6 +31,7 @@ from .bitfinex.funding import BitfinexFunding
 from .bybit import bybit_candles, bybit_funding, bybit_trades
 from .bybit.candles import get_bybit_category
 from .bybit.funding import BybitFunding, get_bybit_funding_interval
+from .coinapi import coinapi_candles, coinapi_trades
 from .coinbase import coinbase_candles, coinbase_trades
 from .deribit import deribit_candles, deribit_funding, deribit_trades
 from .deribit.funding import DeribitFunding
@@ -62,6 +63,7 @@ TRADE_SUPPORTED_EXCHANGES = frozenset(
         Exchange.BINANCE_FUTURES,
         Exchange.BITFINEX,
         *BYBIT_EXCHANGES,
+        Exchange.COINAPI,
         Exchange.COINBASE,
         Exchange.DERIBIT,
         Exchange.HYPERLIQUID,
@@ -238,6 +240,9 @@ def trades_api(
     elif exchange in BYBIT_EXCHANGES:
         get_bybit_symbol_type(symbol)
         bybit_trades(symbol, **kwargs)
+    elif exchange == Exchange.COINAPI:
+        require_market_type(symbol, SymbolType.SPOT)
+        coinapi_trades(symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         coinbase_trades(symbol, **kwargs)
     elif exchange == Exchange.DERIBIT:
@@ -295,6 +300,9 @@ def candles_api(
             category=get_bybit_category(exchange),
             **kwargs,
         )
+    elif exchange == Exchange.COINAPI:
+        require_market_type(symbol, SymbolType.SPOT)
+        candles = coinapi_candles(api_symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         candles = coinbase_candles(api_symbol, **kwargs)
     elif exchange == Exchange.DERIBIT:
