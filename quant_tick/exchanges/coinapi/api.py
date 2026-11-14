@@ -5,14 +5,21 @@ import re
 
 from django.core.exceptions import ImproperlyConfigured
 
+from quant_tick.constants import SymbolType
+
 from ..public import get_public_json
 
 
-def require_spot_symbol(api_symbol):
-    if not re.fullmatch(r"[A-Z0-9_-]+_SPOT_[A-Z0-9]+_[A-Z0-9]+", api_symbol):
-        raise ValueError(
-            "CoinAPI requires a spot symbol ID, e.g. BINANCE_SPOT_BTC_USDT"
-        )
+def get_coinapi_symbol_type(api_symbol):
+    """Accept markets whose trade and candle quantities are in base units."""
+    if re.fullmatch(r"[A-Z0-9_-]+_SPOT_[A-Z0-9]+_[A-Z0-9]+", api_symbol):
+        return SymbolType.SPOT
+    if re.fullmatch(r"HYPERLIQUID_PERP_[A-Z0-9]+_USDC", api_symbol):
+        return SymbolType.PERPETUAL
+    raise ValueError(
+        "CoinAPI requires a spot or Hyperliquid USDC perpetual symbol ID, "
+        "e.g. COINBASE_SPOT_BTC_USD or HYPERLIQUID_PERP_BTC_USDC"
+    )
 
 
 def get_coinapi_response(path, params):

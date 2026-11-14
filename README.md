@@ -40,7 +40,7 @@ Supported exchanges
 
 ✅ Bybit [S3](https://public.bybit.com/trading/)
 
-✅ CoinAPI spot trades and OHLCV REST API (API key required)
+✅ CoinAPI spot and Hyperliquid perpetual trades and OHLCV REST API (API key required)
 
 ✅ Coinbase REST API
 
@@ -85,16 +85,15 @@ Environment
 
 Copy `demo/env.sample` to `demo/.env` if it does not already exist, then add the required settings.
 
-CoinAPI trial
--------------
+CoinAPI market history
+----------------------
 
 Set `COINAPI_API_KEY` in the process environment or `demo/.env`. The adapter uses
 the documented [trade history](https://www.coinapi.io/products/market-data-api/docs/rest-api/trades/trades/symbol_id/history/get)
 and [OHLCV history](https://www.coinapi.io/products/market-data-api/docs/rest-api/ohlcv/ohlcv/symbol_id/history/get)
 endpoints. Start with one completed minute: historical responses consume credits
 per 100 returned items, and a busy minute can require several pages. An API key
-with the appropriate historical-data entitlement is needed; no live trial has
-been validated yet.
+with the appropriate historical-data entitlement is needed.
 
 From the repository root, prepare the local database and open a shell:
 
@@ -109,14 +108,15 @@ Then collect one minute into a separate, inactive comparison symbol:
 ```python
 from datetime import UTC, datetime, timedelta
 
-from quant_tick.constants import Exchange
+from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.api import api
 from quant_tick.models import Symbol, TradeData
 
 start = datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(days=1)
 symbol, _ = Symbol.objects.get_or_create(
     exchange=Exchange.COINAPI,
-    api_symbol="BINANCE_SPOT_BTC_USDT",
+    api_symbol="HYPERLIQUID_PERP_BTC_USDC",
+    symbol_type=SymbolType.PERPETUAL,
     defaults={"save_raw": True, "save_aggregated": True, "is_active": False,
               "date_from": start.date()},
 )
@@ -124,9 +124,19 @@ api(symbol, start, start + timedelta(minutes=1))
 list(TradeData.objects.filter(symbol=symbol).values("timestamp", "ok"))
 ```
 
-Use the full CoinAPI `symbol_id`, not the exchange-native pair. Only spot markets
-are supported initially. The `coinapi` source keeps storage separate from native
-exchange symbols. Existing trade aggregation and adaptive-candle paths apply.
+Use the full CoinAPI `symbol_id`, not the exchange-native pair. Spot markets
+(for example `COINBASE_SPOT_BTC_USD` with `symbol_type=SymbolType.SPOT`) and
+Hyperliquid USDC perpetuals are supported. Other derivatives and the separate
+`HYPERLIQUIDL4` feed are not supported. Existing trade aggregation and
+adaptive-candle paths apply.
+
+CoinAPI is a data provider: `HYPERLIQUID_PERP_BTC_USDC` describes trades on
+Hyperliquid, not another venue. The `coinapi` source keeps provider observations
+separate from native exchange symbols. Collect new Hyperliquid trades through
+the native WebSocket feed; use bounded CoinAPI requests for older history or
+gaps. Collection does not automatically merge sources or fall back to paid
+requests. Before joining history, compare an overlapping interval and choose
+one source per interval with an explicit cutoff, retaining source provenance.
 
 Trade `size` and candle `volume_traded` map to the base-quantity field `notional`.
 Trade quote-value `volume` is `price * size`; OHLCV does not supply quote turnover.
@@ -138,7 +148,9 @@ sides abort the slice before writing, rather than contaminating flow features.
 the same venue, pair and UTC window with direct exchange data separately;
 CoinAPI trades and CoinAPI OHLCV are not independent evidence of venue coverage.
 Missing validation candles remain indeterminate, and quantity mismatches remain
-failed validation.
+failed validation. A mismatch can reflect inconsistent vendor datasets rather
+than missing trades. Compare native candles where available before retrying a
+paid range.
 
 Femtos Hyperliquid history
 -------------------------
@@ -201,5 +213,6 @@ history calls. Authentication and exhausted-credit errors stop collection.
 
 Historical Hyperliquid trades are **not** supported by Femtos's REST endpoint:
 its time filters and cursor history are for EVM swaps, while HyperCore supplies
-only recent trades. Keep the direct `hyperliquid` collector for trade history
-and adaptive candles; Femtos OHLCV cannot reconstruct trade-level flow.
+only recent trades. The direct `hyperliquid` collector processes recorded
+WebSocket trades; use CoinAPI for historical trade backfill. Femtos OHLCV cannot
+reconstruct trade-level flow.

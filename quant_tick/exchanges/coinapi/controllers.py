@@ -1,4 +1,4 @@
-"""Spot trade ingestion with exchange-reported taker direction.
+"""Spot and Hyperliquid perpetual trades with exchange-reported taker direction.
 
 History is ascending and paginated by time. Re-fetch the last timestamp of a
 full page, retaining only earlier rows, so tied trades cannot fall between pages.
@@ -11,7 +11,7 @@ from decimal import Decimal
 from quant_tick.controllers import ExchangeREST
 from quant_tick.lib import parse_datetime
 
-from .api import get_coinapi_response, require_spot_symbol
+from .api import get_coinapi_response, get_coinapi_symbol_type
 from .candles import coinapi_candles
 
 PAGE_SIZE = 1000
@@ -19,7 +19,7 @@ MAX_PAGE_SIZE = 100000
 
 
 def coinapi_trades(symbol, **kwargs):
-    require_spot_symbol(symbol.api_symbol)
+    get_coinapi_symbol_type(symbol.api_symbol)
     CoinAPITrades(symbol, **kwargs).main()
 
 

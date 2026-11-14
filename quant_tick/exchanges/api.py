@@ -32,6 +32,7 @@ from .bybit import bybit_candles, bybit_funding, bybit_trades
 from .bybit.candles import get_bybit_category
 from .bybit.funding import BybitFunding, get_bybit_funding_interval
 from .coinapi import coinapi_candles, coinapi_trades
+from .coinapi.api import get_coinapi_symbol_type
 from .coinbase import coinbase_candles, coinbase_trades
 from .deribit import deribit_candles, deribit_funding, deribit_trades
 from .deribit.funding import DeribitFunding
@@ -245,7 +246,7 @@ def trades_api(
         get_bybit_symbol_type(symbol)
         bybit_trades(symbol, **kwargs)
     elif exchange == Exchange.COINAPI:
-        require_market_type(symbol, SymbolType.SPOT)
+        require_market_type(symbol, get_coinapi_symbol_type(symbol.api_symbol))
         coinapi_trades(symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         coinbase_trades(symbol, **kwargs)
@@ -305,7 +306,7 @@ def candles_api(
             **kwargs,
         )
     elif exchange == Exchange.COINAPI:
-        require_market_type(symbol, SymbolType.SPOT)
+        require_market_type(symbol, get_coinapi_symbol_type(api_symbol))
         candles = coinapi_candles(api_symbol, **kwargs)
     elif exchange == Exchange.COINBASE:
         candles = coinbase_candles(api_symbol, **kwargs)

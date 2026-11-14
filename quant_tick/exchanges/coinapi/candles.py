@@ -14,13 +14,13 @@ from quant_tick.lib import (
     resample_candles,
 )
 
-from .api import get_coinapi_response, require_spot_symbol
+from .api import get_coinapi_response, get_coinapi_symbol_type
 
 PAGE_SIZE = 1000
 
 
 def coinapi_candles(api_symbol, timestamp_from, timestamp_to, resolution="1m"):
-    require_spot_symbol(api_symbol)
+    get_coinapi_symbol_type(api_symbol)
     target = parse_fixed_resolution_minutes(resolution)
     # Hour and day sources avoid downloading minute bars for larger requests.
     source = next(value for value in (1440, 60, 1) if target % value == 0)

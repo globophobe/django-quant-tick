@@ -22,6 +22,7 @@ from ..base import BaseSymbolTest
 START = datetime(2025, 1, 1, tzinfo=UTC)
 END = START + timedelta(minutes=1)
 SYMBOL = "BINANCE_SPOT_BTC_USDT"
+HYPERLIQUID_SYMBOL = "HYPERLIQUID_PERP_BTC_USDC"
 
 
 def trade(uid, timestamp="2025-01-01T00:00:00.0000001Z", side="BUY", **kwargs):
@@ -278,37 +279,58 @@ class CoinAPIMarketTest(SimpleTestCase):
 )
 class CoinAPICollectionTest(BaseSymbolTest, TestCase):
     def test_ingestion_persists_validated_raw_aggregated_and_filtered_data(self):
-        symbol = self.get_symbol(
-            exchange=Exchange.COINAPI,
-            api_symbol=SYMBOL,
-            save_aggregated=True,
-            significant_trade_filter=1,
-        )
-        native = self.get_symbol(exchange=Exchange.BINANCE, api_symbol="BTCUSDT")
-        rows = [trade(1, id_trade="10"), trade(2, side="SELL", id_trade="11")]
-        with (
-            patch.dict(os.environ, {"COINAPI_API_KEY": "sample-test-key"}, clear=True),
-            patch(
-                "quant_tick.exchanges.public.httpx2.get",
-                side_effect=[response(200, [candle()]), response(200, rows)],
-            ) as request,
+        for symbol_id, symbol_type, native_exchange, native_pair in (
+            (SYMBOL, SymbolType.SPOT, Exchange.BINANCE, "BTCUSDT"),
+            (HYPERLIQUID_SYMBOL, SymbolType.PERPETUAL, Exchange.HYPERLIQUID, "BTC"),
         ):
-            api(symbol, START, END)
-        self.assertEqual(request.call_count, 2)
-        stored = TradeData.objects.get(symbol=symbol)
-        self.assertIs(stored.ok, True)
-        for field in ("raw_data", "aggregated_data", "filtered_data"):
-            frame = stored.get_data_frame(field)
-            self.assertEqual(frame.notional.sum(), Decimal("0.2"))
-            self.assertEqual(frame.volume.sum(), Decimal("20.0246913578246913578"))
-            self.assertEqual(frame.tickRule.tolist(), [1, -1])
-            self.assertEqual(frame.nanoseconds.tolist(), [100, 100])
-        raw = stored.get_data_frame("raw_data")
-        self.assertEqual(raw.coinapi_uuid.tolist(), ["1", "2"])
-        self.assertEqual(raw.id_trade.tolist(), ["10", "11"])
-        self.assertEqual(raw.time_coinapi.tolist(), [rows[0]["time_coinapi"]] * 2)
-        self.assertNotEqual(symbol.upload_path, native.upload_path)
-        self.assertFalse(TradeData.objects.filter(symbol=native).exists())
+            with self.subTest(symbol_id=symbol_id):
+                symbol = self.get_symbol(
+                    exchange=Exchange.COINAPI,
+                    api_symbol=symbol_id,
+                    symbol_type=symbol_type,
+                    save_aggregated=True,
+                    significant_trade_filter=1,
+                )
+                native = self.get_symbol(
+                    exchange=native_exchange,
+                    api_symbol=native_pair,
+                    symbol_type=symbol_type,
+                )
+                rows = [
+                    trade(1, symbol_id=symbol_id, id_trade="1065044209871623"),
+                    trade(2, symbol_id=symbol_id, side="SELL", id_trade="11"),
+                ]
+                with (
+                    patch.dict(
+                        os.environ, {"COINAPI_API_KEY": "sample-test-key"}, clear=True
+                    ),
+                    patch(
+                        "quant_tick.exchanges.public.httpx2.get",
+                        side_effect=[response(200, [candle()]), response(200, rows)],
+                    ) as request,
+                ):
+                    api(symbol, START, END)
+                self.assertEqual(request.call_count, 2)
+                self.assertEqual(
+                    request.call_args.args[0],
+                    "https://rest.coinapi.io/v1/trades/" + symbol_id + "/history",
+                )
+                stored = TradeData.objects.get(symbol=symbol)
+                self.assertIs(stored.ok, True)
+                for field in ("raw_data", "aggregated_data", "filtered_data"):
+                    frame = stored.get_data_frame(field)
+                    self.assertEqual(frame.notional.sum(), Decimal("0.2"))
+                    self.assertEqual(
+                        frame.volume.sum(), Decimal("20.0246913578246913578")
+                    )
+                    self.assertEqual(frame.tickRule.tolist(), [1, -1])
+                    self.assertEqual(frame.nanoseconds.tolist(), [100, 100])
+                raw = stored.get_data_frame("raw_data")
+                self.assertEqual(raw.coinapi_uuid.tolist(), ["1", "2"])
+                self.assertEqual(raw.id_trade.tolist(), ["1065044209871623", "11"])
+                self.assertEqual(raw.time_coinapi.tolist(), [rows[0]["time_coinapi"]] * 2)
+                self.assertNotEqual(symbol.upload_path, native.upload_path)
+                self.assertFalse(TradeData.objects.filter(symbol=native).exists())
 
     def test_unknown_sides_abort_before_partition_write(self):
         symbol = self.get_symbol(exchange=Exchange.COINAPI, api_symbol=SYMBOL)
@@ -346,7 +368,8 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
     def test_larger_candles_use_hourly_source_and_preserve_volume_units(self):
         symbol = self.get_symbol(
             exchange=Exchange.COINAPI,
-            api_symbol=SYMBOL,
+            api_symbol=HYPERLIQUID_SYMBOL,
+            symbol_type=SymbolType.PERPETUAL,
             exchange_candle_resolution="8h",
         )
         with patch(
@@ -358,15 +381,24 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
         ) as request:
             exchange_candles(symbol, START, START + timedelta(hours=9))
         self.assertEqual(request.call_args.args[1]["period_id"], "1HRS")
+        self.assertEqual(
+            request.call_args.args[0],
+            "/v1/ohlcv/HYPERLIQUID_PERP_BTC_USDC/history",
+        )
         stored = ExchangeCandleData.objects.get(symbol=symbol)
         self.assertEqual(stored.frequency, 480)
         self.assertEqual(stored.notional, Decimal("0.6"))
         self.assertIsNone(stored.volume)
 
-    def test_dispatch_rejects_nonspot_or_native_symbols_before_requesting(self):
+    def test_dispatch_rejects_unsupported_or_mistyped_markets_before_requesting(self):
         for symbol_id, symbol_type in (
             (SYMBOL, SymbolType.PERPETUAL),
+            (HYPERLIQUID_SYMBOL, SymbolType.SPOT),
             ("BINANCEFTS_PERP_BTC_USDT", SymbolType.SPOT),
+            ("BINANCEFTS_PERP_BTC_USDT", SymbolType.PERPETUAL),
+            ("HYPERLIQUIDL4_PERP_BTC_USDC", SymbolType.PERPETUAL),
+            ("HYPERLIQUID_PERP_BTC_USD", SymbolType.PERPETUAL),
+            ("HYPERLIQUID_PERP_BTC_USDC_EXTRA", SymbolType.PERPETUAL),
             ("BTCUSDT", SymbolType.SPOT),
         ):
             symbol = self.get_symbol(
