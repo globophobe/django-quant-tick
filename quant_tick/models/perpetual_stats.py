@@ -50,6 +50,8 @@ PERPETUAL_STATS_REQUIRED_FIELDS = {
         "short_account_ratio",
     ),
     Exchange.PHOENIX: ("open_interest", "open_interest_value"),
+    # The adapter omits hours missing cohorts once cohort history has begun.
+    Exchange.FEMTOS: ("open_interest",),
 }
 
 

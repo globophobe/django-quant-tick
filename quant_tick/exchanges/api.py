@@ -35,6 +35,7 @@ from .coinapi import coinapi_candles, coinapi_trades
 from .coinbase import coinbase_candles, coinbase_trades
 from .deribit import deribit_candles, deribit_funding, deribit_trades
 from .deribit.funding import DeribitFunding
+from .femtos import FemtosFunding, femtos_candles, femtos_funding
 from .funding import ExchangeFunding
 from .hyperliquid import (
     hyperliquid_candles,
@@ -74,7 +75,7 @@ TRADE_SUPPORTED_EXCHANGES = frozenset(
         Exchange.UPBIT,
     }
 )
-EXCHANGE_CANDLE_SUPPORTED_EXCHANGES = TRADE_SUPPORTED_EXCHANGES
+EXCHANGE_CANDLE_SUPPORTED_EXCHANGES = TRADE_SUPPORTED_EXCHANGES | {Exchange.FEMTOS}
 FUNDING_SUPPORTED_EXCHANGES = frozenset(
     {
         Exchange.ASTER,
@@ -82,6 +83,7 @@ FUNDING_SUPPORTED_EXCHANGES = frozenset(
         Exchange.BITFINEX,
         *BYBIT_DERIVATIVE_EXCHANGES,
         Exchange.DERIBIT,
+        Exchange.FEMTOS,
         Exchange.HYPERLIQUID,
         Exchange.PHOENIX,
     }
@@ -95,6 +97,7 @@ FUNDING_CHUNKED_EXCHANGES = {
     Exchange.BYBIT_LINEAR,
     Exchange.BYBIT_INVERSE,
     Exchange.DERIBIT,
+    Exchange.FEMTOS,
     Exchange.HYPERLIQUID,
     Exchange.PHOENIX,
 }
@@ -105,6 +108,7 @@ FUNDING_MODEL = {
     Exchange.BYBIT_LINEAR: BybitFunding,
     Exchange.BYBIT_INVERSE: BybitFunding,
     Exchange.DERIBIT: DeribitFunding,
+    Exchange.FEMTOS: FemtosFunding,
     Exchange.HYPERLIQUID: HyperliquidFunding,
     Exchange.PHOENIX: PhoenixFunding,
 }
@@ -307,6 +311,9 @@ def candles_api(
         candles = coinbase_candles(api_symbol, **kwargs)
     elif exchange == Exchange.DERIBIT:
         candles = deribit_candles(api_symbol, **kwargs)
+    elif exchange == Exchange.FEMTOS:
+        require_market_type(symbol, SymbolType.PERPETUAL)
+        candles = femtos_candles(api_symbol, **kwargs)
     elif exchange == Exchange.HYPERLIQUID:
         candles = hyperliquid_candles(api_symbol, **kwargs)
     elif exchange == Exchange.PHOENIX:
@@ -349,6 +356,8 @@ def _funding_api(
         )
     if exchange == Exchange.DERIBIT:
         return deribit_funding(symbol.api_symbol, timestamp_from, timestamp_to)
+    if exchange == Exchange.FEMTOS:
+        return femtos_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.HYPERLIQUID:
         return hyperliquid_funding(symbol.api_symbol, timestamp_from, timestamp_to)
     if exchange == Exchange.PHOENIX:

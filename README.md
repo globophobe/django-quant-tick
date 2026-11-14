@@ -46,6 +46,8 @@ Supported exchanges
 
 ✅ Deribit REST API
 
+✅ Femtos Hyperliquid perpetual candles, funding and positioning history (API key required)
+
 ✅ OKX spot and linear perpetuals REST API and daily archives
 
 ✅ Phoenix perpetuals REST API
@@ -137,3 +139,67 @@ the same venue, pair and UTC window with direct exchange data separately;
 CoinAPI trades and CoinAPI OHLCV are not independent evidence of venue coverage.
 Missing validation candles remain indeterminate, and quantity mismatches remain
 failed validation.
+
+Femtos Hyperliquid history
+-------------------------
+
+Set `FEMTOS_API_KEY` in the process environment or `demo/.env`. Use the `femtos`
+source with `symbol_type="perpetual"` and a native coin such as `BTC` or
+`xyz:TSLA`. This keeps vendor observations separate from the direct Hyperliquid
+feed. Supported collectors are `exchange_candles`, `funding` and
+`perpetual_stats`, including the normal scheduled exchange-data workflow.
+
+The [candle API](https://femtos.xyz/reference/candles) supplies minute through
+daily OHLCV: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 12h and 1d. Base quantity
+maps to `notional`; quote turnover maps to `volume`. Gaps remain absent and
+unknown quote turnover remains null, including native Hyperliquid candles the
+provider substitutes over gaps in its own fills. Neither missing nor forming
+bars are filled locally.
+
+Hourly [open-interest history](https://femtos.xyz/reference/open-interest)
+starts in May 2023; opening/closing flows become available in March 2025 and
+[size cohorts](https://femtos.xyz/reference/open-interest-cohorts) in September
+2025. Availability can vary by market and archive gaps. Open interest counts
+longs and shorts together; `single_open_interest` is half that quantity. OI and
+flow fields describe the completed hour. Account ratios use the cohort at its
+start, with the precise funding-block time retained as `cohort_timestamp`.
+Full cohort tiers, top-ten sizes, raw account counts and flows stay in the row's
+`json_data`; large positions are not labelled as Binance-style top traders.
+An hour missing its expected cohort stays retryable. Older OI-only history is
+retained; unavailable flows stay null.
+
+Funding is labelled by settlement time, one hour after the provider's OI bar
+label. Collection starts June 8, 2023; earlier rates are the provider's hourly
+distribution of eight-hour settlements and are excluded from funding events.
+
+From the local Django shell described above, collect one completed hour:
+
+```python
+from datetime import UTC, datetime, timedelta
+from quant_tick.constants import Exchange, SymbolType
+from quant_tick.exchanges.api import exchange_candles, funding
+from quant_tick.exchanges.perpetual_stats import perpetual_stats
+from quant_tick.models import Symbol
+
+end = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+start = end - timedelta(hours=1)
+symbol, _ = Symbol.objects.get_or_create(
+    exchange=Exchange.FEMTOS, api_symbol="BTC",
+    defaults={"symbol_type": SymbolType.PERPETUAL, "is_active": False,
+              "exchange_candle_resolution": "1h", "date_from": start.date()},
+)
+exchange_candles(symbol, start, end)
+funding(symbol, start, end)
+perpetual_stats(symbol, start, end)
+```
+
+`export_perpetual_stats` includes Femtos account ratios and a JSON-text
+`json_data` column by default, preserving exact cohort/flow quantities and
+timestamps. Other sources can opt into that metadata with `--field json_data`.
+Requests are split into at most 30 days and 720 observations to avoid heavy
+history calls. Authentication and exhausted-credit errors stop collection.
+
+Historical Hyperliquid trades are **not** supported by Femtos's REST endpoint:
+its time filters and cursor history are for EVM swaps, while HyperCore supplies
+only recent trades. Keep the direct `hyperliquid` collector for trade history
+and adaptive candles; Femtos OHLCV cannot reconstruct trade-level flow.

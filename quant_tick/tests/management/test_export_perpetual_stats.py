@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from io import StringIO
@@ -17,6 +18,41 @@ from ..base import BaseSymbolTest
 
 
 class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
+    def test_femtos_default_export_retains_exact_cohort_and_flow_metadata(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.FEMTOS, api_symbol="BTC", symbol_type=SymbolType.PERPETUAL
+        )
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        PerpetualStatsData.objects.create(
+            symbol=symbol,
+            timestamp=timestamp,
+            frequency=60,
+            open_interest=Decimal(100),
+            long_account_ratio=Decimal("0.6"),
+            json_data={
+                "cohort_timestamp": timestamp + timedelta(milliseconds=23),
+                "long_open_size": Decimal("1.123456789123456789"),
+                "cohorts": [{"tier": 4, "longSz": Decimal("7.123456789123456789")}],
+            },
+        )
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "femtos.parquet"
+            call_command(
+                "export_perpetual_stats",
+                "--code-name",
+                symbol.code_name,
+                "--output",
+                str(output),
+                stdout=StringIO(),
+            )
+            frame = pd.read_parquet(output)
+        self.assertEqual(frame.iloc[0].long_account_ratio, 0.6)
+        self.assertTrue(frame.single_open_interest.isna().all())
+        metadata = json.loads(frame.iloc[0].json_data)
+        self.assertEqual(metadata["cohort_timestamp"], "2026-01-01T00:00:00.023000Z")
+        self.assertEqual(metadata["long_open_size"], "1.123456789123456789")
+        self.assertEqual(metadata["cohorts"][0]["longSz"], "7.123456789123456789")
+
     def setUp(self):
         super().setUp()
         self.symbol = self.get_symbol(
