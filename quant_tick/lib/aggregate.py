@@ -22,8 +22,10 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
         return pd.DataFrame([])
 
     # Build samples by folding consecutive rows that describe the same execution
-    # cascade: same timestamp, nanoseconds, direction, and symbol when present.
-    has_symbol = "symbol" in data_frame.columns
+    # cascade: same timestamp, direction, market and source when present.
+    group_columns = [
+        key for key in ("symbol", "data_source") if key in data_frame.columns
+    ]
     samples = []
     iterator = data_frame.itertuples(index=False)
 
@@ -37,14 +39,14 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
     volume = first_row.volume
     notional = first_row.notional
     ticks = 1
-    symbol = first_row.symbol if has_symbol else None
+    group_values = {key: getattr(first_row, key) for key in group_columns}
     for row in iterator:
         # Same sample: aggregate size and keep the last execution price.
         is_same_sample = (
             row.timestamp == timestamp
             and row.nanoseconds == nanoseconds
             and row.tickRule == tick_rule
-            and (not has_symbol or row.symbol == symbol)
+            and all(getattr(row, key) == value for key, value in group_values.items())
         )
         if is_same_sample:
             price = row.price
@@ -63,9 +65,8 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
             "notional": notional,
             "ticks": ticks,
             "tickRule": tick_rule,
+            **group_values,
         }
-        if has_symbol:
-            data["symbol"] = symbol
         samples.append(data)
         uid = row.uid
         timestamp = row.timestamp
@@ -75,8 +76,7 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
         volume = row.volume
         notional = row.notional
         ticks = 1
-        if has_symbol:
-            symbol = row.symbol
+        group_values = {key: getattr(row, key) for key in group_columns}
 
     # Flush the final sample after iteration.
     data = {
@@ -88,9 +88,8 @@ def aggregate_trades(data_frame: DataFrame) -> DataFrame:
         "notional": notional,
         "ticks": ticks,
         "tickRule": tick_rule,
+        **group_values,
     }
-    if has_symbol:
-        data["symbol"] = symbol
     samples.append(data)
     # Assert volume equal.
     aggregated = pd.DataFrame(samples)
@@ -162,6 +161,13 @@ def volume_filter(df: DataFrame, is_min_volume: bool = False) -> dict:
         "timestamp": last_row.timestamp,
         "nanoseconds": last_row.nanoseconds,
     }
+    if "data_source" in df.columns:
+        sources = {
+            source
+            for value in df.data_source.fillna("unknown")
+            for source in value.split(",")
+        }
+        data["data_source"] = ",".join(sorted(sources))
     if is_min_volume:
         data.update(
             {

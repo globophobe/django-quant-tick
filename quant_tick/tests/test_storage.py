@@ -103,6 +103,7 @@ class TradeDataStorageTest(BaseWriteTradeDataTest, TestCase):
             ts_from = timestamp_from + pd.Timedelta(f"{minute}min")
             ts_to = ts_from + pd.Timedelta("1min")
             df = self.get_raw(ts_from)
+            df["data_source"] = "hyperliquid" if minute < 30 else "coinapi"
             TradeData.write(symbol, ts_from, ts_to, pd.DataFrame([]), raw_trades=df)
             data_frames.append(df)
 
@@ -142,6 +143,7 @@ class TradeDataStorageTest(BaseWriteTradeDataTest, TestCase):
         data = trades[0]
         self.assertEqual(data.frequency, Frequency.HOUR)
         self.assertEqual(data.uid, first.uid)
+        self.assertEqual(data.json_data["data_sources"], ["coinapi", "hyperliquid"])
         self.assertEqual(
             Path(data.raw_data.name).name,
             f"{timestamp_from:%H%M}-{int(Frequency.HOUR)}m.parquet",

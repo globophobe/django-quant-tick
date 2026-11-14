@@ -1,9 +1,11 @@
+import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
+import httpx2
 import pandas as pd
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from quant_tick.constants import Exchange, FileData, SymbolType
 from quant_tick.exchanges.api import api
@@ -11,12 +13,36 @@ from quant_tick.exchanges.hyperliquid.controllers import (
     HyperliquidTradesWebSocket,
     hyperliquid_trades,
 )
+from quant_tick.exchanges.hyperliquid.sources import (
+    _coinapi_history_start,
+    coinapi_history_start,
+)
 from quant_tick.models import TradeData, WebSocketData
 
 from ..base import BaseWriteTradeDataTest
 
 
 class HyperliquidTradesTest(SimpleTestCase):
+    def test_vendor_coverage_is_cached_and_exact_symbol_is_required(self):
+        _coinapi_history_start.cache_clear()
+        self.addCleanup(_coinapi_history_start.cache_clear)
+        start = "2024-09-27T00:00:00Z"
+        with patch(
+            "quant_tick.exchanges.hyperliquid.sources.get_coinapi_response",
+            return_value=[
+                {
+                    "symbol_id": "HYPERLIQUID_PERP_BTC_USDC",
+                    "data_trade_start": start,
+                }
+            ],
+        ) as metadata:
+            self.assertEqual(
+                coinapi_history_start("HYPERLIQUID_PERP_BTC_USDC"), pd.Timestamp(start)
+            )
+            coinapi_history_start("HYPERLIQUID_PERP_BTC_USDC")
+            metadata.assert_called_once()
+            self.assertIsNone(coinapi_history_start("HYPERLIQUID_PERP_ETH_USDC"))
+
     def test_trades_use_websocket_controller(self):
         symbol = Mock()
         timestamp_from = datetime(2026, 7, 31, 1, tzinfo=UTC)
@@ -66,10 +92,12 @@ class HyperliquidTradesTest(SimpleTestCase):
             timestamp_from,
             timestamp_to,
             resolution="1m",
+            allow_coinapi=False,
         )
         self.assertIs(result, expected)
 
 
+@patch.dict(os.environ, {"COINAPI_API_KEY": ""})
 class HyperliquidWebSocketValidationTest(BaseWriteTradeDataTest, TestCase):
     def setUp(self):
         super().setUp()
@@ -153,3 +181,248 @@ class HyperliquidWebSocketValidationTest(BaseWriteTradeDataTest, TestCase):
         )
         for row in rows:
             self.assertTrue(row.has_data_frame(FileData.FILTERED))
+            self.assertEqual(row.json_data["data_sources"], ["hyperliquid"])
+
+
+@override_settings(
+    STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
+)
+@patch.dict(os.environ, {"COINAPI_API_KEY": "test-key", "FEMTOS_API_KEY": ""})
+class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.start = datetime(2026, 7, 31, 1, tzinfo=UTC)
+        self.end = self.start + timedelta(minutes=3)
+        self.symbol = self.get_symbol(
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
+            save_aggregated=True,
+            significant_trade_filter=1,
+        )
+        self.candles = pd.DataFrame(
+            {"notional": [Decimal(1)] * 3},
+            index=pd.date_range(self.start, periods=3, freq="min"),
+        )
+        for target, value in (
+            (
+                "quant_tick.controllers.rest.ExchangeREST.get_websocket_timestamp_from",
+                self.start,
+            ),
+            (
+                "quant_tick.exchanges.hyperliquid.controllers.native_hyperliquid_candles",
+                self.candles,
+            ),
+            (
+                "quant_tick.exchanges.hyperliquid.controllers.coinapi_history_start",
+                pd.Timestamp(self.start) - pd.Timedelta(days=1),
+            ),
+        ):
+            patcher = patch(target, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def websocket_minute(self, minute, quantity="1"):
+        timestamp = self.start + timedelta(minutes=minute)
+        WebSocketData.objects.create(
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="BTC",
+            significant_trade_filter=1,
+            timestamp=timestamp,
+            raw_trades=[
+                {
+                    "uid": "native-" + str(minute),
+                    "timestamp": timestamp.isoformat(),
+                    "nanoseconds": 0,
+                    "price": "100",
+                    "notional": quantity,
+                    "volume": str(Decimal(quantity) * 100),
+                    "tickRule": 1,
+                }
+            ],
+        )
+
+    def vendor_minute(self, minute):
+        timestamp = (self.start + timedelta(minutes=minute, seconds=1)).isoformat()
+        return {
+            "symbol_id": "HYPERLIQUID_PERP_BTC_USDC",
+            "uuid": "vendor-" + str(minute),
+            "id_trade": "123456789",
+            "time_exchange": timestamp,
+            "time_coinapi": timestamp,
+            "price": "100",
+            "size": "1",
+            "taker_side": "BUY",
+        }
+
+    def test_missing_or_invalid_native_minute_uses_only_vendor_remainder(self):
+        self.websocket_minute(0)
+        self.websocket_minute(1, "0.5")
+        self.websocket_minute(2)
+        with (
+            patch(
+                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+                return_value=[self.vendor_minute(1)],
+            ) as request,
+            patch(
+                "quant_tick.exchanges.hyperliquid.candles.coinapi_candles"
+            ) as vendor_candles,
+        ):
+            api(self.symbol, self.start, self.end)
+            request.assert_called_once()
+            self.assertEqual(
+                request.call_args.args[0],
+                "/v1/trades/HYPERLIQUID_PERP_BTC_USDC/history",
+            )
+            params = request.call_args.args[1]
+            self.assertEqual(
+                pd.Timestamp(params["time_start"]), self.start + timedelta(minutes=1)
+            )
+            self.assertEqual(
+                pd.Timestamp(params["time_end"]), self.start + timedelta(minutes=2)
+            )
+            vendor_candles.assert_not_called()
+            request.reset_mock()
+            api(self.symbol, self.start, self.end)
+            request.assert_not_called()
+            with (
+                patch.dict(os.environ, {"COINAPI_API_KEY": ""}),
+                patch(
+                    "quant_tick.exchanges.hyperliquid.controllers.hyperliquid_candles",
+                    return_value=self.candles,
+                ),
+            ):
+                api(self.symbol, self.start, self.end)
+            request.assert_not_called()
+        rows = list(TradeData.objects.filter(symbol=self.symbol).order_by("timestamp"))
+        self.assertEqual([row.ok for row in rows], [True] * 3)
+        self.assertEqual(
+            [row.json_data["data_sources"] for row in rows],
+            [["hyperliquid"], ["coinapi"], ["hyperliquid"]],
+        )
+        for row in rows:
+            for field in (FileData.RAW, FileData.AGGREGATED, FileData.FILTERED):
+                frame = row.get_data_frame(field)
+                self.assertEqual(len(frame), 1)
+                self.assertEqual(frame.notional.sum(), Decimal(1))
+                self.assertEqual(
+                    frame.data_source.tolist(), row.json_data["data_sources"]
+                )
+        self.assertEqual(
+            rows[1].get_data_frame(FileData.RAW).id_trade.tolist(), ["123456789"]
+        )
+        self.assertEqual({row.symbol_id for row in rows}, {self.symbol.pk})
+
+    def test_retry_prefers_recovered_native_minute_without_paid_request(self):
+        self.websocket_minute(0)
+        TradeData.objects.create(
+            symbol=self.symbol, timestamp=self.start, frequency=1, ok=False
+        )
+        with (
+            patch(
+                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response"
+            ) as request,
+            patch(
+                "quant_tick.exchanges.hyperliquid.controllers.coinapi_history_start"
+            ) as metadata,
+        ):
+            api(self.symbol, self.start, self.start + timedelta(minutes=1), retry=True)
+        request.assert_not_called()
+        metadata.assert_not_called()
+        stored = TradeData.objects.get(symbol=self.symbol)
+        self.assertTrue(stored.ok)
+        self.assertEqual(stored.json_data["data_sources"], ["hyperliquid"])
+
+    def test_native_minute_between_gaps_is_not_replaced_by_vendor(self):
+        self.websocket_minute(1)
+        with patch(
+            "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+            side_effect=[[self.vendor_minute(0)], [self.vendor_minute(2)]],
+        ) as request:
+            api(self.symbol, self.start, self.end)
+        self.assertEqual(request.call_count, 2)
+        windows = [
+            (
+                pd.Timestamp(call.args[1]["time_start"]),
+                pd.Timestamp(call.args[1]["time_end"]),
+            )
+            for call in request.call_args_list
+        ]
+        self.assertEqual(
+            windows,
+            [
+                (self.start, self.start + timedelta(minutes=1)),
+                (self.start + timedelta(minutes=2), self.end),
+            ],
+        )
+        rows = list(TradeData.objects.filter(symbol=self.symbol).order_by("timestamp"))
+        self.assertEqual(
+            [row.json_data["data_sources"] for row in rows],
+            [["coinapi"], ["hyperliquid"], ["coinapi"]],
+        )
+
+    def test_empty_vendor_response_leaves_missing_history_available_for_next_pass(self):
+        with patch(
+            "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+            return_value=[],
+        ) as request:
+            api(self.symbol, self.start, self.end)
+            self.assertFalse(TradeData.objects.filter(symbol=self.symbol).exists())
+            api(self.symbol, self.start, self.end)
+        self.assertEqual(request.call_count, 2)
+
+    def test_provider_failure_preserves_native_progress_and_leaves_gap_retryable(self):
+        self.websocket_minute(0)
+        request = httpx2.Request("GET", "https://rest.coinapi.io")
+        response = httpx2.Response(402, request=request)
+        error = httpx2.HTTPStatusError(
+            "credits exhausted", request=request, response=response
+        )
+        with (
+            patch(
+                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+                side_effect=error,
+            ),
+            self.assertRaises(httpx2.HTTPStatusError),
+        ):
+            api(self.symbol, self.start, self.end)
+        stored = TradeData.objects.get(symbol=self.symbol)
+        self.assertEqual(stored.timestamp, self.start)
+        self.assertTrue(stored.ok)
+
+    def test_history_boundary_stops_without_empty_success_or_trade_requests(self):
+        with (
+            patch(
+                "quant_tick.exchanges.hyperliquid.controllers.coinapi_history_start",
+                return_value=pd.Timestamp(self.end),
+            ),
+            patch(
+                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response"
+            ) as request,
+        ):
+            api(self.symbol, self.start, self.end)
+        request.assert_not_called()
+        self.assertFalse(TradeData.objects.filter(symbol=self.symbol).exists())
+
+    def test_history_boundary_skips_older_gap_but_still_fills_later_gap(self):
+        self.websocket_minute(1)
+        with (
+            patch(
+                "quant_tick.exchanges.hyperliquid.controllers.coinapi_history_start",
+                return_value=pd.Timestamp(self.start) + pd.Timedelta(minutes=1),
+            ),
+            patch(
+                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+                return_value=[self.vendor_minute(2)],
+            ) as request,
+        ):
+            api(self.symbol, self.start, self.end)
+        request.assert_called_once()
+        self.assertEqual(
+            list(
+                TradeData.objects.filter(symbol=self.symbol)
+                .order_by("timestamp")
+                .values_list("timestamp", flat=True)
+            ),
+            [self.start + timedelta(minutes=1), self.start + timedelta(minutes=2)],
+        )

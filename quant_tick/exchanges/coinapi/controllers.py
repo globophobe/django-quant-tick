@@ -28,13 +28,23 @@ class CoinAPITrades(ExchangeREST):
 
     @property
     def columns(self):
-        return [*super().columns, "coinapi_uuid", "id_trade", "time_coinapi"]
+        return [
+            *super().columns,
+            "coinapi_uuid",
+            "id_trade",
+            "time_coinapi",
+            "data_source",
+        ]
+
+    @property
+    def api_symbol(self):
+        return self.symbol.api_symbol
 
     def get_pagination_id(self, timestamp_to):
         return timestamp_to
 
     def get_candles(self, timestamp_from, timestamp_to):
-        return coinapi_candles(self.symbol.api_symbol, timestamp_from, timestamp_to)
+        return coinapi_candles(self.api_symbol, timestamp_from, timestamp_to)
 
     def iter_api(self, timestamp_from, pagination_id):
         cursor = timestamp_from
@@ -44,7 +54,7 @@ class CoinAPITrades(ExchangeREST):
         boundary_ids = set()
         while cursor < pagination_id:
             page = get_coinapi_response(
-                f"/v1/trades/{self.symbol.api_symbol}/history",
+                f"/v1/trades/{self.api_symbol}/history",
                 {
                     "time_start": time_start,
                     "time_end": pagination_id.isoformat(),
@@ -99,7 +109,7 @@ class CoinAPITrades(ExchangeREST):
         rows = []
         seen = set()
         for index, row in enumerate(data):
-            if row.get("symbol_id", self.symbol.api_symbol) != self.symbol.api_symbol:
+            if row.get("symbol_id", self.api_symbol) != self.api_symbol:
                 raise ValueError("CoinAPI trade has an unexpected symbol")
             side = row["taker_side"]
             if side not in ("BUY", "SELL"):
@@ -136,6 +146,7 @@ class CoinAPITrades(ExchangeREST):
                     if row.get("id_trade") is not None
                     else None,
                     "time_coinapi": row["time_coinapi"],
+                    "data_source": "coinapi",
                 }
             )
         return rows

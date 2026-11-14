@@ -256,6 +256,18 @@ def convert_trade_data(
         )
         json_data = {"candle": candle}
 
+    sources = {
+        source
+        for obj in objs
+        for source in (obj.json_data or {}).get("data_sources", [])
+    }
+    if sources and json_data is not None:
+        if any(
+            obj.uid and not (obj.json_data or {}).get("data_sources") for obj in objs
+        ):
+            sources.add("unknown")
+        json_data["data_sources"] = sorted(sources)
+
     validation_states = {obj.ok for obj in objs}
     if False in validation_states:
         validation_state = False

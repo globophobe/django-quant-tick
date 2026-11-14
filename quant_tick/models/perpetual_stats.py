@@ -51,7 +51,7 @@ PERPETUAL_STATS_REQUIRED_FIELDS = {
     ),
     Exchange.PHOENIX: ("open_interest", "open_interest_value"),
     # The adapter omits hours missing cohorts once cohort history has begun.
-    Exchange.FEMTOS: ("open_interest",),
+    Exchange.HYPERLIQUID: ("open_interest",),
 }
 
 
@@ -117,9 +117,7 @@ class PerpetualStatsData(models.Model):
     taker_long_short_volume_ratio = BigDecimalField(
         _("taker long short volume ratio"), null=True, blank=True
     )
-    long_account_ratio = BigDecimalField(
-        _("long account ratio"), null=True, blank=True
-    )
+    long_account_ratio = BigDecimalField(_("long account ratio"), null=True, blank=True)
     short_account_ratio = BigDecimalField(
         _("short account ratio"), null=True, blank=True
     )

@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -8,14 +9,14 @@ from django.urls import reverse
 
 from quant_tick.constants import Exchange, SymbolType, TaskType
 from quant_tick.models import Symbol, TaskState
+from quant_tick.views.fetch_exchange_data import FetchExchangeDataView
 
 
 class FetchExchangeDataViewTest(TestCase):
     def setUp(self):
         super().setUp()
         perpetual_stats_patcher = patch(
-            "quant_tick.views.fetch_exchange_data."
-            "fetch_symbol_perpetual_stats"
+            "quant_tick.views.fetch_exchange_data.fetch_symbol_perpetual_stats"
         )
         self.mock_perpetual_stats = perpetual_stats_patcher.start()
         self.addCleanup(perpetual_stats_patcher.stop)
@@ -67,6 +68,42 @@ class FetchExchangeDataViewTest(TestCase):
 
     def get_url(self) -> str:
         return reverse("fetch_exchange_data")
+
+    def test_optional_positioning_runs_after_native_data_and_only_with_key(self):
+        symbol = Symbol.objects.get(exchange=Exchange.HYPERLIQUID, api_symbol="BTC")
+        start = datetime(2026, 5, 1, tzinfo=UTC)
+        end = datetime(2026, 5, 2, tzinfo=UTC)
+        for key in ("", "test-key"):
+            events = []
+            with (
+                self.subTest(configured=bool(key)),
+                patch.dict(os.environ, {"FEMTOS_API_KEY": key}),
+                patch(
+                    "quant_tick.views.fetch_exchange_data.fetch_symbol_funding",
+                    side_effect=lambda *a, events=events, **kw: events.append(
+                        "funding"
+                    ),
+                ),
+                patch(
+                    "quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles",
+                    side_effect=lambda *a, events=events, **kw: events.append(
+                        "candles"
+                    ),
+                ),
+                patch(
+                    "quant_tick.views.fetch_exchange_data.fetch_symbol_perpetual_stats",
+                    side_effect=lambda *a, events=events, **kw: events.append(
+                        "positioning"
+                    ),
+                ),
+            ):
+                counts = FetchExchangeDataView().fetch_symbol_exchange_data(
+                    symbol, start, end, False, current_timestamp_to=end
+                )
+            self.assertEqual(
+                events, ["funding", "candles"] + (["positioning"] if key else [])
+            )
+            self.assertEqual(counts["perpetual_stats"], int(bool(key)))
 
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
     def test_aster_collection_selects_the_active_perpetual(self, mock_funding):
@@ -139,7 +176,9 @@ class FetchExchangeDataViewTest(TestCase):
         )
         completed_minute = datetime(2026, 5, 2, 0, 0, tzinfo=UTC)
         self.assertTrue(
-            all(call.args[2] == completed_minute for call in mock_candles.call_args_list)
+            all(
+                call.args[2] == completed_minute for call in mock_candles.call_args_list
+            )
         )
         funding_symbols = {
             (call.args[0].exchange, call.args[0].api_symbol)

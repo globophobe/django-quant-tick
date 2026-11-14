@@ -32,7 +32,6 @@ class Exchange(models.TextChoices):
     COINAPI = "coinapi", "CoinAPI"
     COINBASE = "coinbase", "Coinbase"
     DERIBIT = "deribit", "Deribit"
-    FEMTOS = "femtos", "Femtos (Hyperliquid)"
     HYPERLIQUID = "hyperliquid", "Hyperliquid"
     OKX = "okx", "OKX"
     PHOENIX = "phoenix", "Phoenix"

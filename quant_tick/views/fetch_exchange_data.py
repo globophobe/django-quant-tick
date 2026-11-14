@@ -17,7 +17,7 @@ from quant_tick.exchanges.api import (
     funding as fetch_symbol_funding,
 )
 from quant_tick.exchanges.perpetual_stats import (
-    PERPETUAL_STATS_SUPPORTED_EXCHANGES,
+    enabled_perpetual_stats_exchanges,
 )
 from quant_tick.exchanges.perpetual_stats import (
     perpetual_stats as fetch_symbol_perpetual_stats,
@@ -42,6 +42,7 @@ from quant_tick.views.aggregate_trades import (
 )
 
 logger = logging.getLogger(__name__)
+
 
 class FetchExchangeDataView(View):
     queryset = Symbol.objects.filter(
@@ -132,19 +133,6 @@ class FetchExchangeDataView(View):
                 assert_lease_owned=assert_lease_owned,
             )
             counts["funding"] = 1
-        if (
-            symbol.exchange in PERPETUAL_STATS_SUPPORTED_EXCHANGES
-            and symbol.symbol_type == SymbolType.PERPETUAL
-        ):
-            logger.info(f"{symbol!s}: perpetual stats data starting...")
-            fetch_symbol_perpetual_stats(
-                symbol,
-                timestamp_from,
-                current_timestamp_to,
-                retry,
-                assert_lease_owned=assert_lease_owned,
-            )
-            counts["perpetual_stats"] = 1
         if symbol.exchange_candle_resolution:
             logger.info(f"{symbol!s}: exchange candles starting...")
             fetch_symbol_exchange_candles(
@@ -156,6 +144,19 @@ class FetchExchangeDataView(View):
                 assert_lease_owned=assert_lease_owned,
             )
             counts["exchange_candles"] = 1
+        if (
+            symbol.exchange in enabled_perpetual_stats_exchanges()
+            and symbol.symbol_type == SymbolType.PERPETUAL
+        ):
+            logger.info(f"{symbol!s}: perpetual stats data starting...")
+            fetch_symbol_perpetual_stats(
+                symbol,
+                timestamp_from,
+                current_timestamp_to,
+                retry,
+                assert_lease_owned=assert_lease_owned,
+            )
+            counts["perpetual_stats"] = 1
         return counts
 
     def fetch_exchange_data(
@@ -219,9 +220,7 @@ class FetchExchangeDataView(View):
                 else:
                     clear_task_recent_error(state=task_state)
                     counts["funding"] += symbol_counts["funding"]
-                    counts["perpetual_stats"] += symbol_counts[
-                        "perpetual_stats"
-                    ]
+                    counts["perpetual_stats"] += symbol_counts["perpetual_stats"]
                     counts["exchange_candles"] += symbol_counts["exchange_candles"]
             except TaskLeaseLost:
                 counts["failed"] += 1

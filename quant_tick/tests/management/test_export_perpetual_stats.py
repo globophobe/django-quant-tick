@@ -20,7 +20,9 @@ from ..base import BaseSymbolTest
 class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
     def test_femtos_default_export_retains_exact_cohort_and_flow_metadata(self):
         symbol = self.get_symbol(
-            exchange=Exchange.FEMTOS, api_symbol="BTC", symbol_type=SymbolType.PERPETUAL
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
         )
         timestamp = datetime(2026, 1, 1, tzinfo=UTC)
         PerpetualStatsData.objects.create(

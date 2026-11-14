@@ -1,6 +1,6 @@
 from quant_tick.constants import SymbolType
 from quant_tick.exchanges.perpetual_stats import (
-    PERPETUAL_STATS_SUPPORTED_EXCHANGES,
+    enabled_perpetual_stats_exchanges,
     perpetual_stats,
 )
 from quant_tick.management.base import BaseTradeDataWithRetryCommand
@@ -12,7 +12,7 @@ class Command(BaseTradeDataWithRetryCommand):
 
     def get_queryset(self):
         return Symbol.objects.filter(
-            exchange__in=PERPETUAL_STATS_SUPPORTED_EXCHANGES,
+            exchange__in=enabled_perpetual_stats_exchanges(),
             symbol_type=SymbolType.PERPETUAL,
         )
 

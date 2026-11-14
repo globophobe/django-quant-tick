@@ -477,6 +477,14 @@ class TradeData(AbstractDataStorage):
                 timestamp_to,
             )
             json_data = {"candle": aggregate_candle(validation)}
+            if "data_source" in validation.columns:
+                json_data["data_sources"] = sorted(
+                    {
+                        source
+                        for value in validation.data_source.fillna("unknown")
+                        for source in value.split(",")
+                    }
+                )
 
         ok = cls._validate_candles(obj.symbol, aggregated_candles, candles)
         with transaction.atomic():

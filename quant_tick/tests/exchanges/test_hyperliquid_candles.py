@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+import os
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -19,6 +20,18 @@ from ..base import BaseSymbolTest
 
 
 class HyperliquidCandleTest(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        for patcher in (
+            patch.dict(os.environ, {"COINAPI_API_KEY": ""}),
+            patch(
+                "quant_tick.exchanges.hyperliquid.candles.get_current_time",
+                return_value=datetime(2026, 4, 26, tzinfo=UTC),
+            ),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_get_hyperliquid_interval_supports_4h(self):
         self.assertEqual(get_hyperliquid_interval("4h"), "4h")
         self.assertEqual(get_hyperliquid_frequency("4h"), 240)
@@ -49,6 +62,84 @@ class HyperliquidCandleTest(SimpleTestCase):
         self.assertEqual(df.iloc[0].notional, Decimal(10))
         self.assertEqual(df.iloc[0].trades, 3)
 
+    def test_coinapi_fills_only_missing_completed_candles_and_retains_source(self):
+        start = pd.Timestamp("2026-04-25", tz="UTC")
+        end = start + timedelta(minutes=3)
+        native = pd.DataFrame(
+            {"notional": [Decimal(1)]}, index=[start + timedelta(minutes=1)]
+        )
+        vendor = pd.DataFrame(
+            {"notional": [Decimal(2)] * 4},
+            index=pd.date_range(start, periods=4, freq="min"),
+        )
+        with (
+            patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}),
+            patch(
+                "quant_tick.exchanges.hyperliquid.candles.native_hyperliquid_candles",
+                return_value=native,
+            ) as native_request,
+            patch(
+                "quant_tick.exchanges.hyperliquid.candles.coinapi_history_start",
+                return_value=start,
+            ),
+            patch(
+                "quant_tick.exchanges.hyperliquid.candles.coinapi_candles",
+                return_value=vendor,
+            ) as request,
+        ):
+            frame = hyperliquid_candles("BTC", start, end)
+        native_request.assert_called_once()
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(
+            frame.index.tolist(), list(pd.date_range(start, periods=3, freq="min"))
+        )
+        self.assertEqual(frame.notional.tolist(), [Decimal(2), Decimal(1), Decimal(2)])
+        self.assertEqual(
+            frame.data_source.tolist(), ["coinapi", "hyperliquid", "coinapi"]
+        )
+
+    def test_missing_key_and_unmapped_markets_never_request_vendor_data(self):
+        start = pd.Timestamp("2026-04-25", tz="UTC")
+        for key, coin, allow in (
+            ("", "BTC", True),
+            ("test-key", "xyz:TSLA", True),
+            ("test-key", "@107", True),
+            ("test-key", "BTC", False),
+        ):
+            with (
+                self.subTest(coin=coin, allow=allow),
+                patch.dict(os.environ, {"COINAPI_API_KEY": key}),
+                patch(
+                    "quant_tick.exchanges.hyperliquid.candles.native_hyperliquid_candles",
+                    return_value=pd.DataFrame([]),
+                ),
+                patch(
+                    "quant_tick.exchanges.hyperliquid.candles.coinapi_candles"
+                ) as request,
+            ):
+                self.assertTrue(
+                    hyperliquid_candles(
+                        coin, start, start + timedelta(minutes=1), allow_coinapi=allow
+                    ).empty
+                )
+            request.assert_not_called()
+
+    def test_native_error_is_not_interpreted_as_paid_history_gap(self):
+        start = pd.Timestamp("2026-04-25", tz="UTC")
+        with (
+            patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}),
+            patch(
+                "quant_tick.exchanges.hyperliquid.candles.native_hyperliquid_candles",
+                side_effect=TimeoutError,
+            ),
+            patch(
+                "quant_tick.exchanges.hyperliquid.candles.coinapi_candles"
+            ) as request,
+            self.assertRaises(TimeoutError),
+        ):
+            hyperliquid_candles("BTC", start, start + timedelta(minutes=1))
+        request.assert_not_called()
+
     def test_exchange_candles_api_dispatches_hyperliquid(self):
         symbol = SimpleNamespace(
             exchange=Exchange.HYPERLIQUID,
@@ -77,6 +168,7 @@ class HyperliquidCandleTest(SimpleTestCase):
             timestamp_from=timestamp_from,
             timestamp_to=timestamp_to,
             resolution="4h",
+            allow_coinapi=True,
         )
         self.assertTrue(result.equals(expected))
 
@@ -103,6 +195,7 @@ class HyperliquidCandleTest(SimpleTestCase):
             timestamp_from=timestamp_from,
             timestamp_to=timestamp_to,
             resolution="4h",
+            allow_coinapi=True,
         )
         self.assertTrue(result.equals(expected))
 

@@ -11,12 +11,12 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, TestCase
 
 from quant_tick.constants import Exchange, SymbolType
-from quant_tick.exchanges.api import candles_api, exchange_candles, funding, trades_api
+from quant_tick.exchanges.api import exchange_candles, funding, trades_api
 from quant_tick.exchanges.femtos.api import get_femtos_response
 from quant_tick.exchanges.femtos.candles import femtos_candles
 from quant_tick.exchanges.femtos.funding import femtos_funding
 from quant_tick.exchanges.femtos.market_history import femtos_market_history
-from quant_tick.exchanges.perpetual_stats import perpetual_stats
+from quant_tick.exchanges.perpetual_stats import perpetual_stats, perpetual_stats_api
 from quant_tick.models import ExchangeCandleData, FundingData, PerpetualStatsData
 
 from ..base import BaseSymbolTest
@@ -242,9 +242,9 @@ class FemtosCandleTest(SimpleTestCase):
             ):
                 femtos_candles("BTC", START, END)
 
-    def test_unsupported_resolution_and_spot_are_rejected_before_request(self):
+    def test_unsupported_resolution_and_spot_stats_are_rejected_before_request(self):
         symbol = SimpleNamespace(
-            exchange=Exchange.FEMTOS, api_symbol="BTC", symbol_type=SymbolType.SPOT
+            exchange=Exchange.HYPERLIQUID, api_symbol="BTC", symbol_type=SymbolType.SPOT
         )
         with patch(
             "quant_tick.exchanges.femtos.candles.get_femtos_response"
@@ -252,7 +252,7 @@ class FemtosCandleTest(SimpleTestCase):
             with self.assertRaises(ValueError):
                 femtos_candles("BTC", START, END, "7m")
             with self.assertRaises(ValueError):
-                candles_api(symbol, START, END)
+                perpetual_stats_api(symbol, START, END)
         request.assert_not_called()
 
 
@@ -348,11 +348,12 @@ class FemtosStatsTest(SimpleTestCase):
         request.assert_not_called()
 
 
+@patch.dict(os.environ, {"FEMTOS_API_KEY": "test-key", "COINAPI_API_KEY": ""})
 class FemtosCollectionTest(BaseSymbolTest, TestCase):
     def setUp(self):
         super().setUp()
         self.symbol = self.get_symbol(
-            exchange=Exchange.FEMTOS,
+            exchange=Exchange.HYPERLIQUID,
             api_symbol="BTC",
             symbol_type=SymbolType.PERPETUAL,
             exchange_candle_resolution="1m",
@@ -384,24 +385,42 @@ class FemtosCollectionTest(BaseSymbolTest, TestCase):
         self.assertEqual(row.long_account_ratio, Decimal("0.6"))
         self.assertEqual(row.json_data["large_long_size"], Decimal(30))
         self.assertEqual(row.json_data["cohorts"][1]["longSz"], Decimal(30))
+        self.assertEqual(row.json_data["market_history_source"], "femtos")
+        self.assertEqual(row.symbol.exchange, Exchange.HYPERLIQUID)
 
-    def test_public_collectors_store_candles_and_settled_funding(self):
-        respond = source(
-            oi_rows=[oi(START - timedelta(hours=1)), oi()],
-            candle_rows=[candle(vq=None)],
+    def test_femtos_key_does_not_replace_native_candles_or_funding(self):
+        candle_frame = pd.DataFrame(
+            [
+                {
+                    "timestamp": START,
+                    "open": Decimal(70000),
+                    "high": Decimal(70010),
+                    "low": Decimal(69990),
+                    "close": Decimal(70000),
+                    "notional": Decimal("1.123456789123456789"),
+                }
+            ]
+        ).set_index("timestamp")
+        funding_frame = pd.DataFrame(
+            {
+                "funding_rate": [Decimal("0.0001"), Decimal("0.0002")],
+            },
+            index=[START, START + timedelta(hours=1)],
         )
         with (
             patch(
-                "quant_tick.exchanges.femtos.api.get_femtos_response",
-                side_effect=respond,
+                "quant_tick.exchanges.api.hyperliquid_funding",
+                return_value=funding_frame,
             ),
             patch(
-                "quant_tick.exchanges.femtos.candles.get_femtos_response",
-                side_effect=respond,
+                "quant_tick.exchanges.api.hyperliquid_candles",
+                return_value=candle_frame,
             ),
+            patch("quant_tick.exchanges.femtos.api.get_femtos_response") as provider,
         ):
             funding(self.symbol, START, END)
             exchange_candles(self.symbol, START, START + timedelta(minutes=1))
+        provider.assert_not_called()
         self.assertEqual(FundingData.objects.count(), 2)
         row = ExchangeCandleData.objects.get()
         # SQLite stores Decimal fields through floating point; parsing is exact above.
@@ -410,10 +429,22 @@ class FemtosCollectionTest(BaseSymbolTest, TestCase):
         self.symbol.refresh_from_db()
         self.assertEqual(self.symbol.funding_interval, timedelta(hours=1))
 
-    def test_trade_backfill_is_explicitly_unsupported(self):
+    def test_femtos_key_alone_keeps_native_trade_collection(self):
         with (
             patch("quant_tick.exchanges.public.httpx2.get") as request,
-            self.assertRaisesRegex(NotImplementedError, "Trade collection"),
+            patch(
+                "quant_tick.exchanges.hyperliquid.controllers.HyperliquidTradesWebSocket"
+            ) as native,
         ):
             trades_api(self.symbol, START, END, lambda *args: None)
         request.assert_not_called()
+        native.return_value.main.assert_called_once()
+
+    def test_missing_key_skips_positioning_without_writing_placeholder_rows(self):
+        with (
+            patch.dict(os.environ, {"FEMTOS_API_KEY": " "}),
+            patch("quant_tick.exchanges.femtos.api.get_femtos_response") as provider,
+        ):
+            perpetual_stats(self.symbol, START, END)
+        provider.assert_not_called()
+        self.assertFalse(PerpetualStatsData.objects.filter(symbol=self.symbol).exists())

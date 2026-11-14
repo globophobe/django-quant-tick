@@ -300,7 +300,7 @@ class Command(BaseDateCommand):
                 *perpetual_stats_required_fields(symbol.exchange),
                 "open_interest_unit",
             )
-            if symbol.exchange == Exchange.FEMTOS:
+            if symbol.exchange == Exchange.HYPERLIQUID:
                 defaults = (
                     "open_interest",
                     "open_interest_value",

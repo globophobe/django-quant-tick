@@ -23,6 +23,8 @@ from .bybit.candles import get_bybit_category
 from .bybit.constants import MARKET_HISTORY_INTERVAL as BYBIT_INTERVAL
 from .bybit.funding import bybit_market_history
 from .femtos import femtos_market_history
+from .hyperliquid.api import normalize_coin
+from .hyperliquid.sources import femtos_available
 from .phoenix.constants import MARKET_HISTORY_INTERVAL as PHOENIX_INTERVAL
 from .phoenix.market_history import phoenix_market_history
 
@@ -33,7 +35,7 @@ PERPETUAL_STATS_INTERVALS = {
     Exchange.BYBIT_LINEAR: BYBIT_INTERVAL,
     Exchange.BYBIT_INVERSE: BYBIT_INTERVAL,
     Exchange.PHOENIX: PHOENIX_INTERVAL,
-    Exchange.FEMTOS: "1h",
+    Exchange.HYPERLIQUID: "1h",
 }
 PERPETUAL_STATS_SUPPORTED_EXCHANGES = frozenset(PERPETUAL_STATS_INTERVALS)
 PERPETUAL_STATS_BOUNDARY_SNAPSHOT_EXCHANGES = frozenset(
@@ -42,6 +44,12 @@ PERPETUAL_STATS_BOUNDARY_SNAPSHOT_EXCHANGES = frozenset(
         Exchange.BYBIT_INVERSE,
     }
 )
+
+
+def enabled_perpetual_stats_exchanges():
+    if femtos_available():
+        return PERPETUAL_STATS_SUPPORTED_EXCHANGES
+    return PERPETUAL_STATS_SUPPORTED_EXCHANGES - {Exchange.HYPERLIQUID}
 
 
 def perpetual_stats_frequency(symbol: Symbol) -> int:
@@ -80,8 +88,10 @@ def perpetual_stats_api(
         )
     if symbol.exchange == Exchange.PHOENIX:
         return phoenix_market_history(symbol.api_symbol, timestamp_from, timestamp_to)
-    if symbol.exchange == Exchange.FEMTOS:
-        return femtos_market_history(symbol.api_symbol, timestamp_from, timestamp_to)
+    if symbol.exchange == Exchange.HYPERLIQUID:
+        return femtos_market_history(
+            normalize_coin(symbol.api_symbol), timestamp_from, timestamp_to
+        )
     raise NotImplementedError(
         f"Perpetual stats data is not implemented for {symbol.exchange}."
     )
@@ -137,6 +147,8 @@ def perpetual_stats(
     earlier history have no stored observations, including partial rows. Retries
     scan the requested range unless the adapter explicitly reports exhaustion.
     """
+    if symbol.exchange == Exchange.HYPERLIQUID and not femtos_available():
+        return
     timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
     if timestamp_range is None:
         return
@@ -151,9 +163,9 @@ def perpetual_stats(
         raise ValueError(
             "Perpetual stats native frequency must divide its persistence interval."
         )
-    timestamp_from = pd.Timestamp(timestamp_from).ceil(
-        f"{frequency}min"
-    ).to_pydatetime()
+    timestamp_from = (
+        pd.Timestamp(timestamp_from).ceil(f"{frequency}min").to_pydatetime()
+    )
     timestamp_to = perpetual_stats_persistence_end(
         symbol,
         timestamp_to,
