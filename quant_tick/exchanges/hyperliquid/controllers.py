@@ -91,7 +91,7 @@ class HyperliquidTrades(CoinAPITrades, HyperliquidTradesWebSocket):
         return coinapi_symbol(self.symbol.api_symbol)
 
     def on_rest_data_frame(self, timestamp_from, timestamp_to, candles):
-        frame = self.fetch_rest_data_frame(timestamp_from, timestamp_to)
+        frame = self.fetch_trade_data_frame(timestamp_from, timestamp_to, candles)
         if frame.empty and not self.has_zero_trade_candles(
             candles, timestamp_from, timestamp_to
         ):

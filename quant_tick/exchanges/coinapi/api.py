@@ -22,16 +22,20 @@ def get_coinapi_symbol_type(api_symbol):
     )
 
 
-def get_coinapi_response(path, params):
+def get_coinapi_key():
     api_key = os.environ.get("COINAPI_API_KEY", "").strip()
     if not api_key:
         raise ImproperlyConfigured("Set COINAPI_API_KEY to collect CoinAPI market data")
+    return api_key
+
+
+def get_coinapi_response(path, params):
     payload = get_public_json(
         "https://rest.coinapi.io",
         path,
         params,
         namespace="COINAPI",
-        headers={"X-CoinAPI-Key": api_key},
+        headers={"X-CoinAPI-Key": get_coinapi_key()},
         retry=3,
     )
     if not isinstance(payload, list):

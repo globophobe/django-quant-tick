@@ -40,7 +40,7 @@ Supported exchanges
 
 ✅ Bybit [S3](https://public.bybit.com/trading/)
 
-✅ CoinAPI spot and Hyperliquid perpetual trades and OHLCV REST API (API key required)
+✅ CoinAPI spot and Hyperliquid perpetual trades via Flat Files and REST, plus OHLCV (API key required)
 
 ✅ Coinbase REST API
 
@@ -103,11 +103,26 @@ same symbol:
   and position-size cohorts through `perpetual_stats`. Funding stays native.
   Without the key, scheduled collection skips this optional history.
 
-Supplying a CoinAPI key enables paid fallback during ordinary collection. Its
+Supplying a CoinAPI key enables paid fallback during ordinary collection.
+Published [Flat Files](https://www.coinapi.io/products/flat-files/docs/s3-api)
+are preferred for trade backfill, using the same key with Flat Files access.
+The `coinapi` bucket has hourly trade files from June 9, 2026 and daily files
+before that date. Publication is asynchronous; collection checks availability
+after the partition closes rather than assuming a fixed delay. The current
+unpublished period and missing files use REST. Candle history still uses REST.
+
+One compressed archive is cached per collector run and read in chunks; repeated
+gaps in the same partition reuse that download. Files follow receipt time, which
+can differ from exchange time. Only minutes whose base quantities match their
+validation candles exactly are accepted from files; other minutes are replaced
+by REST. File and REST trades are never combined within a minute. Corrupt files
+and access errors propagate instead of silently triggering paid REST backfills.
+Flat Files charges for operations and transfer; REST
 [trade history](https://www.coinapi.io/products/market-data-api/docs/rest-api/trades/trades/symbol_id/history/get)
 and [OHLCV history](https://www.coinapi.io/products/market-data-api/docs/rest-api/ohlcv/ohlcv/symbol_id/history/get)
-responses consume credits per 100 returned items. Start with one completed
-minute. Public coverage metadata is cached daily to avoid requests before the
+responses consume credits per 100 returned items. A one-minute backfill may
+download its containing archive. Start with a small range. Public coverage
+metadata is cached daily to avoid requests before the
 provider's advertised history begins. Native candles cover only the most recent
 5,000 bars at each interval; older intervals can use CoinAPI.
 
@@ -150,7 +165,8 @@ list(TradeData.objects.filter(symbol=symbol).values("timestamp", "ok"))
 Trade `size` and candle `volume_traded` map to the base-quantity field `notional`.
 Trade quote-value `volume` is `price * size`; OHLCV does not supply quote turnover.
 Raw files retain `coinapi_uuid`, `time_coinapi`, and the exchange `id_trade` when
-provided. Trade direction must be reported `BUY` or `SELL`: estimated and unknown
+provided, plus `coinapi_transport` (`flat_files` or `rest`). Trade direction must
+be reported `BUY` or `SELL`: estimated and unknown
 sides abort the slice before writing, rather than contaminating flow features.
 
 `ok=True` means collected trades agree with the available minute candles,

@@ -1,18 +1,26 @@
 """Spot and Hyperliquid perpetual trades with exchange-reported taker direction.
 
-History is ascending and paginated by time. Re-fetch the last timestamp of a
+Published files take precedence when their minute quantities match validation
+candles exactly. Receipt-time partitions can omit boundary trades, so replace
+each incomplete minute with REST, never a concatenation of the two transports.
+
+REST history is ascending and paginated by time. Re-fetch the last timestamp of a
 full page, retaining only earlier rows, so tied trades cannot fall between pages.
 If a timestamp fills the API's maximum page, fail before persisting that slice.
 Estimated or unknown sides are rejected; they cannot stand in for reported flow.
 """
 
 from decimal import Decimal
+from functools import cached_property
+
+import pandas as pd
 
 from quant_tick.controllers import ExchangeREST
-from quant_tick.lib import parse_datetime
+from quant_tick.lib import iter_missing, iter_window, parse_datetime
 
 from .api import get_coinapi_response, get_coinapi_symbol_type
 from .candles import coinapi_candles
+from .flat_files import CoinAPITradeFiles
 
 PAGE_SIZE = 1000
 MAX_PAGE_SIZE = 100000
@@ -34,6 +42,7 @@ class CoinAPITrades(ExchangeREST):
             "id_trade",
             "time_coinapi",
             "data_source",
+            "coinapi_transport",
         ]
 
     @property
@@ -45,6 +54,50 @@ class CoinAPITrades(ExchangeREST):
 
     def get_candles(self, timestamp_from, timestamp_to):
         return coinapi_candles(self.api_symbol, timestamp_from, timestamp_to)
+
+    @cached_property
+    def flat_files(self):
+        return CoinAPITradeFiles(self.api_symbol)
+
+    def on_rest_data_frame(self, timestamp_from, timestamp_to, candles):
+        frame = self.fetch_trade_data_frame(timestamp_from, timestamp_to, candles)
+        self.on_data_frame(self.symbol, timestamp_from, timestamp_to, frame, candles)
+        return frame
+
+    def fetch_trade_data_frame(self, timestamp_from, timestamp_to, candles):
+        if candles.empty or "notional" not in candles:
+            return self.fetch_rest_data_frame(timestamp_from, timestamp_to)
+        rows = self.flat_files.get_trades(timestamp_from, timestamp_to)
+        if rows is None:
+            return self.fetch_rest_data_frame(timestamp_from, timestamp_to)
+        archive = self.get_data_frame(self.parse_data(rows[::-1]))
+        quantities = (
+            archive.groupby(archive.timestamp.dt.floor("min")).notional.sum()
+            if not archive.empty
+            else {}
+        )
+        covered = []
+        for start, end in iter_window(timestamp_from, timestamp_to, value="1min"):
+            if (
+                start in candles.index
+                and quantities.get(start, Decimal(0)) == candles.loc[start, "notional"]
+            ):
+                covered.append(start)
+        frames = []
+        if covered and not archive.empty:
+            frames.append(archive.loc[archive.timestamp.dt.floor("min").isin(covered)])
+        for start, end in iter_missing(
+            timestamp_from, timestamp_to, covered, value="1min"
+        ):
+            frames.append(self.fetch_rest_data_frame(start, end))
+        if not frames:
+            return self.get_data_frame([])
+        # File and REST frames cover disjoint minutes but can be interleaved.
+        result = pd.concat(frames, ignore_index=True).sort_values(
+            "timestamp", kind="stable"
+        )
+        result["index"] = range(len(result))
+        return result
 
     def iter_api(self, timestamp_from, pagination_id):
         cursor = timestamp_from
@@ -147,6 +200,7 @@ class CoinAPITrades(ExchangeREST):
                     else None,
                     "time_coinapi": row["time_coinapi"],
                     "data_source": "coinapi",
+                    "coinapi_transport": row.get("coinapi_transport", "rest"),
                 }
             )
         return rows

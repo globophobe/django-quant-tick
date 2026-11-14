@@ -277,6 +277,10 @@ class CoinAPIMarketTest(SimpleTestCase):
 @override_settings(
     STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
 )
+@patch(
+    "quant_tick.exchanges.coinapi.flat_files.CoinAPITradeFiles.get_trades",
+    Mock(return_value=None),
+)
 class CoinAPICollectionTest(BaseSymbolTest, TestCase):
     def test_ingestion_persists_validated_raw_aggregated_and_filtered_data(self):
         for symbol_id, symbol_type, native_exchange, native_pair in (
@@ -328,7 +332,9 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
                 raw = stored.get_data_frame("raw_data")
                 self.assertEqual(raw.coinapi_uuid.tolist(), ["1", "2"])
                 self.assertEqual(raw.id_trade.tolist(), ["1065044209871623", "11"])
-                self.assertEqual(raw.time_coinapi.tolist(), [rows[0]["time_coinapi"]] * 2)
+                self.assertEqual(
+                    raw.time_coinapi.tolist(), [rows[0]["time_coinapi"]] * 2
+                )
                 self.assertNotEqual(symbol.upload_path, native.upload_path)
                 self.assertFalse(TradeData.objects.filter(symbol=native).exists())
 

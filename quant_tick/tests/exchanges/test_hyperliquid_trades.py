@@ -191,6 +191,12 @@ class HyperliquidWebSocketValidationTest(BaseWriteTradeDataTest, TestCase):
 class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
     def setUp(self):
         super().setUp()
+        archive_patcher = patch(
+            "quant_tick.exchanges.coinapi.flat_files.CoinAPITradeFiles.get_trades",
+            return_value=None,
+        )
+        self.archive = archive_patcher.start()
+        self.addCleanup(archive_patcher.stop)
         self.start = datetime(2026, 7, 31, 1, tzinfo=UTC)
         self.end = self.start + timedelta(minutes=3)
         self.symbol = self.get_symbol(
@@ -308,6 +314,48 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
                 self.assertEqual(
                     frame.data_source.tolist(), row.json_data["data_sources"]
                 )
+
+    def test_native_then_flat_files_then_rest_preserves_one_source_per_minute(self):
+        self.websocket_minute(0)
+        self.archive.return_value = [
+            {**self.vendor_minute(1), "coinapi_transport": "flat_files"},
+            {
+                **self.vendor_minute(2),
+                "uuid": "incomplete-file-minute",
+                "size": "0.5",
+                "coinapi_transport": "flat_files",
+            },
+        ]
+        with patch(
+            "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+            return_value=[self.vendor_minute(2)],
+        ) as rest:
+            api(self.symbol, self.start, self.end)
+            self.archive.assert_called_once_with(
+                self.start + timedelta(minutes=1), self.end
+            )
+            rest.assert_called_once()
+            self.assertEqual(
+                pd.Timestamp(rest.call_args.args[1]["time_start"]),
+                self.start + timedelta(minutes=2),
+            )
+            rest.reset_mock()
+            self.archive.reset_mock()
+            api(self.symbol, self.start, self.end)
+            rest.assert_not_called()
+            self.archive.assert_not_called()
+        rows = list(TradeData.objects.filter(symbol=self.symbol).order_by("timestamp"))
+        self.assertEqual([row.ok for row in rows], [True] * 3)
+        self.assertEqual(
+            [row.uid for row in rows], ["native-0", "vendor-1", "vendor-2"]
+        )
+        self.assertEqual(
+            rows[1].get_data_frame(FileData.RAW).coinapi_transport.tolist(),
+            ["flat_files"],
+        )
+        self.assertEqual(
+            rows[2].get_data_frame(FileData.RAW).coinapi_transport.tolist(), ["rest"]
+        )
         self.assertEqual(
             rows[1].get_data_frame(FileData.RAW).id_trade.tolist(), ["123456789"]
         )
