@@ -36,7 +36,7 @@ Supported exchanges
 
 ✅ Bybit [S3](https://public.bybit.com/trading/)
 
-✅ CoinAPI REST API and Flat Files (API key required)
+✅ CoinAPI REST API and Flat Files
 
 ✅ Coinbase REST API
 
@@ -75,7 +75,7 @@ Then, configure a Cloud Workflow to collect data in the cloud. There is an examp
 Environment
 -----------
 
-Copy `demo/env.sample` to `demo/.env` if it does not already exist, then add the required settings.
+To use the scripts or deploy to Google Cloud, rename `.env.sample` to `.env`, and add the required settings.
 
 Set `COINAPI_API_KEY` and/or `FEMTOS_API_KEY` to enable paid provider requests.
 The `coinapi` collector uses full symbol IDs such as `COINBASE_SPOT_BTC_USD`;
