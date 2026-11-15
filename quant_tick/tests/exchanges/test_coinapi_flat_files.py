@@ -86,15 +86,19 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
             trade("outside", minute=-1),
         ]
         files = CoinAPITradeFiles(SYMBOL)
-        with patch(
-            MODULE + "httpx2.get",
-            side_effect=[response(listing()), response(archive(rows))],
-        ) as request:
+        with (
+            patch(
+                MODULE + "httpx2.get",
+                side_effect=[response(listing()), response(archive(rows))],
+            ) as request,
+            patch(MODULE + "pd.read_csv", wraps=pd.read_csv) as parse,
+        ):
             selected = files.get_trades(START, START + timedelta(minutes=1))
             later = files.get_trades(
                 START + timedelta(minutes=1), START + timedelta(minutes=2)
             )
         self.assertEqual(request.call_count, 2)
+        parse.assert_called_once()
         self.assertEqual(
             request.call_args.kwargs["headers"]["Authorization"], "test-key"
         )
@@ -114,7 +118,11 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
 
     def test_replayed_and_incomplete_minutes_choose_file_or_rest_exclusively(self):
         candles = pd.DataFrame(
-            {"notional": [Decimal("1.0000000000000002"), Decimal(2)]},
+            {
+                "notional": [Decimal("2.0000000000000002"), Decimal(2)],
+                "data_source": "coinapi",
+                "trades_count": [2, 2],
+            },
             index=[START, START + timedelta(minutes=1)],
         )
         controller = CoinAPITrades(
@@ -168,6 +176,8 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
             START + timedelta(minutes=1),
         )
         self.assertEqual(frame.uid.tolist(), ["file-0", "rest-1", "rest-2"])
+        self.assertEqual(frame.coinapi_replayed_notional.tolist(), [Decimal(1), 0, 0])
+        self.assertEqual(candles.iloc[0].notional, Decimal("2.0000000000000002"))
         self.assertEqual(
             frame.coinapi_transport.tolist(), ["flat_files", "rest", "rest"]
         )
@@ -202,6 +212,51 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
                     START, START + timedelta(minutes=1), candles
                 )
             self.assertEqual(rest.called, needs_rest)
+
+    def test_replays_only_adjust_explained_coinapi_candle_volume(self):
+        for source, quantity, count, needs_rest, adjusted in (
+            ("coinapi", "2", 2, False, "1"),
+            ("hyperliquid", "2", 2, True, "2"),
+            (None, "2", 2, True, "2"),
+            ("coinapi", "2.5", 2, True, "2.5"),
+            ("coinapi", "2", 3, True, "2"),
+            ("coinapi", "2", None, True, "2"),
+            ("coinapi", "1", 2, False, "1"),
+            ("hyperliquid", "1", 2, False, "1"),
+        ):
+            callback = Mock()
+            controller = CoinAPITrades(
+                SimpleNamespace(api_symbol=SYMBOL), START, START, callback
+            )
+            candles = pd.DataFrame(
+                {
+                    "notional": [Decimal(quantity)],
+                    "data_source": source,
+                    "trades_count": count,
+                },
+                index=[START],
+            )
+            rows = [trade("original"), trade("replay")]
+            with (
+                self.subTest(source=source, quantity=quantity),
+                patch(
+                    MODULE + "httpx2.get",
+                    side_effect=[response(listing()), response(archive(rows))],
+                ),
+                patch.object(
+                    controller,
+                    "fetch_rest_data_frame",
+                    return_value=controller.get_data_frame([]),
+                ) as rest,
+            ):
+                controller.on_rest_data_frame(
+                    START, START + timedelta(minutes=1), candles
+                )
+            self.assertEqual(rest.called, needs_rest)
+            self.assertEqual(
+                callback.call_args.args[4].iloc[0].notional, Decimal(adjusted)
+            )
+            self.assertEqual(candles.iloc[0].notional, Decimal(quantity))
 
     def test_missing_object_falls_back_and_access_or_corruption_errors_propagate(self):
         candles = pd.DataFrame({"notional": [Decimal(1)]}, index=[START])
@@ -273,6 +328,7 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
             patch(
                 MODULE + "get_flat_file_content", return_value=archive([])
             ) as download,
+            patch(MODULE + "pd.read_csv", wraps=pd.read_csv) as parse,
         ):
             for hour in (23, 22):
                 start = datetime(2026, 6, 8, hour, tzinfo=UTC)
@@ -281,6 +337,7 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
                 )
             find.assert_called_once_with(SYMBOL, "20260608")
             download.assert_called_once()
+            parse.assert_called_once()
             start = datetime(2026, 6, 9, tzinfo=UTC)
             files.get_trades(start, start + timedelta(hours=1))
             self.assertEqual(find.call_args.args, (SYMBOL, "2026060900"))

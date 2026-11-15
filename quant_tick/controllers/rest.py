@@ -178,6 +178,12 @@ class ExchangeREST(BaseController):
         """Confirm that no trades remain before an empty backfill slice."""
         return False
 
+    def iter_candle_windows(self):
+        for start, end in TradeDataIterator(self.symbol).iter_all(
+            self.timestamp_from, self.timestamp_to, retry=self.retry
+        ):
+            yield start, end, self.get_candles(start, end)
+
     def main(self) -> DataFrame:
         """Fetch, normalize, validate, and persist TradeData slices.
 
@@ -188,12 +194,7 @@ class ExchangeREST(BaseController):
         pagination_id = None
         is_last_iteration = False
         previous_timestamp_from = None
-        for timestamp_from, timestamp_to in TradeDataIterator(self.symbol).iter_all(
-            self.timestamp_from,
-            self.timestamp_to,
-            retry=self.retry,
-        ):
-            candles = self.get_candles(timestamp_from, timestamp_to)
+        for timestamp_from, timestamp_to, candles in self.iter_candle_windows():
             websocket_partitions = (
                 {}
                 if self.retry

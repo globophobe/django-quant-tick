@@ -5,6 +5,12 @@ rounding tolerance as persisted trade validation. Receipt-time partitions can om
 boundary trades, so replace each incomplete minute with REST, never a concatenation
 of the two transports.
 
+Batch candles over contiguous missing ranges within each UTC day, then retain
+hourly trade writes and progress. Replayed volume is retained as trade metadata;
+only CoinAPI validation candles may be adjusted, and only when the original
+record count and quantity both match after including those exact replays.
+Native candles are never adjusted.
+
 REST can append delayed trades with earlier exchange timestamps. Fetch complete
 time windows before sorting: enlarge capped responses within unchanged bounds,
 then split windows at the maximum limit. Never advance from a capped page's last
@@ -21,7 +27,14 @@ from functools import cached_property
 import pandas as pd
 
 from quant_tick.controllers import ExchangeREST
-from quant_tick.lib import is_decimal_close, iter_missing, iter_window, parse_datetime
+from quant_tick.controllers.iterators import TradeDataIterator
+from quant_tick.lib import (
+    is_decimal_close,
+    iter_missing,
+    iter_timeframe,
+    iter_window,
+    parse_datetime,
+)
 
 from .api import get_coinapi_response, get_coinapi_symbol_type
 from .candles import coinapi_candles
@@ -48,6 +61,7 @@ class CoinAPITrades(ExchangeREST):
             "time_coinapi",
             "data_source",
             "coinapi_transport",
+            "coinapi_replayed_notional",
         ]
 
     @property
@@ -60,14 +74,65 @@ class CoinAPITrades(ExchangeREST):
     def get_candles(self, timestamp_from, timestamp_to):
         return coinapi_candles(self.api_symbol, timestamp_from, timestamp_to)
 
+    def iter_missing_windows(self):
+        iterator = TradeDataIterator(self.symbol)
+        for start, end, existing in iterator.iter_days(
+            self.timestamp_from, self.timestamp_to, retry=self.retry
+        ):
+            end = min(end, iterator.get_max_timestamp_to())
+            if start < end:
+                yield from iter_missing(
+                    start, end, existing, value="1min", reverse=True
+                )
+
+    def iter_candle_windows(self):
+        for start, end in self.iter_missing_windows():
+            candles = self.get_candles(start, end)
+            for window_from, window_to in iter_timeframe(
+                start, end, value="1h", reverse=True
+            ):
+                yield window_from, window_to, candles
+
     @cached_property
     def flat_files(self):
         return CoinAPITradeFiles(self.api_symbol)
 
     def on_rest_data_frame(self, timestamp_from, timestamp_to, candles):
         frame = self.fetch_trade_data_frame(timestamp_from, timestamp_to, candles)
+        candles = self.validation_candles(frame, candles)
         self.on_data_frame(self.symbol, timestamp_from, timestamp_to, frame, candles)
         return frame
+
+    @staticmethod
+    def validation_candles(frame, candles):
+        """Reconcile vendor-counted replays without relaxing missing-trade checks."""
+        if (
+            frame.empty
+            or "coinapi_replayed_notional" not in frame
+            or "data_source" not in candles
+            or "notional" not in candles
+            or "trades_count" not in candles
+        ):
+            return candles
+        quantities = frame[["notional", "coinapi_replayed_notional"]].copy()
+        quantities["trades_count"] = (
+            1 + quantities.coinapi_replayed_notional // quantities.notional
+        ).astype("int64")
+        quantities = quantities.groupby(frame.timestamp.dt.floor("min")).sum()
+        adjusted = candles.copy()
+        for minute, quantity, replayed, count in quantities.itertuples(name=None):
+            if (
+                replayed > 0
+                and minute in candles.index
+                and candles.loc[minute, "data_source"] == "coinapi"
+                and candles.loc[minute, "notional"] > 0
+                and count == candles.loc[minute, "trades_count"]
+                and is_decimal_close(
+                    quantity + replayed, candles.loc[minute, "notional"]
+                )
+            ):
+                adjusted.loc[minute, "notional"] = quantity
+        return adjusted
 
     def fetch_trade_data_frame(self, timestamp_from, timestamp_to, candles):
         if candles.empty or "notional" not in candles:
@@ -76,6 +141,7 @@ class CoinAPITrades(ExchangeREST):
         if rows is None:
             return self.fetch_rest_data_frame(timestamp_from, timestamp_to)
         archive = self.get_data_frame(self.parse_data(rows[::-1]))
+        candles = self.validation_candles(archive, candles)
         quantities = (
             archive.groupby(archive.timestamp.dt.floor("min")).notional.sum()
             if not archive.empty
@@ -185,14 +251,19 @@ class CoinAPITrades(ExchangeREST):
             trade_id = str(row["id_trade"]) if row.get("id_trade") is not None else None
             if trade_id:
                 identity = trade_id, timestamp
-                values = price, quantity, side
                 if identity in venue_trades:
-                    if venue_trades[identity] != values:
+                    previous = rows[venue_trades[identity]]
+                    if (
+                        previous["price"],
+                        previous["notional"],
+                        previous["tickRule"],
+                    ) != (price, quantity, 1 if side == "BUY" else -1):
                         raise ValueError(
                             "CoinAPI exchange trade ID has conflicting values"
                         )
+                    previous["coinapi_replayed_notional"] += quantity
                     continue
-                venue_trades[identity] = values
+                venue_trades[identity] = len(rows)
             rows.append(
                 {
                     "uid": uid,
@@ -208,6 +279,7 @@ class CoinAPITrades(ExchangeREST):
                     "time_coinapi": row["time_coinapi"],
                     "data_source": "coinapi",
                     "coinapi_transport": row.get("coinapi_transport", "rest"),
+                    "coinapi_replayed_notional": Decimal(0),
                 }
             )
         return rows[::-1]

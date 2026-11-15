@@ -52,6 +52,7 @@ def coinapi_candles(api_symbol, timestamp_from, timestamp_to, resolution="1m"):
             rows.append(
                 {
                     "timestamp": timestamp,
+                    "trades_count": row.get("trades_count"),
                     **{
                         name: Decimal(str(row[key]))
                         for name, key in (
@@ -70,13 +71,14 @@ def coinapi_candles(api_symbol, timestamp_from, timestamp_to, resolution="1m"):
             raise ValueError("CoinAPI candle pagination did not advance")
         cursor = previous + interval
     frame = candles_to_data_frame(timestamp_from, timestamp_to, rows, reverse=False)
-    if source == target:
-        return frame
-    return resample_candles(
-        frame,
-        timestamp_from=timestamp_from,
-        timestamp_to=timestamp_to,
-        resolution_minutes=target,
-        source_resolution_minutes=source,
-        missing_candles_are_zero=True,
-    )
+    if source != target:
+        frame = resample_candles(
+            frame,
+            timestamp_from=timestamp_from,
+            timestamp_to=timestamp_to,
+            resolution_minutes=target,
+            source_resolution_minutes=source,
+            missing_candles_are_zero=True,
+        )
+    frame["data_source"] = "coinapi"
+    return frame

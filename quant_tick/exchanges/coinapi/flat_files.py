@@ -1,8 +1,12 @@
-"""Published trade archives, cached for one partition per collection run.
+"""Published trade archives, parsed once and cached for one partition per run.
 
 Files are partitioned by receipt time, so exchange-time boundary minutes may be
 incomplete. Callers must verify minute quantities before choosing archive rows
 over REST. Missing objects allow fallback; access and content errors do not.
+
+Receipt ordering does not permit flushing an exchange-time hour before the
+archive ends. Retain one sorted partition (at most a day), release it on the next
+partition, and reuse its parsed timestamps across the requested hourly windows.
 """
 
 import logging
@@ -118,7 +122,7 @@ class CoinAPITradeFiles:
     def __init__(self, api_symbol):
         self.api_symbol = api_symbol
         self.partition = None
-        self.content = None
+        self.frame = None
 
     def get_trades(self, timestamp_from, timestamp_to):
         hourly = timestamp_from >= HOURLY_FROM
@@ -128,17 +132,40 @@ class CoinAPITradeFiles:
             return None
         partition = start.strftime("%Y%m%d%H" if hourly else "%Y%m%d")
         if partition != self.partition:
-            # Release the previous compressed archive before downloading another.
-            self.content = None
+            self.frame = None
             self.partition = None
             key = find_trade_file(self.api_symbol, partition)
-            self.content = get_flat_file_content(key) if key else None
+            content = get_flat_file_content(key) if key else None
+            if content is not None:
+                self.frame = self.parse_archive(content)
             self.partition = partition
-        if self.content is None:
+        if self.frame is None:
             return None
         rows = []
+        selected = self.frame.loc[
+            (self.frame.time_exchange >= timestamp_from)
+            & (self.frame.time_exchange < timestamp_to)
+        ]
+        for row in selected.to_dict("records"):
+            rows.append(
+                {
+                    "time_exchange": row["time_exchange"],
+                    "time_coinapi": row["time_coinapi"],
+                    "uuid": row["guid"],
+                    "price": row["price"],
+                    "size": row["base_amount"],
+                    "taker_side": row["taker_side"],
+                    "id_trade": row["id_exch_guid"] or row["id_exch_int_inc"] or None,
+                    "coinapi_transport": "flat_files",
+                }
+            )
+        return rows
+
+    @staticmethod
+    def parse_archive(content):
+        frames = []
         with pd.read_csv(
-            BytesIO(self.content),
+            BytesIO(content),
             sep=";",
             compression="gzip",
             usecols=CSV_COLUMNS,
@@ -152,24 +179,9 @@ class CoinAPITradeFiles:
                 )
                 if timestamps.isna().any():
                     raise ValueError("CoinAPI Flat Files has missing trade timestamps")
-                chunk = chunk.loc[
-                    (timestamps >= timestamp_from) & (timestamps < timestamp_to)
-                ]
-                for row in chunk.to_dict("records"):
-                    rows.append(
-                        {
-                            "time_exchange": row["time_exchange"],
-                            "time_coinapi": row["time_coinapi"],
-                            "uuid": row["guid"],
-                            "price": row["price"],
-                            "size": row["base_amount"],
-                            "taker_side": row["taker_side"],
-                            "id_trade": row["id_exch_guid"]
-                            or row["id_exch_int_inc"]
-                            or None,
-                            "coinapi_transport": "flat_files",
-                        }
-                    )
+                chunk["time_exchange"] = timestamps
+                frames.append(chunk)
         # Receipt ordering can differ from exchange time; keep tied rows stable.
-        rows.sort(key=lambda row: pd.to_datetime(row["time_exchange"], utc=True))
-        return rows
+        return pd.concat(frames, ignore_index=True).sort_values(
+            "time_exchange", kind="stable"
+        )

@@ -38,7 +38,7 @@ def trade(uid, timestamp="2025-01-01T00:00:00.0000001Z", side="BUY", **kwargs):
     }
 
 
-def candle(timestamp=START, minutes=1, quantity="0.2"):
+def candle(timestamp=START, minutes=1, quantity="0.2", count=2):
     return {
         "time_period_start": timestamp.isoformat(),
         "time_period_end": (timestamp + timedelta(minutes=minutes)).isoformat(),
@@ -47,7 +47,7 @@ def candle(timestamp=START, minutes=1, quantity="0.2"):
         "price_low": "100.123456789123456789",
         "price_close": "100.123456789123456789",
         "volume_traded": quantity,
-        "trades_count": 2,
+        "trades_count": count,
     }
 
 
@@ -369,6 +369,104 @@ class CoinAPIMarketTest(SimpleTestCase):
     Mock(return_value=None),
 )
 class CoinAPICollectionTest(BaseSymbolTest, TestCase):
+    def test_backfill_batches_candles_and_preserves_hourly_progress_on_both_routes(
+        self,
+    ):
+        end = START + timedelta(hours=2)
+        rows = [
+            trade(
+                minute,
+                timestamp=(START + timedelta(minutes=minute)).isoformat(),
+                symbol_id=HYPERLIQUID_SYMBOL,
+                id_trade=str(minute),
+            )
+            for minute in range(120)
+        ]
+        candles = [
+            candle(START + timedelta(minutes=i), quantity="0.1") for i in range(120)
+        ]
+
+        def archive(start, end):
+            return [
+                row for row in rows if start <= pd.Timestamp(row["time_exchange"]) < end
+            ]
+
+        def interrupted_archive(start, end):
+            if start == START:
+                raise RuntimeError("Archive temporarily unavailable")
+            return archive(start, end)
+
+        for exchange, api_symbol in (
+            (Exchange.COINAPI, HYPERLIQUID_SYMBOL),
+            (Exchange.HYPERLIQUID, "BTC"),
+        ):
+            symbol = self.get_symbol(
+                exchange=exchange,
+                api_symbol=api_symbol,
+                symbol_type=SymbolType.PERPETUAL,
+            )
+            with (
+                self.subTest(exchange=exchange),
+                patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}),
+                patch(
+                    "quant_tick.exchanges.coinapi.flat_files.CoinAPITradeFiles.get_trades",
+                    side_effect=interrupted_archive,
+                ) as files,
+                patch(
+                    "quant_tick.exchanges.coinapi.candles.get_coinapi_response",
+                    return_value=candles,
+                ) as requests,
+                patch(
+                    "quant_tick.exchanges.hyperliquid.controllers.native_hyperliquid_candles",
+                    return_value=pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC")),
+                ),
+                patch(
+                    "quant_tick.exchanges.hyperliquid.sources._coinapi_history_start",
+                    return_value=pd.Timestamp(START),
+                ),
+                patch(
+                    "quant_tick.exchanges.coinapi.controllers.get_coinapi_response"
+                ) as rest,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "temporarily unavailable"):
+                    api(symbol, START, end)
+                requests.assert_called_once()
+                self.assertEqual(
+                    pd.Timestamp(requests.call_args.args[1]["time_start"]), START
+                )
+                self.assertEqual(
+                    pd.Timestamp(requests.call_args.args[1]["time_end"]), end
+                )
+                self.assertEqual(files.call_count, 2)
+                rest.assert_not_called()
+                saved = TradeData.objects.get(symbol=symbol)
+                self.assertEqual(saved.timestamp, START + timedelta(hours=1))
+                self.assertTrue(saved.ok)
+                requests.reset_mock()
+                files.reset_mock()
+                files.side_effect = archive
+                api(symbol, START, end)
+                requests.assert_called_once()
+                self.assertEqual(
+                    pd.Timestamp(requests.call_args.args[1]["time_end"]),
+                    START + timedelta(hours=1),
+                )
+                files.assert_called_once()
+                stored = list(
+                    TradeData.objects.filter(symbol=symbol).order_by("timestamp")
+                )
+                self.assertEqual([row.frequency for row in stored], [60, 60])
+                self.assertEqual([row.ok for row in stored], [True, True])
+                self.assertEqual(
+                    [row.get_data_frame("raw_data").notional.sum() for row in stored],
+                    [Decimal(6)] * 2,
+                )
+                requests.reset_mock()
+                files.reset_mock()
+                api(symbol, START, end)
+                requests.assert_not_called()
+                files.assert_not_called()
+
     def test_ingestion_persists_validated_raw_aggregated_and_filtered_data(self):
         for symbol_id, symbol_type, native_exchange, native_pair in (
             (SYMBOL, SymbolType.SPOT, Exchange.BINANCE, "BTCUSDT"),
@@ -390,6 +488,7 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
                 rows = [
                     trade(1, symbol_id=symbol_id, id_trade="1065044209871623"),
                     trade(2, symbol_id=symbol_id, side="SELL", id_trade="11"),
+                    trade(3, symbol_id=symbol_id, id_trade="1065044209871623"),
                 ]
                 with (
                     patch.dict(
@@ -397,7 +496,10 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
                     ),
                     patch(
                         "quant_tick.exchanges.public.httpx2.get",
-                        side_effect=[response(200, [candle()]), response(200, rows)],
+                        side_effect=[
+                            response(200, [candle(quantity="0.3", count=3)]),
+                            response(200, rows),
+                        ],
                     ) as request,
                 ):
                     api(symbol, START, END)
@@ -419,6 +521,9 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
                 raw = stored.get_data_frame("raw_data")
                 self.assertEqual(raw.coinapi_uuid.tolist(), ["1", "2"])
                 self.assertEqual(raw.id_trade.tolist(), ["1065044209871623", "11"])
+                self.assertEqual(
+                    raw.coinapi_replayed_notional.tolist(), [Decimal("0.1"), 0]
+                )
                 self.assertEqual(
                     raw.time_coinapi.tolist(), [rows[0]["time_coinapi"]] * 2
                 )

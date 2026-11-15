@@ -7,8 +7,12 @@ from pandas import DataFrame
 
 from quant_tick.constants import Frequency, SymbolType, TradeDataRetry
 from quant_tick.controllers import ExchangeWebSocket
-from quant_tick.controllers.iterators import TradeDataIterator
-from quant_tick.lib import has_zero_trade_candle, iter_missing, iter_window
+from quant_tick.lib import (
+    has_zero_trade_candle,
+    iter_missing,
+    iter_timeframe,
+    iter_window,
+)
 from quant_tick.models import Symbol, TradeData
 
 from ..coinapi.controllers import CoinAPITrades
@@ -96,13 +100,12 @@ class HyperliquidTrades(CoinAPITrades, HyperliquidTradesWebSocket):
             candles, timestamp_from, timestamp_to
         ):
             return frame
+        candles = self.validation_candles(frame, candles)
         self.on_data_frame(self.symbol, timestamp_from, timestamp_to, frame, candles)
         return frame
 
     def main(self):
-        for start, end in TradeDataIterator(self.symbol).iter_all(
-            self.timestamp_from, self.timestamp_to, retry=self.retry
-        ):
+        for start, end in self.iter_missing_windows():
             candles = native_hyperliquid_candles(self.symbol.api_symbol, start, end)
             partitions = self.validate_websocket_partitions(start, end, candles)
             covered = []
@@ -146,4 +149,7 @@ class HyperliquidTrades(CoinAPITrades, HyperliquidTradesWebSocket):
                     native,
                     resolution="1m",
                 )
-                self.on_rest_data_frame(fetch_from, fetch_to, validation_candles)
+                for window_from, window_to in iter_timeframe(
+                    fetch_from, fetch_to, value="1h", reverse=True
+                ):
+                    self.on_rest_data_frame(window_from, window_to, validation_candles)
