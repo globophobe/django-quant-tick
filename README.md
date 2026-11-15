@@ -76,9 +76,3 @@ Environment
 -----------
 
 To use the scripts or deploy to Google Cloud, rename `.env.sample` to `.env`, and add the required settings.
-
-Set `COINAPI_API_KEY` and/or `FEMTOS_API_KEY` to enable paid provider requests.
-The `coinapi` collector uses full symbol IDs such as `COINBASE_SPOT_BTC_USD`;
-trade collection supports spot markets and Hyperliquid USDC perpetuals.
-For `hyperliquid` symbols such as `BTC`, native data takes priority, CoinAPI
-backfills historical gaps, and Femtos supplies positioning history.
