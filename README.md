@@ -30,11 +30,7 @@ Candles are aggregated at 1 minute intervals, and validated with the exchange's 
 Supported exchanges
 -------------------
 
-✅ Aster perpetuals REST API and funding history
-
 ✅ Binance REST API, and [Binance Market Data](https://data.binance.vision/)
-
-✅ Binance.US REST API
 
 ✅ Bitfinex REST API
 
@@ -48,11 +44,7 @@ Supported exchanges
 
 ✅ Optional CoinAPI Hyperliquid backfill and Femtos positioning history (API keys required)
 
-✅ OKX spot and linear perpetuals REST API and daily archives
-
 ✅ Phoenix perpetuals REST API
-
-✅ Upbit REST API and daily archives
 
 Note: Exchanges without paginated REST APIs or an S3 repository, will never be supported.
 

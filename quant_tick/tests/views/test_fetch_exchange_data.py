@@ -106,22 +106,22 @@ class FetchExchangeDataViewTest(TestCase):
             self.assertEqual(counts["perpetual_stats"], int(bool(key)))
 
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
-    def test_aster_collection_selects_the_active_perpetual(self, mock_funding):
+    def test_collection_selects_only_active_symbols(self, mock_funding):
         symbol = Symbol.objects.create(
-            exchange=Exchange.ASTER,
-            api_symbol="BTCUSDT",
+            exchange=Exchange.PHOENIX,
+            api_symbol="BTC",
             symbol_type=SymbolType.PERPETUAL,
         )
         Symbol.objects.create(
-            exchange=Exchange.ASTER,
-            api_symbol="ETHUSDT",
+            exchange=Exchange.PHOENIX,
+            api_symbol="ETH",
             symbol_type=SymbolType.PERPETUAL,
             is_active=False,
         )
-        response = self.client.get(self.get_url(), {"exchange": "aster"})
+        response = self.client.get(self.get_url(), {"exchange": Exchange.PHOENIX})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["funding"], 1)
-        self.assertEqual(response.json()["perpetual_stats"], 0)
+        self.assertEqual(response.json()["perpetual_stats"], 1)
         mock_funding.assert_called_once()
         self.assertEqual(mock_funding.call_args.args[0], symbol)
         self.assertTrue(callable(mock_funding.call_args.kwargs["assert_lease_owned"]))

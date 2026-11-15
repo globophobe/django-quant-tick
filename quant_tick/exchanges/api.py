@@ -13,8 +13,6 @@ from quant_tick.lib import (
 )
 from quant_tick.models import ExchangeCandleData, FundingData, Symbol, TradeData
 
-from .aster import aster_candles, aster_trades
-from .aster.funding import AsterFunding, aster_funding, get_aster_funding_interval
 from .binance import binance_candles, binance_trades
 from .binance_futures import (
     binance_futures_candles,
@@ -25,7 +23,6 @@ from .binance_futures.funding import (
     BinanceFuturesFunding,
     get_binance_futures_funding_interval,
 )
-from .binance_us import binance_us_candles, binance_us_trades
 from .bitfinex import bitfinex_candles, bitfinex_funding, bitfinex_trades
 from .bitfinex.funding import BitfinexFunding
 from .bybit import bybit_candles, bybit_funding, bybit_trades
@@ -43,10 +40,8 @@ from .hyperliquid import (
     hyperliquid_trades,
 )
 from .hyperliquid.funding import HyperliquidFunding
-from .okx import okx_candles, okx_trades
 from .phoenix import phoenix_candles, phoenix_funding, phoenix_trades
 from .phoenix.funding import PhoenixFunding
-from .upbit import upbit_candles, upbit_trades
 
 BYBIT_EXCHANGES = {
     Exchange.BYBIT,
@@ -69,16 +64,11 @@ TRADE_SUPPORTED_EXCHANGES = frozenset(
         Exchange.DERIBIT,
         Exchange.HYPERLIQUID,
         Exchange.PHOENIX,
-        Exchange.ASTER,
-        Exchange.BINANCE_US,
-        Exchange.OKX,
-        Exchange.UPBIT,
     }
 )
 EXCHANGE_CANDLE_SUPPORTED_EXCHANGES = TRADE_SUPPORTED_EXCHANGES
 FUNDING_SUPPORTED_EXCHANGES = frozenset(
     {
-        Exchange.ASTER,
         Exchange.BINANCE_FUTURES,
         Exchange.BITFINEX,
         *BYBIT_DERIVATIVE_EXCHANGES,
@@ -90,7 +80,6 @@ FUNDING_SUPPORTED_EXCHANGES = frozenset(
 
 FUNDING_FETCH_WINDOW = timedelta(days=90)
 FUNDING_CHUNKED_EXCHANGES = {
-    Exchange.ASTER,
     Exchange.BINANCE_FUTURES,
     Exchange.BITFINEX,
     Exchange.BYBIT_LINEAR,
@@ -100,7 +89,6 @@ FUNDING_CHUNKED_EXCHANGES = {
     Exchange.PHOENIX,
 }
 FUNDING_MODEL = {
-    Exchange.ASTER: AsterFunding,
     Exchange.BINANCE_FUTURES: BinanceFuturesFunding,
     Exchange.BITFINEX: BitfinexFunding,
     Exchange.BYBIT_LINEAR: BybitFunding,
@@ -213,24 +201,7 @@ def trades_api(
         "retry": retry,
         "verbose": verbose,
     }
-    if exchange == Exchange.ASTER:
-        require_market_type(symbol, SymbolType.PERPETUAL)
-        aster_trades(symbol, **kwargs)
-    elif exchange == Exchange.BINANCE_US:
-        require_market_type(symbol, SymbolType.SPOT)
-        binance_us_trades(symbol, **kwargs)
-    elif exchange == Exchange.OKX:
-        require_market_type(
-            symbol,
-            SymbolType.PERPETUAL
-            if symbol.api_symbol.endswith("-SWAP")
-            else SymbolType.SPOT,
-        )
-        okx_trades(symbol, **kwargs)
-    elif exchange == Exchange.UPBIT:
-        require_market_type(symbol, SymbolType.SPOT)
-        upbit_trades(symbol, **kwargs)
-    elif exchange == Exchange.BINANCE:
+    if exchange == Exchange.BINANCE:
         get_binance_symbol_type(symbol)
         binance_trades(symbol, **kwargs)
     elif exchange == Exchange.BINANCE_FUTURES:
@@ -271,22 +242,7 @@ def candles_api(
     kwargs = {"timestamp_from": timestamp_from, "timestamp_to": timestamp_to}
     if resolution is not None:
         kwargs["resolution"] = resolution
-    if exchange == Exchange.ASTER:
-        require_market_type(symbol, SymbolType.PERPETUAL)
-        candles = aster_candles(api_symbol, **kwargs)
-    elif exchange == Exchange.BINANCE_US:
-        require_market_type(symbol, SymbolType.SPOT)
-        candles = binance_us_candles(api_symbol, **kwargs)
-    elif exchange == Exchange.OKX:
-        require_market_type(
-            symbol,
-            SymbolType.PERPETUAL if api_symbol.endswith("-SWAP") else SymbolType.SPOT,
-        )
-        candles = okx_candles(api_symbol, **kwargs)
-    elif exchange == Exchange.UPBIT:
-        require_market_type(symbol, SymbolType.SPOT)
-        candles = upbit_candles(api_symbol, **kwargs)
-    elif exchange == Exchange.BINANCE:
+    if exchange == Exchange.BINANCE:
         get_binance_symbol_type(symbol)
         candles = binance_candles(api_symbol, **kwargs)
     elif exchange == Exchange.BINANCE_FUTURES:
@@ -328,13 +284,6 @@ def _funding_api(
     timestamp_to: datetime,
 ) -> DataFrame:
     exchange = symbol.exchange
-    if exchange == Exchange.ASTER:
-        return aster_funding(
-            symbol.api_symbol,
-            timestamp_from,
-            timestamp_to,
-            funding_interval=symbol.funding_interval,
-        )
     if exchange == Exchange.BINANCE_FUTURES:
         return binance_futures_funding(
             symbol.api_symbol,
@@ -389,9 +338,7 @@ def refresh_funding_interval(
     symbol: Symbol,
     assert_lease_owned: Callable[[], None] | None = None,
 ) -> timedelta | None:
-    if symbol.exchange == Exchange.ASTER:
-        interval = get_aster_funding_interval(symbol.api_symbol)
-    elif symbol.exchange == Exchange.BINANCE_FUTURES:
+    if symbol.exchange == Exchange.BINANCE_FUTURES:
         interval = get_binance_futures_funding_interval(symbol.api_symbol)
     elif symbol.exchange in BYBIT_DERIVATIVE_EXCHANGES:
         interval = get_bybit_funding_interval(

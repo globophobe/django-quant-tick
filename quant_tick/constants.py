@@ -20,10 +20,8 @@ NUMERIC_SCALE = 38
 class Exchange(models.TextChoices):
     """Supported exchange identifiers."""
 
-    ASTER = "aster", "Aster"
     BINANCE = "binance", "Binance"
     BINANCE_FUTURES = "binance-futures", "Binance Futures"
-    BINANCE_US = "binance-us", "Binance.US"
     BITFINEX = "bitfinex", "Bitfinex"
     BITMEX = "bitmex", "BitMEX"
     BYBIT = "bybit", "Bybit"
@@ -33,9 +31,7 @@ class Exchange(models.TextChoices):
     COINBASE = "coinbase", "Coinbase"
     DERIBIT = "deribit", "Deribit"
     HYPERLIQUID = "hyperliquid", "Hyperliquid"
-    OKX = "okx", "OKX"
     PHOENIX = "phoenix", "Phoenix"
-    UPBIT = "upbit", "Upbit"
 
 
 class SymbolType(models.TextChoices):
