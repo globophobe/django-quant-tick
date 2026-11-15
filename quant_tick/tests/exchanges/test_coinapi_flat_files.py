@@ -11,6 +11,7 @@ import httpx2
 import pandas as pd
 from django.test import SimpleTestCase
 
+from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.coinapi.controllers import CoinAPITrades
 from quant_tick.exchanges.coinapi.flat_files import (
     BASE_URL,
@@ -19,7 +20,9 @@ from quant_tick.exchanges.coinapi.flat_files import (
     find_trade_file,
     get_flat_file_content,
 )
+from quant_tick.exchanges.hyperliquid.controllers import HyperliquidTrades
 from quant_tick.lib.download import ArchiveDownloadError
+from quant_tick.models import Symbol, TradeData
 
 START = datetime(2026, 11, 13, 12, tzinfo=UTC)
 SYMBOL = "HYPERLIQUID_PERP_BTC_USDC"
@@ -125,12 +128,6 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
             },
             index=[START, START + timedelta(minutes=1)],
         )
-        controller = CoinAPITrades(
-            SimpleNamespace(api_symbol=SYMBOL),
-            START,
-            START + timedelta(minutes=3),
-            Mock(),
-        )
         rest_rows = [
             {
                 "uuid": "rest-" + str(minute),
@@ -144,44 +141,87 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
             }
             for minute in (1, 2)
         ]
-        with (
-            patch(
-                MODULE + "httpx2.get",
-                side_effect=[
-                    response(listing()),
-                    response(
-                        archive(
-                            [
-                                trade("file-0"),
-                                trade(
-                                    "file-0-replay", time_coinapi="2026-11-13T12:00:30Z"
-                                ),
-                                trade("incomplete", minute=1),
-                            ]
-                        )
-                    ),
-                ],
-            ),
-            patch(
-                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
-                return_value=rest_rows,
-            ) as rest,
+        for controller_type, exchange, api_symbol, rows in (
+            (CoinAPITrades, Exchange.COINAPI, SYMBOL, rest_rows),
+            (CoinAPITrades, Exchange.COINAPI, SYMBOL, []),
+            (HyperliquidTrades, Exchange.HYPERLIQUID, "BTC", rest_rows),
+            (HyperliquidTrades, Exchange.HYPERLIQUID, "BTC", []),
         ):
-            frame = controller.fetch_trade_data_frame(
-                START, START + timedelta(minutes=3), candles
+            symbol = Symbol(
+                exchange=exchange,
+                api_symbol=api_symbol,
+                symbol_type=SymbolType.PERPETUAL,
+                save_raw=True,
             )
-        rest.assert_called_once()
-        self.assertEqual(
-            pd.Timestamp(rest.call_args.args[1]["time_start"]),
-            START + timedelta(minutes=1),
-        )
-        self.assertEqual(frame.uid.tolist(), ["file-0", "rest-1", "rest-2"])
-        self.assertEqual(frame.coinapi_replayed_notional.tolist(), [Decimal(1), 0, 0])
-        self.assertEqual(candles.iloc[0].notional, Decimal("2.0000000000000002"))
-        self.assertEqual(
-            frame.coinapi_transport.tolist(), ["flat_files", "rest", "rest"]
-        )
-        self.assertEqual(frame.notional.sum(), Decimal(5))
+            callback = Mock()
+            end = START + timedelta(minutes=3)
+            controller = controller_type(symbol, START, end, callback)
+            with (
+                self.subTest(exchange=exchange, empty_rest=not rows),
+                patch(
+                    MODULE + "httpx2.get",
+                    side_effect=[
+                        response(listing()),
+                        response(
+                            archive(
+                                [
+                                    trade(
+                                        "file-0",
+                                        time_exchange="2026-11-13T12:00:00.0000001Z",
+                                    ),
+                                    trade(
+                                        "file-0-replay",
+                                        time_exchange="2026-11-13T12:00:00.0000001Z",
+                                        time_coinapi="2026-11-13T12:00:30Z",
+                                    ),
+                                    trade("incomplete", minute=1),
+                                ]
+                            )
+                        ),
+                    ],
+                ),
+                patch(
+                    "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+                    return_value=rows,
+                ) as rest,
+            ):
+                frame = controller.on_rest_data_frame(START, end, candles)
+                rest.assert_called_once()
+                self.assertEqual(
+                    pd.Timestamp(rest.call_args.args[1]["time_start"]),
+                    START + timedelta(minutes=1),
+                )
+                self.assertEqual(
+                    frame.uid.tolist(),
+                    ["file-0", "rest-1", "rest-2"] if rows else ["file-0"],
+                )
+                self.assertEqual(
+                    frame.coinapi_replayed_notional.tolist(),
+                    [Decimal(1), 0, 0] if rows else [Decimal(1)],
+                )
+                self.assertEqual(
+                    candles.iloc[0].notional, Decimal("2.0000000000000002")
+                )
+                self.assertEqual(
+                    frame.coinapi_transport.tolist(),
+                    ["flat_files", "rest", "rest"] if rows else ["flat_files"],
+                )
+                self.assertEqual(
+                    frame.notional.sum(), Decimal(5) if rows else Decimal(1)
+                )
+                self.assertEqual(frame.timestamp.dt.nanosecond.iloc[0], 100)
+                self.assertEqual(
+                    frame.timestamp.dt.floor("min").tolist(),
+                    [START + timedelta(minutes=i) for i in range(3)]
+                    if rows
+                    else [START],
+                )
+                self.assertIs(
+                    TradeData.validate(
+                        symbol, START, end, callback.call_args.args[4], raw_trades=frame
+                    ),
+                    None if rows else False,
+                )
 
     def test_rounding_tolerance_preserves_zero_and_missing_trade_checks(self):
         for quantity, expected, needs_rest in (

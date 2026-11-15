@@ -164,6 +164,8 @@ class CoinAPITrades(ExchangeREST):
             timestamp_from, timestamp_to, covered, value="1min"
         ):
             frames.append(self.fetch_rest_data_frame(start, end))
+        # Empty REST frames would coerce timezone-aware timestamps to object.
+        frames = [frame for frame in frames if not frame.empty]
         if not frames:
             return self.get_data_frame([])
         # File and REST frames cover disjoint minutes but can be interleaved.
