@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import traceback
 from contextlib import nullcontext
 from decimal import Decimal
 from functools import partial
@@ -45,75 +46,45 @@ class PublicMarketRequestTest(SimpleTestCase):
             self.assertEqual(os.environ["TEST_TOTAL_REQUESTS"], "3")
             sleep.assert_called_once_with(1)
 
-    def test_rate_limit_cooldown_and_attempt_budget(self):
-        for header, delay in (("0", 5), ("15", 15), ("invalid", 5), (None, 5)):
-            failure = self.response(
-                429, "{}", {"Retry-After": header} if header else {}
-            )
-            with (
-                self.subTest(delay=delay),
-                patch.dict(os.environ, {}, clear=True),
-                patch("quant_tick.exchanges.public.time.sleep") as sleep,
-                patch(
-                    "quant_tick.exchanges.public.httpx2.get",
-                    side_effect=[failure, self.response(200, "[]")],
-                ) as request,
-            ):
-                self.assertEqual(
-                    get_public_json(
-                        "https://venue.test", "/trades", {}, namespace="TEST", retry=1
-                    ),
-                    [],
-                )
-                sleep.assert_called_once_with(delay)
-                self.assertEqual(request.call_count, 2)
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch("quant_tick.exchanges.public.httpx2.get", return_value=failure),
-            patch("quant_tick.exchanges.public.time.sleep") as sleep,
-            self.assertRaises(httpx2.HTTPStatusError),
+    def test_transport_and_server_errors_keep_bounded_retries(self):
+        for collect, module, payload, expected, delay, error in (
+            (
+                partial(get_coinapi_response, "/v1/trades/test/history", {}),
+                "quant_tick.exchanges.public",
+                "[]",
+                [],
+                1,
+                httpx2.HTTPStatusError,
+            ),
+            (
+                partial(get_flat_file_content, "archive.csv.gz"),
+                "quant_tick.exchanges.coinapi.flat_files",
+                "archive",
+                b"archive",
+                2,
+                ArchiveDownloadError,
+            ),
         ):
-            get_public_json(
-                "https://venue.test", "/trades", {}, namespace="TEST", retry=0
-            )
-        sleep.assert_not_called()
-
-        for retries, recovers, delays in (
-            (3, True, [5, 10, 20]),
-            (3, False, [5, 10, 20]),
-            (5, True, [5, 10, 20, 30, 30]),
-        ):
-            responses = [self.response(429, "{}") for _ in range(retries)]
-            responses.append(self.response(200 if recovers else 429, "[]"))
-            with (
-                self.subTest(retries=retries, recovers=recovers),
-                patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}, clear=True),
-                patch("quant_tick.exchanges.public.throttle_api_requests"),
-                patch("quant_tick.exchanges.public.increment_api_total_requests"),
-                patch("quant_tick.exchanges.public.time.sleep") as sleep,
-                patch(
-                    "quant_tick.exchanges.public.httpx2.get", side_effect=responses
-                ) as request,
-                nullcontext()
-                if recovers
-                else self.assertRaises(httpx2.HTTPStatusError),
-            ):
-                self.assertEqual(
-                    get_coinapi_response("/v1/trades/test/history", {})
-                    if retries == 3
-                    else get_public_json(
-                        "https://venue.test",
-                        "/trades",
-                        {},
-                        namespace="TEST",
-                        retry=retries,
-                    ),
-                    [],
-                )
-            self.assertEqual(request.call_count, retries + 1)
-            self.assertEqual(sleep.call_args_list, [call(delay) for delay in delays])
-            for args in request.call_args_list[1:]:
-                self.assertEqual(args, request.call_args_list[0])
+            for recovers in (True, False):
+                responses = [
+                    httpx2.ReadTimeout("timeout"),
+                    self.response(503, "unavailable"),
+                    self.response(503, "unavailable"),
+                    self.response(200 if recovers else 503, payload),
+                ]
+                outcome = nullcontext() if recovers else self.assertRaises(error)
+                with (
+                    self.subTest(module=module, recovers=recovers),
+                    patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}, clear=True),
+                    patch(f"{module}.throttle_api_requests"),
+                    patch(f"{module}.increment_api_total_requests"),
+                    patch(f"{module}.time.sleep") as sleep,
+                    patch(f"{module}.httpx2.get", side_effect=responses) as request,
+                    outcome,
+                ):
+                    self.assertEqual(collect(), expected)
+                self.assertEqual(request.call_count, 4)
+                self.assertEqual(sleep.call_args_list, [call(delay)] * 3)
 
     def test_invalid_requests_are_not_retried(self):
         with (
@@ -127,49 +98,64 @@ class PublicMarketRequestTest(SimpleTestCase):
                 get_public_json("https://venue.test", "/trades", {}, namespace="TEST")
             request.assert_called_once()
 
-    def test_provider_limits_reach_sentry_once_even_when_retry_recovers(self):
+    def test_provider_limits_fail_immediately_with_safe_traceback_and_sentry_details(
+        self,
+    ):
         cases = (
             (
                 "COINAPI",
                 partial(get_coinapi_response, "/v1/trades/test/history", {}),
                 "quant_tick.exchanges.public",
-                "[]",
-                [],
                 httpx2.HTTPStatusError,
             ),
             (
                 "FEMTOS",
                 partial(get_femtos_response, "/candles", {}),
                 "quant_tick.exchanges.public",
-                "{}",
-                {},
                 httpx2.HTTPStatusError,
             ),
             (
                 "CoinAPI Flat Files",
                 partial(get_flat_file_content, "archive.csv.gz"),
                 "quant_tick.exchanges.coinapi.flat_files",
-                "archive",
-                b"archive",
                 ArchiveDownloadError,
             ),
         )
-        for provider, collect, module, payload, expected, error in cases:
-            for statuses in ((429, 200), (429, 429, 429, 429), (402,)):
+        for provider, collect, module, error in cases:
+            for status, retry_after in (
+                (429, None),
+                (429, "17"),
+                (429, "Sun, 15 Nov 2026 12:00:00 GMT"),
+                (402, None),
+            ):
                 events = []
-                responses = [
-                    self.response(
-                        status,
-                        payload if status == 200 else '{"error":"sample-test-key"}',
-                        {"Retry-After": "2"},
-                    )
-                    for status in statuses
-                ]
-                outcome = (
-                    nullcontext() if statuses[-1] == 200 else self.assertRaises(error)
+                response_headers = {
+                    "X-RateLimit-Limit": "1000",
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": "2026-11-16T12:00:00Z",
+                    "X-ConcurrencyLimit-Limit": "10",
+                    "X-ConcurrencyLimit-Remaining": "3",
+                    "Authorization": "sample-test-key",
+                    "Set-Cookie": "private-cookie",
+                    "X-Internal": "private-header",
+                }
+                if retry_after is not None:
+                    response_headers["Retry-After"] = retry_after
+                failure = self.response(
+                    status,
+                    json.dumps(
+                        {
+                            "error": "Request credit limit exceeded",
+                            "credential": "sample-test-key",
+                            "padding": "x" * 3000 + "body-end-marker",
+                        }
+                    ),
+                    response_headers,
                 )
                 with (
-                    self.subTest(provider=provider, statuses=statuses),
+                    self.subTest(
+                        provider=provider, status=status, retry_after=retry_after
+                    ),
                     patch.dict(
                         os.environ,
                         {
@@ -178,8 +164,8 @@ class PublicMarketRequestTest(SimpleTestCase):
                         },
                         clear=True,
                     ),
-                    patch(f"{module}.httpx2.get", side_effect=responses) as request,
-                    patch(f"{module}.time.sleep"),
+                    patch(f"{module}.httpx2.get", return_value=failure) as request,
+                    patch(f"{module}.time.sleep") as sleep,
                     self.assertLogs(module, level=logging.ERROR),
                     sentry_sdk.init(
                         dsn="https://public@example.invalid/1",
@@ -189,13 +175,34 @@ class PublicMarketRequestTest(SimpleTestCase):
                         include_local_variables=False,
                         send_default_pii=False,
                     ),
-                    outcome,
+                    self.assertRaises(error) as outcome,
                 ):
-                    self.assertEqual(collect(), expected)
-                self.assertEqual(request.call_count, len(statuses))
+                    collect()
+                request.assert_called_once()
+                sleep.assert_not_called()
                 self.assertEqual(len(events), 1)
                 event = events[0]
                 self.assertEqual(event["level"], "error")
                 self.assertIn(provider, event["logentry"]["formatted"])
-                self.assertIn(str(statuses[0]), event["logentry"]["formatted"])
+                self.assertIn(str(status), event["logentry"]["formatted"])
+                rendered = "".join(traceback.format_exception(outcome.exception))
+                for text in (rendered, event["logentry"]["formatted"]):
+                    self.assertIn("Request credit limit exceeded", text)
+                    self.assertIn(
+                        '"Retry-After": "' + (retry_after or "<not provided>") + '"',
+                        text,
+                    )
+                    self.assertIn('"X-RateLimit-Remaining": "0"', text)
+                    self.assertIn('"X-RateLimit-Reset": "2026-11-16T12:00:00Z"', text)
+                    self.assertIn('"X-ConcurrencyLimit-Remaining": "3"', text)
+                    self.assertIn("[redacted]", text)
+                    self.assertIn("...[truncated]", text)
+                    for private in (
+                        "sample-test-key",
+                        "private-cookie",
+                        "private-header",
+                        "body-end-marker",
+                    ):
+                        self.assertNotIn(private, text)
                 self.assertNotIn("sample-test-key", json.dumps(event))
+                self.assertLess(len(event["logentry"]["formatted"]), 3000)
