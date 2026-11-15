@@ -123,7 +123,7 @@ class CoinAPIMarketTest(SimpleTestCase):
     def controller(self):
         return CoinAPITrades(SimpleNamespace(api_symbol=SYMBOL), START, END, Mock())
 
-    def test_time_cursor_preserves_tied_trades_and_nanoseconds(self):
+    def test_complete_window_preserves_delayed_trades_ties_and_nanoseconds(self):
         first = trade(1, timestamp=START.isoformat())
         second = trade(2, side="SELL", id_trade="venue-2")
         third = trade(3)
@@ -135,9 +135,8 @@ class CoinAPIMarketTest(SimpleTestCase):
             patch(
                 "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
                 side_effect=[
-                    [first, second],
-                    [second, third],
-                    [second, third, fourth, outside],
+                    [first, fourth],
+                    [first, fourth, second, third, outside],
                 ],
             ) as request,
         ):
@@ -156,17 +155,19 @@ class CoinAPIMarketTest(SimpleTestCase):
         self.assertEqual(frame.id_trade.dropna().tolist(), ["venue-2"])
         self.assertEqual(frame.id_trade.isna().tolist(), [True, False, True, True])
         self.assertEqual(
-            request.call_args_list[1].args[1]["time_start"], second["time_exchange"]
+            request.call_args_list[1].args[1]["time_start"], START.isoformat()
         )
-        self.assertEqual(request.call_args_list[2].args[1]["limit"], 20)
+        self.assertEqual(request.call_args_list[1].args[1]["time_end"], END.isoformat())
+        self.assertEqual(request.call_args_list[1].args[1]["limit"], 20)
+        self.assertEqual(request.call_count, 2)
 
-    def test_unpageable_timestamp_or_disordered_trades_fail(self):
+    def test_unpageable_timestamp_or_outside_window_trades_fail(self):
         pages = (
             [
                 trade(1, timestamp=START.isoformat()),
                 trade(2, timestamp=START.isoformat()),
             ],
-            [trade(1, timestamp="2025-01-01T00:00:10Z"), trade(2)],
+            [trade(1, timestamp="2025-01-01T00:01:00.0000001Z")],
             [trade(1, timestamp="2024-12-31T23:59:59Z")],
         )
         for page in pages:
@@ -183,16 +184,102 @@ class CoinAPIMarketTest(SimpleTestCase):
                 self.controller().fetch_rest_data_frame(START, END)
 
     def test_repeated_page_fails_instead_of_losing_or_duplicating_trades(self):
-        page = [trade(1, timestamp=START.isoformat()), trade(2)]
+        page = [
+            trade(1, timestamp="2025-01-01T00:00:10Z"),
+            trade(2, timestamp="2025-01-01T00:00:40Z"),
+        ]
         with (
             patch("quant_tick.exchanges.coinapi.controllers.PAGE_SIZE", 2),
+            patch("quant_tick.exchanges.coinapi.controllers.MAX_PAGE_SIZE", 2),
             patch(
                 "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
                 return_value=page,
             ),
-            self.assertRaisesRegex(ValueError, "unordered or outside"),
+            self.assertRaisesRegex(ValueError, "outside the requested window"),
         ):
             self.controller().fetch_rest_data_frame(START, END)
+
+    def test_capped_windows_split_without_losing_delayed_or_boundary_trades(self):
+        rows = [
+            trade("first", timestamp=START.isoformat()),
+            trade("last", timestamp="2025-01-01T00:00:59Z"),
+            trade("late", timestamp="2025-01-01T00:00:29.9999999Z"),
+            trade("boundary", timestamp="2025-01-01T00:00:30Z"),
+            trade("middle", timestamp="2025-01-01T00:00:40Z"),
+            trade("outside", timestamp=END.isoformat()),
+        ]
+
+        def history(path, params):
+            start, end = (
+                pd.Timestamp(params["time_start"]),
+                pd.Timestamp(params["time_end"]),
+            )
+            return [
+                row
+                for row in rows
+                if start <= pd.Timestamp(row["time_exchange"]) <= end
+            ][: params["limit"]]
+
+        with (
+            patch("quant_tick.exchanges.coinapi.controllers.PAGE_SIZE", 3),
+            patch("quant_tick.exchanges.coinapi.controllers.MAX_PAGE_SIZE", 3),
+            patch(
+                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+                side_effect=history,
+            ),
+        ):
+            frame = self.controller().fetch_rest_data_frame(START, END)
+        self.assertEqual(
+            frame.uid.tolist(), ["first", "late", "boundary", "middle", "last"]
+        )
+        self.assertEqual(frame.notional.sum(), Decimal("0.5"))
+        self.assertTrue(frame.timestamp.is_monotonic_increasing)
+
+    def test_split_windows_cannot_drop_trades_seen_in_capped_parent(self):
+        first = trade("first", timestamp=START.isoformat())
+        last = trade("last", timestamp="2025-01-01T00:00:59Z")
+        with (
+            patch("quant_tick.exchanges.coinapi.controllers.PAGE_SIZE", 2),
+            patch("quant_tick.exchanges.coinapi.controllers.MAX_PAGE_SIZE", 2),
+            patch(
+                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+                side_effect=[[first, last], [], [last]],
+            ),
+            self.assertRaisesRegex(ValueError, "omitted.*observed"),
+        ):
+            self.controller().fetch_rest_data_frame(START, END)
+
+    def test_replayed_venue_trade_preserves_first_occurrence_and_closing_price(self):
+        first = trade("first", id_trade="venue-1", price="100", size="0.2")
+        second = trade("second", id_trade="venue-2", price="101", size="0.3")
+        replay = {
+            **first,
+            "uuid": "replay",
+            "time_coinapi": "2025-01-01T00:00:30Z",
+        }
+        with patch(
+            "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+            return_value=[first, second, replay],
+        ):
+            frame = self.controller().fetch_rest_data_frame(START, END)
+        self.assertEqual(frame.uid.tolist(), ["first", "second"])
+        self.assertEqual(frame["index"].tolist(), [0, 1])
+        self.assertEqual(frame.notional.sum(), Decimal("0.5"))
+        self.assertEqual(frame.price.iloc[-1], Decimal(101))
+
+    def test_venue_trade_replay_requires_matching_values_and_exchange_identity(self):
+        first = trade("first", id_trade="venue-1")
+        for changes in ({"price": "101"}, {"size": "0.2"}, {"taker_side": "SELL"}):
+            with (
+                self.subTest(changes=changes),
+                self.assertRaisesRegex(ValueError, "exchange trade ID has conflicting"),
+            ):
+                self.controller().parse_data(
+                    [{**first, "uuid": "replay", **changes}, first]
+                )
+        self.assertEqual(len(self.controller().parse_data([trade(1), trade(2)])), 2)
+        later = {**first, "uuid": "later", "time_exchange": "2025-01-01T00:00:10Z"}
+        self.assertEqual(len(self.controller().parse_data([later, first])), 2)
 
     def test_unreported_sides_and_invalid_trade_values_fail(self):
         invalid = [
@@ -216,7 +303,7 @@ class CoinAPIMarketTest(SimpleTestCase):
         with self.assertRaisesRegex(ValueError, "duplicated"):
             self.controller().parse_data([trade(1), trade(1)])
 
-    def test_page_cannot_silently_drop_its_shared_timestamp(self):
+    def test_complete_window_cannot_drop_observed_trades(self):
         first = trade(1, timestamp=START.isoformat())
         boundary = trade(2)
         for next_page in ([], [trade(3, timestamp="2025-01-01T00:00:00.0000002Z")]):
@@ -227,7 +314,7 @@ class CoinAPIMarketTest(SimpleTestCase):
                     "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
                     side_effect=[[first, boundary], next_page],
                 ),
-                self.assertRaisesRegex(ValueError, "omitted.*boundary"),
+                self.assertRaisesRegex(ValueError, "omitted.*observed"),
             ):
                 self.controller().fetch_rest_data_frame(START, END)
 

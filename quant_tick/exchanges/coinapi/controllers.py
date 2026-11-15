@@ -4,10 +4,14 @@ Published files take precedence when their minute quantities match validation
 candles exactly. Receipt-time partitions can omit boundary trades, so replace
 each incomplete minute with REST, never a concatenation of the two transports.
 
-REST history is ascending and paginated by time. Re-fetch the last timestamp of a
-full page, retaining only earlier rows, so tied trades cannot fall between pages.
-If a timestamp fills the API's maximum page, fail before persisting that slice.
-Estimated or unknown sides are rejected; they cannot stand in for reported flow.
+REST can append delayed trades with earlier exchange timestamps. Fetch complete
+time windows before sorting: enlarge capped responses within unchanged bounds,
+then split windows at the maximum limit. Never advance from a capped page's last
+exchange timestamp, which could skip delayed trades. An unpageable timestamp fails.
+
+Files and REST can replay a venue trade with a new CoinAPI UUID. Matching venue IDs
+and timestamps are collapsed only when price, quantity and side agree, preserving
+the first occurrence's order. Estimated or unknown sides cannot represent flow.
 """
 
 from decimal import Decimal
@@ -100,68 +104,58 @@ class CoinAPITrades(ExchangeREST):
         return result
 
     def iter_api(self, timestamp_from, pagination_id):
-        cursor = timestamp_from
-        time_start = cursor.isoformat()
+        windows = [
+            (pd.Timestamp(timestamp_from), pd.Timestamp(pagination_id), PAGE_SIZE)
+        ]
         rows = []
-        limit = PAGE_SIZE
-        boundary_ids = set()
-        while cursor < pagination_id:
+        observed_ids = set()
+        while windows:
+            start, end, limit = windows.pop()
+            if start >= end:
+                continue
             page = get_coinapi_response(
                 f"/v1/trades/{self.api_symbol}/history",
                 {
-                    "time_start": time_start,
-                    "time_end": pagination_id.isoformat(),
+                    "time_start": start.isoformat(),
+                    "time_end": end.isoformat(),
                     "limit": limit,
                     "include_id": "true",
                 },
             )
             timestamps = [parse_datetime(row["time_exchange"]) for row in page]
-            previous = cursor
-            for timestamp in timestamps:
-                if timestamp < previous or timestamp > pagination_id:
-                    raise ValueError("CoinAPI trades are unordered or outside the page")
-                previous = timestamp
-            cursor_ids = {
+            if any(timestamp < start or timestamp > end for timestamp in timestamps):
+                raise ValueError("CoinAPI trades are outside the requested window")
+            observed_ids.update(
                 row["uuid"]
                 for row, timestamp in zip(page, timestamps, strict=True)
-                if timestamp == cursor
-            }
-            if not boundary_ids <= cursor_ids:
-                raise ValueError(
-                    "CoinAPI page omitted previously observed boundary trades"
-                )
-            if len(page) < limit:
-                rows.extend(
-                    row
-                    for row, timestamp in zip(page, timestamps, strict=True)
-                    if timestamp < pagination_id
-                )
-                break
-            boundary = timestamps[-1]
-            boundary_ids = {
-                row["uuid"]
-                for row, timestamp in zip(page, timestamps, strict=True)
-                if timestamp == boundary
-            }
-            if boundary == cursor:
-                if limit == MAX_PAGE_SIZE:
+                if timestamp < pagination_id
+            )
+            if len(page) >= limit:
+                if limit < MAX_PAGE_SIZE:
+                    windows.append((start, end, min(limit * 10, MAX_PAGE_SIZE)))
+                    continue
+                midpoint = (start + (end - start) // 2).floor("100ns")
+                if len(set(timestamps)) == 1 or not start < midpoint < end:
                     raise ValueError("CoinAPI trade timestamp exceeds the page limit")
-                limit = min(limit * 10, MAX_PAGE_SIZE)
+                windows.extend(
+                    ((midpoint, end, PAGE_SIZE), (start, midpoint, PAGE_SIZE))
+                )
                 continue
             rows.extend(
-                row
+                (timestamp, row)
                 for row, timestamp in zip(page, timestamps, strict=True)
-                if timestamp < boundary
+                if timestamp < end
             )
-            cursor = boundary
-            time_start = page[-1]["time_exchange"]
-            limit = PAGE_SIZE
-        return rows[::-1], True, None
+        if not observed_ids <= {row["uuid"] for _, row in rows}:
+            raise ValueError("CoinAPI history omitted previously observed trades")
+        rows.sort(key=lambda item: item[0])
+        return [row for _, row in reversed(rows)], True, None
 
     def parse_data(self, data):
         rows = []
         seen = set()
-        for index, row in enumerate(data):
+        venue_trades = {}
+        for row in reversed(data):
             if row.get("symbol_id", self.api_symbol) != self.api_symbol:
                 raise ValueError("CoinAPI trade has an unexpected symbol")
             side = row["taker_side"]
@@ -184,6 +178,17 @@ class CoinAPITrades(ExchangeREST):
                 raise ValueError(
                     "CoinAPI trade price and size must be positive and finite"
                 )
+            trade_id = str(row["id_trade"]) if row.get("id_trade") is not None else None
+            if trade_id:
+                identity = trade_id, timestamp
+                values = price, quantity, side
+                if identity in venue_trades:
+                    if venue_trades[identity] != values:
+                        raise ValueError(
+                            "CoinAPI exchange trade ID has conflicting values"
+                        )
+                    continue
+                venue_trades[identity] = values
             rows.append(
                 {
                     "uid": uid,
@@ -193,14 +198,12 @@ class CoinAPITrades(ExchangeREST):
                     "notional": quantity,
                     "volume": price * quantity,
                     "tickRule": 1 if side == "BUY" else -1,
-                    "index": len(data) - index - 1,
+                    "index": len(rows),
                     "coinapi_uuid": uid,
-                    "id_trade": str(row["id_trade"])
-                    if row.get("id_trade") is not None
-                    else None,
+                    "id_trade": trade_id,
                     "time_coinapi": row["time_coinapi"],
                     "data_source": "coinapi",
                     "coinapi_transport": row.get("coinapi_transport", "rest"),
                 }
             )
-        return rows
+        return rows[::-1]

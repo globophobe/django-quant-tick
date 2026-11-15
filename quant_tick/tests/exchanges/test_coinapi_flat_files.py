@@ -112,7 +112,7 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
         self.assertEqual(frame.id_trade.tolist(), ["106950518024024"] * 2)
         self.assertEqual(frame.coinapi_transport.tolist(), ["flat_files"] * 2)
 
-    def test_boundary_or_missing_candle_minute_is_replaced_whole_by_rest(self):
+    def test_replayed_and_incomplete_minutes_choose_file_or_rest_exclusively(self):
         candles = pd.DataFrame(
             {"notional": [Decimal(1), Decimal(2)]},
             index=[START, START + timedelta(minutes=1)],
@@ -141,7 +141,17 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
                 MODULE + "httpx2.get",
                 side_effect=[
                     response(listing()),
-                    response(archive([trade("file-0"), trade("incomplete", minute=1)])),
+                    response(
+                        archive(
+                            [
+                                trade("file-0"),
+                                trade(
+                                    "file-0-replay", time_coinapi="2026-11-13T12:00:30Z"
+                                ),
+                                trade("incomplete", minute=1),
+                            ]
+                        )
+                    ),
                 ],
             ),
             patch(
