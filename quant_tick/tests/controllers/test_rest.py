@@ -45,6 +45,19 @@ class RateLimitTest(SimpleTestCase):
             self.assertEqual(float(os.environ[reset_key]), 1120)
             sleep.assert_not_called()
 
+            for _ in range(10):
+                increment_api_total_requests(total_key)
+            clock.shift(59)
+            sleep.side_effect = clock.shift
+            throttle_api_requests(reset_key, total_key, 60, 10)
+            sleep.assert_called_once_with(1)
+            self.assertEqual(os.environ[total_key], "0")
+            self.assertEqual(float(os.environ[reset_key]), 1180)
+            increment_api_total_requests(total_key)
+            throttle_api_requests(reset_key, total_key, 60, 10)
+            self.assertEqual(os.environ[total_key], "1")
+            sleep.assert_called_once_with(1)
+
 
 class FixedIntervalTerminalPageTest(SimpleTestCase):
     def test_short_page_spanning_complete_time_window_is_not_terminal(self):

@@ -2,6 +2,7 @@ import json
 import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from itertools import pairwise
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -60,6 +61,41 @@ def response(status, payload):
 
 
 class CoinAPIRequestTest(SimpleTestCase):
+    def test_all_rest_endpoints_stay_within_ten_requests_per_minute(self):
+        now = 1000.0
+        started = []
+        latencies = iter((0.1, 3.0, 7.0) * 7)
+
+        def advance(seconds):
+            nonlocal now
+            now += seconds
+
+        def respond(*args, **kwargs):
+            started.append(now)
+            advance(next(latencies))
+            return response(200, [])
+
+        with (
+            patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}, clear=True),
+            patch("quant_tick.exchanges.public.time.time", side_effect=lambda: now),
+            patch("quant_tick.exchanges.public.time.sleep", side_effect=advance),
+            patch("quant_tick.exchanges.public.httpx2.get", side_effect=respond),
+        ):
+            for path in (
+                "/v1/trades/test/history",
+                "/v1/ohlcv/test/history",
+                "/v1/symbols",
+            ) * 7:
+                self.assertEqual(get_coinapi_response(path, {}), [])
+
+        self.assertEqual(len(started), 21)
+        for earlier, later in pairwise(started):
+            self.assertGreaterEqual(later - earlier, 6)
+        for start in started:
+            self.assertLessEqual(
+                sum(start <= value < start + 60 for value in started), 10
+            )
+
     def test_key_required_before_any_request(self):
         with (
             patch.dict(os.environ, {"COINAPI_API_KEY": "  "}),

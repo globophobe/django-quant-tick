@@ -1,4 +1,8 @@
-"""Authenticated public market data; CoinAPI IDs keep vendor and venue feeds separate."""
+"""Authenticated public market data, paced for the 10-request/minute REST tier.
+
+All REST endpoints share one allowance per process. Separate workers still
+consume the same organization quota at the provider.
+"""
 
 import os
 import re
@@ -35,6 +39,8 @@ def get_coinapi_response(path, params):
         path,
         params,
         namespace="COINAPI",
+        max_requests=1,
+        reset_seconds=6,
         headers={"X-CoinAPI-Key": get_coinapi_key()},
         retry=3,
     )

@@ -152,6 +152,13 @@ def throttle_api_requests(
             if sleep_time > 0:
                 logger.info(f"Max requests, sleeping {sleep_time} seconds")
                 time.sleep(sleep_time)
+            # Count the admitted request in the new window, not the expired one.
+            set_api_environ_vars(
+                max_requests_reset_key,
+                total_requests_key,
+                max_requests_reset,
+                reset=True,
+            )
 
 
 class ExchangeREST(BaseController):

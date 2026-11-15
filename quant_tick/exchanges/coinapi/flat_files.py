@@ -27,7 +27,7 @@ from quant_tick.controllers import (
 from quant_tick.lib import get_current_time
 from quant_tick.lib.download import ArchiveDownloadError
 
-from ..public import limit_response_details
+from ..public import retry_after_seconds
 from .api import get_coinapi_key, get_coinapi_symbol_type
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ CSV_COLUMNS = (
 def get_flat_file_content(key="", *, params=None):
     headers = {"Authorization": get_coinapi_key(), "Accept": "application/xml"}
     url = BASE_URL + quote(key, safe="/")
+    limit_reported = False
     for attempt in range(4):
         throttle_api_requests("COINAPI_FILES_RESET", "COINAPI_FILES_TOTAL", 1, 2)
         increment_api_total_requests("COINAPI_FILES_TOTAL")
@@ -63,20 +64,20 @@ def get_flat_file_content(key="", *, params=None):
                 if isinstance(exc, httpx2.HTTPStatusError)
                 else None
             )
-            if status in (402, 429):
-                details = limit_response_details(exc.response, headers)
-                exc.add_note(details)
+            if status in (402, 429) and not limit_reported:
                 logger.error(
-                    "CoinAPI Flat Files credit or rate limit reached (HTTP %s); %s",
-                    status,
-                    details,
+                    "CoinAPI Flat Files credit or rate limit reached (HTTP %s)", status
                 )
-            if attempt == 3 or (status is not None and status < 500):
+                limit_reported = True
+            if attempt == 3 or (status is not None and status != 429 and status < 500):
                 raise ArchiveDownloadError(
                     f"CoinAPI Flat Files request failed (HTTP {status})",
                     status_code=status,
                 ) from exc
-            time.sleep(2)
+            delay = retry_after_seconds(exc.response) if status == 429 else 2
+            if status == 429:
+                logger.info("CoinAPI Flat Files HTTP 429, sleeping %g seconds", delay)
+            time.sleep(delay)
             continue
         if not response.content:
             raise ArchiveDownloadError("CoinAPI Flat Files returned empty content")
