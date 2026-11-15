@@ -68,6 +68,7 @@ dev = [
     "psycopg2-binary>=2.9.10",
     "python-dotenv>=1.1.1",
     "ruff>=0.15.2",
+    "sentry-sdk>=2.39.0",
     "time-machine>=2.19.0",
 ]
 

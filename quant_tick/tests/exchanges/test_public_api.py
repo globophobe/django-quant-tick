@@ -1,11 +1,21 @@
+import json
+import logging
 import os
+from contextlib import nullcontext
 from decimal import Decimal
+from functools import partial
 from unittest.mock import patch
 
 import httpx2
+import sentry_sdk
 from django.test import SimpleTestCase
+from sentry_sdk.integrations.logging import LoggingIntegration
 
+from quant_tick.exchanges.coinapi.api import get_coinapi_response
+from quant_tick.exchanges.coinapi.flat_files import get_flat_file_content
+from quant_tick.exchanges.femtos.api import get_femtos_response
 from quant_tick.exchanges.public import get_public_json
+from quant_tick.lib.download import ArchiveDownloadError
 
 
 class PublicMarketRequestTest(SimpleTestCase):
@@ -39,9 +49,8 @@ class PublicMarketRequestTest(SimpleTestCase):
         failures = [
             self.response(429, "{}", {"Retry-After": "0"}),
             self.response(429, "{}", {"Retry-After": "5"}),
-            self.response(200, '{"code":"50011","msg":"Rate limit reached"}'),
         ]
-        for failure, delay in zip(failures, (2, 5, 2), strict=True):
+        for failure, delay in zip(failures, (2, 5), strict=True):
             with (
                 self.subTest(delay=delay),
                 patch.dict(os.environ, {}, clear=True),
@@ -79,3 +88,76 @@ class PublicMarketRequestTest(SimpleTestCase):
             with self.assertRaises(httpx2.HTTPStatusError):
                 get_public_json("https://venue.test", "/trades", {}, namespace="TEST")
             request.assert_called_once()
+
+    def test_provider_limits_reach_sentry_once_even_when_retry_recovers(self):
+        cases = (
+            (
+                "COINAPI",
+                partial(get_coinapi_response, "/v1/trades/test/history", {}),
+                "quant_tick.exchanges.public",
+                "[]",
+                [],
+                httpx2.HTTPStatusError,
+            ),
+            (
+                "FEMTOS",
+                partial(get_femtos_response, "/candles", {}),
+                "quant_tick.exchanges.public",
+                "{}",
+                {},
+                httpx2.HTTPStatusError,
+            ),
+            (
+                "CoinAPI Flat Files",
+                partial(get_flat_file_content, "archive.csv.gz"),
+                "quant_tick.exchanges.coinapi.flat_files",
+                "archive",
+                b"archive",
+                ArchiveDownloadError,
+            ),
+        )
+        for provider, collect, module, payload, expected, error in cases:
+            for statuses in ((429, 200), (429, 429, 429, 429), (402,)):
+                events = []
+                responses = [
+                    self.response(
+                        status,
+                        payload if status == 200 else '{"error":"sample-test-key"}',
+                        {"Retry-After": "2"},
+                    )
+                    for status in statuses
+                ]
+                outcome = (
+                    nullcontext() if statuses[-1] == 200 else self.assertRaises(error)
+                )
+                with (
+                    self.subTest(provider=provider, statuses=statuses),
+                    patch.dict(
+                        os.environ,
+                        {
+                            "COINAPI_API_KEY": "sample-test-key",
+                            "FEMTOS_API_KEY": "sample-test-key",
+                        },
+                        clear=True,
+                    ),
+                    patch(f"{module}.httpx2.get", side_effect=responses) as request,
+                    patch(f"{module}.time.sleep"),
+                    self.assertLogs(module, level=logging.ERROR),
+                    sentry_sdk.init(
+                        dsn="https://public@example.invalid/1",
+                        transport=events.append,
+                        default_integrations=False,
+                        integrations=[LoggingIntegration(level=None)],
+                        include_local_variables=False,
+                        send_default_pii=False,
+                    ),
+                    outcome,
+                ):
+                    self.assertEqual(collect(), expected)
+                self.assertEqual(request.call_count, len(statuses))
+                self.assertEqual(len(events), 1)
+                event = events[0]
+                self.assertEqual(event["level"], "error")
+                self.assertIn(provider, event["logentry"]["formatted"])
+                self.assertIn(str(statuses[0]), event["logentry"]["formatted"])
+                self.assertNotIn("sample-test-key", json.dumps(event))

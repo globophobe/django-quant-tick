@@ -599,6 +599,7 @@ dev = [
     { name = "psycopg2-binary" },
     { name = "python-dotenv" },
     { name = "ruff" },
+    { name = "sentry-sdk" },
     { name = "time-machine" },
 ]
 
@@ -631,6 +632,7 @@ dev = [
     { name = "psycopg2-binary", specifier = ">=2.9.10" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "ruff", specifier = ">=0.15.2" },
+    { name = "sentry-sdk", specifier = ">=2.39.0" },
     { name = "time-machine", specifier = ">=2.19.0" },
 ]
 
