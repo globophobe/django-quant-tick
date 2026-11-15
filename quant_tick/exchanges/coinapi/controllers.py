@@ -1,4 +1,4 @@
-"""Spot and Hyperliquid perpetual trades with exchange-reported taker direction.
+"""CoinAPI trades with exchange-reported taker direction.
 
 Published files take precedence when their minute quantities match validation
 candles exactly. Receipt-time partitions can omit boundary trades, so replace
