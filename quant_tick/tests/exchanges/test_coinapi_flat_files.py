@@ -114,7 +114,7 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
 
     def test_replayed_and_incomplete_minutes_choose_file_or_rest_exclusively(self):
         candles = pd.DataFrame(
-            {"notional": [Decimal(1), Decimal(2)]},
+            {"notional": [Decimal("1.0000000000000002"), Decimal(2)]},
             index=[START, START + timedelta(minutes=1)],
         )
         controller = CoinAPITrades(
@@ -172,6 +172,36 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
             frame.coinapi_transport.tolist(), ["flat_files", "rest", "rest"]
         )
         self.assertEqual(frame.notional.sum(), Decimal(5))
+
+    def test_rounding_tolerance_preserves_zero_and_missing_trade_checks(self):
+        for quantity, expected, needs_rest in (
+            ("1", "0.9999999999999999", False),
+            ("1", "1.00000002", True),
+            (None, "0", False),
+            (None, "0.000000001", True),
+            ("0.000000001", "0", True),
+        ):
+            controller = CoinAPITrades(
+                SimpleNamespace(api_symbol=SYMBOL), START, START, Mock()
+            )
+            candles = pd.DataFrame({"notional": [Decimal(expected)]}, index=[START])
+            rows = [] if quantity is None else [trade(base_amount=quantity)]
+            with (
+                self.subTest(quantity=quantity, expected=expected),
+                patch(
+                    MODULE + "httpx2.get",
+                    side_effect=[response(listing()), response(archive(rows))],
+                ),
+                patch.object(
+                    controller,
+                    "fetch_rest_data_frame",
+                    return_value=controller.get_data_frame([]),
+                ) as rest,
+            ):
+                controller.fetch_trade_data_frame(
+                    START, START + timedelta(minutes=1), candles
+                )
+            self.assertEqual(rest.called, needs_rest)
 
     def test_missing_object_falls_back_and_access_or_corruption_errors_propagate(self):
         candles = pd.DataFrame({"notional": [Decimal(1)]}, index=[START])

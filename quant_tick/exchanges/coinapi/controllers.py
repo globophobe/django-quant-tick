@@ -1,8 +1,9 @@
 """CoinAPI trades with exchange-reported taker direction.
 
-Published files take precedence when their minute quantities match validation
-candles exactly. Receipt-time partitions can omit boundary trades, so replace
-each incomplete minute with REST, never a concatenation of the two transports.
+Published files take precedence when their minute quantities pass the same
+rounding tolerance as persisted trade validation. Receipt-time partitions can omit
+boundary trades, so replace each incomplete minute with REST, never a concatenation
+of the two transports.
 
 REST can append delayed trades with earlier exchange timestamps. Fetch complete
 time windows before sorting: enlarge capped responses within unchanged bounds,
@@ -20,7 +21,7 @@ from functools import cached_property
 import pandas as pd
 
 from quant_tick.controllers import ExchangeREST
-from quant_tick.lib import iter_missing, iter_window, parse_datetime
+from quant_tick.lib import is_decimal_close, iter_missing, iter_window, parse_datetime
 
 from .api import get_coinapi_response, get_coinapi_symbol_type
 from .candles import coinapi_candles
@@ -82,9 +83,12 @@ class CoinAPITrades(ExchangeREST):
         )
         covered = []
         for start, end in iter_window(timestamp_from, timestamp_to, value="1min"):
-            if (
-                start in candles.index
-                and quantities.get(start, Decimal(0)) == candles.loc[start, "notional"]
+            if start not in candles.index:
+                continue
+            quantity = quantities.get(start, Decimal(0))
+            expected = candles.loc[start, "notional"]
+            if bool(quantity) == bool(expected) and is_decimal_close(
+                quantity, expected
             ):
                 covered.append(start)
         frames = []
