@@ -4,7 +4,7 @@ import os
 from contextlib import nullcontext
 from decimal import Decimal
 from functools import partial
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import httpx2
 import sentry_sdk
@@ -46,11 +46,10 @@ class PublicMarketRequestTest(SimpleTestCase):
             sleep.assert_called_once_with(1)
 
     def test_rate_limit_cooldown_and_attempt_budget(self):
-        failures = [
-            self.response(429, "{}", {"Retry-After": "0"}),
-            self.response(429, "{}", {"Retry-After": "5"}),
-        ]
-        for failure, delay in zip(failures, (2, 5), strict=True):
+        for header, delay in (("0", 5), ("15", 15), ("invalid", 5), (None, 5)):
+            failure = self.response(
+                429, "{}", {"Retry-After": header} if header else {}
+            )
             with (
                 self.subTest(delay=delay),
                 patch.dict(os.environ, {}, clear=True),
@@ -70,12 +69,51 @@ class PublicMarketRequestTest(SimpleTestCase):
                 self.assertEqual(request.call_count, 2)
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("quant_tick.exchanges.public.httpx2.get", return_value=failures[0]),
+            patch("quant_tick.exchanges.public.httpx2.get", return_value=failure),
+            patch("quant_tick.exchanges.public.time.sleep") as sleep,
             self.assertRaises(httpx2.HTTPStatusError),
         ):
             get_public_json(
                 "https://venue.test", "/trades", {}, namespace="TEST", retry=0
             )
+        sleep.assert_not_called()
+
+        for retries, recovers, delays in (
+            (3, True, [5, 10, 20]),
+            (3, False, [5, 10, 20]),
+            (5, True, [5, 10, 20, 30, 30]),
+        ):
+            responses = [self.response(429, "{}") for _ in range(retries)]
+            responses.append(self.response(200 if recovers else 429, "[]"))
+            with (
+                self.subTest(retries=retries, recovers=recovers),
+                patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}, clear=True),
+                patch("quant_tick.exchanges.public.throttle_api_requests"),
+                patch("quant_tick.exchanges.public.increment_api_total_requests"),
+                patch("quant_tick.exchanges.public.time.sleep") as sleep,
+                patch(
+                    "quant_tick.exchanges.public.httpx2.get", side_effect=responses
+                ) as request,
+                nullcontext()
+                if recovers
+                else self.assertRaises(httpx2.HTTPStatusError),
+            ):
+                self.assertEqual(
+                    get_coinapi_response("/v1/trades/test/history", {})
+                    if retries == 3
+                    else get_public_json(
+                        "https://venue.test",
+                        "/trades",
+                        {},
+                        namespace="TEST",
+                        retry=retries,
+                    ),
+                    [],
+                )
+            self.assertEqual(request.call_count, retries + 1)
+            self.assertEqual(sleep.call_args_list, [call(delay) for delay in delays])
+            for args in request.call_args_list[1:]:
+                self.assertEqual(args, request.call_args_list[0])
 
     def test_invalid_requests_are_not_retried(self):
         with (

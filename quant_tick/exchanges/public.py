@@ -1,4 +1,7 @@
-"""Public market requests with one process-wide allowance per venue."""
+"""Public market requests with one process-wide allowance per venue.
+
+Throttled retries back off up to 30 seconds, honoring longer Retry-After values.
+"""
 
 import json
 import logging
@@ -58,9 +61,15 @@ def get_public_json(
                 raise
             delay = 1
             if status in (418, 429):
+                delay = min(30, 5 * 2**attempt)
                 try:
-                    delay = max(2, float(exc.response.headers.get("Retry-After", "2")))
+                    delay = max(
+                        delay, float(exc.response.headers.get("Retry-After", "0"))
+                    )
                 except ValueError:
-                    delay = 2
+                    pass
+                logger.warning(
+                    "%s API throttled; retrying in %g seconds", namespace, delay
+                )
             time.sleep(delay)
     raise AssertionError("unreachable")
