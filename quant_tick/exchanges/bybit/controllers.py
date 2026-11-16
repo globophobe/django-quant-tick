@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from datetime import date, datetime
 from functools import cached_property
+from heapq import merge
+from operator import itemgetter
 
 from quant_tick.constants import RETRY_INDETERMINATE, Frequency, TradeDataRetry
 from quant_tick.controllers import (
@@ -111,7 +113,8 @@ class BybitTrades(CoinAPIRepairTrades, BybitTradesWebSocket):
     Bybit candles validate both sources; complete archives and WebSocket minutes
     need no paid requests. Only spot and USDT perpetual mappings are supported.
     Newly written archive windows are checked again for failed/unknown coverage;
-    older failed partitions retain the caller's explicit retry policy.
+    older failed partitions retain the caller's explicit retry policy. All gaps
+    are visited once, newest first, so the provider history cutoff is safe.
     """
 
     @cached_property
@@ -125,11 +128,25 @@ class BybitTrades(CoinAPIRepairTrades, BybitTradesWebSocket):
         self.archive_windows.append((timestamp_from, timestamp_to))
 
     def iter_missing_windows(self):
-        for timestamp_from, timestamp_to in self.archive_windows:
-            yield from self.iter_missing_range(
-                timestamp_from, timestamp_to, RETRY_INDETERMINATE
+        archive_gaps = (
+            gap
+            for start, end in sorted(
+                self.archive_windows, key=itemgetter(1), reverse=True
             )
-        yield from super().iter_missing_windows()
+            for gap in self.iter_missing_range(start, end, RETRY_INDETERMINATE)
+        )
+        upper_bound = self.timestamp_to
+        # Order by end because an ordinary gap can contain archive windows.
+        for start, end in merge(
+            archive_gaps,
+            super().iter_missing_windows(),
+            key=itemgetter(1),
+            reverse=True,
+        ):
+            end = min(end, upper_bound)
+            if start < end:
+                upper_bound = start
+                yield start, end
 
     @cached_property
     def api_symbol(self):

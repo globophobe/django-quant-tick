@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import httpx2
 import pandas as pd
+import time_machine
 from django.test import TestCase, override_settings
 
 from quant_tick.constants import (
@@ -542,3 +543,138 @@ class BybitRepairTest(BaseWriteTradeDataTest, TestCase):
                     WebSocketData.objects.filter(
                         exchange=exchange, api_symbol="BTCUSDT"
                     ).delete()
+
+    def archive_rows(self, exchange, minutes):
+        rows = []
+        for minute in minutes:
+            timestamp = self.start + timedelta(minutes=minute)
+            if exchange == Exchange.BYBIT:
+                rows.append(
+                    {
+                        "id": str(minute),
+                        "timestamp": str(int(timestamp.timestamp() * 1000)),
+                        "price": "100",
+                        "volume": "0.5",
+                        "side": "buy",
+                    }
+                )
+            else:
+                rows.append(
+                    {
+                        "trdMatchID": str(minute),
+                        "timestamp": str(int(timestamp.timestamp())),
+                        "symbol": "BTCUSDT",
+                        "price": "100",
+                        "size": "0.5",
+                        "side": "Buy",
+                    }
+                )
+        return iter([pd.DataFrame(rows)])
+
+    def test_repair_newest_archive_window_before_vendor_history_boundary(self):
+        end = self.start + timedelta(minutes=62)
+        self.native_candles.return_value = pd.DataFrame(
+            {"notional": [Decimal(1)] * 62},
+            index=pd.date_range(self.start, periods=62, freq="min"),
+        )
+        self.metadata.return_value = pd.Timestamp(self.start + timedelta(hours=1))
+        for exchange, archive in (
+            (Exchange.BYBIT_LINEAR, self.native_files[0]),
+            (Exchange.BYBIT, self.native_files[1]),
+        ):
+            for retry in (False, True):
+                with self.subTest(exchange=exchange, retry=retry):
+                    symbol = self.make_symbol(exchange)
+                    archive.return_value = self.archive_rows(exchange, [0, 60, 61])
+                    self.rest.return_value = [
+                        self.vendor(60, exchange),
+                        self.vendor(61, exchange),
+                    ]
+                    api(symbol, self.start, end, retry=retry)
+                    self.files.assert_called_once_with(
+                        self.start + timedelta(hours=1), end
+                    )
+                    self.rest.assert_called_once()
+                    params = self.rest.call_args.args[1]
+                    self.assertEqual(
+                        pd.Timestamp(params["time_start"]),
+                        self.start + timedelta(hours=1),
+                    )
+                    self.assertEqual(pd.Timestamp(params["time_end"]), end)
+                    rows = list(
+                        TradeData.objects.filter(symbol=symbol).order_by("timestamp")
+                    )
+                    self.assertEqual([row.ok for row in rows], [False, True, True])
+                    self.assertEqual(
+                        [row.uid for row in rows], ["0", "vendor-60", "vendor-61"]
+                    )
+                    self.assertEqual(
+                        rows[0].get_data_frame(FileData.RAW).notional.sum(),
+                        Decimal("0.5"),
+                    )
+                    self.rest.reset_mock()
+                    self.files.reset_mock()
+                    archive.return_value = None
+
+    @time_machine.travel(datetime(2026, 8, 1, 1, tzinfo=UTC), tick=False)
+    def test_newer_missing_day_precedes_older_archive_repair(self):
+        self.start = datetime(2026, 7, 31, 23, 59, tzinfo=UTC)
+        end = self.start + timedelta(minutes=3)
+        self.native_candles.return_value = pd.DataFrame(
+            {"notional": [Decimal(1)] * 3},
+            index=pd.date_range(self.start, periods=3, freq="min"),
+        )
+        self.metadata.return_value = pd.Timestamp(self.start + timedelta(minutes=1))
+        for exchange, archive in (
+            (Exchange.BYBIT_LINEAR, self.native_files[0]),
+            (Exchange.BYBIT, self.native_files[1]),
+        ):
+            with self.subTest(exchange=exchange):
+                symbol = self.make_symbol(exchange)
+                archive.side_effect = lambda date, exchange=exchange: (
+                    self.archive_rows(exchange, [0])
+                    if date == self.start.date()
+                    else None
+                )
+                self.rest.return_value = [
+                    self.vendor(1, exchange),
+                    self.vendor(2, exchange),
+                ]
+                api(symbol, self.start, end)
+                self.files.assert_called_once_with(
+                    self.start + timedelta(minutes=1), end
+                )
+                self.rest.assert_called_once()
+                rows = list(
+                    TradeData.objects.filter(symbol=symbol).order_by("timestamp")
+                )
+                self.assertEqual([row.ok for row in rows], [False, True, True])
+                self.assertEqual(
+                    [row.uid for row in rows], ["0", "vendor-1", "vendor-2"]
+                )
+                self.rest.reset_mock()
+                self.files.reset_mock()
+                archive.side_effect = None
+
+    def test_overlapping_retry_windows_do_not_repeat_empty_vendor_request(self):
+        for exchange, archive in (
+            (Exchange.BYBIT_LINEAR, self.native_files[0]),
+            (Exchange.BYBIT, self.native_files[1]),
+        ):
+            with self.subTest(exchange=exchange):
+                symbol = self.make_symbol(exchange)
+                archive.return_value = self.archive_rows(exchange, [0, 1, 2])
+                api(symbol, self.start, self.end, retry=True)
+                self.files.assert_called_once_with(self.start, self.end)
+                self.rest.assert_called_once()
+                self.assertEqual(
+                    list(
+                        TradeData.objects.filter(symbol=symbol).values_list(
+                            "ok", flat=True
+                        )
+                    ),
+                    [False] * 3,
+                )
+                self.rest.reset_mock()
+                self.files.reset_mock()
+                archive.return_value = None
