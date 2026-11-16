@@ -1,6 +1,6 @@
 """Authenticated public market data.
 
-COINAPI_RATE_LIMIT sets REST requests per minute (default 10). All REST
+COINAPI_RATE_LIMIT sets REST requests per minute (10 when unset or blank). All REST
 endpoints share one allowance per process. Separate workers still consume
 the same organization quota at the provider.
 """
@@ -39,7 +39,7 @@ def get_coinapi_key():
 
 def get_coinapi_response(path, params):
     try:
-        rate_limit = int(os.environ.get("COINAPI_RATE_LIMIT", "10"))
+        rate_limit = int(os.environ.get("COINAPI_RATE_LIMIT") or 10)
         if rate_limit <= 0:
             raise ValueError
     except ValueError as exc:

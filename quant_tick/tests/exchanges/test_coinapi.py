@@ -104,6 +104,7 @@ class CoinAPIRequestTest(SimpleTestCase):
 
         for configured, rate_limit in (
             (None, 10),
+            ("", 10),
             ("40", 40),
             ("160", 160),
             ("17", 17),
@@ -112,7 +113,7 @@ class CoinAPIRequestTest(SimpleTestCase):
                 check_rate_limit(configured, rate_limit)
 
     def test_invalid_rate_limit_fails_before_any_request(self):
-        for value in ("", "0", "-10", "1.5", "nan", "inf", "invalid"):
+        for value in ("0", "-10", "1.5", "nan", "inf", "invalid"):
             with (
                 self.subTest(value=value),
                 patch.dict(
