@@ -7,7 +7,13 @@ import httpx2
 import pandas as pd
 from django.test import TestCase, override_settings
 
-from quant_tick.constants import Exchange, FileData, Frequency, SymbolType
+from quant_tick.constants import (
+    RETRY_INDETERMINATE,
+    Exchange,
+    FileData,
+    Frequency,
+    SymbolType,
+)
 from quant_tick.exchanges.api import api
 from quant_tick.exchanges.coinapi.api import (
     _coinapi_history_start,
@@ -410,3 +416,129 @@ class BybitRepairTest(BaseWriteTradeDataTest, TestCase):
                 "/v1/symbols/BYBIT/active", {"filter_symbol_id": "BYBIT_PERP_BTC_USDT"}
             )
             self.assertIsNone(coinapi_history_start("BYBIT_SPOT_BTC_USDT"))
+
+    def test_partial_retry_keeps_daily_row_and_files_when_fetch_fails_or_is_empty(self):
+        self.mock(
+            "quant_tick.exchanges.hyperliquid.controllers.native_hyperliquid_candles",
+            return_value=self.candles,
+        )
+        for exchange in (Exchange.BYBIT_LINEAR, Exchange.HYPERLIQUID):
+            for ok, retry in ((False, True), (None, RETRY_INDETERMINATE)):
+                for fails in (True, False):
+                    with self.subTest(exchange=exchange, ok=ok, fails=fails):
+                        symbol = self.get_symbol(
+                            exchange=exchange,
+                            api_symbol="BTC"
+                            if exchange == Exchange.HYPERLIQUID
+                            else "BTCUSDT",
+                            symbol_type=SymbolType.PERPETUAL,
+                        )
+                        day = self.start.replace(hour=0)
+                        original = TradeData.write(
+                            symbol,
+                            day,
+                            day + timedelta(days=1),
+                            pd.DataFrame([]),
+                            raw_trades=self.get_raw(
+                                day, price=Decimal(100), notional=Decimal(1)
+                            ),
+                        )[0]
+                        original.ok = ok
+                        original.save(update_fields=["ok"])
+                        filename = original.raw_data.name
+                        storage = original.raw_data.storage
+                        with storage.open(filename) as stream:
+                            content = stream.read()
+                        self.rest.side_effect = (
+                            RuntimeError("fetch unavailable") if fails else None
+                        )
+                        self.rest.return_value = []
+                        if fails:
+                            with self.assertRaisesRegex(
+                                RuntimeError, "fetch unavailable"
+                            ):
+                                api(
+                                    symbol,
+                                    self.start,
+                                    self.start + timedelta(minutes=1),
+                                    retry=retry,
+                                )
+                        else:
+                            api(
+                                symbol,
+                                self.start,
+                                self.start + timedelta(minutes=1),
+                                retry=retry,
+                            )
+                        self.assertTrue(
+                            TradeData.objects.filter(pk=original.pk).exists()
+                        )
+                        self.assertTrue(storage.exists(filename))
+                        with storage.open(filename) as stream:
+                            self.assertEqual(stream.read(), content)
+
+    def test_new_failed_archive_minute_allows_native_then_vendor_recovery(self):
+        self.mock(
+            "quant_tick.exchanges.bybit.controllers.get_archive_followup_start",
+            return_value=self.start,
+        )
+        for exchange, archive in (
+            (Exchange.BYBIT_LINEAR, self.native_files[0]),
+            (Exchange.BYBIT, self.native_files[1]),
+        ):
+            for native_quantity, source in (("1", "bybit"), ("0.5", "coinapi")):
+                with self.subTest(exchange=exchange, source=source):
+                    symbol = self.make_symbol(exchange)
+                    # An older failed minute should not be paid for without --retry.
+                    old = TradeData.objects.create(
+                        symbol=symbol, timestamp=self.start, frequency=1, ok=False
+                    )
+                    self.websocket(symbol, 1, native_quantity)
+                    timestamp = self.start + timedelta(minutes=1)
+                    if exchange == Exchange.BYBIT:
+                        trades = [
+                            {
+                                "id": "archive",
+                                "timestamp": str(int(timestamp.timestamp() * 1000)),
+                                "price": "100",
+                                "volume": "0.5",
+                                "side": "buy",
+                            }
+                        ]
+                    else:
+                        trades = [
+                            {
+                                "trdMatchID": "archive",
+                                "timestamp": str(int(timestamp.timestamp())),
+                                "symbol": "BTCUSDT",
+                                "price": "100",
+                                "size": "0.5",
+                                "side": "Buy",
+                            }
+                        ]
+                    archive.return_value = iter([pd.DataFrame(trades)])
+                    self.rest.return_value = [self.vendor(1, exchange)]
+                    api(symbol, self.start, self.start + timedelta(minutes=2))
+                    self.assertTrue(TradeData.objects.filter(pk=old.pk).exists())
+                    row = TradeData.objects.get(symbol=symbol, timestamp=timestamp)
+                    self.assertIs(row.ok, True)
+                    self.assertEqual(row.json_data["data_sources"], [source])
+                    self.assertEqual(
+                        row.get_data_frame(FileData.RAW).notional.sum(), Decimal(1)
+                    )
+                    if source == "bybit":
+                        self.metadata.assert_not_called()
+                        self.files.assert_not_called()
+                        self.rest.assert_not_called()
+                    else:
+                        self.files.assert_called_once_with(
+                            timestamp, timestamp + timedelta(minutes=1)
+                        )
+                        self.rest.assert_called_once()
+                    archive.return_value = None
+                    self.metadata.reset_mock()
+                    self.files.reset_mock()
+                    self.rest.reset_mock()
+                    WebSocketData.objects.filter(
+                        exchange=exchange, api_symbol="BTCUSDT"
+                    ).delete()

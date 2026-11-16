@@ -2,7 +2,7 @@ from collections.abc import Callable
 from datetime import date, datetime
 from functools import cached_property
 
-from quant_tick.constants import Frequency, TradeDataRetry
+from quant_tick.constants import RETRY_INDETERMINATE, Frequency, TradeDataRetry
 from quant_tick.controllers import (
     ChunkedExchangeS3,
     ExchangeWebSocket,
@@ -31,28 +31,29 @@ def bybit_trades(
 ) -> None:
     """Use native archives first, then WebSocket minutes and optional paid repair."""
     category = validate_bybit_trade_symbol(symbol)
+    kwargs = {
+        "timestamp_from": timestamp_from,
+        "timestamp_to": timestamp_to,
+        "on_data_frame": on_data_frame,
+        "retry": retry,
+        "verbose": verbose,
+    }
+    repair = BybitTrades(symbol, **kwargs) if coinapi_symbol(symbol) else None
     archive = BybitSpotTradesS3 if category == "spot" else BybitTradesS3
     archive(
         symbol,
-        timestamp_from=timestamp_from,
-        timestamp_to=timestamp_to,
-        on_data_frame=on_data_frame,
-        retry=retry,
-        verbose=verbose,
+        **{
+            **kwargs,
+            "on_data_frame": repair.on_archive_data_frame if repair else on_data_frame,
+        },
     ).main()
-    controller = BybitTradesWebSocket
+    if repair is not None:
+        repair.main()
+        return
     followup_from = get_archive_followup_start(timestamp_from)
-    if coinapi_symbol(symbol):
-        controller = BybitTrades
-        followup_from = timestamp_from
     if followup_from < timestamp_to:
-        controller(
-            symbol,
-            timestamp_from=followup_from,
-            timestamp_to=timestamp_to,
-            on_data_frame=on_data_frame,
-            retry=retry,
-            verbose=verbose,
+        BybitTradesWebSocket(
+            symbol, **{**kwargs, "timestamp_from": followup_from}
         ).main()
 
 
@@ -109,7 +110,26 @@ class BybitTrades(CoinAPIRepairTrades, BybitTradesWebSocket):
 
     Bybit candles validate both sources; complete archives and WebSocket minutes
     need no paid requests. Only spot and USDT perpetual mappings are supported.
+    Newly written archive windows are checked again for failed/unknown coverage;
+    older failed partitions retain the caller's explicit retry policy.
     """
+
+    @cached_property
+    def archive_windows(self):
+        return []
+
+    def on_archive_data_frame(
+        self, symbol, timestamp_from, timestamp_to, frame, candles
+    ):
+        self.on_data_frame(symbol, timestamp_from, timestamp_to, frame, candles)
+        self.archive_windows.append((timestamp_from, timestamp_to))
+
+    def iter_missing_windows(self):
+        for timestamp_from, timestamp_to in self.archive_windows:
+            yield from self.iter_missing_range(
+                timestamp_from, timestamp_to, RETRY_INDETERMINATE
+            )
+        yield from super().iter_missing_windows()
 
     @cached_property
     def api_symbol(self):

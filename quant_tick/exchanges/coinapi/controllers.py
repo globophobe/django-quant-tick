@@ -75,9 +75,14 @@ class CoinAPITrades(ExchangeREST):
         return coinapi_candles(self.api_symbol, timestamp_from, timestamp_to)
 
     def iter_missing_windows(self):
+        yield from self.iter_missing_range(
+            self.timestamp_from, self.timestamp_to, self.retry
+        )
+
+    def iter_missing_range(self, timestamp_from, timestamp_to, retry):
         iterator = TradeDataIterator(self.symbol)
         for start, end, existing in iterator.iter_days(
-            self.timestamp_from, self.timestamp_to, retry=self.retry
+            timestamp_from, timestamp_to, retry=retry
         ):
             end = min(end, iterator.get_max_timestamp_to())
             if start < end:
