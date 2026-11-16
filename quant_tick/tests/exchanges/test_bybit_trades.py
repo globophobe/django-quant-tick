@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -16,6 +17,7 @@ from quant_tick.exchanges.bybit.controllers import (
 )
 
 
+@patch.dict(os.environ, {"COINAPI_API_KEY": ""})
 class BybitTradesTest(SimpleTestCase):
     def get_controller(
         self,
@@ -107,6 +109,36 @@ class BybitTradesTest(SimpleTestCase):
                         kwargs["timestamp_from"] = expected_start
                         websocket.assert_called_once_with(symbol, **kwargs)
                         websocket.return_value.main.assert_called_once_with()
+
+    def test_optional_repair_only_uses_supported_markets(self):
+        start = datetime(2026, 7, 23, 12, tzinfo=UTC)
+        end = start + timedelta(minutes=1)
+        for exchange, symbol_type, pair, supported in (
+            (Exchange.BYBIT, SymbolType.SPOT, "BTCUSDT", True),
+            (Exchange.BYBIT_LINEAR, SymbolType.PERPETUAL, "BTCUSDT", True),
+            (Exchange.BYBIT_INVERSE, SymbolType.PERPETUAL, "BTCUSD", False),
+            (Exchange.BYBIT_LINEAR, SymbolType.PERPETUAL, "BTCPERP", False),
+        ):
+            symbol = SimpleNamespace(
+                exchange=exchange, api_symbol=pair, symbol_type=symbol_type
+            )
+            with (
+                self.subTest(exchange=exchange, pair=pair),
+                patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}),
+                patch("quant_tick.exchanges.bybit.controllers.BybitTradesS3.main"),
+                patch("quant_tick.exchanges.bybit.controllers.BybitSpotTradesS3.main"),
+                patch("quant_tick.exchanges.bybit.controllers.BybitTrades") as repair,
+                patch(
+                    "quant_tick.exchanges.bybit.controllers.BybitTradesWebSocket"
+                ) as websocket,
+                patch(
+                    "quant_tick.exchanges.bybit.controllers.get_archive_followup_start",
+                    return_value=start,
+                ),
+            ):
+                bybit_trades(symbol, start, end, Mock())
+                self.assertEqual(repair.call_count, int(supported))
+                self.assertEqual(websocket.call_count, int(not supported))
 
     def test_websocket_controller_promotes_valid_current_minute(self):
         timestamp_from = datetime(2026, 7, 23, 12, tzinfo=UTC)

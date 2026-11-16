@@ -91,10 +91,11 @@ class TradeDataIterator:
         retry: TradeDataRetry = False,
     ) -> list[datetime]:
         """Return existing minute timestamps for the partition."""
-        queryset = TradeData.objects.filter(
-            symbol=self.symbol,
-            timestamp__gte=timestamp_from,
-            timestamp__lt=timestamp_to,
+        queryset = TradeData.objects.overlapping(
+            self.symbol,
+            timestamp_from,
+            timestamp_to,
+            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
         )
         if retry:
             retry_indeterminate = retry == RETRY_INDETERMINATE

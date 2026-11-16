@@ -80,44 +80,56 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
             self.addCleanup(patcher.stop)
 
     def test_file_is_cached_and_preserves_order_precision_ids_and_direction(self):
-        rows = [
-            trade("late", minute=1),
-            trade("second", time_exchange="2026-11-13T12:00:00.0000002"),
-            trade(
-                "first", time_exchange="2026-11-13T12:00:00.0000001", taker_side="SELL"
-            ),
-            trade("outside", minute=-1),
-        ]
-        files = CoinAPITradeFiles(SYMBOL)
-        with (
-            patch(
-                MODULE + "httpx2.get",
-                side_effect=[response(listing()), response(archive(rows))],
-            ) as request,
-            patch(MODULE + "pd.read_csv", wraps=pd.read_csv) as parse,
+        for symbol_id, exchange, native in (
+            (SYMBOL, "HYPERLIQUID", "BTC"),
+            ("BYBIT_SPOT_BTC_USDT", "BYBIT", "BTCUSDT"),
+            ("BYBIT_PERP_BTC_USDT", "BYBIT", "BTCUSDT"),
         ):
-            selected = files.get_trades(START, START + timedelta(minutes=1))
-            later = files.get_trades(
-                START + timedelta(minutes=1), START + timedelta(minutes=2)
-            )
-        self.assertEqual(request.call_count, 2)
-        parse.assert_called_once()
-        self.assertEqual(
-            request.call_args.kwargs["headers"]["Authorization"], "test-key"
-        )
-        self.assertIn("%2BSC-" + SYMBOL, request.call_args.args[0])
-        self.assertNotIn("test-key", request.call_args.args[0])
-        self.assertEqual([row["uuid"] for row in selected], ["first", "second"])
-        self.assertEqual([row["uuid"] for row in later], ["late"])
-        controller = CoinAPITrades(
-            SimpleNamespace(api_symbol=SYMBOL), START, START, Mock()
-        )
-        frame = controller.get_data_frame(controller.parse_data(selected[::-1]))
-        self.assertEqual(frame.nanoseconds.tolist(), [100, 200])
-        self.assertEqual(frame.tickRule.tolist(), [-1, 1])
-        self.assertEqual(frame.volume.sum(), Decimal("200.246913578246913578"))
-        self.assertEqual(frame.id_trade.tolist(), ["106950518024024"] * 2)
-        self.assertEqual(frame.coinapi_transport.tolist(), ["flat_files"] * 2)
+            with self.subTest(symbol=symbol_id):
+                key = f"T-TRADES/D-2026111312/E-{exchange}/IDDI-42+SC-{symbol_id}+S-{native}.csv.gz"
+                rows = [
+                    trade("late", minute=1),
+                    trade("second", time_exchange="2026-11-13T12:00:00.0000002"),
+                    trade(
+                        "first",
+                        time_exchange="2026-11-13T12:00:00.0000001",
+                        taker_side="SELL",
+                    ),
+                    trade("outside", minute=-1),
+                ]
+                files = CoinAPITradeFiles(symbol_id)
+                with (
+                    patch(
+                        MODULE + "httpx2.get",
+                        side_effect=[
+                            response(listing((key,))),
+                            response(archive(rows)),
+                        ],
+                    ) as request,
+                    patch(MODULE + "pd.read_csv", wraps=pd.read_csv) as parse,
+                ):
+                    selected = files.get_trades(START, START + timedelta(minutes=1))
+                    later = files.get_trades(
+                        START + timedelta(minutes=1), START + timedelta(minutes=2)
+                    )
+                self.assertEqual(request.call_count, 2)
+                parse.assert_called_once()
+                self.assertEqual(
+                    request.call_args.kwargs["headers"]["Authorization"], "test-key"
+                )
+                self.assertIn("%2BSC-" + symbol_id, request.call_args.args[0])
+                self.assertNotIn("test-key", request.call_args.args[0])
+                self.assertEqual([row["uuid"] for row in selected], ["first", "second"])
+                self.assertEqual([row["uuid"] for row in later], ["late"])
+                controller = CoinAPITrades(
+                    SimpleNamespace(api_symbol=symbol_id), START, START, Mock()
+                )
+                frame = controller.get_data_frame(controller.parse_data(selected[::-1]))
+                self.assertEqual(frame.nanoseconds.tolist(), [100, 200])
+                self.assertEqual(frame.tickRule.tolist(), [-1, 1])
+                self.assertEqual(frame.volume.sum(), Decimal("200.246913578246913578"))
+                self.assertEqual(frame.id_trade.tolist(), ["106950518024024"] * 2)
+                self.assertEqual(frame.coinapi_transport.tolist(), ["flat_files"] * 2)
 
     def test_replayed_and_incomplete_minutes_choose_file_or_rest_exclusively(self):
         candles = pd.DataFrame(

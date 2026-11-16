@@ -504,7 +504,7 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
                             ),
                         ),
                         patch(
-                            "quant_tick.exchanges.hyperliquid.sources._coinapi_history_start",
+                            "quant_tick.exchanges.coinapi.api._coinapi_history_start",
                             return_value=pd.Timestamp(START),
                         ),
                         patch(
@@ -624,7 +624,7 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
                     return_value=pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC")),
                 ),
                 patch(
-                    "quant_tick.exchanges.hyperliquid.sources._coinapi_history_start",
+                    "quant_tick.exchanges.coinapi.api._coinapi_history_start",
                     return_value=pd.Timestamp(START),
                 ),
                 patch(
@@ -800,6 +800,9 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
             ("HYPERLIQUIDL4_PERP_BTC_USDC", SymbolType.PERPETUAL),
             ("HYPERLIQUID_PERP_BTC_USD", SymbolType.PERPETUAL),
             ("HYPERLIQUID_PERP_BTC_USDC_EXTRA", SymbolType.PERPETUAL),
+            ("BYBIT_PERP_BTC_USDT", SymbolType.SPOT),
+            ("BYBIT_PERP_BTC_USD", SymbolType.PERPETUAL),
+            ("BYBIT_PERP_BTC_USDC", SymbolType.PERPETUAL),
             ("BTCUSDT", SymbolType.SPOT),
         ):
             symbol = self.get_symbol(

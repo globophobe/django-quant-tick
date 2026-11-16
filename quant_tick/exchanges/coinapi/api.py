@@ -7,10 +7,12 @@ the same organization quota at the provider.
 
 import os
 import re
+from functools import lru_cache
 
 from django.core.exceptions import ImproperlyConfigured
 
 from quant_tick.constants import SymbolType
+from quant_tick.lib import get_current_time, parse_datetime
 
 from ..public import get_public_json
 
@@ -19,11 +21,12 @@ def get_coinapi_symbol_type(api_symbol):
     """Accept markets whose trade and candle quantities are in base units."""
     if re.fullmatch(r"[A-Z0-9_-]+_SPOT_[A-Z0-9]+_[A-Z0-9]+", api_symbol):
         return SymbolType.SPOT
-    if re.fullmatch(r"HYPERLIQUID_PERP_[A-Z0-9]+_USDC", api_symbol):
+    if re.fullmatch(
+        r"(?:HYPERLIQUID_PERP_[A-Z0-9]+_USDC|BYBIT_PERP_[A-Z0-9]+_USDT)", api_symbol
+    ):
         return SymbolType.PERPETUAL
     raise ValueError(
-        "CoinAPI requires a spot or Hyperliquid USDC perpetual symbol ID, "
-        "e.g. COINBASE_SPOT_BTC_USD or HYPERLIQUID_PERP_BTC_USDC"
+        "CoinAPI requires a spot, Hyperliquid USDC perpetual, or Bybit USDT perpetual symbol ID"
     )
 
 
@@ -56,3 +59,23 @@ def get_coinapi_response(path, params):
     if not isinstance(payload, list):
         raise TypeError("CoinAPI returned an unexpected market data response")
     return payload
+
+
+def coinapi_history_start(api_symbol):
+    return _coinapi_history_start(api_symbol, get_current_time().date())
+
+
+@lru_cache(maxsize=128)
+def _coinapi_history_start(api_symbol, day):
+    """Refresh public coverage daily; never scan paid history before it begins."""
+    get_coinapi_symbol_type(api_symbol)
+    exchange = api_symbol.split("_SPOT_")[0].split("_PERP_")[0]
+    symbols = get_coinapi_response(
+        f"/v1/symbols/{exchange}/active", {"filter_symbol_id": api_symbol}
+    )
+    matches = [row for row in symbols if row["symbol_id"] == api_symbol]
+    if len(matches) > 1:
+        raise ValueError("CoinAPI returned duplicate symbol metadata")
+    if not matches or not matches[0].get("data_trade_start"):
+        return None
+    return parse_datetime(matches[0]["data_trade_start"])

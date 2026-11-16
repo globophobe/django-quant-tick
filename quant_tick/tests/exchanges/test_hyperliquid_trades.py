@@ -9,13 +9,13 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from quant_tick.constants import Exchange, FileData, SymbolType
 from quant_tick.exchanges.api import api
+from quant_tick.exchanges.coinapi.api import (
+    _coinapi_history_start,
+    coinapi_history_start,
+)
 from quant_tick.exchanges.hyperliquid.controllers import (
     HyperliquidTradesWebSocket,
     hyperliquid_trades,
-)
-from quant_tick.exchanges.hyperliquid.sources import (
-    _coinapi_history_start,
-    coinapi_history_start,
 )
 from quant_tick.models import TradeData, WebSocketData
 
@@ -28,7 +28,7 @@ class HyperliquidTradesTest(SimpleTestCase):
         self.addCleanup(_coinapi_history_start.cache_clear)
         start = "2024-09-27T00:00:00Z"
         with patch(
-            "quant_tick.exchanges.hyperliquid.sources.get_coinapi_response",
+            "quant_tick.exchanges.coinapi.api.get_coinapi_response",
             return_value=[
                 {
                     "symbol_id": "HYPERLIQUID_PERP_BTC_USDC",
@@ -220,7 +220,7 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
                 self.candles,
             ),
             (
-                "quant_tick.exchanges.hyperliquid.controllers.coinapi_history_start",
+                "quant_tick.exchanges.coinapi.repair.coinapi_history_start",
                 pd.Timestamp(self.start) - pd.Timedelta(days=1),
             ),
         ):
@@ -371,7 +371,7 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
                 "quant_tick.exchanges.coinapi.controllers.get_coinapi_response"
             ) as request,
             patch(
-                "quant_tick.exchanges.hyperliquid.controllers.coinapi_history_start"
+                "quant_tick.exchanges.coinapi.repair.coinapi_history_start"
             ) as metadata,
         ):
             api(self.symbol, self.start, self.start + timedelta(minutes=1), retry=True)
@@ -441,7 +441,7 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
     def test_history_boundary_stops_without_empty_success_or_trade_requests(self):
         with (
             patch(
-                "quant_tick.exchanges.hyperliquid.controllers.coinapi_history_start",
+                "quant_tick.exchanges.coinapi.repair.coinapi_history_start",
                 return_value=pd.Timestamp(self.end),
             ),
             patch(
@@ -456,7 +456,7 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
         self.websocket_minute(1)
         with (
             patch(
-                "quant_tick.exchanges.hyperliquid.controllers.coinapi_history_start",
+                "quant_tick.exchanges.coinapi.repair.coinapi_history_start",
                 return_value=pd.Timestamp(self.start) + pd.Timedelta(minutes=1),
             ),
             patch(

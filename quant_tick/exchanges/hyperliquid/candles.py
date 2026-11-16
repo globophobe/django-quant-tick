@@ -11,10 +11,11 @@ from quant_tick.lib import (
     parse_fixed_resolution_minutes,
 )
 
+from ..coinapi.api import coinapi_history_start
 from ..coinapi.candles import coinapi_candles
 from .api import normalize_coin, post_hyperliquid_info, to_millis
 from .constants import CANDLE_MAX_RESULTS, INTERVAL_MILLIS, INTERVALS
-from .sources import coinapi_history_start, coinapi_symbol
+from .sources import coinapi_symbol
 
 
 def get_hyperliquid_interval(resolution: str | int | None) -> str:
