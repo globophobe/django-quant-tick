@@ -1,7 +1,8 @@
-"""Authenticated public market data, paced for the 10-request/minute REST tier.
+"""Authenticated public market data.
 
-All REST endpoints share one allowance per process. Separate workers still
-consume the same organization quota at the provider.
+COINAPI_RATE_LIMIT sets REST requests per minute (default 10). All REST
+endpoints share one allowance per process. Separate workers still consume
+the same organization quota at the provider.
 """
 
 import os
@@ -34,13 +35,21 @@ def get_coinapi_key():
 
 
 def get_coinapi_response(path, params):
+    try:
+        rate_limit = int(os.environ.get("COINAPI_RATE_LIMIT", "10"))
+        if rate_limit <= 0:
+            raise ValueError
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            "COINAPI_RATE_LIMIT must be a positive integer (requests per minute)"
+        ) from exc
     payload = get_public_json(
         "https://rest.coinapi.io",
         path,
         params,
         namespace="COINAPI",
         max_requests=1,
-        reset_seconds=6,
+        reset_seconds=60 / rate_limit,
         headers={"X-CoinAPI-Key": get_coinapi_key()},
         retry=3,
     )

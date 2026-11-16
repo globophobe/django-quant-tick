@@ -61,40 +61,70 @@ def response(status, payload):
 
 
 class CoinAPIRequestTest(SimpleTestCase):
-    def test_all_rest_endpoints_stay_within_ten_requests_per_minute(self):
-        now = 1000.0
-        started = []
-        latencies = iter((0.1, 3.0, 7.0) * 7)
+    def test_all_rest_endpoints_share_the_configured_requests_per_minute(self):
+        def check_rate_limit(configured, rate_limit):
+            now = 1000.0
+            started = []
+            latencies = (0.1, 3.0, 7.0) * 7
+            durations = iter(latencies)
 
-        def advance(seconds):
-            nonlocal now
-            now += seconds
+            def advance(seconds):
+                nonlocal now
+                now += seconds
 
-        def respond(*args, **kwargs):
-            started.append(now)
-            advance(next(latencies))
-            return response(200, [])
+            def respond(*args, **kwargs):
+                started.append(now)
+                advance(next(durations))
+                return response(200, [])
 
-        with (
-            patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}, clear=True),
-            patch("quant_tick.exchanges.public.time.time", side_effect=lambda: now),
-            patch("quant_tick.exchanges.public.time.sleep", side_effect=advance),
-            patch("quant_tick.exchanges.public.httpx2.get", side_effect=respond),
+            environ = {"COINAPI_API_KEY": "test-key"}
+            if configured is not None:
+                environ["COINAPI_RATE_LIMIT"] = configured
+            with (
+                patch.dict(os.environ, environ, clear=True),
+                patch("quant_tick.exchanges.public.time.time", side_effect=lambda: now),
+                patch("quant_tick.exchanges.public.time.sleep", side_effect=advance),
+                patch("quant_tick.exchanges.public.httpx2.get", side_effect=respond),
+            ):
+                for path in (
+                    "/v1/trades/test/history",
+                    "/v1/ohlcv/test/history",
+                    "/v1/symbols",
+                ) * 7:
+                    self.assertEqual(get_coinapi_response(path, {}), [])
+
+            self.assertEqual(len(started), 21)
+            for (earlier, later), latency in zip(pairwise(started), latencies):
+                self.assertAlmostEqual(later - earlier, max(60 / rate_limit, latency))
+            for start in started:
+                self.assertLessEqual(
+                    sum(start <= value < start + 60 - 1e-8 for value in started),
+                    rate_limit,
+                )
+
+        for configured, rate_limit in (
+            (None, 10),
+            ("40", 40),
+            ("160", 160),
+            ("17", 17),
         ):
-            for path in (
-                "/v1/trades/test/history",
-                "/v1/ohlcv/test/history",
-                "/v1/symbols",
-            ) * 7:
-                self.assertEqual(get_coinapi_response(path, {}), [])
+            with self.subTest(configured=configured):
+                check_rate_limit(configured, rate_limit)
 
-        self.assertEqual(len(started), 21)
-        for earlier, later in pairwise(started):
-            self.assertGreaterEqual(later - earlier, 6)
-        for start in started:
-            self.assertLessEqual(
-                sum(start <= value < start + 60 for value in started), 10
-            )
+    def test_invalid_rate_limit_fails_before_any_request(self):
+        for value in ("", "0", "-10", "1.5", "nan", "inf", "invalid"):
+            with (
+                self.subTest(value=value),
+                patch.dict(
+                    os.environ,
+                    {"COINAPI_API_KEY": "test-key", "COINAPI_RATE_LIMIT": value},
+                    clear=True,
+                ),
+                patch("quant_tick.exchanges.public.httpx2.get") as request,
+                self.assertRaisesRegex(ImproperlyConfigured, "COINAPI_RATE_LIMIT"),
+            ):
+                get_coinapi_response("/v1/trades/test/history", {})
+            request.assert_not_called()
 
     def test_key_required_before_any_request(self):
         with (

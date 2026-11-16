@@ -41,7 +41,7 @@ def get_public_json(
     *,
     namespace: str,
     max_requests: int = 2,
-    reset_seconds: int = 1,
+    reset_seconds: float = 1,
     retry: int = 30,
     headers: dict[str, str] | None = None,
 ):
