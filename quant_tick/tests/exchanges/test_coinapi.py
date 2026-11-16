@@ -405,6 +405,143 @@ class CoinAPIMarketTest(SimpleTestCase):
     Mock(return_value=None),
 )
 class CoinAPICollectionTest(BaseSymbolTest, TestCase):
+    def test_backfill_preserves_partial_missing_hours_on_both_routes(self):
+        end = START + timedelta(hours=2)
+        candles = [
+            candle(START + timedelta(minutes=i), quantity="0.1") for i in range(120)
+        ]
+        cases = (
+            (15, 75, [(60, 75), (15, 60)]),
+            (45, 75, [(60, 75), (45, 60)]),
+            (15, 45, [(15, 45)]),
+        )
+        for exchange, api_symbol in (
+            (Exchange.COINAPI, HYPERLIQUID_SYMBOL),
+            (Exchange.HYPERLIQUID, "BTC"),
+        ):
+            for first, last, intervals in cases:
+                with self.subTest(exchange=exchange, first=first, last=last):
+                    symbol = self.get_symbol(
+                        exchange=exchange,
+                        api_symbol=api_symbol,
+                        symbol_type=SymbolType.PERPETUAL,
+                    )
+                    symbol.code_name = f"partial-{symbol.pk}"
+                    symbol.save(update_fields=["code_name"])
+                    existing = TradeData.objects.bulk_create(
+                        [
+                            TradeData(
+                                symbol=symbol,
+                                timestamp=START + timedelta(minutes=i),
+                                frequency=1,
+                                ok=True,
+                            )
+                            for i in range(120)
+                            if not first <= i < last
+                        ]
+                    )
+
+                    def archive(start, stop):
+                        self.assertEqual(
+                            pd.Timestamp(start).floor("h"),
+                            (pd.Timestamp(stop) - pd.Timedelta("1ns")).floor("h"),
+                        )
+                        return [
+                            trade(
+                                i,
+                                timestamp=(START + timedelta(minutes=i)).isoformat(),
+                                symbol_id=HYPERLIQUID_SYMBOL,
+                                id_trade=str(i),
+                            )
+                            for i in range(120)
+                            if start <= START + timedelta(minutes=i) < stop
+                        ]
+
+                    with (
+                        patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}),
+                        patch(
+                            "quant_tick.exchanges.coinapi.flat_files.CoinAPITradeFiles.get_trades",
+                            side_effect=archive,
+                        ) as files,
+                        patch(
+                            "quant_tick.exchanges.coinapi.candles.get_coinapi_response",
+                            return_value=candles,
+                        ) as requests,
+                        patch(
+                            "quant_tick.exchanges.hyperliquid.controllers.native_hyperliquid_candles",
+                            return_value=pd.DataFrame(
+                                index=pd.DatetimeIndex([], tz="UTC")
+                            ),
+                        ),
+                        patch(
+                            "quant_tick.exchanges.hyperliquid.sources._coinapi_history_start",
+                            return_value=pd.Timestamp(START),
+                        ),
+                        patch(
+                            "quant_tick.exchanges.coinapi.controllers.get_coinapi_response"
+                        ) as rest,
+                    ):
+                        api(symbol, START, end)
+                        self.assertEqual(
+                            [call.args for call in files.call_args_list],
+                            [
+                                (
+                                    START + timedelta(minutes=start),
+                                    START + timedelta(minutes=stop),
+                                )
+                                for start, stop in intervals
+                            ],
+                        )
+                        requests.assert_called_once()
+                        params = requests.call_args.args[1]
+                        self.assertEqual(
+                            pd.Timestamp(params["time_start"]),
+                            START + timedelta(minutes=first),
+                        )
+                        self.assertEqual(
+                            pd.Timestamp(params["time_end"]),
+                            START + timedelta(minutes=last),
+                        )
+                        rest.assert_not_called()
+                        stored = list(
+                            TradeData.objects.filter(symbol=symbol).order_by(
+                                "timestamp"
+                            )
+                        )
+                        self.assertEqual(
+                            [
+                                row.timestamp + timedelta(minutes=i)
+                                for row in stored
+                                for i in range(row.frequency)
+                            ],
+                            [START + timedelta(minutes=i) for i in range(120)],
+                        )
+                        self.assertTrue(all(row.ok for row in stored))
+                        self.assertTrue(
+                            {row.pk for row in existing} <= {row.pk for row in stored}
+                        )
+                        frames = pd.concat(
+                            [
+                                row.get_data_frame("raw_data")
+                                for row in stored
+                                if row.raw_data
+                            ],
+                            ignore_index=True,
+                        )
+                        self.assertEqual(
+                            frames.timestamp.tolist(),
+                            [START + timedelta(minutes=i) for i in range(first, last)],
+                        )
+                        self.assertEqual(
+                            frames.notional.sum(), Decimal("0.1") * (last - first)
+                        )
+                        files.reset_mock()
+                        requests.reset_mock()
+                        api(symbol, START, end)
+                        files.assert_not_called()
+                        requests.assert_not_called()
+                        rest.assert_not_called()
+
     def test_backfill_batches_candles_and_preserves_hourly_progress_on_both_routes(
         self,
     ):

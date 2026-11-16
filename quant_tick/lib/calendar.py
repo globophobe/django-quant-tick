@@ -301,48 +301,15 @@ def iter_timeframe(
     value: str = "1d",
     reverse: bool = False,
 ) -> Generator[tuple[datetime, datetime], None, None]:
-    """Iter timeframe, including partial increments."""
-    values = []
-    head = None
-    tail = None
-    step = pd.Timedelta(value)
-    # Is there at least 1 day?
-    delta = timestamp_to - timestamp_from
-    if delta >= step:
-        ts_from = get_min_time(timestamp_from, value)
-        ts_to = get_min_time(timestamp_to, value)
-        # Is there a head?
-        if timestamp_from != ts_from:
-            head = timestamp_from, ts_from + step
-            timestamp_from = ts_from + step
-        # Is there a tail?
-        if timestamp_to != ts_to:
-            tail = ts_to, timestamp_to
-            timestamp_to = ts_to
-        # Check again, is there at least 1 day?
-        delta = ts_to - ts_from
-        if delta >= step:
-            for val in iter_window(ts_from, ts_to, value, reverse=reverse):
-                if head:
-                    if val[0] >= head[0]:
-                        values.append(val)
-                elif tail:
-                    if val[1] <= tail[1]:
-                        values.append(val)
-                else:
-                    values.append(val)
-    else:
-        values.append((timestamp_from, timestamp_to))
-    # Head or tail
-    if head and not reverse:
-        values.insert(0, head)
-    elif tail and reverse:
-        values.insert(0, tail)
-    elif head and reverse:
-        values.append(head)
-    elif tail and not reverse:
-        values.append(tail)
-    yield from values
+    """Split at interval boundaries, retaining both partial edges."""
+    values = get_range(timestamp_from, timestamp_to, value)
+    if len(values) < 2:
+        yield timestamp_from, timestamp_to
+        return
+    values[0] = timestamp_from
+    if values[-1] != timestamp_to:
+        values.append(timestamp_to)
+    yield from iter_timestamps(values, reverse=reverse)
 
 
 def iter_missing(
