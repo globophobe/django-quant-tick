@@ -49,10 +49,6 @@ class BybitRepairTest(BaseWriteTradeDataTest, TestCase):
         self.native_candles = self.mock(
             "quant_tick.exchanges.bybit.base.bybit_candles", return_value=self.candles
         )
-        self.mock(
-            "quant_tick.controllers.rest.ExchangeREST.get_websocket_timestamp_from",
-            return_value=self.start,
-        )
         self.metadata = self.mock(
             "quant_tick.exchanges.coinapi.repair.coinapi_history_start",
             return_value=pd.Timestamp(self.start),
@@ -128,8 +124,17 @@ class BybitRepairTest(BaseWriteTradeDataTest, TestCase):
         for exchange in (Exchange.BYBIT, Exchange.BYBIT_LINEAR):
             with self.subTest(exchange=exchange):
                 symbol = self.make_symbol(exchange)
-                self.websocket(symbol, 0)
+                self.websocket(symbol, 0, "0.5")
                 self.websocket(symbol, 1, "0.5")
+
+                def complete_websocket(*args, symbol=symbol, **kwargs):
+                    WebSocketData.objects.for_symbol(symbol).filter(
+                        timestamp=self.start
+                    ).delete()
+                    self.websocket(symbol, 0)
+                    return self.candles
+
+                self.native_candles.side_effect = complete_websocket
                 self.files.return_value = [
                     {
                         **self.vendor(1, exchange, side="SELL"),
@@ -141,7 +146,9 @@ class BybitRepairTest(BaseWriteTradeDataTest, TestCase):
                     },
                 ]
                 self.rest.return_value = [self.vendor(2, exchange)]
-                api(symbol, self.start, self.end)
+                with time_machine.travel(self.end, tick=False):
+                    api(symbol, self.start, self.end)
+                self.native_candles.side_effect = None
                 self.files.assert_called_once_with(
                     self.start + timedelta(minutes=1), self.end
                 )
@@ -194,7 +201,10 @@ class BybitRepairTest(BaseWriteTradeDataTest, TestCase):
                 self.rest.reset_mock()
                 self.metadata.reset_mock()
                 api(symbol, self.start, self.end)
-                with patch.dict(os.environ, {"COINAPI_API_KEY": ""}):
+                with (
+                    patch.dict(os.environ, {"COINAPI_API_KEY": ""}),
+                    time_machine.travel(self.end, tick=False),
+                ):
                     api(symbol, self.start, self.end)
                 self.files.assert_not_called()
                 self.rest.assert_not_called()
@@ -251,20 +261,88 @@ class BybitRepairTest(BaseWriteTradeDataTest, TestCase):
         self.rest.assert_not_called()
         self.vendor_candles.assert_not_called()
 
-    def test_complete_websocket_and_zero_minutes_need_no_vendor(self):
-        symbol = self.make_symbol()
-        self.websocket(symbol, 0)
-        self.websocket(symbol, 2)
+    def test_delayed_websocket_and_zero_minutes_need_no_vendor(self):
         self.candles.loc[self.start + timedelta(minutes=1), ["notional", "volume"]] = (
             Decimal(0)
         )
-        api(symbol, self.start, self.end)
-        rows = list(TradeData.objects.filter(symbol=symbol).order_by("timestamp"))
-        self.assertEqual([row.ok for row in rows], [True] * 3)
-        self.assertEqual([row.uid for row in rows], ["native-0", "", "native-2"])
+        for exchange in (Exchange.BYBIT, Exchange.BYBIT_LINEAR):
+            with self.subTest(exchange=exchange):
+                symbol = self.make_symbol(exchange)
+                self.websocket(symbol, 0)
+                self.websocket(symbol, 2)
+                with time_machine.travel(
+                    self.start + timedelta(minutes=59), tick=False
+                ):
+                    api(symbol, self.start, self.end)
+                rows = list(
+                    TradeData.objects.filter(symbol=symbol).order_by("timestamp")
+                )
+                self.assertEqual([row.ok for row in rows], [True] * 3)
+                self.assertEqual(
+                    [row.uid for row in rows], ["native-0", "", "native-2"]
+                )
+                self.assertEqual(rows[0].json_data["data_sources"], ["bybit"])
+                self.assertEqual(rows[2].json_data["data_sources"], ["bybit"])
         self.metadata.assert_not_called()
         self.files.assert_not_called()
         self.rest.assert_not_called()
+        self.vendor_candles.assert_not_called()
+
+    def test_retained_websocket_survives_archive_and_candle_cleanup(self):
+        for exchange, archive in (
+            (Exchange.BYBIT_LINEAR, self.native_files[0]),
+            (Exchange.BYBIT, self.native_files[1]),
+        ):
+            for stage in ("archive", "candles"):
+                with self.subTest(exchange=exchange, stage=stage):
+                    self.files.reset_mock()
+                    self.rest.reset_mock()
+                    symbol = self.make_symbol(exchange)
+                    self.websocket(symbol, 0)
+                    self.websocket(symbol, 1, "0.5")
+                    self.rest.return_value = [
+                        self.vendor(1, exchange),
+                        self.vendor(2, exchange),
+                    ]
+
+                    def cleanup(*args, symbol=symbol, stage=stage, **kwargs):
+                        clock.shift(timedelta(minutes=3))
+                        deleted, _ = (
+                            WebSocketData.objects.for_symbol(symbol)
+                            .filter(timestamp__lt=self.start + timedelta(minutes=2))
+                            .delete()
+                        )
+                        self.assertEqual(deleted, 2)
+                        return None if stage == "archive" else self.candles
+
+                    fetch = archive if stage == "archive" else self.native_candles
+                    fetch.side_effect = cleanup
+                    with time_machine.travel(
+                        self.start + timedelta(minutes=59), tick=False
+                    ) as clock:
+                        api(symbol, self.start, self.end)
+                    fetch.side_effect = None
+                    self.assertFalse(WebSocketData.objects.for_symbol(symbol).exists())
+                    self.files.assert_called_once_with(
+                        self.start + timedelta(minutes=1), self.end
+                    )
+                    self.rest.assert_called_once()
+                    self.assertEqual(
+                        pd.Timestamp(self.rest.call_args.args[1]["time_start"]),
+                        self.start + timedelta(minutes=1),
+                    )
+                    rows = list(
+                        TradeData.objects.filter(symbol=symbol).order_by("timestamp")
+                    )
+                    self.assertEqual([row.ok for row in rows], [True] * 3)
+                    self.assertEqual(
+                        [row.uid for row in rows], ["native-0", "vendor-1", "vendor-2"]
+                    )
+                    self.assertEqual(
+                        [row.json_data["data_sources"] for row in rows],
+                        [["bybit"], ["coinapi"], ["coinapi"]],
+                    )
+        self.vendor_candles.assert_not_called()
 
     def test_empty_or_failed_vendor_keeps_native_progress_and_gap_retryable(self):
         symbol = self.make_symbol()

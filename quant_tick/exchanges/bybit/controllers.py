@@ -41,6 +41,9 @@ def bybit_trades(
         "verbose": verbose,
     }
     repair = BybitTrades(symbol, **kwargs) if coinapi_symbol(symbol) else None
+    websocket_rows = (
+        repair.get_websocket_rows(timestamp_from, timestamp_to) if repair else None
+    )
     archive = BybitSpotTradesS3 if category == "spot" else BybitTradesS3
     archive(
         symbol,
@@ -50,7 +53,7 @@ def bybit_trades(
         },
     ).main()
     if repair is not None:
-        repair.main()
+        repair.main(websocket_rows=websocket_rows)
         return
     followup_from = get_archive_followup_start(timestamp_from)
     if followup_from < timestamp_to:

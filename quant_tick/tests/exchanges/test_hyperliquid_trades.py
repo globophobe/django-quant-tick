@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import httpx2
 import pandas as pd
+import time_machine
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from quant_tick.constants import Exchange, FileData, SymbolType
@@ -212,10 +213,6 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
         )
         for target, value in (
             (
-                "quant_tick.controllers.rest.ExchangeREST.get_websocket_timestamp_from",
-                self.start,
-            ),
-            (
                 "quant_tick.exchanges.hyperliquid.controllers.native_hyperliquid_candles",
                 self.candles,
             ),
@@ -262,10 +259,19 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
         }
 
     def test_missing_or_invalid_native_minute_uses_only_vendor_remainder(self):
-        self.websocket_minute(0)
         self.websocket_minute(1, "0.5")
         self.websocket_minute(2)
+
+        def arriving_websocket(*args, **kwargs):
+            self.websocket_minute(0)
+            return self.candles
+
         with (
+            time_machine.travel(self.end, tick=False),
+            patch(
+                "quant_tick.exchanges.hyperliquid.controllers.native_hyperliquid_candles",
+                side_effect=arriving_websocket,
+            ),
             patch(
                 "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
                 return_value=[self.vendor_minute(1)],
@@ -367,11 +373,14 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
             symbol=self.symbol, timestamp=self.start, frequency=1, ok=False
         )
         with (
+            time_machine.travel(self.start + timedelta(minutes=59), tick=False),
             patch(
-                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response"
+                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+                return_value=[],
             ) as request,
             patch(
-                "quant_tick.exchanges.coinapi.repair.coinapi_history_start"
+                "quant_tick.exchanges.coinapi.repair.coinapi_history_start",
+                return_value=pd.Timestamp(self.start),
             ) as metadata,
         ):
             api(self.symbol, self.start, self.start + timedelta(minutes=1), retry=True)
@@ -380,6 +389,57 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
         stored = TradeData.objects.get(symbol=self.symbol)
         self.assertTrue(stored.ok)
         self.assertEqual(stored.json_data["data_sources"], ["hyperliquid"])
+
+    def test_retained_websocket_survives_cleanup_during_candle_fetch(self):
+        self.websocket_minute(0)
+        self.websocket_minute(1, "0.5")
+
+        def cleanup(*args, **kwargs):
+            clock.shift(timedelta(minutes=3))
+            deleted, _ = (
+                WebSocketData.objects.for_symbol(self.symbol)
+                .filter(timestamp__lt=self.start + timedelta(minutes=2))
+                .delete()
+            )
+            self.assertEqual(deleted, 2)
+            return self.candles
+
+        with (
+            time_machine.travel(
+                self.start + timedelta(minutes=59), tick=False
+            ) as clock,
+            patch(
+                "quant_tick.exchanges.hyperliquid.controllers.native_hyperliquid_candles",
+                side_effect=cleanup,
+            ),
+            patch(
+                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
+                return_value=[self.vendor_minute(1), self.vendor_minute(2)],
+            ) as request,
+            patch(
+                "quant_tick.exchanges.hyperliquid.candles.coinapi_candles"
+            ) as vendor_candles,
+        ):
+            api(self.symbol, self.start, self.end)
+        self.assertFalse(WebSocketData.objects.for_symbol(self.symbol).exists())
+        self.archive.assert_called_once_with(
+            self.start + timedelta(minutes=1), self.end
+        )
+        request.assert_called_once()
+        self.assertEqual(
+            pd.Timestamp(request.call_args.args[1]["time_start"]),
+            self.start + timedelta(minutes=1),
+        )
+        vendor_candles.assert_not_called()
+        rows = list(TradeData.objects.filter(symbol=self.symbol).order_by("timestamp"))
+        self.assertEqual([row.ok for row in rows], [True] * 3)
+        self.assertEqual(
+            [row.uid for row in rows], ["native-0", "vendor-1", "vendor-2"]
+        )
+        self.assertEqual(
+            [row.json_data["data_sources"] for row in rows],
+            [["hyperliquid"], ["coinapi"], ["coinapi"]],
+        )
 
     def test_native_minute_between_gaps_is_not_replaced_by_vendor(self):
         self.websocket_minute(1)
