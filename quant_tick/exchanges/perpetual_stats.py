@@ -27,6 +27,7 @@ from .phoenix.constants import MARKET_HISTORY_INTERVAL as PHOENIX_INTERVAL
 from .phoenix.market_history import phoenix_market_history
 from .quicknode.api import available as quicknode_available
 from .quicknode.market_history import quicknode_market_history
+from .quicknode.solana import available as solana_available
 
 PERPETUAL_STATS_FETCH_WINDOW = timedelta(days=90)
 PERPETUAL_STATS_MIN_PERSISTENCE_INTERVAL_MINUTES = 60
@@ -175,10 +176,17 @@ def perpetual_stats(
     if timestamp_to <= timestamp_from:
         return
 
+    fetch_window = PERPETUAL_STATS_FETCH_WINDOW
+    # Persist bounded paid windows before advancing, so a later provider failure
+    # does not discard an entire archive chunk's successful requests.
+    if symbol.exchange == Exchange.PHOENIX and solana_available():
+        fetch_window = timedelta(hours=1)
+    elif symbol.exchange == Exchange.HYPERLIQUID:
+        fetch_window = timedelta(hours=6)
     for chunk_from, chunk_to in iter_chunks(
         timestamp_from,
         timestamp_to,
-        value=PERPETUAL_STATS_FETCH_WINDOW,
+        value=fetch_window,
         reverse=True,
     ):
         windows = [(chunk_from, chunk_to)]
@@ -209,7 +217,7 @@ def perpetual_stats(
                 fetch_from,
                 min(fetch_to, requested_timestamp_to),
             )
-            history_exhausted = df.attrs.get(HISTORY_EXHAUSTED_ATTR) is True
+            history_exhausted = df.attrs.get(HISTORY_EXHAUSTED_ATTR)
             df = validate_perpetual_stats_frame(symbol, df)
             PerpetualStatsData.write(
                 symbol,
@@ -219,10 +227,11 @@ def perpetual_stats(
                 df,
                 assert_lease_owned=assert_lease_owned,
             )
-            if history_exhausted:
+            if history_exhausted is True:
                 return
             if (
                 not retry
+                and history_exhausted is not False
                 and df.empty
                 and not PerpetualStatsData.objects.filter(
                     symbol=symbol,

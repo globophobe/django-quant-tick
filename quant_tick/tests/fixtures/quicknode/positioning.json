@@ -504,7 +504,21 @@
       "taker_twap_buy_size": 236.48119,
       "taker_twap_sell_size": 348.03727,
       "long_account_delta": -248,
-      "short_account_delta": -195
+      "short_account_delta": -195,
+      "taker_buy_value": "484201135.88263",
+      "taker_sell_value": "583666315.7656",
+      "liquidated_value": "47900379.31115",
+      "liquidated_long_value": "47717401.03379",
+      "liquidated_short_value": "182978.27736",
+      "taker_realized_pnl": "-8506245.9580289998",
+      "maker_realized_pnl": "-1222898.6771469998",
+      "taker_fees": "322851.793866",
+      "maker_fees": "-8959.142465",
+      "long_position_flips": 816,
+      "short_position_flips": 843,
+      "fee_tokens": [
+        "USDC"
+      ]
     },
     {
       "interval_index": 1,
@@ -525,7 +539,21 @@
       "taker_twap_buy_size": 291.67934,
       "taker_twap_sell_size": 5.16689,
       "long_account_delta": -1450,
-      "short_account_delta": -231
+      "short_account_delta": -231,
+      "taker_buy_value": "446945348.38019",
+      "taker_sell_value": "780292263.92799",
+      "liquidated_value": "182669228.55935",
+      "liquidated_long_value": "182133224.39434",
+      "liquidated_short_value": "536004.16501",
+      "taker_realized_pnl": "-14901726.2725949996",
+      "maker_realized_pnl": "-1215185.2910019999",
+      "taker_fees": "360211.735409",
+      "maker_fees": "-11.694439",
+      "long_position_flips": 709,
+      "short_position_flips": 693,
+      "fee_tokens": [
+        "USDC"
+      ]
     },
     {
       "interval_index": 2,
@@ -546,7 +574,21 @@
       "taker_twap_buy_size": 196.25536,
       "taker_twap_sell_size": 94.09805,
       "long_account_delta": -2197,
-      "short_account_delta": -2269
+      "short_account_delta": -2269,
+      "taker_buy_value": "2443433157.364367",
+      "taker_sell_value": "1697974467.165817",
+      "liquidated_value": "1859334892.225174",
+      "liquidated_long_value": "1750980004.786517",
+      "liquidated_short_value": "108354887.438657",
+      "taker_realized_pnl": "35712150.5846829948",
+      "maker_realized_pnl": "-22839359.9919680107",
+      "taker_fees": "884058.457355",
+      "maker_fees": "39712.287627",
+      "long_position_flips": 2007,
+      "short_position_flips": 2115,
+      "fee_tokens": [
+        "USDC"
+      ]
     },
     {
       "interval_index": 3,
@@ -567,7 +609,21 @@
       "taker_twap_buy_size": 289.64575,
       "taker_twap_sell_size": 58.6881,
       "long_account_delta": 277,
-      "short_account_delta": 161
+      "short_account_delta": 161,
+      "taker_buy_value": "380252123.725119",
+      "taker_sell_value": "415125794.92993",
+      "liquidated_value": "7397187.430799",
+      "liquidated_long_value": "7004286.958299",
+      "liquidated_short_value": "392900.4725",
+      "taker_realized_pnl": "-2629643.9562049998",
+      "maker_realized_pnl": "-896234.6618569998",
+      "taker_fees": "248495.230011",
+      "maker_fees": "-3033.418026",
+      "long_position_flips": 1289,
+      "short_position_flips": 1292,
+      "fee_tokens": [
+        "USDC"
+      ]
     }
   ],
   "source": "QuickNode public BTC data, 2025-10-10 19:00\u201323:00 UTC",

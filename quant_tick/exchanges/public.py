@@ -58,7 +58,7 @@ def get_public_json(
             if redact_url:
                 # Endpoint credentials live in the URL. The transport avoids the
                 # client's URL log; errors carry only a credential-free request.
-                safe_request = httpx2.Request("POST", "https://quiknode.pro/hypercore")
+                safe_request = httpx2.Request("POST", "https://quiknode.pro/rpc")
                 try:
                     request = httpx2.Request(
                         "POST",

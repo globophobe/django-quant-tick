@@ -58,6 +58,15 @@ class QuickNodeStatsTest(SimpleTestCase):
         self.assertEqual(rows[2]["liquidated_size"], Decimal("17381.76653"))
         self.assertEqual(rows[2]["cohort_price"], Decimal(114126))
         self.assertEqual(rows[2]["large_long_size"], Decimal("15650.21991"))
+        self.assertEqual(rows[2]["taker_buy_value"], Decimal("2443433157.364367"))
+        self.assertEqual(rows[2]["long_position_flips"], 2007)
+        self.assertEqual(rows[0]["maker_fees"], Decimal("-8959.142465"))
+        self.assertEqual(rows[0]["fee_currency"], "USDC")
+
+        data = fixture()
+        data["flows"][0]["fee_tokens"] = ["USDC", "USDH"]
+        with self.assertRaisesRegex(ValueError, "currencies"):
+            collect(data)
 
     def test_incomplete_or_inconsistent_evidence_cannot_become_valid_statistics(self):
         for section, field in (
@@ -68,6 +77,7 @@ class QuickNodeStatsTest(SimpleTestCase):
             ("flows", "long_open_size"),
             ("flows", "long_account_delta"),
             ("flows", "liquidated_short_size"),
+            ("flows", "liquidated_short_value"),
         ):
             data = fixture()
             data[section][0][field] = str(Decimal(str(data[section][0][field])) + 1)

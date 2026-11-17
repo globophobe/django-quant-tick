@@ -19,9 +19,16 @@ import pandas as pd
 
 from quant_tick.lib import get_current_time, iter_chunks
 
+from ..binance_futures.market_history import HISTORY_EXHAUSTED_ATTR
 from ..hyperliquid.api import normalize_coin
 from .api import block_range, query, timestamp
-from .flows import FLOW_FIELDS, position_flows, validate_flow
+from .flows import (
+    COUNT_FIELDS,
+    FLOW_FIELDS,
+    SIGNED_FLOW_FIELDS,
+    position_flows,
+    validate_flow,
+)
 from .positions import cohort_tiers, cohort_values, funding_points, preceding_prices
 
 BATCH = pd.Timedelta(hours=6)
@@ -77,7 +84,13 @@ def market_window(coin, start, end):
                 "oi_block": after["block_number"],
                 "funding_rate": after["rate"],
                 "trades": int(flow["trades"]),
-                **{key: flow[key] for key in FLOW_FIELDS},
+                **{
+                    key: flow[key]
+                    for key in (*FLOW_FIELDS, *SIGNED_FLOW_FIELDS, *COUNT_FIELDS)
+                },
+                "long_account_delta": int(flow["long_account_delta"]),
+                "short_account_delta": int(flow["short_account_delta"]),
+                "fee_currency": flow["fee_currency"],
                 "taker_long_short_volume_ratio": flow["taker_buy_size"]
                 / flow["taker_sell_size"]
                 if flow["taker_sell_size"]
@@ -108,6 +121,8 @@ def quicknode_market_history(api_symbol, timestamp_from, timestamp_to):
     if end <= start:
         return empty
     first = funding_history_start(timestamp(get_current_time()).date())
+    if first is not None:
+        empty.attrs[HISTORY_EXHAUSTED_ATTR] = end <= first
     if first is None or end <= first:
         return empty
     start = max(start, first)
