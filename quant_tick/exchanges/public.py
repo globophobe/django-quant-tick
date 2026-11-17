@@ -1,4 +1,4 @@
-"""Public market requests with one process-wide allowance per venue."""
+"""Public market requests with local pacing and Retry-After handling."""
 
 import json
 import logging
