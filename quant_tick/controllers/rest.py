@@ -21,9 +21,8 @@ from .base import BaseController
 from .iterators import TradeDataIterator
 
 logger = logging.getLogger(__name__)
-WEBSOCKET_DATA_LOOKBACK = pd.Timedelta("30min")
-# Use only recent websocket buckets; older ranges go through REST to avoid
-# retention-edge races while long reports or ingestion jobs are running.
+# Bound quiet-window candle requests; retained rows remain eligible at any age.
+WEBSOCKET_DATA_LOOKBACK = pd.Timedelta("1h")
 WEBSOCKET_REST_BACKFILL_MAX_INVALID_RANGES = 2
 
 
@@ -162,7 +161,14 @@ def throttle_api_requests(
 
 
 class ExchangeREST(BaseController):
-    """Base controller for REST trade ingestion."""
+    """Base controller for REST trade ingestion.
+
+    Capture retained WebSocket rows before network requests, then refresh each
+    window after fetching its candles. Cleanup cannot remove captured evidence,
+    and late arrivals can complete a minute before validation. Archive callers
+    may pass a snapshot taken before their own requests. REST retries bypass
+    WebSocket data; optional paid repair still prefers validated native minutes.
+    """
 
     partition_scoped = False
     write_unvalidated_websocket_partitions = False
@@ -191,12 +197,17 @@ class ExchangeREST(BaseController):
         ):
             yield start, end, self.get_candles(start, end)
 
-    def main(self) -> DataFrame:
+    def main(self, *, websocket_rows=None) -> DataFrame:
         """Fetch, normalize, validate, and persist TradeData slices.
 
         Ordinary partition backfills can stop at a venue-confirmed history end;
         retries keep scanning the requested repair range.
         """
+        if not self.retry and websocket_rows is None:
+            websocket_rows = self.get_websocket_rows(
+                self.timestamp_from, self.timestamp_to
+            )
+        websocket_timestamp_from = self.get_websocket_timestamp_from()
         buffered_trades = []
         pagination_id = None
         is_last_iteration = False
@@ -209,18 +220,16 @@ class ExchangeREST(BaseController):
                     timestamp_from,
                     timestamp_to,
                     candles,
+                    websocket_rows=websocket_rows,
                 )
             )
-            websocket_timestamp_from = max(
-                timestamp_from,
-                self.get_websocket_timestamp_from(),
-            )
+            websocket_window_from = max(timestamp_from, websocket_timestamp_from)
             has_zero_websocket_range = (
                 not self.retry
-                and websocket_timestamp_from < timestamp_to
+                and websocket_window_from < timestamp_to
                 and self.has_zero_trade_candles(
                     candles,
-                    websocket_timestamp_from,
+                    websocket_window_from,
                     timestamp_to,
                 )
             )
@@ -230,6 +239,7 @@ class ExchangeREST(BaseController):
                     timestamp_to,
                     candles,
                     websocket_partitions,
+                    websocket_timestamp_from=websocket_timestamp_from,
                 )
                 buffered_trades = []
                 pagination_id = None
@@ -292,29 +302,33 @@ class ExchangeREST(BaseController):
             if is_last_iteration and not buffered_trades:
                 break
 
+    def get_websocket_rows(self, timestamp_from, timestamp_to):
+        return {
+            row.timestamp: row
+            for row in WebSocketData.objects.for_symbol(self.symbol).filter(
+                timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+            )
+        }
+
     def validate_websocket_partitions(
         self,
         timestamp_from: datetime,
         timestamp_to: datetime,
         candles: DataFrame,
+        *,
+        websocket_rows=None,
     ) -> dict[datetime, tuple[DataFrame | None, DataFrame | None, DataFrame | None]]:
-        timestamp_from = max(timestamp_from, self.get_websocket_timestamp_from())
-        if timestamp_from >= timestamp_to:
-            return {}
-
-        rows = (
-            WebSocketData.objects.for_symbol(self.symbol)
-            .filter(timestamp__gte=timestamp_from, timestamp__lt=timestamp_to)
-            .order_by("timestamp")
-        )
+        if websocket_rows is None:
+            websocket_rows = {}
+        websocket_rows.update(self.get_websocket_rows(timestamp_from, timestamp_to))
         partitions = {}
-        for row in rows:
-            bucket_to = row.timestamp + pd.Timedelta("1min")
-            if bucket_to > timestamp_to:
+        for minute, row in websocket_rows.items():
+            bucket_to = minute + pd.Timedelta("1min")
+            if minute < timestamp_from or bucket_to > timestamp_to:
                 continue
             frames = self.validate_websocket_partition(row, bucket_to, candles)
             if frames is not None:
-                partitions[row.timestamp] = frames
+                partitions[minute] = frames
         return partitions
 
     @staticmethod
@@ -377,6 +391,8 @@ class ExchangeREST(BaseController):
         websocket_partitions: dict[
             datetime, tuple[DataFrame | None, DataFrame | None, DataFrame | None]
         ],
+        *,
+        websocket_timestamp_from: datetime | None = None,
     ) -> None:
         raw_frames: list[DataFrame] = []
         aggregated_frames: list[DataFrame] = []
@@ -420,9 +436,14 @@ class ExchangeREST(BaseController):
                 )
             )
 
+        if websocket_timestamp_from is None:
+            websocket_timestamp_from = self.get_websocket_timestamp_from()
         websocket_timestamp_from = max(
             timestamp_from,
-            self.get_websocket_timestamp_from(),
+            min(
+                websocket_timestamp_from,
+                min(websocket_partitions, default=timestamp_to),
+            ),
         )
         invalid_ranges = self.get_invalid_websocket_ranges(
             websocket_timestamp_from,
@@ -697,12 +718,19 @@ class ExchangeWebSocket(ExchangeREST):
 
     write_unvalidated_websocket_partitions = True
 
-    def main(self) -> None:
+    def main(self, *, websocket_rows=None) -> None:
         if self.retry:
             return
+        if websocket_rows is None:
+            websocket_rows = self.get_websocket_rows(
+                self.timestamp_from, self.timestamp_to
+            )
         timestamp_from = max(
             self.timestamp_from,
-            self.get_websocket_timestamp_from(),
+            min(
+                self.get_websocket_timestamp_from(),
+                min(websocket_rows, default=self.timestamp_to),
+            ),
         )
         timestamp_to = self.timestamp_to
         if timestamp_from >= timestamp_to:
@@ -713,6 +741,7 @@ class ExchangeWebSocket(ExchangeREST):
             timestamp_from,
             timestamp_to,
             candles,
+            websocket_rows=websocket_rows,
         )
         for ts_from, ts_to in iter_window(
             timestamp_from,

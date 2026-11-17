@@ -390,57 +390,6 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
         self.assertTrue(stored.ok)
         self.assertEqual(stored.json_data["data_sources"], ["hyperliquid"])
 
-    def test_retained_websocket_survives_cleanup_during_candle_fetch(self):
-        self.websocket_minute(0)
-        self.websocket_minute(1, "0.5")
-
-        def cleanup(*args, **kwargs):
-            clock.shift(timedelta(minutes=3))
-            deleted, _ = (
-                WebSocketData.objects.for_symbol(self.symbol)
-                .filter(timestamp__lt=self.start + timedelta(minutes=2))
-                .delete()
-            )
-            self.assertEqual(deleted, 2)
-            return self.candles
-
-        with (
-            time_machine.travel(
-                self.start + timedelta(minutes=59), tick=False
-            ) as clock,
-            patch(
-                "quant_tick.exchanges.hyperliquid.controllers.native_hyperliquid_candles",
-                side_effect=cleanup,
-            ),
-            patch(
-                "quant_tick.exchanges.coinapi.controllers.get_coinapi_response",
-                return_value=[self.vendor_minute(1), self.vendor_minute(2)],
-            ) as request,
-            patch(
-                "quant_tick.exchanges.hyperliquid.candles.coinapi_candles"
-            ) as vendor_candles,
-        ):
-            api(self.symbol, self.start, self.end)
-        self.assertFalse(WebSocketData.objects.for_symbol(self.symbol).exists())
-        self.archive.assert_called_once_with(
-            self.start + timedelta(minutes=1), self.end
-        )
-        request.assert_called_once()
-        self.assertEqual(
-            pd.Timestamp(request.call_args.args[1]["time_start"]),
-            self.start + timedelta(minutes=1),
-        )
-        vendor_candles.assert_not_called()
-        rows = list(TradeData.objects.filter(symbol=self.symbol).order_by("timestamp"))
-        self.assertEqual([row.ok for row in rows], [True] * 3)
-        self.assertEqual(
-            [row.uid for row in rows], ["native-0", "vendor-1", "vendor-2"]
-        )
-        self.assertEqual(
-            [row.json_data["data_sources"] for row in rows],
-            [["hyperliquid"], ["coinapi"], ["coinapi"]],
-        )
-
     def test_native_minute_between_gaps_is_not_replaced_by_vendor(self):
         self.websocket_minute(1)
         with patch(

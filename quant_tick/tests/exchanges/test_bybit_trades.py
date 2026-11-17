@@ -87,8 +87,11 @@ class BybitTradesTest(SimpleTestCase):
                     archive.return_value.main.side_effect = lambda calls=calls: (
                         calls.append("archive")
                     )
-                    websocket.return_value.main.side_effect = lambda calls=calls: (
-                        calls.append("websocket")
+                    websocket.return_value.get_websocket_rows.side_effect = (
+                        lambda *args, calls=calls: calls.append("capture") or {}
+                    )
+                    websocket.return_value.main.side_effect = (
+                        lambda calls=calls, **kwargs: calls.append("websocket")
                     )
                     bybit_trades(symbol, start, end, on_data_frame)
 
@@ -105,10 +108,12 @@ class BybitTradesTest(SimpleTestCase):
                         self.assertEqual(calls, ["archive"])
                         websocket.assert_not_called()
                     else:
-                        self.assertEqual(calls, ["archive", "websocket"])
+                        self.assertEqual(calls, ["capture", "archive", "websocket"])
                         kwargs["timestamp_from"] = expected_start
                         websocket.assert_called_once_with(symbol, **kwargs)
-                        websocket.return_value.main.assert_called_once_with()
+                        websocket.return_value.main.assert_called_once_with(
+                            websocket_rows={}
+                        )
 
     def test_optional_repair_only_uses_supported_markets(self):
         start = datetime(2026, 7, 23, 12, tzinfo=UTC)
@@ -160,6 +165,7 @@ class BybitTradesTest(SimpleTestCase):
             timestamp_to,
             on_data_frame,
         )
+        controller.get_websocket_rows = Mock(return_value={})
         controller.get_websocket_timestamp_from = Mock(return_value=timestamp_from)
         controller.get_candles = Mock(return_value=candles)
         controller.validate_websocket_partitions = Mock(
@@ -202,6 +208,7 @@ class BybitTradesTest(SimpleTestCase):
             timestamp_to,
             on_data_frame,
         )
+        controller.get_websocket_rows = Mock(return_value={})
         controller.get_websocket_timestamp_from = Mock(return_value=timestamp_from)
         controller.get_candles = Mock(return_value=pd.DataFrame([]))
         controller.validate_websocket_partitions = Mock(
@@ -244,6 +251,7 @@ class BybitTradesTest(SimpleTestCase):
             timestamp_to,
             on_data_frame,
         )
+        controller.get_websocket_rows = Mock(return_value={})
         controller.get_websocket_timestamp_from = Mock(return_value=timestamp_from)
         controller.get_candles = Mock(return_value=pd.DataFrame([]))
         controller.validate_websocket_partitions = Mock(

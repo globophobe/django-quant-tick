@@ -7,14 +7,16 @@ import pandas as pd
 import time_machine
 from django.test import SimpleTestCase, TestCase
 
-from quant_tick.constants import Exchange
+from quant_tick.constants import RETRY_INDETERMINATE, Exchange
 from quant_tick.controllers import (
     ExchangeREST,
+    ExchangeWebSocket,
     increment_api_total_requests,
     is_terminal_page,
     throttle_api_requests,
 )
-from quant_tick.models import WebSocketData
+from quant_tick.exchanges.coinapi.repair import CoinAPIRepairTrades
+from quant_tick.models import TradeData, WebSocketData
 
 from ..base import BaseSymbolTest
 
@@ -141,6 +143,33 @@ class DummyExchangeREST(ExchangeREST):
     ) -> pd.DataFrame:
         self.candle_calls.append((timestamp_from, timestamp_to))
         return pd.DataFrame([])
+
+
+class DummyPartitionREST(DummyExchangeREST):
+    partition_scoped = True
+
+
+class DummyExchangeWebSocket(DummyExchangeREST, ExchangeWebSocket):
+    pass
+
+
+class DummyRepairTrades(DummyExchangeREST, CoinAPIRepairTrades):
+    columns = ExchangeREST.columns
+    on_rest_data_frame = ExchangeREST.on_rest_data_frame
+
+    def get_native_candles(self, timestamp_from, timestamp_to):
+        return self.get_candles(timestamp_from, timestamp_to)
+
+    def iter_missing_windows(self):
+        yield self.timestamp_from, self.timestamp_to
+
+
+COLLECTION_MODES = (
+    DummyExchangeREST,
+    DummyPartitionREST,
+    DummyExchangeWebSocket,
+    DummyRepairTrades,
+)
 
 
 @time_machine.travel(datetime(2009, 1, 3, tzinfo=UTC), tick=False)
@@ -667,34 +696,50 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
         self.assertEqual(list(frame.uid), [str(9000 + minute) for minute in range(10)])
         self.assertEqual(kwargs, {})
 
-    def test_main_uses_rest_only_on_retry_even_when_websocket_partition_is_valid(self):
-        ts0 = self.timestamp_from
-        self.create_websocket_data(1, 1)
-        controller = DummyExchangeREST(
-            self.symbol,
-            timestamp_from=ts0 + self.one_minute,
-            timestamp_to=ts0 + (self.one_minute * 2),
-            retry=True,
-            verbose=False,
-            api_results=[([self.get_trade(9001, 1)], True, None)],
-        )
-
-        with (
-            patch(
-                "quant_tick.controllers.rest.TradeDataIterator.iter_all",
-                return_value=[(ts0 + self.one_minute, ts0 + (self.one_minute * 2))],
-            ),
-            patch(
-                "quant_tick.controllers.rest.WebSocketData.objects.for_symbol",
-            ) as mock_for_symbol,
-        ):
-            controller.main()
-
-        mock_for_symbol.assert_not_called()
-        self.assertEqual(controller.api_calls, 1)
-        self.assertEqual(len(controller.frames), 1)
-        self.assertEqual(list(controller.frames[0][2].uid), ["9001"])
-        self.assertEqual(controller.frames[0][4], {})
+    def test_retry_preserves_each_collection_modes_source_policy(self):
+        start, end = self.timestamp_from, self.timestamp_from + self.one_minute
+        self.create_websocket_data(1, 0)
+        candles = self.get_candles({0: Decimal(1)})
+        for mode in COLLECTION_MODES:
+            for retry in (True, RETRY_INDETERMINATE):
+                with self.subTest(mode=mode.__name__, retry=retry):
+                    controller = mode(
+                        self.symbol,
+                        start,
+                        end,
+                        retry=retry,
+                        verbose=False,
+                        api_results=[([self.get_trade(9001, 0)], True, None)],
+                    )
+                    with (
+                        patch(
+                            "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+                            return_value=[(start, end)],
+                        ),
+                        patch.object(
+                            controller,
+                            "get_websocket_rows",
+                            wraps=controller.get_websocket_rows,
+                        ) as rows,
+                        patch.object(controller, "get_candles", return_value=candles),
+                        patch(
+                            "quant_tick.exchanges.coinapi.repair.coinapi_history_start"
+                        ) as history,
+                    ):
+                        controller.main()
+                    history.assert_not_called()
+                    if mode is not DummyRepairTrades:
+                        rows.assert_not_called()
+                    uses_rest = mode in (DummyExchangeREST, DummyPartitionREST)
+                    self.assertEqual(controller.api_calls, int(uses_rest))
+                    if mode is DummyExchangeWebSocket:
+                        self.assertEqual(controller.frames, [])
+                    else:
+                        self.assertEqual(len(controller.frames), 1)
+                        self.assertEqual(
+                            controller.frames[0][2].uid.tolist(),
+                            ["9001" if uses_rest else "1"],
+                        )
 
     def test_main_fetches_rest_when_websocket_partition_is_not_valid(self):
         ts0 = self.timestamp_from
@@ -726,34 +771,154 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
         self.assertEqual(controller.frames[0][1], ts0 + (self.one_minute * 2))
         self.assertEqual(controller.frames[0][4], {})
 
-    def test_main_skips_websocket_lookup_before_retention_window(self):
-        ts0 = self.timestamp_from
-        controller = DummyExchangeREST(
-            self.symbol,
-            timestamp_from=ts0,
-            timestamp_to=ts0 + (self.one_minute * 2),
-            retry=False,
-            verbose=False,
-            api_results=[([self.get_trade(1, 1), self.get_trade(0, 0)], True, None)],
-        )
+    def test_retained_websocket_survives_cleanup_and_refreshes_across_modes(self):
+        start, end = self.timestamp_from, self.timestamp_from + self.one_minute
+        for mode in COLLECTION_MODES:
+            for scenario in (
+                "cleanup",
+                "archive_cleanup",
+                "late_arrival",
+                "completion",
+            ):
+                with self.subTest(mode=mode.__name__, scenario=scenario):
+                    WebSocketData.objects.all().delete()
+                    if scenario != "late_arrival":
+                        row = self.create_websocket_data(1, 0)
+                        if scenario == "completion":
+                            row.raw_trades[0]["notional"] = Decimal("0.5")
+                            row.raw_trades[0]["volume"] = Decimal(50)
+                            row.save()
+                    # A snapshot can contain rows outside the current window.
+                    self.create_websocket_data(100, -1)
+                    self.create_websocket_data(101, 1)
+                    controller = mode(
+                        self.symbol, start, end, api_results=[], verbose=False
+                    )
+                    candles = self.get_candles({0: Decimal(1)})
+                    with time_machine.travel(
+                        start + pd.Timedelta("59min"), tick=False
+                    ) as clock:
+                        kwargs = {}
+                        if scenario == "archive_cleanup":
+                            kwargs["websocket_rows"] = controller.get_websocket_rows(
+                                start - self.one_minute, end + self.one_minute
+                            )
+                            WebSocketData.objects.all().delete()
+                            clock.shift(timedelta(hours=2))
 
-        with (
-            patch(
-                "quant_tick.controllers.rest.TradeDataIterator.iter_all",
-                return_value=[(ts0, ts0 + (self.one_minute * 2))],
-            ),
-            patch(
-                "quant_tick.controllers.rest.get_current_time",
-                return_value=ts0 + pd.Timedelta("2h"),
-            ),
-            patch(
-                "quant_tick.controllers.rest.WebSocketData.objects.for_symbol",
-            ) as mock_for_symbol,
-        ):
-            controller.main()
+                        def fetch_candles(*args, scenario=scenario, candles=candles):
+                            clock.shift(timedelta(minutes=3))
+                            WebSocketData.objects.all().delete()
+                            if scenario in ("late_arrival", "completion"):
+                                self.create_websocket_data(2, 0)
+                            return candles
 
-        mock_for_symbol.assert_not_called()
-        self.assertEqual(controller.api_calls, 1)
+                        with (
+                            patch.object(
+                                controller, "get_candles", side_effect=fetch_candles
+                            ),
+                            patch(
+                                "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+                                return_value=[(start, end)],
+                            ),
+                            patch(
+                                "quant_tick.exchanges.coinapi.repair.coinapi_history_start"
+                            ) as history,
+                        ):
+                            controller.main(**kwargs)
+                        history.assert_not_called()
+                    self.assertEqual(controller.api_calls, 0)
+                    self.assertEqual(len(controller.frames), 1)
+                    frame = controller.frames[0][2]
+                    self.assertEqual(
+                        frame.uid.tolist(),
+                        ["2" if scenario in ("late_arrival", "completion") else "1"],
+                    )
+                    self.assertEqual(frame.notional.sum(), Decimal(1))
+                    self.assertIs(
+                        TradeData.validate(
+                            self.symbol, start, end, candles, raw_trades=frame
+                        ),
+                        True,
+                    )
+
+    def test_websocket_validation_and_fallback_across_modes(self):
+        start, end = self.timestamp_from, self.timestamp_from + self.one_minute
+        for mode in COLLECTION_MODES:
+            for scenario, quantity, expected_candle in (
+                ("valid", "1", "1"),
+                ("invalid", "0.5", "1"),
+                ("unknown", "1", None),
+                ("missing", None, "1"),
+                ("quiet", None, "0"),
+            ):
+                with self.subTest(mode=mode.__name__, scenario=scenario):
+                    WebSocketData.objects.all().delete()
+                    if quantity is not None:
+                        row = self.create_websocket_data(1, 0)
+                        row.raw_trades[0]["notional"] = Decimal(quantity)
+                        row.raw_trades[0]["volume"] = Decimal(quantity) * 100
+                        row.save()
+                    candles = self.get_candles(
+                        {0: Decimal(expected_candle)}
+                        if expected_candle is not None
+                        else {}
+                    )
+                    controller = mode(
+                        self.symbol,
+                        start,
+                        end,
+                        verbose=False,
+                        api_results=[([self.get_trade(9001, 0)], True, None)],
+                    )
+                    with (
+                        time_machine.travel(
+                            start + pd.Timedelta("59min"), tick=False
+                        ) as clock,
+                        patch(
+                            "quant_tick.controllers.rest.TradeDataIterator.iter_all",
+                            return_value=[(start, end)],
+                        ),
+                        patch(
+                            "quant_tick.exchanges.coinapi.repair.coinapi_history_start",
+                            return_value=pd.Timestamp(start),
+                        ),
+                    ):
+
+                        def fetch_candles(*args, candles=candles):
+                            clock.shift(timedelta(minutes=3))
+                            return candles
+
+                        with patch.object(
+                            controller, "get_candles", side_effect=fetch_candles
+                        ):
+                            controller.main()
+                    uses_rest = mode is not DummyExchangeWebSocket and scenario in (
+                        "invalid",
+                        "unknown",
+                        "missing",
+                    )
+                    self.assertEqual(controller.api_calls, int(uses_rest))
+                    if mode is DummyExchangeWebSocket and scenario == "missing":
+                        self.assertEqual(controller.frames, [])
+                        continue
+                    self.assertEqual(len(controller.frames), 1)
+                    frame = controller.frames[0][2]
+                    expected_ids = (
+                        [] if scenario == "quiet" else ["9001" if uses_rest else "1"]
+                    )
+                    self.assertEqual(
+                        frame.uid.tolist() if not frame.empty else [], expected_ids
+                    )
+                    validation = TradeData.validate(
+                        self.symbol, start, end, candles, raw_trades=frame
+                    )
+                    expected_ok = (
+                        None
+                        if scenario == "unknown"
+                        else not (scenario == "invalid" and not uses_rest)
+                    )
+                    self.assertIs(validation, expected_ok)
 
     def test_main_resets_pagination_across_partition_gaps(self):
         ts0 = self.timestamp_from

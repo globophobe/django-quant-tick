@@ -262,6 +262,7 @@ class DeribitTradesTest(SimpleTestCase):
             verbose=False,
         )
         controller.get_candles = Mock(side_effect=["newer", "older"])
+        controller.get_websocket_rows = Mock(return_value={})
         controller.validate_websocket_partitions = Mock(return_value={})
         controller.get_websocket_timestamp_from = Mock(
             return_value=controller.timestamp_to
@@ -294,6 +295,7 @@ class DeribitTradesTest(SimpleTestCase):
             save=Mock(),
         )
 
+        events = []
         with (
             patch(
                 "quant_tick.exchanges.deribit.controllers.get_deribit_instrument_creation_timestamp",
@@ -303,6 +305,15 @@ class DeribitTradesTest(SimpleTestCase):
                 "quant_tick.exchanges.deribit.controllers.DeribitTrades"
             ) as controller,
         ):
+            controller.return_value.get_websocket_rows.side_effect = lambda *args: (
+                events.append("capture") or {}
+            )
+            get_creation_timestamp.side_effect = lambda *args: (
+                events.append("metadata") or self.timestamp_from + timedelta(hours=13)
+            )
+            controller.return_value.main.side_effect = lambda **kwargs: events.append(
+                controller.return_value.timestamp_from
+            )
             deribit_trades(
                 symbol,
                 requested_from,
@@ -322,13 +333,26 @@ class DeribitTradesTest(SimpleTestCase):
         self.assertEqual(controller.call_count, 2)
         self.assertEqual(
             controller.call_args_list[0].kwargs["timestamp_from"],
-            self.timestamp_from + timedelta(hours=13),
+            requested_from,
         )
         self.assertEqual(
             controller.call_args_list[1].kwargs["timestamp_from"],
-            self.timestamp_from,
+            requested_from,
         )
-        self.assertEqual(controller.return_value.main.call_count, 2)
+        self.assertEqual(
+            events,
+            [
+                "capture",
+                "metadata",
+                self.timestamp_from + timedelta(hours=13),
+                "capture",
+                self.timestamp_from,
+            ],
+        )
+        self.assertEqual(
+            controller.return_value.main.call_args_list,
+            [call(websocket_rows={}), call(websocket_rows={})],
+        )
 
     def test_mixin_maps_spot_amount_as_base_asset(self):
         controller = DeribitTrades.__new__(DeribitTrades)

@@ -26,10 +26,20 @@ def binance_trades(
         "retry": retry,
         "verbose": verbose,
     }
+    followup_from = get_archive_followup_start(timestamp_from)
+    rest = (
+        BinanceTradesREST(symbol, **{**kwargs, "timestamp_from": followup_from})
+        if followup_from < timestamp_to
+        else None
+    )
+    websocket_rows = (
+        rest.get_websocket_rows(followup_from, timestamp_to)
+        if rest is not None and not retry
+        else None
+    )
     BinanceTradesS3(symbol, **kwargs).main()
-    kwargs["timestamp_from"] = get_archive_followup_start(timestamp_from)
-    if kwargs["timestamp_from"] < timestamp_to:
-        BinanceTradesREST(symbol, **kwargs).main()
+    if rest is not None:
+        rest.main(websocket_rows=websocket_rows)
 
 
 class BinanceTradesREST(BinanceMixin, ExchangeREST):

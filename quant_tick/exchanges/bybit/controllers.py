@@ -41,8 +41,16 @@ def bybit_trades(
         "verbose": verbose,
     }
     repair = BybitTrades(symbol, **kwargs) if coinapi_symbol(symbol) else None
+    followup_from = get_archive_followup_start(timestamp_from)
+    followup = repair
+    if followup is None and followup_from < timestamp_to:
+        followup = BybitTradesWebSocket(
+            symbol, **{**kwargs, "timestamp_from": followup_from}
+        )
     websocket_rows = (
-        repair.get_websocket_rows(timestamp_from, timestamp_to) if repair else None
+        followup.get_websocket_rows(followup.timestamp_from, timestamp_to)
+        if followup is not None and (repair is not None or not retry)
+        else None
     )
     archive = BybitSpotTradesS3 if category == "spot" else BybitTradesS3
     archive(
@@ -52,14 +60,8 @@ def bybit_trades(
             "on_data_frame": repair.on_archive_data_frame if repair else on_data_frame,
         },
     ).main()
-    if repair is not None:
-        repair.main(websocket_rows=websocket_rows)
-        return
-    followup_from = get_archive_followup_start(timestamp_from)
-    if followup_from < timestamp_to:
-        BybitTradesWebSocket(
-            symbol, **{**kwargs, "timestamp_from": followup_from}
-        ).main()
+    if followup is not None:
+        followup.main(websocket_rows=websocket_rows)
 
 
 class BybitTradesS3(BybitS3Mixin, ChunkedExchangeS3):
