@@ -684,6 +684,8 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
                     save_aggregated=True,
                     significant_trade_filter=1,
                 )
+                symbol.code_name = f"exponential-chardonnay-{native_exchange}"
+                symbol.save(update_fields=["code_name"])
                 native = self.get_symbol(
                     exchange=native_exchange,
                     api_symbol=native_pair,
@@ -714,7 +716,12 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
                 )
                 stored = TradeData.objects.get(symbol=symbol)
                 self.assertIs(stored.ok, True)
+                self.assertGreater(len(stored.aggregated_data.name), 100)
                 for field in ("raw_data", "aggregated_data", "filtered_data"):
+                    self.assertEqual(
+                        getattr(stored, field).name,
+                        stored.upload_path(field.removesuffix("_data"), "data.parquet"),
+                    )
                     frame = stored.get_data_frame(field)
                     self.assertEqual(frame.notional.sum(), Decimal("0.2"))
                     self.assertEqual(

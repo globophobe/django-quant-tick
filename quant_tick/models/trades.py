@@ -136,12 +136,20 @@ class TradeData(AbstractDataStorage):
         choices=[c for c in Frequency.choices if c[0] != Frequency.WEEK],
         db_index=True,
     )
-    raw_data = models.FileField(_("raw data"), blank=True, upload_to=upload_raw_data_to)
+    raw_data = models.FileField(
+        _("raw data"), blank=True, max_length=1024, upload_to=upload_raw_data_to
+    )
     aggregated_data = models.FileField(
-        _("aggregated data"), blank=True, upload_to=upload_aggregated_data_to
+        _("aggregated data"),
+        blank=True,
+        max_length=1024,
+        upload_to=upload_aggregated_data_to,
     )
     filtered_data = models.FileField(
-        _("filtered data"), blank=True, upload_to=upload_filtered_data_to
+        _("filtered data"),
+        blank=True,
+        max_length=1024,
+        upload_to=upload_filtered_data_to,
     )
     json_data = JSONField(_("json data"), null=True)
     ok = models.BooleanField(_("ok"), null=True, default=False, db_index=True)
