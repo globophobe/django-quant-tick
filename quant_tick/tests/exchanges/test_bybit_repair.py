@@ -87,10 +87,14 @@ class BybitRepairTest(BaseWriteTradeDataTest, TestCase):
         )
 
     def vendor(self, minute, exchange=Exchange.BYBIT_LINEAR, size="1", side="BUY"):
-        market = "SPOT" if exchange == Exchange.BYBIT else "PERP"
+        symbol_id = (
+            "BYBITSPOT_SPOT_BTC_USDT"
+            if exchange == Exchange.BYBIT
+            else "BYBIT_PERP_BTC_USDT"
+        )
         timestamp = (self.start + timedelta(minutes=minute, seconds=1)).isoformat()
         return {
-            "symbol_id": f"BYBIT_{market}_BTC_USDT",
+            "symbol_id": symbol_id,
             "uuid": f"vendor-{minute}",
             "id_trade": f"venue-{minute}",
             "time_exchange": timestamp,
@@ -142,10 +146,14 @@ class BybitRepairTest(BaseWriteTradeDataTest, TestCase):
                     self.start + timedelta(minutes=1), self.end
                 )
                 self.rest.assert_called_once()
-                market = "SPOT" if exchange == Exchange.BYBIT else "PERP"
+                symbol_id = (
+                    "BYBITSPOT_SPOT_BTC_USDT"
+                    if exchange == Exchange.BYBIT
+                    else "BYBIT_PERP_BTC_USDT"
+                )
                 self.assertEqual(
                     self.rest.call_args.args[0],
-                    f"/v1/trades/BYBIT_{market}_BTC_USDT/history",
+                    f"/v1/trades/{symbol_id}/history",
                 )
                 self.assertEqual(
                     pd.Timestamp(self.rest.call_args.args[1]["time_start"]),
@@ -400,23 +408,39 @@ class BybitRepairTest(BaseWriteTradeDataTest, TestCase):
     def test_metadata_uses_exact_bybit_market_and_cache(self):
         _coinapi_history_start.cache_clear()
         self.addCleanup(_coinapi_history_start.cache_clear)
-        with patch(
-            "quant_tick.exchanges.coinapi.api.get_coinapi_response",
-            return_value=[
-                {
-                    "symbol_id": "BYBIT_PERP_BTC_USDT",
-                    "data_trade_start": self.start.isoformat(),
-                }
-            ],
-        ) as metadata:
-            self.assertEqual(
-                coinapi_history_start("BYBIT_PERP_BTC_USDT"), pd.Timestamp(self.start)
-            )
-            coinapi_history_start("BYBIT_PERP_BTC_USDT")
-            metadata.assert_called_once_with(
-                "/v1/symbols/BYBIT/active", {"filter_symbol_id": "BYBIT_PERP_BTC_USDT"}
-            )
-            self.assertIsNone(coinapi_history_start("BYBIT_SPOT_BTC_USDT"))
+        self.metadata.side_effect = coinapi_history_start
+        for exchange, vendor_exchange, symbol_id in (
+            (Exchange.BYBIT, "BYBITSPOT", "BYBITSPOT_SPOT_BTC_USDT"),
+            (Exchange.BYBIT_LINEAR, "BYBIT", "BYBIT_PERP_BTC_USDT"),
+        ):
+            with self.subTest(exchange=exchange):
+                symbol = self.make_symbol(exchange)
+                self.rest.return_value = [self.vendor(i, exchange) for i in range(3)]
+                with patch(
+                    "quant_tick.exchanges.coinapi.api.get_coinapi_response",
+                    return_value=[
+                        {
+                            "symbol_id": symbol_id,
+                            "data_trade_start": self.start.isoformat(),
+                        }
+                    ],
+                ) as metadata:
+                    api(symbol, self.start, self.end)
+                    self.assertEqual(
+                        coinapi_history_start(symbol_id), pd.Timestamp(self.start)
+                    )
+                    metadata.assert_called_once_with(
+                        f"/v1/symbols/{vendor_exchange}/active",
+                        {"filter_symbol_id": symbol_id},
+                    )
+                self.rest.assert_called_once()
+                self.assertEqual(
+                    self.rest.call_args.args[0], f"/v1/trades/{symbol_id}/history"
+                )
+                self.assertEqual(
+                    TradeData.objects.filter(symbol=symbol, ok=True).count(), 3
+                )
+                self.rest.reset_mock()
 
     def test_partial_retry_keeps_daily_row_and_files_when_fetch_fails_or_is_empty(self):
         self.mock(

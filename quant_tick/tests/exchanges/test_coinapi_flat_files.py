@@ -82,7 +82,7 @@ class CoinAPIFlatFilesTest(SimpleTestCase):
     def test_file_is_cached_and_preserves_order_precision_ids_and_direction(self):
         for symbol_id, exchange, native in (
             (SYMBOL, "HYPERLIQUID", "BTC"),
-            ("BYBIT_SPOT_BTC_USDT", "BYBIT", "BTCUSDT"),
+            ("BYBITSPOT_SPOT_BTC_USDT", "BYBITSPOT", "BTCUSDT"),
             ("BYBIT_PERP_BTC_USDT", "BYBIT", "BTCUSDT"),
         ):
             with self.subTest(symbol=symbol_id):
