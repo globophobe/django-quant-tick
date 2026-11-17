@@ -92,9 +92,4 @@ class BybitTradesWebSocket(BybitMixin, ExchangeWebSocket):
             ok=True,
         ).exists():
             return None
-        frames = super().validate_websocket_partition(row, timestamp_to, candles)
-        if frames is not None:
-            for frame in frames:
-                if frame is not None:
-                    frame["data_source"] = "bybit"
-        return frames
+        return super().validate_websocket_partition(row, timestamp_to, candles)

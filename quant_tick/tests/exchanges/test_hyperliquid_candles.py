@@ -62,7 +62,7 @@ class HyperliquidCandleTest(SimpleTestCase):
         self.assertEqual(df.iloc[0].notional, Decimal(10))
         self.assertEqual(df.iloc[0].trades, 3)
 
-    def test_quicknode_fills_only_missing_completed_candles_and_retains_source(self):
+    def test_quicknode_fills_only_missing_completed_candles(self):
         start = pd.Timestamp("2026-04-25", tz="UTC")
         end = start + timedelta(minutes=3)
         native = pd.DataFrame(
@@ -94,9 +94,7 @@ class HyperliquidCandleTest(SimpleTestCase):
             frame.index.tolist(), list(pd.date_range(start, periods=3, freq="min"))
         )
         self.assertEqual(frame.notional.tolist(), [Decimal(2), Decimal(1), Decimal(2)])
-        self.assertEqual(
-            frame.data_source.tolist(), ["quicknode", "hyperliquid", "quicknode"]
-        )
+        self.assertEqual(frame.columns.tolist(), ["notional"])
 
     def test_missing_key_or_disabled_fallback_never_requests_vendor_data(self):
         start = pd.Timestamp("2026-04-25", tz="UTC")

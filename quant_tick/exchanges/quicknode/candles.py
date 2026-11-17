@@ -35,13 +35,12 @@ def validation_candles(coin, start, end):
                     "timestamp": moment,
                     "notional": number(point["notional"], positive=True),
                     "trades": int(point["trades"]),
-                    "data_source": "quicknode",
                 }
             )
             previous = moment
-    return pd.DataFrame(
-        rows, columns=["timestamp", "notional", "trades", "data_source"]
-    ).set_index("timestamp")
+    return pd.DataFrame(rows, columns=["timestamp", "notional", "trades"]).set_index(
+        "timestamp"
+    )
 
 
 def quicknode_candles(coin, timestamp_from, timestamp_to, resolution="1m"):
@@ -65,7 +64,6 @@ def quicknode_candles(coin, timestamp_from, timestamp_to, resolution="1m"):
                         "notional": Decimal(0),
                         "volume": Decimal(0),
                         "trades": 0,
-                        "data_source": "quicknode",
                     }
                 )
             candle = rows[-1]
@@ -88,6 +86,5 @@ def quicknode_candles(coin, timestamp_from, timestamp_to, resolution="1m"):
             "notional",
             "volume",
             "trades",
-            "data_source",
         ],
     ).set_index("timestamp")

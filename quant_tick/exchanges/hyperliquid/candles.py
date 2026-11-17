@@ -69,14 +69,14 @@ def hyperliquid_candles(
 ) -> DataFrame:
     """Prefer native bars, filling absent completed intervals from QuickNode.
 
-    Provider errors propagate; they are not evidence of absent history. Source
-    metadata survives persistence, and native observations always win overlaps.
+    Provider errors propagate; they are not evidence of absent history.
+    Native observations always win overlaps.
     """
     frame = native_hyperliquid_candles(
         api_symbol, timestamp_from, timestamp_to, resolution
     )
     if not allow_quicknode:
-        return frame.assign(data_source="hyperliquid")
+        return frame
     return fill_quicknode_candles(
         api_symbol, timestamp_from, timestamp_to, frame, resolution
     )
@@ -85,8 +85,6 @@ def hyperliquid_candles(
 def fill_quicknode_candles(
     api_symbol, timestamp_from, timestamp_to, frame, resolution="1m", *, fetch=None
 ):
-    frame = frame.copy()
-    frame["data_source"] = "hyperliquid"
     interval = get_hyperliquid_interval(resolution)
     if (
         not available()
@@ -122,9 +120,8 @@ def fill_quicknode_candles(
             (fallback.index >= fetch_from)
             & (fallback.index < fetch_to)
             & ~fallback.index.isin(frame.index)
-        ].copy()
+        ]
         if not fallback.empty:
-            fallback["data_source"] = "quicknode"
             frames.append(fallback)
     # Each provider is ordered; interleave their disjoint intervals chronologically.
     return pd.concat(frames).sort_index() if frames else frame

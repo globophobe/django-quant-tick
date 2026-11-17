@@ -166,7 +166,6 @@ def trade_frame(rows):
                 "index": index,
                 "id_trade": str(row["trade_id"]),
                 "block_number": row["block_number"],
-                "data_source": "quicknode",
             }
         )
     return pd.DataFrame(
@@ -182,7 +181,6 @@ def trade_frame(rows):
             "index",
             "id_trade",
             "block_number",
-            "data_source",
         ],
     )
 

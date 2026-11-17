@@ -3,7 +3,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
-from django.core.files.base import ContentFile
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.utils.translation import gettext_lazy as _
@@ -155,13 +154,6 @@ class TradeData(AbstractDataStorage):
     json_data = JSONField(_("json data"), null=True)
     ok = models.BooleanField(_("ok"), null=True, default=False, db_index=True)
     objects = TradeDataQuerySet.as_manager()
-
-    @classmethod
-    def prepare_data(cls, data_frame: DataFrame) -> ContentFile:
-        """Keep provider provenance in json_data, outside the trade file schema."""
-        return super().prepare_data(
-            data_frame.drop(columns="data_source", errors="ignore")
-        )
 
     def upload_path(self, directory: str, filename: str) -> str:
         """Upload path.
@@ -493,15 +485,6 @@ class TradeData(AbstractDataStorage):
                 timestamp_to,
             )
             json_data = {"candle": aggregate_candle(validation)}
-            sources = {
-                source
-                for frame in (raw_trades, aggregated_trades, filtered_trades)
-                if frame is not None and "data_source" in frame.columns
-                for value in frame.data_source.fillna("unknown")
-                for source in value.split(",")
-            }
-            if sources:
-                json_data["data_sources"] = sorted(sources)
 
         ok = cls._validate_candles(obj.symbol, aggregated_candles, candles)
         with transaction.atomic():

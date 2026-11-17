@@ -158,7 +158,6 @@ class HyperliquidWebSocketValidationTest(BaseWriteTradeDataTest, TestCase):
         )
         for row in rows:
             self.assertTrue(row.has_data_frame(FileData.FILTERED))
-            self.assertEqual(row.json_data["data_sources"], ["hyperliquid"])
 
 
 @override_settings(
@@ -272,10 +271,11 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
         rows = list(TradeData.objects.filter(symbol=self.symbol).order_by("timestamp"))
         self.assertEqual([row.ok for row in rows], [True] * 3)
         self.assertEqual(
-            [row.json_data["data_sources"] for row in rows],
-            [["hyperliquid"], ["quicknode"], ["hyperliquid"]],
+            [row.uid for row in rows],
+            ["native-0", "101:123456790", "native-2"],
         )
         for row in rows:
+            self.assertEqual(set(row.json_data), {"candle"})
             for field in (FileData.RAW, FileData.AGGREGATED, FileData.FILTERED):
                 frame = row.get_data_frame(field)
                 self.assertEqual(len(frame), 1)
@@ -303,7 +303,7 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
         metadata.assert_not_called()
         stored = TradeData.objects.get(symbol=self.symbol)
         self.assertTrue(stored.ok)
-        self.assertEqual(stored.json_data["data_sources"], ["hyperliquid"])
+        self.assertEqual(stored.uid, "native-0")
 
     def test_native_minute_between_gaps_is_not_replaced_by_vendor(self):
         self.websocket_minute(1)
@@ -329,8 +329,8 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
         )
         rows = list(TradeData.objects.filter(symbol=self.symbol).order_by("timestamp"))
         self.assertEqual(
-            [row.json_data["data_sources"] for row in rows],
-            [["quicknode"], ["hyperliquid"], ["quicknode"]],
+            [row.uid for row in rows],
+            ["100:123456789", "native-1", "102:123456791"],
         )
 
     def test_empty_vendor_response_leaves_missing_history_available_for_next_pass(self):

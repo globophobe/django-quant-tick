@@ -152,8 +152,6 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
         ) in self.get_validation_cases():
             with self.subTest(name=name):
                 symbol = self.get_symbol(api_symbol=name, **symbol_kwargs)
-                for frame in trade_kwargs.values():
-                    frame["data_source"] = "quicknode"
 
                 rows = TradeData.write(
                     symbol,
@@ -167,16 +165,12 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                 trade_data = TradeData.objects.get(symbol=symbol)
                 self.assertTrue(trade_data.ok)
                 self.assertEqual(trade_data.uid, f"{name}-1")
-                self.assertEqual(trade_data.json_data["data_sources"], ["quicknode"])
+                self.assertEqual(set(trade_data.json_data), {"candle"})
                 for file_data in FileData:
                     self.assertEqual(
                         trade_data.has_data_frame(file_data),
                         file_data == stored_data,
                     )
-                    if file_data == stored_data:
-                        self.assertNotIn(
-                            "data_source", trade_data.get_data_frame(file_data).columns
-                        )
                 self.assertEqual(
                     trade_data.json_data["candle"]["notional"],
                     Decimal(10),

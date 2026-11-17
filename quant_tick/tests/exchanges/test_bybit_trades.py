@@ -551,7 +551,6 @@ class BybitArchiveRecoveryTest(BaseWriteTradeDataTest, TestCase):
                     api(symbol, start, start + timedelta(minutes=1))
                 stored = TradeData.objects.get(symbol=symbol, timestamp=start)
                 self.assertIs(stored.ok, True)
-                self.assertEqual(stored.json_data["data_sources"], ["bybit"])
                 self.assertEqual(
                     stored.get_data_frame(FileData.RAW).notional.sum(), Decimal(1)
                 )

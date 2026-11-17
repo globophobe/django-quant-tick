@@ -65,12 +65,7 @@ class HyperliquidTradesWebSocket(ExchangeWebSocket):
             ok=True,
         ).exists():
             return None
-        frames = super().validate_websocket_partition(row, timestamp_to, candles)
-        if frames is not None:
-            for frame in frames:
-                if frame is not None:
-                    frame["data_source"] = "hyperliquid"
-        return frames
+        return super().validate_websocket_partition(row, timestamp_to, candles)
 
 
 class HyperliquidTrades(QuickNodeTrades, ExchangeRepair, HyperliquidTradesWebSocket):

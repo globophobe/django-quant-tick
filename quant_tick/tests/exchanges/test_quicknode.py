@@ -44,7 +44,6 @@ class QuickNodeTradesTest(SimpleTestCase):
         self.assertEqual(frame.notional.sum(), Decimal(5))
         self.assertEqual(frame.price.iloc[0], Decimal(64892))
         self.assertEqual(frame.price.iloc[-1], Decimal(64887))
-        self.assertEqual(frame.data_source.unique().tolist(), ["quicknode"])
         self.assertIn("(block_number, trade_id) >", request.call_args_list[1].args[0])
         filtered = volume_filter_with_time_window(
             aggregate_trades(frame), min_volume=1000, window=None
