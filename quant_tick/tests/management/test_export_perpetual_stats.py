@@ -210,7 +210,7 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
             ),
         )
 
-    def test_phoenix_default_export_uses_open_interest_fields(self):
+    def test_phoenix_default_export_retains_open_interest_and_cohort_evidence(self):
         symbol = self.get_symbol(
             exchange=Exchange.PHOENIX,
             api_symbol="BTC",
@@ -223,6 +223,8 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
             open_interest=Decimal("24.4222"),
             open_interest_value=Decimal("2065800.6314"),
             open_interest_unit="base_asset",
+            long_account_ratio=Decimal("0.7"),
+            json_data={"cohort_snapshot_validated": True, "long_accounts": 7},
         )
         with TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "phoenix-stats.parquet"
@@ -237,7 +239,19 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
             frame = pd.read_parquet(output)
         self.assertEqual(
             frame.columns.tolist(),
-            ["timestamp", "open_interest", "open_interest_value", "open_interest_unit"],
+            [
+                "timestamp",
+                "open_interest",
+                "open_interest_value",
+                "single_open_interest",
+                "long_account_ratio",
+                "short_account_ratio",
+                "long_short_account_ratio",
+                "open_interest_unit",
+                "json_data",
+            ],
         )
         self.assertEqual(len(frame), 1)
         self.assertEqual(frame.iloc[0].open_interest, 24.4222)
+        self.assertEqual(frame.iloc[0].long_account_ratio, 0.7)
+        self.assertEqual(json.loads(frame.iloc[0].json_data)["long_accounts"], 7)

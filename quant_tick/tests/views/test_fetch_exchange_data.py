@@ -118,13 +118,23 @@ class FetchExchangeDataViewTest(TestCase):
             symbol_type=SymbolType.PERPETUAL,
             is_active=False,
         )
-        response = self.client.get(self.get_url(), {"exchange": Exchange.PHOENIX})
+        order = []
+        self.mock_perpetual_stats.side_effect = lambda *a, **kw: order.append("history")
+        with patch(
+            "quant_tick.views.fetch_exchange_data.collect_snapshot",
+            side_effect=lambda *a, **kw: order.append("snapshot"),
+        ) as snapshot:
+            response = self.client.get(self.get_url(), {"exchange": Exchange.PHOENIX})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["funding"], 1)
         self.assertEqual(response.json()["perpetual_stats"], 1)
         mock_funding.assert_called_once()
         self.assertEqual(mock_funding.call_args.args[0], symbol)
         self.assertTrue(callable(mock_funding.call_args.kwargs["assert_lease_owned"]))
+        self.assertEqual(order, ["snapshot", "history"])
+        snapshot.assert_called_once()
+        self.assertEqual(snapshot.call_args.args, (symbol,))
+        self.assertTrue(callable(snapshot.call_args.kwargs["assert_lease_owned"]))
 
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")

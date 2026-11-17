@@ -5,7 +5,7 @@ from django.db.models import Q
 from django.http import HttpRequest, JsonResponse
 from django.views import View
 
-from quant_tick.constants import SymbolType, TaskType
+from quant_tick.constants import Exchange, SymbolType, TaskType
 from quant_tick.exchanges.api import (
     EXCHANGE_CANDLE_SUPPORTED_EXCHANGES,
     FUNDING_SUPPORTED_EXCHANGES,
@@ -22,6 +22,7 @@ from quant_tick.exchanges.perpetual_stats import (
 from quant_tick.exchanges.perpetual_stats import (
     perpetual_stats as fetch_symbol_perpetual_stats,
 )
+from quant_tick.exchanges.phoenix.snapshots import collect_snapshot
 from quant_tick.forms import (
     FetchExchangeDataRequestForm,
     format_form_errors,
@@ -149,6 +150,8 @@ class FetchExchangeDataView(View):
             and symbol.symbol_type == SymbolType.PERPETUAL
         ):
             logger.info(f"{symbol!s}: perpetual stats data starting...")
+            if symbol.exchange == Exchange.PHOENIX:
+                collect_snapshot(symbol, assert_lease_owned=assert_lease_owned)
             fetch_symbol_perpetual_stats(
                 symbol,
                 timestamp_from,

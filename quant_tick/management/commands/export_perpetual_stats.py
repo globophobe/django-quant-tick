@@ -138,7 +138,7 @@ class Command(BaseDateCommand):
             help=(
                 "Columns to export after timestamp. "
                 "Defaults to the exchange's required fields plus the optional "
-                "open_interest_unit metadata. Hyperliquid defaults include account ratios "
+                "open_interest_unit metadata. Hyperliquid and Phoenix defaults include account ratios "
                 "and json_data with exact cohort/flow metadata."
             ),
         )
@@ -300,7 +300,7 @@ class Command(BaseDateCommand):
                 *perpetual_stats_required_fields(symbol.exchange),
                 "open_interest_unit",
             )
-            if symbol.exchange == Exchange.HYPERLIQUID:
+            if symbol.exchange in (Exchange.HYPERLIQUID, Exchange.PHOENIX):
                 defaults = (
                     "open_interest",
                     "open_interest_value",

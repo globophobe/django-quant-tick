@@ -1,4 +1,4 @@
-"""Finalized public Solana transactions; endpoint credentials stay out of logs.
+"""Public Solana RPC; endpoint credentials stay out of logs.
 
 QUICKNODE_SOLANA_RATE_LIMIT defaults to ten requests per second. Solana RPC has
 a separate allowance from SQL; both use the shared Retry-After handling.
@@ -17,8 +17,7 @@ def available():
     return bool(os.environ.get("QUICKNODE_SOLANA_URL", "").strip())
 
 
-@lru_cache(maxsize=2048)
-def transaction(signature):
+def rpc(method, params, *, request_id=1):
     url = os.environ.get("QUICKNODE_SOLANA_URL", "").strip()
     parts = urlsplit(url)
     if (
@@ -41,6 +40,8 @@ def transaction(signature):
         raise ImproperlyConfigured(
             "QUICKNODE_SOLANA_RATE_LIMIT must be positive requests per second"
         ) from exc
+    if method == "getProgramAccounts":
+        rate = min(rate, 3)
     payload = get_public_json(
         url,
         "",
@@ -52,25 +53,35 @@ def transaction(signature):
         redact_url=True,
         json_body={
             "jsonrpc": "2.0",
-            "id": signature,
-            "method": "getTransaction",
-            "params": [
-                signature,
-                {
-                    "encoding": "json",
-                    "commitment": "finalized",
-                    "maxSupportedTransactionVersion": 1,
-                },
-            ],
+            "id": request_id,
+            "method": method,
+            "params": params,
         },
     )
     if (
         not isinstance(payload, dict)
-        or payload.get("id") != signature
+        or payload.get("id") != request_id
         or "error" in payload
-        or not isinstance(payload.get("result"), dict)
+        or payload.get("result") is None
     ):
-        raise ValueError(
-            "QuickNode omitted or rejected the requested Solana transaction"
-        )
+        raise ValueError("QuickNode omitted or rejected the requested Solana result")
     return payload["result"]
+
+
+@lru_cache(maxsize=2048)
+def transaction(signature):
+    result = rpc(
+        "getTransaction",
+        [
+            signature,
+            {
+                "encoding": "json",
+                "commitment": "finalized",
+                "maxSupportedTransactionVersion": 1,
+            },
+        ],
+        request_id=signature,
+    )
+    if not isinstance(result, dict) or not result:
+        raise ValueError("QuickNode returned an invalid Solana transaction")
+    return result

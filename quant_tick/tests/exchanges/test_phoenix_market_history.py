@@ -1,5 +1,8 @@
+import base64
+import gzip
 import json
 import os
+import struct
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -13,7 +16,7 @@ from django.test import SimpleTestCase, TestCase
 
 from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.perpetual_stats import perpetual_stats
-from quant_tick.exchanges.phoenix import events, positioning
+from quant_tick.exchanges.phoenix import accounts, events, positioning, snapshots
 from quant_tick.exchanges.phoenix.market_history import phoenix_market_history
 from quant_tick.exchanges.quicknode import solana
 from quant_tick.models import PerpetualStatsData, Symbol
@@ -38,6 +41,224 @@ def response(points, **overrides):
         "timeframe": "1h",
         "stats": points,
     } | overrides
+
+
+def snapshot_fixture():
+    path = Path(__file__).parents[1] / "fixtures/phoenix/accounts.json.gz"
+    return json.loads(gzip.decompress(path.read_bytes()))
+
+
+class PhoenixSnapshotTest(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.fixture = snapshot_fixture()
+
+    def test_real_accounts_match_official_decoder_and_native_open_interest(self):
+        result = accounts.decode_snapshot(self.fixture["result"], "BTC")
+        expected = self.fixture["expected"]
+        self.assertEqual(
+            result["positions"],
+            {
+                events.decode58(key): value["base_lots"]
+                for key, value in expected["positions"].items()
+            },
+        )
+        self.assertEqual(result["open_interest_lots"], expected["native_oi_lots"])
+        self.assertEqual(result["price"], Decimal(64328))
+        values = accounts.cohort_values(result)
+        for side in ("long", "short"):
+            self.assertEqual(values[side + "_accounts"], expected[side + "_accounts"])
+            self.assertEqual(
+                sum(tier[side + "Sz"] for tier in values["cohorts"]),
+                values["cohort_single_open_interest"],
+            )
+        self.assertEqual(
+            values["long_account_ratio"] + values["short_account_ratio"], 1
+        )
+        self.assertEqual(values["cohort_open_interest"], Decimal("61.6772"))
+
+    def test_missing_corrupt_or_unhandled_accounts_cannot_produce_partial_cohorts(self):
+        original = self.fixture["result"]
+        cold = next(
+            key
+            for key, value in self.fixture["expected"]["positions"].items()
+            if value["source"] == "cold"
+        )
+        variants = []
+        missing = deepcopy(original)
+        missing["value"] = [r for r in missing["value"] if r["pubkey"] != cold]
+        variants.append(missing)
+        duplicate = deepcopy(original)
+        duplicate["value"].append(duplicate["value"][0])
+        variants.append(duplicate)
+        wrong_owner = deepcopy(original)
+        wrong_owner["value"][0]["account"]["owner"] = "unexpected"
+        variants.append(wrong_owner)
+        for kind, offset, fmt, value in (
+            ("global_trader_index", 52, "H", 2),
+            ("global_trader_index", 80, "I", 0),
+            ("trader", 96, "I", 1),
+            ("perp_asset_map", 40, "Q", 512),
+        ):
+            changed = deepcopy(original)
+            for row in changed["value"]:
+                data = bytearray(accounts.account_bytes(row["account"]))
+                if accounts.TAGS.get(bytes(data[:8])) == kind and (
+                    kind != "trader" or row["pubkey"] == cold
+                ):
+                    struct.pack_into("<" + fmt, data, offset, value)
+                    row["account"]["data"] = [base64.b64encode(data).decode(), "base64"]
+                    break
+            variants.append(changed)
+        for index, invalid in enumerate(variants):
+            with self.subTest(case=index), self.assertRaises(ValueError):
+                accounts.decode_snapshot(invalid, "BTC")
+
+    def test_empty_market_keeps_zero_counts_and_undefined_ratios(self):
+        values = accounts.cohort_values(
+            {
+                "positions": {},
+                "base_lot_decimals": 4,
+                "price": Decimal(60000),
+                "open_interest_lots": 0,
+                "slot": 100,
+            }
+        )
+        self.assertEqual(values["long_accounts"], 0)
+        self.assertEqual(values["short_accounts"], 0)
+        self.assertEqual(values["cohort_single_open_interest"], 0)
+        self.assertIsNone(values["long_short_account_ratio"])
+
+    def test_fetch_requires_fresh_finalized_state_and_retains_observation_time(self):
+        now = datetime(2026, 11, 17, 11, 20, tzinfo=UTC)
+        for age in (30, 301, -1):
+            block_time = now - timedelta(seconds=age)
+            with (
+                self.subTest(age=age),
+                patch.object(snapshots, "get_current_time", return_value=now),
+                patch.object(
+                    snapshots,
+                    "rpc",
+                    side_effect=[
+                        self.fixture["result"],
+                        int(block_time.timestamp()),
+                    ],
+                ) as request,
+            ):
+                if age != 30:
+                    with self.assertRaisesRegex(ValueError, "stale|future"):
+                        snapshots.fetch_snapshot("BTC")
+                    continue
+                values = snapshots.fetch_snapshot("BTC")
+                self.assertEqual(values["cohort_timestamp"], block_time)
+                self.assertEqual(values["cohort_available_at"], now)
+                self.assertEqual(
+                    request.call_args_list[0].args[1][1],
+                    {
+                        "encoding": "base64+zstd",
+                        "commitment": "finalized",
+                        "withContext": True,
+                    },
+                )
+                self.assertEqual(
+                    request.call_args.args, ("getBlockTime", [values["cohort_slot"]])
+                )
+
+
+class PhoenixSnapshotCollectionTest(TestCase):
+    def setUp(self):
+        self.symbol = Symbol.objects.create(
+            exchange=Exchange.PHOENIX,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        self.hour = datetime(2026, 11, 17, 11, tzinfo=UTC)
+        self.enterContext(
+            patch.dict(os.environ, {"QUICKNODE_SOLANA_URL": "configured"})
+        )
+        self.clock = self.enterContext(
+            patch.object(snapshots, "get_current_time", return_value=self.hour)
+        )
+        self.fetch = self.enterContext(
+            patch.object(
+                snapshots,
+                "fetch_snapshot",
+                side_effect=lambda symbol: {
+                    "cohort_available_at": self.hour + timedelta(minutes=2),
+                    "cohort_timestamp": self.hour + timedelta(minutes=1),
+                    "cohort_snapshot_validated": True,
+                    "long_account_ratio": Decimal("0.7"),
+                    "short_account_ratio": Decimal("0.3"),
+                    "long_short_account_ratio": Decimal(7) / 3,
+                    "long_accounts": 7,
+                    "short_accounts": 3,
+                },
+            )
+        )
+
+    def test_hourly_capture_is_idempotent_and_native_history_still_fills_the_row(self):
+        snapshots.collect_snapshot(self.symbol)
+        snapshots.collect_snapshot(self.symbol)
+        self.fetch.assert_called_once_with("BTC")
+        saved = PerpetualStatsData.objects.get(symbol=self.symbol)
+        self.assertEqual(saved.timestamp, self.hour)
+        self.assertIsNone(saved.open_interest)
+        self.assertFalse(
+            PerpetualStatsData.objects.complete_for_exchange(Exchange.PHOENIX).exists()
+        )
+        with (
+            patch(
+                "quant_tick.exchanges.phoenix.market_history.get_phoenix_response",
+                return_value=response([observation(self.hour)]),
+            ) as request,
+            patch(
+                "quant_tick.exchanges.phoenix.market_history.phoenix_positioning",
+                return_value={"trade_position_flow_validated": True},
+            ),
+        ):
+            perpetual_stats(self.symbol, self.hour, self.hour + timedelta(hours=1))
+        request.assert_called_once()
+        saved = PerpetualStatsData.objects.get(symbol=self.symbol)
+        self.assertEqual(saved.open_interest, Decimal("24.4222"))
+        self.assertEqual(saved.long_account_ratio, Decimal("0.7"))
+        self.assertTrue(saved.json_data["cohort_snapshot_validated"])
+        self.assertTrue(saved.json_data["trade_position_flow_validated"])
+
+    def test_disabled_provider_failure_or_lost_lease_does_not_write(self):
+        with patch.dict(os.environ, {"QUICKNODE_SOLANA_URL": ""}):
+            snapshots.collect_snapshot(self.symbol)
+        self.fetch.assert_not_called()
+        self.fetch.side_effect = ValueError("invalid snapshot")
+        with self.assertRaisesRegex(ValueError, "invalid snapshot"):
+            snapshots.collect_snapshot(self.symbol)
+        self.assertFalse(PerpetualStatsData.objects.exists())
+        self.fetch.side_effect = None
+        self.fetch.return_value = {"cohort_available_at": self.hour}
+
+        def lost():
+            raise RuntimeError("lease lost")
+
+        with self.assertRaisesRegex(RuntimeError, "lease lost"):
+            snapshots.collect_snapshot(self.symbol, assert_lease_owned=lost)
+        self.assertFalse(PerpetualStatsData.objects.exists())
+
+    def test_hour_boundary_uses_receipt_hour_and_preserves_existing_native_values(self):
+        self.clock.return_value = self.hour - timedelta(seconds=1)
+        PerpetualStatsData.objects.create(
+            symbol=self.symbol,
+            timestamp=self.hour,
+            frequency=60,
+            open_interest=Decimal(25),
+            open_interest_value=Decimal(1600000),
+            json_data={"trade_position_flow_validated": True},
+        )
+        snapshots.collect_snapshot(self.symbol)
+        saved = PerpetualStatsData.objects.get()
+        self.assertEqual(saved.timestamp, self.hour)
+        self.assertEqual(saved.open_interest, Decimal(25))
+        self.assertTrue(saved.json_data["trade_position_flow_validated"])
+        self.assertTrue(saved.json_data["cohort_snapshot_validated"])
 
 
 class PhoenixMarketHistoryTest(SimpleTestCase):
@@ -448,6 +669,14 @@ class PhoenixPositioningTest(SimpleTestCase):
             self.assertEqual(solana.transaction(signature), tx)
             self.assertTrue(request.call_args.kwargs["redact_url"])
             self.assertEqual(request.call_args.kwargs["reset_seconds"], 0.5)
+            request.return_value = {
+                "id": 1,
+                "result": {"context": {"slot": 100}, "value": []},
+            }
+            with patch.dict(os.environ, {"QUICKNODE_SOLANA_RATE_LIMIT": "50"}):
+                solana.rpc("getProgramAccounts", [events.PROGRAM])
+            self.assertEqual(request.call_args.kwargs["reset_seconds"], 1 / 3)
+            self.assertTrue(request.call_args.kwargs["redact_url"])
             solana.transaction.cache_clear()
             request.return_value = {"id": signature, "result": None}
             with self.assertRaisesRegex(ValueError, "omitted"):
