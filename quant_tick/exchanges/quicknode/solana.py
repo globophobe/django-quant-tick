@@ -1,8 +1,4 @@
-"""Public Solana RPC.
-
-QUICKNODE_SOLANA_RATE_LIMIT defaults to ten requests per second. Solana RPC has
-a separate allowance from SQL; both use the shared Retry-After handling.
-"""
+"""Public Solana RPC using Build's 50 req/s and getProgramAccounts' 3 req/s limits."""
 
 import os
 from functools import lru_cache
@@ -32,16 +28,7 @@ def rpc(method, params, *, request_id=1):
         raise ImproperlyConfigured(
             "Set QUICKNODE_SOLANA_URL to the full HTTPS endpoint"
         )
-    try:
-        rate = int(os.environ.get("QUICKNODE_SOLANA_RATE_LIMIT") or 10)
-        if rate <= 0:
-            raise ValueError
-    except ValueError as exc:
-        raise ImproperlyConfigured(
-            "QUICKNODE_SOLANA_RATE_LIMIT must be positive requests per second"
-        ) from exc
-    if method == "getProgramAccounts":
-        rate = min(rate, 3)
+    rate = 3 if method == "getProgramAccounts" else 50
     payload = get_public_json(
         url,
         "",

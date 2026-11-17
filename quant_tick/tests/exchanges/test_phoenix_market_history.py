@@ -659,7 +659,6 @@ class PhoenixPositioningTest(SimpleTestCase):
                 os.environ,
                 {
                     "QUICKNODE_SOLANA_URL": "https://sample.solana-mainnet.quiknode.pro/token/",
-                    "QUICKNODE_SOLANA_RATE_LIMIT": "2",
                 },
             ),
             patch.object(
@@ -668,13 +667,12 @@ class PhoenixPositioningTest(SimpleTestCase):
         ):
             self.assertEqual(solana.transaction(signature), tx)
             self.assertTrue(request.call_args.kwargs["redact_url"])
-            self.assertEqual(request.call_args.kwargs["reset_seconds"], 0.5)
+            self.assertEqual(request.call_args.kwargs["reset_seconds"], 1 / 50)
             request.return_value = {
                 "id": 1,
                 "result": {"context": {"slot": 100}, "value": []},
             }
-            with patch.dict(os.environ, {"QUICKNODE_SOLANA_RATE_LIMIT": "50"}):
-                solana.rpc("getProgramAccounts", [events.PROGRAM])
+            solana.rpc("getProgramAccounts", [events.PROGRAM])
             self.assertEqual(request.call_args.kwargs["reset_seconds"], 1 / 3)
             self.assertTrue(request.call_args.kwargs["redact_url"])
             solana.transaction.cache_clear()
