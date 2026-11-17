@@ -1,4 +1,4 @@
-"""Public Solana RPC; endpoint credentials stay out of logs.
+"""Public Solana RPC.
 
 QUICKNODE_SOLANA_RATE_LIMIT defaults to ten requests per second. Solana RPC has
 a separate allowance from SQL; both use the shared Retry-After handling.
