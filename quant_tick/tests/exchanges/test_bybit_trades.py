@@ -1,4 +1,3 @@
-import os
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -6,18 +5,21 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 import time_machine
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
-from quant_tick.constants import Exchange, SymbolType
+from quant_tick.constants import Exchange, FileData, SymbolType
+from quant_tick.exchanges.api import api
 from quant_tick.exchanges.bybit.controllers import (
     BybitSpotTradesS3,
     BybitTradesS3,
     BybitTradesWebSocket,
     bybit_trades,
 )
+from quant_tick.models import TradeData, WebSocketData
+
+from ..base import BaseWriteTradeDataTest
 
 
-@patch.dict(os.environ, {"COINAPI_API_KEY": ""})
 class BybitTradesTest(SimpleTestCase):
     def get_controller(
         self,
@@ -114,36 +116,6 @@ class BybitTradesTest(SimpleTestCase):
                         websocket.return_value.main.assert_called_once_with(
                             websocket_rows={}
                         )
-
-    def test_optional_repair_only_uses_supported_markets(self):
-        start = datetime(2026, 7, 23, 12, tzinfo=UTC)
-        end = start + timedelta(minutes=1)
-        for exchange, symbol_type, pair, supported in (
-            (Exchange.BYBIT, SymbolType.SPOT, "BTCUSDT", True),
-            (Exchange.BYBIT_LINEAR, SymbolType.PERPETUAL, "BTCUSDT", True),
-            (Exchange.BYBIT_INVERSE, SymbolType.PERPETUAL, "BTCUSD", False),
-            (Exchange.BYBIT_LINEAR, SymbolType.PERPETUAL, "BTCPERP", False),
-        ):
-            symbol = SimpleNamespace(
-                exchange=exchange, api_symbol=pair, symbol_type=symbol_type
-            )
-            with (
-                self.subTest(exchange=exchange, pair=pair),
-                patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}),
-                patch("quant_tick.exchanges.bybit.controllers.BybitTradesS3.main"),
-                patch("quant_tick.exchanges.bybit.controllers.BybitSpotTradesS3.main"),
-                patch("quant_tick.exchanges.bybit.controllers.BybitTrades") as repair,
-                patch(
-                    "quant_tick.exchanges.bybit.controllers.BybitTradesWebSocket"
-                ) as websocket,
-                patch(
-                    "quant_tick.exchanges.bybit.controllers.get_archive_followup_start",
-                    return_value=start,
-                ),
-            ):
-                bybit_trades(symbol, start, end, Mock())
-                self.assertEqual(repair.call_count, int(supported))
-                self.assertEqual(websocket.call_count, int(not supported))
 
     def test_websocket_controller_promotes_valid_current_minute(self):
         timestamp_from = datetime(2026, 7, 23, 12, tzinfo=UTC)
@@ -502,3 +474,84 @@ class BybitTradesTest(SimpleTestCase):
 
         self.assertEqual(parsed.iloc[0]["volume"], Decimal(100))
         self.assertEqual(parsed.iloc[0]["notional"], Decimal("0.01"))
+
+
+@override_settings(
+    STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
+)
+class BybitArchiveRecoveryTest(BaseWriteTradeDataTest, TestCase):
+    def test_incomplete_archive_recovers_from_websocket_captured_before_download(self):
+        start = datetime(2026, 7, 31, 1, tzinfo=UTC)
+        for exchange, kind, archive in (
+            (Exchange.BYBIT, SymbolType.SPOT, "BybitSpotTradesS3"),
+            (Exchange.BYBIT_LINEAR, SymbolType.PERPETUAL, "BybitTradesS3"),
+        ):
+            with self.subTest(exchange=exchange):
+                symbol = self.get_symbol(
+                    exchange=exchange, api_symbol="BTCUSDT", symbol_type=kind
+                )
+                WebSocketData.objects.create(
+                    exchange=exchange,
+                    api_symbol="BTCUSDT",
+                    significant_trade_filter=symbol.significant_trade_filter,
+                    timestamp=start,
+                    raw_trades=[
+                        {
+                            "uid": "native",
+                            "timestamp": start.isoformat(),
+                            "nanoseconds": 0,
+                            "price": "100",
+                            "volume": "100",
+                            "notional": "1",
+                            "tickRule": 1,
+                        }
+                    ],
+                )
+                row = (
+                    {
+                        "id": "archive",
+                        "timestamp": str(int(start.timestamp() * 1000)),
+                        "price": "100",
+                        "volume": "0.5",
+                        "side": "buy",
+                    }
+                    if kind == SymbolType.SPOT
+                    else {
+                        "trdMatchID": "archive",
+                        "timestamp": str(int(start.timestamp())),
+                        "symbol": "BTCUSDT",
+                        "price": "100",
+                        "size": "0.5",
+                        "side": "Buy",
+                    }
+                )
+
+                def download(*args, row=row):
+                    WebSocketData.objects.all().delete()
+                    return iter([pd.DataFrame([row])])
+
+                with (
+                    time_machine.travel(start + timedelta(minutes=59), tick=False),
+                    patch(
+                        "quant_tick.exchanges.bybit.controllers.get_archive_followup_start",
+                        return_value=start,
+                    ),
+                    patch(
+                        f"quant_tick.exchanges.bybit.controllers.{archive}.get_data_frame_chunks",
+                        side_effect=download,
+                    ),
+                    patch(
+                        "quant_tick.exchanges.bybit.base.bybit_candles",
+                        return_value=pd.DataFrame(
+                            {"notional": [Decimal(1)], "volume": [Decimal(100)]},
+                            index=[start],
+                        ),
+                    ),
+                ):
+                    api(symbol, start, start + timedelta(minutes=1))
+                stored = TradeData.objects.get(symbol=symbol, timestamp=start)
+                self.assertIs(stored.ok, True)
+                self.assertEqual(stored.json_data["data_sources"], ["bybit"])
+                self.assertEqual(
+                    stored.get_data_frame(FileData.RAW).notional.sum(), Decimal(1)
+                )

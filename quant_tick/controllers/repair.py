@@ -1,13 +1,15 @@
-"""Repair native trade gaps with optional CoinAPI history.
+"""Repair native trade gaps with an optional historical provider.
 
 Persist validated native minutes first, then replace whole missing minutes with
-vendor data. Files precede REST and are checked against validation candles. Empty
+vendor data checked against validation candles. Empty
 vendor replies leave gaps retryable, and failures propagate after native progress
 has been saved. Existing failed partitions follow the collector's retry policy.
 """
 
 import pandas as pd
 
+from quant_tick.controllers.iterators import TradeDataIterator
+from quant_tick.controllers.rest import ExchangeREST
 from quant_tick.lib import (
     has_zero_trade_candle,
     iter_missing,
@@ -16,12 +18,23 @@ from quant_tick.lib import (
 )
 from quant_tick.models import TradeData
 
-from .api import coinapi_history_start
-from .controllers import CoinAPITrades
 
-
-class CoinAPIRepairTrades(CoinAPITrades):
+class ExchangeRepair(ExchangeREST):
     write_unvalidated_websocket_partitions = False
+
+    def history_start(self):
+        raise NotImplementedError
+
+    def iter_missing_windows(self):
+        iterator = TradeDataIterator(self.symbol)
+        for start, end, existing in iterator.iter_days(
+            self.timestamp_from, self.timestamp_to, retry=self.retry
+        ):
+            end = min(end, iterator.get_max_timestamp_to())
+            if start < end:
+                yield from iter_missing(
+                    start, end, existing, value="1min", reverse=True
+                )
 
     def get_native_candles(self, timestamp_from, timestamp_to):
         raise NotImplementedError
@@ -30,12 +43,11 @@ class CoinAPIRepairTrades(CoinAPITrades):
         return native
 
     def on_rest_data_frame(self, timestamp_from, timestamp_to, candles):
-        frame = self.fetch_trade_data_frame(timestamp_from, timestamp_to, candles)
+        frame = self.fetch_rest_data_frame(timestamp_from, timestamp_to)
         if frame.empty and not self.has_zero_trade_candles(
             candles, timestamp_from, timestamp_to
         ):
             return frame
-        candles = self.validation_candles(frame, candles)
         self.on_data_frame(self.symbol, timestamp_from, timestamp_to, frame, candles)
         return frame
 
@@ -73,8 +85,10 @@ class CoinAPIRepairTrades(CoinAPITrades):
                 else:
                     continue
                 covered.append(minute)
-            for fetch_from, fetch_to in iter_missing(start, end, covered, value="1min"):
-                history_start = coinapi_history_start(self.api_symbol)
+            for fetch_from, fetch_to in iter_missing(
+                start, end, covered, value="1min", reverse=True
+            ):
+                history_start = self.history_start()
                 if history_start is None or end <= history_start:
                     return
                 fetch_from = max(fetch_from, history_start.ceil("1min"))

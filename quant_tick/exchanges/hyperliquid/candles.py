@@ -11,11 +11,10 @@ from quant_tick.lib import (
     parse_fixed_resolution_minutes,
 )
 
-from ..coinapi.api import coinapi_history_start
-from ..coinapi.candles import coinapi_candles
+from ..quicknode.api import available, history_start
+from ..quicknode.candles import quicknode_candles
 from .api import normalize_coin, post_hyperliquid_info, to_millis
 from .constants import CANDLE_MAX_RESULTS, INTERVAL_MILLIS, INTERVALS
-from .sources import coinapi_symbol
 
 
 def get_hyperliquid_interval(resolution: str | int | None) -> str:
@@ -66,9 +65,9 @@ def hyperliquid_candles(
     timestamp_to: datetime,
     resolution: str | int | None = "1m",
     *,
-    allow_coinapi: bool = True,
+    allow_quicknode: bool = True,
 ) -> DataFrame:
-    """Prefer native bars, filling absent completed intervals from CoinAPI.
+    """Prefer native bars, filling absent completed intervals from QuickNode.
 
     Provider errors propagate; they are not evidence of absent history. Source
     metadata survives persistence, and native observations always win overlaps.
@@ -76,21 +75,24 @@ def hyperliquid_candles(
     frame = native_hyperliquid_candles(
         api_symbol, timestamp_from, timestamp_to, resolution
     )
-    if not allow_coinapi:
+    if not allow_quicknode:
         return frame.assign(data_source="hyperliquid")
-    return fill_coinapi_candles(
+    return fill_quicknode_candles(
         api_symbol, timestamp_from, timestamp_to, frame, resolution
     )
 
 
-def fill_coinapi_candles(
-    api_symbol, timestamp_from, timestamp_to, frame, resolution="1m"
+def fill_quicknode_candles(
+    api_symbol, timestamp_from, timestamp_to, frame, resolution="1m", *, fetch=None
 ):
     frame = frame.copy()
     frame["data_source"] = "hyperliquid"
-    vendor_symbol = coinapi_symbol(api_symbol)
     interval = get_hyperliquid_interval(resolution)
-    if vendor_symbol is None or interval in ("3d", "1w", "1M"):
+    if (
+        not available()
+        or normalize_coin(api_symbol).startswith("@")
+        or interval in ("3d", "1w", "1M")
+    ):
         return frame
     frequency = get_hyperliquid_frequency(interval)
     start = pd.Timestamp(timestamp_from).ceil(f"{frequency}min")
@@ -101,14 +103,18 @@ def fill_coinapi_candles(
     for fetch_from, fetch_to in iter_missing(
         start, end, list(frame.index), value=f"{frequency}min"
     ):
-        history_start = coinapi_history_start(vendor_symbol)
-        if history_start is None:
+        first = history_start()
+        if first is None:
             break
-        fetch_from = max(fetch_from, history_start.ceil(f"{frequency}min"))
+        fetch_from = max(fetch_from, first.ceil(f"{frequency}min"))
         if fetch_from >= fetch_to:
             continue
-        fallback = coinapi_candles(
-            vendor_symbol, fetch_from, fetch_to, resolution=frequency
+        fallback = (
+            quicknode_candles(
+                normalize_coin(api_symbol), fetch_from, fetch_to, resolution=frequency
+            )
+            if fetch is None
+            else fetch(normalize_coin(api_symbol), fetch_from, fetch_to)
         )
         if fallback.empty:
             continue
@@ -118,7 +124,7 @@ def fill_coinapi_candles(
             & ~fallback.index.isin(frame.index)
         ].copy()
         if not fallback.empty:
-            fallback["data_source"] = "coinapi"
+            fallback["data_source"] = "quicknode"
             frames.append(fallback)
     # Each provider is ordered; interleave their disjoint intervals chronologically.
     return pd.concat(frames).sort_index() if frames else frame

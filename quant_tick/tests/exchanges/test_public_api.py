@@ -11,11 +11,9 @@ import sentry_sdk
 from django.test import SimpleTestCase
 from sentry_sdk.integrations.logging import LoggingIntegration
 
-from quant_tick.exchanges.coinapi.api import get_coinapi_response
-from quant_tick.exchanges.coinapi.flat_files import get_flat_file_content
 from quant_tick.exchanges.femtos.api import get_femtos_response
 from quant_tick.exchanges.public import get_public_json
-from quant_tick.lib.download import ArchiveDownloadError
+from quant_tick.exchanges.quicknode.api import query
 
 
 class PublicMarketRequestTest(SimpleTestCase):
@@ -90,24 +88,18 @@ class PublicMarketRequestTest(SimpleTestCase):
             )
 
     def test_transport_and_server_errors_keep_bounded_retries(self):
-        for collect, module, payload, expected, delay, error in (
-            (
-                partial(get_coinapi_response, "/v1/trades/test/history", {}),
-                "quant_tick.exchanges.public",
-                "[]",
-                [],
-                1,
-                httpx2.HTTPStatusError,
-            ),
-            (
-                partial(get_flat_file_content, "archive.csv.gz"),
-                "quant_tick.exchanges.coinapi.flat_files",
-                "archive",
-                b"archive",
-                2,
-                ArchiveDownloadError,
-            ),
-        ):
+        module = "quant_tick.exchanges.public"
+        for method in ("get", "post"):
+            collect = partial(
+                get_public_json,
+                "https://venue.test",
+                "/trades",
+                {},
+                namespace="TEST",
+                retry=3,
+                json_body={"query": "SELECT 1"} if method == "post" else None,
+            )
+            payload, expected, delay, error = "[]", [], 1, httpx2.HTTPStatusError
             for recovers in (True, False):
                 responses = [
                     httpx2.ReadTimeout("timeout"),
@@ -118,11 +110,13 @@ class PublicMarketRequestTest(SimpleTestCase):
                 outcome = nullcontext() if recovers else self.assertRaises(error)
                 with (
                     self.subTest(module=module, recovers=recovers),
-                    patch.dict(os.environ, {"COINAPI_API_KEY": "test-key"}, clear=True),
+                    patch.dict(os.environ, {}, clear=True),
                     patch(f"{module}.throttle_api_requests"),
                     patch(f"{module}.increment_api_total_requests"),
                     patch(f"{module}.time.sleep") as sleep,
-                    patch(f"{module}.httpx2.get", side_effect=responses) as request,
+                    patch(
+                        f"{module}.httpx2.{method}", side_effect=responses
+                    ) as request,
                     outcome,
                 ):
                     self.assertEqual(collect(), expected)
@@ -144,31 +138,17 @@ class PublicMarketRequestTest(SimpleTestCase):
     def test_provider_limits_reach_sentry_once_even_when_retry_recovers(self):
         cases = (
             (
-                "COINAPI",
-                partial(get_coinapi_response, "/v1/trades/test/history", {}),
-                "quant_tick.exchanges.public",
-                "[]",
+                "QUICKNODE",
+                partial(query, "SELECT 1"),
+                "post",
+                '{"data":[],"rows":0}',
                 [],
-                httpx2.HTTPStatusError,
             ),
-            (
-                "FEMTOS",
-                partial(get_femtos_response, "/candles", {}),
-                "quant_tick.exchanges.public",
-                "{}",
-                {},
-                httpx2.HTTPStatusError,
-            ),
-            (
-                "CoinAPI Flat Files",
-                partial(get_flat_file_content, "archive.csv.gz"),
-                "quant_tick.exchanges.coinapi.flat_files",
-                "archive",
-                b"archive",
-                ArchiveDownloadError,
-            ),
+            ("FEMTOS", partial(get_femtos_response, "/candles", {}), "get", "{}", {}),
         )
-        for provider, collect, module, payload, expected, error in cases:
+        module = "quant_tick.exchanges.public"
+        error = httpx2.HTTPStatusError
+        for provider, collect, method, payload, expected in cases:
             for statuses in ((429, 200), (429, 429, 429, 429), (402,)):
                 events = []
                 responses = [
@@ -187,12 +167,14 @@ class PublicMarketRequestTest(SimpleTestCase):
                     patch.dict(
                         os.environ,
                         {
-                            "COINAPI_API_KEY": "sample-test-key",
+                            "QUICKNODE_API_KEY": "sample-test-key",
                             "FEMTOS_API_KEY": "sample-test-key",
                         },
                         clear=True,
                     ),
-                    patch(f"{module}.httpx2.get", side_effect=responses) as request,
+                    patch(
+                        f"{module}.httpx2.{method}", side_effect=responses
+                    ) as request,
                     patch(f"{module}.time.sleep") as sleep,
                     self.assertLogs(module, level=logging.ERROR),
                     sentry_sdk.init(
@@ -217,3 +199,38 @@ class PublicMarketRequestTest(SimpleTestCase):
                 self.assertIn(provider, event["logentry"]["formatted"])
                 self.assertIn(str(statuses[0]), event["logentry"]["formatted"])
                 self.assertNotIn("sample-test-key", json.dumps(event))
+
+    def test_credential_url_is_absent_from_logs_and_final_error(self):
+        secret_url = "https://node.quiknode.pro/sample-secret/hypercore"
+        for failure in (
+            self.response(429, "{}", {"Retry-After": "2"}),
+            httpx2.ConnectError("failed at " + secret_url),
+        ):
+            with (
+                self.subTest(failure=type(failure).__name__),
+                patch.dict(os.environ, {}, clear=True),
+                patch("quant_tick.exchanges.public.httpx2.HTTPTransport") as transport,
+                patch("quant_tick.exchanges.public.time.sleep") as sleep,
+                self.assertLogs("quant_tick.exchanges.public", level=logging.INFO)
+                if isinstance(failure, httpx2.Response)
+                else nullcontext(),
+            ):
+                handler = transport.return_value.__enter__.return_value.handle_request
+                handler.side_effect = (
+                    [failure] * 2 if isinstance(failure, Exception) else None
+                )
+                handler.return_value = failure
+                with self.assertRaises(httpx2.HTTPError) as caught:
+                    get_public_json(
+                        secret_url,
+                        "",
+                        {},
+                        namespace="TEST",
+                        json_body=[],
+                        redact_url=True,
+                        retry=1,
+                    )
+                self.assertNotIn("sample-secret", str(caught.exception))
+                self.assertNotIn("sample-secret", str(caught.exception.request.url))
+                self.assertEqual(handler.call_count, 2)
+                self.assertTrue(sleep.called)

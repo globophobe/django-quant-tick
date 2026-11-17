@@ -15,7 +15,7 @@ from quant_tick.controllers import (
     is_terminal_page,
     throttle_api_requests,
 )
-from quant_tick.exchanges.coinapi.repair import CoinAPIRepairTrades
+from quant_tick.controllers.repair import ExchangeRepair
 from quant_tick.models import TradeData, WebSocketData
 
 from ..base import BaseSymbolTest
@@ -153,7 +153,7 @@ class DummyExchangeWebSocket(DummyExchangeREST, ExchangeWebSocket):
     pass
 
 
-class DummyRepairTrades(DummyExchangeREST, CoinAPIRepairTrades):
+class DummyRepairTrades(DummyExchangeREST, ExchangeRepair):
     columns = ExchangeREST.columns
     on_rest_data_frame = ExchangeREST.on_rest_data_frame
 
@@ -723,7 +723,7 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
                         ) as rows,
                         patch.object(controller, "get_candles", return_value=candles),
                         patch(
-                            "quant_tick.exchanges.coinapi.repair.coinapi_history_start"
+                            "quant_tick.controllers.repair.ExchangeRepair.history_start"
                         ) as history,
                     ):
                         controller.main()
@@ -822,7 +822,7 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
                                 return_value=[(start, end)],
                             ),
                             patch(
-                                "quant_tick.exchanges.coinapi.repair.coinapi_history_start"
+                                "quant_tick.controllers.repair.ExchangeRepair.history_start"
                             ) as history,
                         ):
                             controller.main(**kwargs)
@@ -880,7 +880,7 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
                             return_value=[(start, end)],
                         ),
                         patch(
-                            "quant_tick.exchanges.coinapi.repair.coinapi_history_start",
+                            "quant_tick.controllers.repair.ExchangeRepair.history_start",
                             return_value=pd.Timestamp(start),
                         ),
                     ):

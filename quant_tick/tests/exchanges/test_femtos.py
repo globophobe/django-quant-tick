@@ -348,7 +348,7 @@ class FemtosStatsTest(SimpleTestCase):
         request.assert_not_called()
 
 
-@patch.dict(os.environ, {"FEMTOS_API_KEY": "test-key", "COINAPI_API_KEY": ""})
+@patch.dict(os.environ, {"FEMTOS_API_KEY": "test-key"})
 class FemtosCollectionTest(BaseSymbolTest, TestCase):
     def setUp(self):
         super().setUp()

@@ -1,20 +1,21 @@
 from collections.abc import Callable
 from datetime import datetime
-from functools import cached_property
 
 from pandas import DataFrame
 
 from quant_tick.constants import Frequency, SymbolType, TradeDataRetry
 from quant_tick.controllers import ExchangeWebSocket
+from quant_tick.controllers.repair import ExchangeRepair
 from quant_tick.models import Symbol, TradeData
 
-from ..coinapi.repair import CoinAPIRepairTrades
+from ..quicknode.api import available, history_start
+from ..quicknode.candles import validation_candles
+from ..quicknode.trades import QuickNodeTrades
 from .candles import (
-    fill_coinapi_candles,
+    fill_quicknode_candles,
     hyperliquid_candles,
     native_hyperliquid_candles,
 )
-from .sources import coinapi_symbol
 
 
 def hyperliquid_trades(
@@ -25,9 +26,9 @@ def hyperliquid_trades(
     retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
-    """Keep native trades where usable; backfill gaps with optional CoinAPI."""
+    """Keep native trades where usable; backfill gaps with optional QuickNode."""
     controller = HyperliquidTradesWebSocket
-    if symbol.symbol_type == SymbolType.PERPETUAL and coinapi_symbol(symbol.api_symbol):
+    if symbol.symbol_type == SymbolType.PERPETUAL and available():
         controller = HyperliquidTrades
     controller(
         symbol,
@@ -52,7 +53,7 @@ class HyperliquidTradesWebSocket(ExchangeWebSocket):
             timestamp_from,
             timestamp_to,
             resolution="1m",
-            allow_coinapi=False,
+            allow_quicknode=False,
         )
 
     def validate_websocket_partition(self, row, timestamp_to, candles):
@@ -72,12 +73,11 @@ class HyperliquidTradesWebSocket(ExchangeWebSocket):
         return frames
 
 
-class HyperliquidTrades(CoinAPIRepairTrades, HyperliquidTradesWebSocket):
-    """Keep native minutes and use CoinAPI for missing trades and older candles."""
+class HyperliquidTrades(QuickNodeTrades, ExchangeRepair, HyperliquidTradesWebSocket):
+    """Keep native minutes and use QuickNode for missing trades and older candles."""
 
-    @cached_property
-    def api_symbol(self):
-        return coinapi_symbol(self.symbol.api_symbol)
+    def history_start(self):
+        return history_start()
 
     def get_native_candles(self, timestamp_from, timestamp_to):
         return native_hyperliquid_candles(
@@ -85,10 +85,11 @@ class HyperliquidTrades(CoinAPIRepairTrades, HyperliquidTradesWebSocket):
         )
 
     def get_validation_candles(self, timestamp_from, timestamp_to, native):
-        return fill_coinapi_candles(
+        return fill_quicknode_candles(
             self.symbol.api_symbol,
             timestamp_from,
             timestamp_to,
             native,
             resolution="1m",
+            fetch=validation_candles,
         )
