@@ -198,15 +198,19 @@ class PerpetualStatsData(models.Model):
                     )
                     if existing_complete and not incoming_complete:
                         continue
-                    for field in PERPETUAL_STATS_VALUE_FIELDS:
-                        if getattr(row, field) is None:
-                            setattr(row, field, getattr(existing, field))
+                    old_source = (existing.json_data or {}).get("market_history_source")
+                    new_source = (row.json_data or {}).get("market_history_source")
+                    # Provider-specific evidence must not survive a source change.
+                    if not (old_source and new_source and old_source != new_source):
+                        for field in PERPETUAL_STATS_VALUE_FIELDS:
+                            if getattr(row, field) is None:
+                                setattr(row, field, getattr(existing, field))
+                        row.json_data = {
+                            **(existing.json_data or {}),
+                            **(row.json_data or {}),
+                        }
                     if not row.open_interest_unit:
                         row.open_interest_unit = existing.open_interest_unit
-                    row.json_data = {
-                        **(existing.json_data or {}),
-                        **(row.json_data or {}),
-                    }
                     replacements.append(row)
                 replacement_timestamps = [row.timestamp for row in replacements]
                 cls.objects.filter(

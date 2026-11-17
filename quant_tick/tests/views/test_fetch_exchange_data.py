@@ -77,7 +77,7 @@ class FetchExchangeDataViewTest(TestCase):
             events = []
             with (
                 self.subTest(configured=bool(key)),
-                patch.dict(os.environ, {"FEMTOS_API_KEY": key}),
+                patch.dict(os.environ, {"QUICKNODE_API_KEY": key}),
                 patch(
                     "quant_tick.views.fetch_exchange_data.fetch_symbol_funding",
                     side_effect=lambda *a, events=events, **kw: events.append(

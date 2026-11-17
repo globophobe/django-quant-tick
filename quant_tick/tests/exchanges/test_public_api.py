@@ -11,7 +11,6 @@ import sentry_sdk
 from django.test import SimpleTestCase
 from sentry_sdk.integrations.logging import LoggingIntegration
 
-from quant_tick.exchanges.femtos.api import get_femtos_response
 from quant_tick.exchanges.public import get_public_json
 from quant_tick.exchanges.quicknode.api import query
 
@@ -144,7 +143,6 @@ class PublicMarketRequestTest(SimpleTestCase):
                 '{"data":[],"rows":0}',
                 [],
             ),
-            ("FEMTOS", partial(get_femtos_response, "/candles", {}), "get", "{}", {}),
         )
         module = "quant_tick.exchanges.public"
         error = httpx2.HTTPStatusError
@@ -168,7 +166,6 @@ class PublicMarketRequestTest(SimpleTestCase):
                         os.environ,
                         {
                             "QUICKNODE_API_KEY": "sample-test-key",
-                            "FEMTOS_API_KEY": "sample-test-key",
                         },
                         clear=True,
                     ),

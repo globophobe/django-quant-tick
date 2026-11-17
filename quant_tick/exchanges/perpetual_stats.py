@@ -22,11 +22,11 @@ from .binance_futures.market_history import (
 from .bybit.candles import get_bybit_category
 from .bybit.constants import MARKET_HISTORY_INTERVAL as BYBIT_INTERVAL
 from .bybit.funding import bybit_market_history
-from .femtos import femtos_market_history
 from .hyperliquid.api import normalize_coin
-from .hyperliquid.sources import femtos_available
 from .phoenix.constants import MARKET_HISTORY_INTERVAL as PHOENIX_INTERVAL
 from .phoenix.market_history import phoenix_market_history
+from .quicknode.api import available as quicknode_available
+from .quicknode.market_history import quicknode_market_history
 
 PERPETUAL_STATS_FETCH_WINDOW = timedelta(days=90)
 PERPETUAL_STATS_MIN_PERSISTENCE_INTERVAL_MINUTES = 60
@@ -47,7 +47,7 @@ PERPETUAL_STATS_BOUNDARY_SNAPSHOT_EXCHANGES = frozenset(
 
 
 def enabled_perpetual_stats_exchanges():
-    if femtos_available():
+    if quicknode_available():
         return PERPETUAL_STATS_SUPPORTED_EXCHANGES
     return PERPETUAL_STATS_SUPPORTED_EXCHANGES - {Exchange.HYPERLIQUID}
 
@@ -89,7 +89,7 @@ def perpetual_stats_api(
     if symbol.exchange == Exchange.PHOENIX:
         return phoenix_market_history(symbol.api_symbol, timestamp_from, timestamp_to)
     if symbol.exchange == Exchange.HYPERLIQUID:
-        return femtos_market_history(
+        return quicknode_market_history(
             normalize_coin(symbol.api_symbol), timestamp_from, timestamp_to
         )
     raise NotImplementedError(
@@ -147,7 +147,7 @@ def perpetual_stats(
     earlier history have no stored observations, including partial rows. Retries
     scan the requested range unless the adapter explicitly reports exhaustion.
     """
-    if symbol.exchange == Exchange.HYPERLIQUID and not femtos_available():
+    if symbol.exchange == Exchange.HYPERLIQUID and not quicknode_available():
         return
     timestamp_range = symbol.clamp_timestamp_range(timestamp_from, timestamp_to)
     if timestamp_range is None:

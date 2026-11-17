@@ -18,7 +18,7 @@ from quant_tick.lib import get_current_time
 from ..public import get_public_json
 
 QUERY_SETTINGS = (
-    " SETTINGS max_execution_time=10, max_bytes_to_read=536870912, "
+    " SETTINGS max_execution_time=10, max_bytes_to_read={scan_limit}, "
     "max_rows_to_read=60000000, read_overflow_mode='throw', "
     "result_overflow_mode='throw', timeout_overflow_mode='throw'"
 )
@@ -52,7 +52,7 @@ def number(value, *, positive=False):
     return result
 
 
-def query(sql):
+def query(sql, *, scan_limit=536870912):
     key = os.environ.get("QUICKNODE_API_KEY", "").strip()
     if not key:
         raise ImproperlyConfigured("Set QUICKNODE_API_KEY to collect QuickNode history")
@@ -75,7 +75,7 @@ def query(sql):
         headers={"x-api-key": key},
         json_body={
             "clusterId": "hyperliquid-core-mainnet",
-            "query": sql + QUERY_SETTINGS,
+            "query": sql + QUERY_SETTINGS.format(scan_limit=scan_limit),
         },
     )
     if (

@@ -138,7 +138,7 @@ class Command(BaseDateCommand):
             help=(
                 "Columns to export after timestamp. "
                 "Defaults to the exchange's required fields plus the optional "
-                "open_interest_unit metadata. Femtos defaults include account ratios "
+                "open_interest_unit metadata. Hyperliquid defaults include account ratios "
                 "and json_data with exact cohort/flow metadata."
             ),
         )

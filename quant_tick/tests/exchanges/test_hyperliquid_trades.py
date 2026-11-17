@@ -164,7 +164,7 @@ class HyperliquidWebSocketValidationTest(BaseWriteTradeDataTest, TestCase):
 @override_settings(
     STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
 )
-@patch.dict(os.environ, {"QUICKNODE_API_KEY": "test-key", "FEMTOS_API_KEY": ""})
+@patch.dict(os.environ, {"QUICKNODE_API_KEY": "test-key"})
 class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
     def setUp(self):
         super().setUp()
