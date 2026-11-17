@@ -677,20 +677,32 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
             (HYPERLIQUID_SYMBOL, SymbolType.PERPETUAL, Exchange.HYPERLIQUID, "BTC"),
         ):
             with self.subTest(symbol_id=symbol_id):
-                symbol = self.get_symbol(
-                    exchange=Exchange.COINAPI,
-                    api_symbol=symbol_id,
-                    symbol_type=symbol_type,
-                    save_aggregated=True,
-                    significant_trade_filter=1,
-                )
-                symbol.code_name = f"exponential-chardonnay-{native_exchange}"
-                symbol.save(update_fields=["code_name"])
-                native = self.get_symbol(
-                    exchange=native_exchange,
-                    api_symbol=native_pair,
-                    symbol_type=symbol_type,
-                )
+                short_name = f"test-{native_exchange}"
+                native_name = f"other-{native_pair.lower()}"
+                with patch(
+                    "quant_tick.models.base.randomname.get_name",
+                    side_effect=[
+                        "exponential-chardonnay",
+                        short_name,
+                        short_name,
+                        native_name,
+                    ],
+                ) as names:
+                    symbol = self.get_symbol(
+                        exchange=Exchange.COINAPI,
+                        api_symbol=symbol_id,
+                        symbol_type=symbol_type,
+                        save_aggregated=True,
+                        significant_trade_filter=1,
+                    )
+                    native = self.get_symbol(
+                        exchange=native_exchange,
+                        api_symbol=native_pair,
+                        symbol_type=symbol_type,
+                    )
+                self.assertEqual(names.call_count, 4)
+                self.assertEqual(symbol.code_name, short_name)
+                self.assertEqual(native.code_name, native_name)
                 rows = [
                     trade(1, symbol_id=symbol_id, id_trade="1065044209871623"),
                     trade(2, symbol_id=symbol_id, side="SELL", id_trade="11"),
@@ -716,8 +728,8 @@ class CoinAPICollectionTest(BaseSymbolTest, TestCase):
                 )
                 stored = TradeData.objects.get(symbol=symbol)
                 self.assertIs(stored.ok, True)
-                self.assertGreater(len(stored.aggregated_data.name), 100)
                 for field in ("raw_data", "aggregated_data", "filtered_data"):
+                    self.assertLessEqual(len(getattr(stored, field).name), 100)
                     self.assertEqual(
                         getattr(stored, field).name,
                         stored.upload_path(field.removesuffix("_data"), "data.parquet"),
