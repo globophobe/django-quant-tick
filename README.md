@@ -40,11 +40,9 @@ Supported exchanges
 
 ✅ Deribit REST API
 
-✅ Hyperliquid REST API
+✅ Hyperliquid (QuickNode required for historical trades)
 
 ✅ Phoenix perpetuals REST API
-
-Note: Exchanges without paginated REST APIs or an S3 repository, will never be supported.
 
 Installation
 ------------
