@@ -280,9 +280,7 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
                 frame = row.get_data_frame(field)
                 self.assertEqual(len(frame), 1)
                 self.assertEqual(frame.notional.sum(), Decimal(1))
-                self.assertEqual(
-                    frame.data_source.tolist(), row.json_data["data_sources"]
-                )
+                self.assertNotIn("data_source", frame.columns)
 
     def test_retry_prefers_recovered_native_minute_without_paid_request(self):
         self.websocket_minute(0)

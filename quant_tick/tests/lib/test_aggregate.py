@@ -19,10 +19,17 @@ class TradeAggregatorTest(BaseRandomTradeTest, SimpleTestCase):
     def test_equal_symbols_and_timestamps_and_ticks(self):
         trades = [{"symbol": "A", "is_equal_timestamp": True, "ticks": [1, 1]}]
         data_frame = self.get_data_frame(trades)
-        data_frame["data_source"] = "hyperliquid"
         data = aggregate_trades(data_frame)
         self.assertEqual(len(data), 1)
-        self.assertEqual(data.data_source.tolist(), ["hyperliquid"])
+        for sources in (
+            ["hyperliquid", "quicknode"],
+            ["quicknode", None],
+            ["hyperliquid", "hyperliquid"],
+        ):
+            with self.subTest(sources=sources):
+                pd.testing.assert_frame_equal(
+                    aggregate_trades(data_frame.assign(data_source=sources)), data
+                )
 
     def test_equal_symbols_and_timestamps_and_not_equal_ticks(self):
         trades = [{"symbol": "A", "is_equal_timestamp": True, "ticks": [1, -1]}]
@@ -30,26 +37,16 @@ class TradeAggregatorTest(BaseRandomTradeTest, SimpleTestCase):
         data = aggregate_trades(data_frame)
         self.assertEqual(len(data), 2)
 
-    def test_distinct_market_or_source_does_not_merge_equal_timestamps_and_ticks(self):
+    def test_distinct_markets_do_not_merge_equal_timestamps_and_ticks(self):
         trades = [
             {"symbol": "A", "is_equal_timestamp": True, "ticks": [1, 1]},
             {"symbol": "B", "is_equal_timestamp": True, "ticks": [1, 1]},
         ]
         data_frame = self.get_data_frame(trades)
-        for split_field in ("symbol", "data_source"):
-            with self.subTest(split_field=split_field):
-                frame = data_frame.copy()
-                if split_field == "data_source":
-                    frame["symbol"] = "BTC"
-                    frame["data_source"] = [
-                        "hyperliquid",
-                        "hyperliquid",
-                        "coinapi",
-                        "coinapi",
-                    ]
-                data = aggregate_trades(frame)
-                self.assertEqual(len(data), 2)
-                self.assertEqual(data.volume.sum(), frame.volume.sum())
+        data_frame["timestamp"] = data_frame.iloc[0].timestamp
+        data = aggregate_trades(data_frame)
+        self.assertEqual(data.symbol.tolist(), ["A", "B"])
+        self.assertEqual(data.volume.sum(), data_frame.volume.sum())
 
     def test_not_equal_symbols_and_timestamps_and_equal_ticks(self):
         trades = [
@@ -136,13 +133,32 @@ class VolumeFilterTest(BaseRandomTradeTest, SimpleTestCase):
             ),
         ]
         data_frame = pd.DataFrame(trades)
-        data_frame["data_source"] = ["hyperliquid", "coinapi", "coinapi", "coinapi"]
         aggregated = aggregate_trades(data_frame)
         filtered = volume_filter_with_time_window(aggregated, min_volume=2, window=None)
         self.assertEqual(len(filtered), 1)
         self.assert_min_volume(filtered.iloc[0])
         self.assert_not_min_volume(filtered.iloc[0], buy=2, total=4)
-        self.assertEqual(filtered.data_source.tolist(), ["coinapi,hyperliquid"])
+        data_frame["data_source"] = [
+            "hyperliquid",
+            "quicknode",
+            "hyperliquid",
+            "quicknode",
+        ]
+        pd.testing.assert_frame_equal(
+            volume_filter_with_time_window(
+                aggregate_trades(data_frame), min_volume=2, window=None
+            ),
+            filtered,
+        )
+        aggregated["data_source"] = [
+            "hyperliquid",
+            "quicknode",
+            "hyperliquid,quicknode",
+        ]
+        pd.testing.assert_frame_equal(
+            volume_filter_with_time_window(aggregated, min_volume=2, window=None),
+            filtered,
+        )
 
     def test_volume_filter_rejects_partial_totalized_schema(self):
         now = get_current_time()
