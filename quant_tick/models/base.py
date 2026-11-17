@@ -124,9 +124,9 @@ class AbstractCodeName(models.Model):
 
     @classmethod
     def get_random_name(cls) -> str:
-        """Generate a unique code name of at most 16 characters for storage paths."""
+        """Generate a unique random code name."""
         name = randomname.get_name()
-        if len(name) > 16 or cls.objects.filter(code_name=name).exists():
+        if cls.objects.filter(code_name=name).exists():
             return cls.get_random_name()
         else:
             return name
