@@ -153,7 +153,11 @@ class PublicMarketRequestTest(SimpleTestCase):
                     self.response(
                         status,
                         payload if status == 200 else '{"error":"sample-test-key"}',
-                        {"Retry-After": "44"},
+                        {
+                            "Retry-After": "44",
+                            "X-RateLimit-Limit": "20",
+                            "X-RateLimit-Remaining": "59" if status == 200 else "0",
+                        },
                     )
                     for status in statuses
                 ]
@@ -187,8 +191,8 @@ class PublicMarketRequestTest(SimpleTestCase):
                     self.assertEqual(collect(), expected)
                 self.assertEqual(request.call_count, len(statuses))
                 self.assertEqual(
-                    sum(args.args[0] == 44 for args in sleep.call_args_list),
-                    sum(status == 429 for status in statuses[:-1]),
+                    sleep.call_args_list,
+                    [call(44)] * sum(status == 429 for status in statuses[:-1]),
                 )
                 self.assertEqual(len(events), 1)
                 event = events[0]

@@ -1,7 +1,6 @@
 """Bounded public-market SQL requests.
 
-QUICKNODE_RATE_LIMIT is SQL requests per second, defaulting to two when unset.
-All queries share the process allowance and honor Retry-After. Scan limits fail
+SQL requests follow the response quota headers and honor Retry-After. Scan limits fail
 closed; they never truncate a successful result or silently switch providers.
 """
 
@@ -56,21 +55,12 @@ def query(sql, *, scan_limit=536870912):
     key = os.environ.get("QUICKNODE_API_KEY", "").strip()
     if not key:
         raise ImproperlyConfigured("Set QUICKNODE_API_KEY to collect QuickNode history")
-    try:
-        rate = int(os.environ.get("QUICKNODE_RATE_LIMIT") or 2)
-        if rate <= 0:
-            raise ValueError
-    except ValueError as exc:
-        raise ImproperlyConfigured(
-            "QUICKNODE_RATE_LIMIT must be positive requests per second"
-        ) from exc
     payload = get_public_json(
         "https://api.quicknode.com",
         "/sql/rest/v1/query",
         {},
         namespace="QUICKNODE",
-        max_requests=1,
-        reset_seconds=1 / rate,
+        max_requests=None,
         retry=3,
         headers={"x-api-key": key},
         json_body={

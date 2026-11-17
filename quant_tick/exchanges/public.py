@@ -1,4 +1,4 @@
-"""Public market requests with local pacing and Retry-After handling."""
+"""Public market requests with rate limiting and Retry-After handling."""
 
 import json
 import logging
@@ -40,19 +40,21 @@ def get_public_json(
     params: dict,
     *,
     namespace: str,
-    max_requests: int = 2,
+    max_requests: int | None = 2,
     reset_seconds: float = 1,
     retry: int = 30,
     headers: dict[str, str] | None = None,
     json_body: dict | list | None = None,
     redact_url: bool = False,
 ):
+    """Use per-second response quotas when max_requests is None."""
     total_key = f"{namespace}_TOTAL_REQUESTS"
     reset_key = f"{namespace}_MAX_REQUESTS_RESET"
     limit_reported = False
     for attempt in range(retry + 1):
-        throttle_api_requests(reset_key, total_key, reset_seconds, max_requests)
-        increment_api_total_requests(total_key)
+        if max_requests is not None:
+            throttle_api_requests(reset_key, total_key, reset_seconds, max_requests)
+            increment_api_total_requests(total_key)
         try:
             kwargs = {"headers": headers} if headers is not None else {}
             if redact_url:
@@ -95,6 +97,18 @@ def get_public_json(
                     namespace,
                     response.headers["X-Credits"],
                 )
+            if max_requests is None:
+                limit = response.headers.get("X-RateLimit-Limit")
+                remaining = response.headers.get("X-RateLimit-Remaining")
+                if limit is not None and remaining is not None:
+                    rate = int(limit)
+                    if rate > 0 and int(remaining) <= 0:
+                        # The limit is the refill rate, not the burst capacity.
+                        delay = 1 / rate
+                        logger.info(
+                            "%s quota exhausted, sleeping %g seconds", namespace, delay
+                        )
+                        time.sleep(delay)
             return payload
         except HTTPX_ERRORS as exc:
             status = (

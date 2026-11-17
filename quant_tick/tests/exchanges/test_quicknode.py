@@ -3,8 +3,9 @@ import os
 from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
+import httpx2
 import pandas as pd
 from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase
@@ -197,33 +198,41 @@ class QuickNodeTradesTest(SimpleTestCase):
 
 
 class QuickNodeRequestTest(SimpleTestCase):
-    def test_sql_limits_schema_and_rate_configuration(self):
-        for rate, reset in (("", 0.5), ("4", 0.25)):
+    def test_sql_uses_response_quota_and_checks_schema(self):
+        for headers, delay in (
+            ({"X-RateLimit-Limit": "20", "X-RateLimit-Remaining": "59"}, None),
+            ({"X-RateLimit-Limit": "20", "X-RateLimit-Remaining": "0"}, 0.05),
+            ({"X-RateLimit-Limit": "4", "X-RateLimit-Remaining": "0"}, 0.25),
+            ({}, None),
+            ({"X-RateLimit-Limit": "20"}, None),
+            ({"X-RateLimit-Remaining": "0"}, None),
+        ):
             with (
-                self.subTest(rate=rate),
-                patch.dict(
-                    os.environ,
-                    {"QUICKNODE_API_KEY": "test", "QUICKNODE_RATE_LIMIT": rate},
-                ),
+                self.subTest(headers=headers),
+                patch.dict(os.environ, {"QUICKNODE_API_KEY": "test"}, clear=True),
+                patch("quant_tick.exchanges.public.time.time", return_value=100),
+                patch("quant_tick.exchanges.public.time.sleep") as sleep,
                 patch(
-                    "quant_tick.exchanges.quicknode.api.get_public_json",
-                    return_value={"data": [], "rows": 0},
+                    "quant_tick.exchanges.public.httpx2.post",
+                    return_value=httpx2.Response(
+                        200,
+                        json={"data": [], "rows": 0},
+                        headers=headers,
+                        request=httpx2.Request(
+                            "POST", "https://api.quicknode.com/sql/rest/v1/query"
+                        ),
+                    ),
                 ) as request,
             ):
-                self.assertEqual(api.query("SELECT 1"), [])
+                for _ in range(2):
+                    self.assertEqual(api.query("SELECT 1"), [])
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(
+                sleep.call_args_list, [call(delay)] * 2 if delay is not None else []
+            )
             kwargs = request.call_args.kwargs
-            self.assertEqual(kwargs["reset_seconds"], reset)
-            self.assertIn("max_rows_to_read=", kwargs["json_body"]["query"])
-            self.assertIn("overflow_mode='throw'", kwargs["json_body"]["query"])
-        for rate in ("0", "-1", "bad"):
-            with (
-                patch.dict(
-                    os.environ,
-                    {"QUICKNODE_API_KEY": "test", "QUICKNODE_RATE_LIMIT": rate},
-                ),
-                self.assertRaises(ImproperlyConfigured),
-            ):
-                api.query("SELECT 1")
+            self.assertIn("max_rows_to_read=", kwargs["json"]["query"])
+            self.assertIn("overflow_mode='throw'", kwargs["json"]["query"])
         for payload in (
             {},
             {"data": [], "rows": 1},
