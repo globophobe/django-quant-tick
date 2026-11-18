@@ -27,8 +27,8 @@ class QuickNodeTradesTest(SimpleTestCase):
         self.fixture = json.loads(path.read_text())
         self.rows = self.fixture["rows"]
 
-    def collect(self):
-        return list(iter_trades("BTC", self.start, self.end, bounds=(1, 2000000000)))
+    def collect(self, coin="BTC"):
+        return list(iter_trades(coin, self.start, self.end, bounds=(1, 2000000000)))
 
     def test_native_order_and_filter_survive_pages_splitting_one_block(self):
         pages = [self.rows[index : index + 4] for index in range(0, len(self.rows), 4)]
@@ -62,12 +62,12 @@ class QuickNodeTradesTest(SimpleTestCase):
             row["seller_address"] = "seller-" + str(index)
         return rows
 
-    def raw_events(self, rows):
+    def raw_events(self, rows, coin="BTC"):
         return [
             [
                 "taker",
                 {
-                    "coin": "BTC",
+                    "coin": coin,
                     "crossed": True,
                     "tid": row["trade_id"],
                     "px": row["price"],
@@ -81,39 +81,63 @@ class QuickNodeTradesTest(SimpleTestCase):
 
     def test_ambiguous_sql_uses_raw_sequence_and_checks_the_complete_row_set(self):
         rows = self.independent_rows()
-        for failure in (None, "missing", "extra", "value", "duplicate"):
-            events = self.raw_events(rows[::-1])
-            if failure == "missing":
-                events.pop()
-            if failure in ("extra", "duplicate"):
-                events.append(deepcopy(events[0]))
-            if failure == "extra":
-                events[-1][1]["tid"] = 999999
-            if failure == "value":
-                events[0][1]["sz"] = "99"
-            with (
-                self.subTest(failure=failure),
-                patch("quant_tick.exchanges.quicknode.trades.PAGE_SIZE", 1),
-                patch(
-                    "quant_tick.exchanges.quicknode.trades.query",
-                    side_effect=[[rows[0]], [rows[1]], []],
-                ),
-                patch(
-                    "quant_tick.exchanges.quicknode.blocks.get_trade_blocks",
-                    return_value={rows[0]["block_number"]: events},
-                ) as raw,
+        for coin in ("BTC", "@142"):
+            for failure in (
+                None,
+                "missing",
+                "extra",
+                "value",
+                "duplicate",
+                "zero_id",
+                "dust_trade_id",
             ):
-                if failure:
-                    with self.assertRaisesRegex(
-                        ValueError, "QuickNode.*(disagree|omitted)"
-                    ):
-                        self.collect()
-                else:
-                    self.assertEqual(
-                        [r["trade_id"] for r in self.collect()],
-                        [r["trade_id"] for r in rows[::-1]],
+                events = self.raw_events(rows[::-1], coin)
+                if coin == "@142":
+                    dust = deepcopy(events[0])
+                    dust[1].update(
+                        tid=0, dir="Spot Dust Conversion", sz="0.00000492"
                     )
-                raw.assert_called_once_with([rows[0]["block_number"]])
+                    events[1:1] = [dust, deepcopy(dust)]
+                if failure == "missing":
+                    events.pop()
+                if failure in ("extra", "duplicate", "zero_id", "dust_trade_id"):
+                    events.append(deepcopy(events[0]))
+                if failure in ("extra", "dust_trade_id"):
+                    events[-1][1]["tid"] = 999999
+                if failure == "zero_id":
+                    events[-1][1].update(tid=0, dir="Sell")
+                if failure == "dust_trade_id":
+                    events[-1][1]["dir"] = "Spot Dust Conversion"
+                if failure == "value":
+                    events[0][1]["sz"] = "99"
+                with (
+                    self.subTest(coin=coin, failure=failure),
+                    patch("quant_tick.exchanges.quicknode.trades.PAGE_SIZE", 1),
+                    patch(
+                        "quant_tick.exchanges.quicknode.trades.query",
+                        side_effect=[[rows[0]], [rows[1]], []],
+                    ),
+                    patch(
+                        "quant_tick.exchanges.quicknode.blocks.get_trade_blocks",
+                        return_value={rows[0]["block_number"]: events},
+                    ) as raw,
+                ):
+                    if failure:
+                        with self.assertRaisesRegex(
+                            ValueError, "QuickNode.*(disagree|omitted)"
+                        ):
+                            self.collect(coin)
+                    else:
+                        frame = trade_frame(self.collect(coin))
+                        self.assertEqual(
+                            frame.id_trade.tolist(),
+                            [str(r["trade_id"]) for r in rows[::-1]],
+                        )
+                        self.assertEqual(
+                            frame.notional.sum(),
+                            sum(Decimal(r["size"]) for r in rows),
+                        )
+                    raw.assert_called_once_with([rows[0]["block_number"]])
 
     def test_invalid_sql_pages_fail_before_persistence(self):
         for change in (

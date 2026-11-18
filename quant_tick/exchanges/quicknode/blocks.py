@@ -76,7 +76,11 @@ def order_from_block(coin, rows, events):
     for _, fill in events:
         if fill.get("coin") != coin or not fill.get("crossed"):
             continue
-        row = by_id.pop(int(fill["tid"]), None)
+        trade_id = int(fill["tid"])
+        # Dust allocations distribute an executed trade; they are not extra fills.
+        if trade_id == 0 and fill.get("dir") == "Spot Dust Conversion":
+            continue
+        row = by_id.pop(trade_id, None)
         if row is None or (
             row["price"],
             row["size"],
