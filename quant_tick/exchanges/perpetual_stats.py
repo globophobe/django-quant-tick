@@ -237,7 +237,7 @@ def perpetual_stats(
             )
             request_to = min(fetch_to, requested_timestamp_to)
             logger.info(
-                "%s: fetching perpetual stats %s to %s",
+                "%s: perpetual stats %s to %s",
                 symbol,
                 fetch_from,
                 request_to,
