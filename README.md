@@ -40,7 +40,7 @@ Supported exchanges
 
 ✅ Deribit REST API
 
-✅ Hyperliquid (QuickNode required for historical trades)
+✅ Hyperliquid, with QuickNode for historical trades
 
 ✅ Phoenix perpetuals REST API
 
