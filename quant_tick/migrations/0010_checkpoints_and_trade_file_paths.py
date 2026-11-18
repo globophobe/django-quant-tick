@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
             field=models.FileField(blank=True, max_length=255, upload_to=quant_tick.models.trades.upload_raw_data_to, verbose_name='raw data'),
         ),
         migrations.CreateModel(
-            name='CollectorCheckpoint',
+            name='Checkpoint',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('kind', models.CharField(max_length=255)),
@@ -37,7 +37,7 @@ class Migration(migrations.Migration):
                 ('symbol', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='quant_tick.symbol')),
             ],
             options={
-                'db_table': 'quant_tick_collector_checkpoint',
+                'db_table': 'quant_tick_checkpoint',
                 'unique_together': {('symbol', 'kind', 'timestamp')},
             },
         ),

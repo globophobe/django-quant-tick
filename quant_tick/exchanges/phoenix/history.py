@@ -18,7 +18,7 @@ from datetime import timedelta
 import pandas as pd
 from django.db import transaction
 
-from quant_tick.models import CollectorCheckpoint
+from quant_tick.models import Checkpoint
 
 from ..quicknode.solana import address_transactions
 from .accounts import cohort_values
@@ -204,7 +204,7 @@ class PhoenixPositionHistory:
         with transaction.atomic():
             if self.assert_lease_owned is not None:
                 self.assert_lease_owned()
-            checkpoint, created = CollectorCheckpoint.objects.get_or_create(
+            checkpoint, created = Checkpoint.objects.get_or_create(
                 symbol=self.symbol,
                 kind=self.checkpoint_kind,
                 timestamp=timestamp,
@@ -226,7 +226,7 @@ class PhoenixPositionHistory:
 
     def load(self, end):
         checkpoint = (
-            CollectorCheckpoint.objects.filter(
+            Checkpoint.objects.filter(
                 symbol=self.symbol, kind=self.checkpoint_kind, timestamp__gte=end
             )
             .order_by("timestamp")

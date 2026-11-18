@@ -1,7 +1,7 @@
 from django.db import models
 
 
-class CollectorCheckpoint(models.Model):
+class Checkpoint(models.Model):
     """Persist collector state at a time boundary, isolated by symbol and kind.
 
     Each collector owns its state format and validation.
@@ -13,5 +13,5 @@ class CollectorCheckpoint(models.Model):
     state = models.JSONField()
 
     class Meta:
-        db_table = "quant_tick_collector_checkpoint"
+        db_table = "quant_tick_checkpoint"
         unique_together = (("symbol", "kind", "timestamp"),)
