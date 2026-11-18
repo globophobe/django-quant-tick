@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from copy import deepcopy
 from decimal import Decimal
 from functools import partial
@@ -358,6 +359,97 @@ class QuickNodeRequestTest(SimpleTestCase):
         for rows in ([], [{"blocks": 0}], [{"blocks": 1, "start": end, "end": end}]):
             with patch("quant_tick.exchanges.quicknode.api.query", return_value=rows):
                 self.assertIsNone(api.block_range(start, end))
+
+    def test_block_index_queries_stay_within_months_and_keep_partial_edges(self):
+        cases = (
+            ("2026-04-02T00:00Z", "2026-04-02T06:01Z", None),
+            ("2026-03-31T23:00Z", "2026-04-01T06:01Z", "2026-04-01T00:00Z"),
+            ("2024-02-29T23:00Z", "2024-03-01T01:00Z", "2024-03-01T00:00Z"),
+            ("2025-12-31T23:00Z", "2026-01-01T01:00Z", "2026-01-01T00:00Z"),
+            ("2026-04-01T00:00Z", "2026-04-01T01:00Z", "2026-04-01T00:00Z"),
+            ("2026-03-31T23:58Z", "2026-03-31T23:59:30Z", "2026-04-01T00:00Z"),
+            ("2026-03-31T23:58Z", "2026-03-31T23:59Z", None),
+        )
+        observed = []
+
+        def request(sql):
+            values = re.findall(r"block_time [<>]=? '([^']+)'", sql)
+            left, right = (api.timestamp(value) for value in values)
+            self.assertLess(left, right)
+            self.assertEqual(
+                left.strftime("%Y-%m"),
+                (right - pd.Timedelta(nanoseconds=1)).strftime("%Y-%m"),
+                "The block lookup would scan multiple monthly partitions",
+            )
+            observed.append((left, right))
+            return [
+                {
+                    "first": int(left.timestamp()),
+                    "last": int(right.timestamp()) - 1,
+                    "blocks": 1,
+                    "start": left,
+                    "end": right - pd.Timedelta(seconds=1),
+                }
+            ]
+
+        for first, last, boundary in cases:
+            start, end = pd.Timestamp(first), pd.Timestamp(last)
+            lower, upper = (
+                start - pd.Timedelta(minutes=1),
+                end + pd.Timedelta(minutes=1),
+            )
+            observed.clear()
+
+            expected = (
+                [(lower, upper)]
+                if boundary is None
+                else [(lower, pd.Timestamp(boundary)), (pd.Timestamp(boundary), upper)]
+            )
+            with (
+                self.subTest(start=start, end=end),
+                patch.object(api, "query", side_effect=request),
+            ):
+                self.assertEqual(
+                    api.block_range(start, end),
+                    (int(lower.timestamp()), int(upper.timestamp()) - 1),
+                )
+                self.assertEqual(observed, expected)
+
+    def test_monthly_block_bounds_require_coverage_only_for_the_requested_window(self):
+        march = {
+            "first": 100,
+            "last": 199,
+            "blocks": 100,
+            "start": "2026-03-31T22:59Z",
+            "end": "2026-03-31T23:59:59Z",
+        }
+        april = {
+            "first": 200,
+            "last": 299,
+            "blocks": 100,
+            "start": "2026-04-01T00:00Z",
+            "end": "2026-04-01T01:00:59Z",
+        }
+        cases = (
+            ("2026-03-31T23:00Z", "2026-04-01T01:00Z", [[march], [april]], (100, 299)),
+            ("2026-03-31T23:00Z", "2026-04-01T01:00Z", [[], [april]], None),
+            (
+                "2026-03-31T23:00Z",
+                "2026-04-01T01:00Z",
+                [[march], [{"blocks": 0}]],
+                None,
+            ),
+            ("2026-04-01T00:00Z", "2026-04-01T01:00Z", [[], [april]], (200, 299)),
+            ("2026-03-31T23:00Z", "2026-03-31T23:59:30Z", [[march], []], (100, 199)),
+        )
+        for first, last, responses, expected in cases:
+            with (
+                self.subTest(start=first, end=last, responses=responses),
+                patch.object(api, "query", side_effect=responses),
+            ):
+                self.assertEqual(
+                    api.block_range(pd.Timestamp(first), pd.Timestamp(last)), expected
+                )
 
     def test_block_endpoint_is_validated_and_does_not_log_credentials(self):
         for endpoint in (

@@ -92,28 +92,37 @@ def _history_start(day):
 
 
 def block_range(start, end):
-    lower, upper = (
-        time_literal(timestamp(start) - pd.Timedelta(minutes=1)),
-        time_literal(timestamp(end) + pd.Timedelta(minutes=1)),
-    )
-    rows = query(
-        "SELECT min(block_number) AS first, max(block_number) AS last, "
-        "count() AS blocks, min(block_time) AS start, max(block_time) AS end "
-        "FROM hyperliquid_blocks "
-        f"WHERE block_time >= {lower} AND block_time < {upper} LIMIT 1"
-    )
-    if not rows or not rows[0]["blocks"]:
+    lower = timestamp(start) - pd.Timedelta(minutes=1)
+    stop = timestamp(end) + pd.Timedelta(minutes=1)
+    rows = []
+    # The time filter prunes monthly partitions but can still scan every block
+    # in each month. Keep month crossings within the same per-request scan limits.
+    while lower < stop:
+        upper = min(stop, lower.normalize() + pd.offsets.MonthBegin(1))
+        from_literal, to_literal = time_literal(lower), time_literal(upper)
+        rows.extend(
+            query(
+                "SELECT min(block_number) AS first, max(block_number) AS last, "
+                "count() AS blocks, min(block_time) AS start, max(block_time) AS end "
+                "FROM hyperliquid_blocks "
+                f"WHERE block_time >= {from_literal} "
+                f"AND block_time < {to_literal} LIMIT 1"
+            )
+        )
+        lower = upper
+    rows = [row for row in rows if row["blocks"]]
+    if not rows:
         return None
     # The index is only a scan hint; lag or missing boundary coverage must not
     # clip trade queries to a partial window.
-    if timestamp(rows[0]["start"]) > timestamp(start) or timestamp(
-        rows[0]["end"]
+    if min(timestamp(row["start"]) for row in rows) > timestamp(start) or max(
+        timestamp(row["end"]) for row in rows
     ) < timestamp(end):
         return None
-    first, last = int(rows[0]["first"]), int(rows[0]["last"])
-    if not 0 < first <= last:
+    bounds = [(int(row["first"]), int(row["last"])) for row in rows]
+    if any(not 0 < first <= last for first, last in bounds):
         raise ValueError("QuickNode returned invalid block bounds")
-    return first, last
+    return min(first for first, _ in bounds), max(last for _, last in bounds)
 
 
 def trade_where(coin, start, end, bounds):
