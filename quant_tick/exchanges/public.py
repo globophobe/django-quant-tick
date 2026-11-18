@@ -116,12 +116,6 @@ def get_public_json(
             payload = json.loads(response.text, parse_float=Decimal)
             if check_response is not None:
                 check_response(response, payload)
-            if response.headers.get("X-Credits"):
-                logger.info(
-                    "%s request used %s credits",
-                    namespace,
-                    response.headers["X-Credits"],
-                )
             if max_requests is None:
                 limit = response.headers.get("X-RateLimit-Limit")
                 remaining = response.headers.get("X-RateLimit-Remaining")
