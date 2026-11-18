@@ -21,6 +21,10 @@ QUERY_SETTINGS = (
     "max_rows_to_read=60000000, read_overflow_mode='throw', "
     "result_overflow_mode='throw', timeout_overflow_mode='throw'"
 )
+BORROW_LIQUIDATION_DIRECTIONS = (
+    "Partial Borrow Liquidation",
+    "Backstop Borrow Liquidation",
+)
 
 
 def available():
@@ -126,6 +130,7 @@ def block_range(start, end):
 
 
 def trade_where(coin, start, end, bounds):
+    """Exclude off-book collateral transfers from trade pages and candle totals."""
     market, lower, upper = coin_literal(coin), time_literal(start), time_literal(end)
     block_from = time_literal(timestamp(start) - pd.Timedelta(minutes=1))
     block_to = time_literal(timestamp(end) + pd.Timedelta(minutes=1))
@@ -137,4 +142,6 @@ def trade_where(coin, start, end, bounds):
         f"coin={market} {block_filter}"
         f"AND block_time >= {block_from} AND block_time < {block_to} "
         f"AND timestamp >= {lower} AND timestamp < {upper}"
+        f" AND NOT (buyer_dir IN {BORROW_LIQUIDATION_DIRECTIONS} "
+        "AND seller_dir=buyer_dir)"
     )

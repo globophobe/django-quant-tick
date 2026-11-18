@@ -7,7 +7,7 @@ import pandas as pd
 from django.core.exceptions import ImproperlyConfigured
 
 from ..public import get_public_json
-from .api import number
+from .api import BORROW_LIQUIDATION_DIRECTIONS, number
 from .rpc_errors import check_rpc_response
 
 
@@ -75,6 +75,8 @@ def order_from_block(coin, rows, events):
     ordered = []
     for _, fill in events:
         if fill.get("coin") != coin or not fill.get("crossed"):
+            continue
+        if fill.get("dir") in BORROW_LIQUIDATION_DIRECTIONS:
             continue
         trade_id = int(fill["tid"])
         # Dust allocations distribute an executed trade; they are not extra fills.

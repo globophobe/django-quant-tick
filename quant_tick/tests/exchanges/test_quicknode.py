@@ -98,6 +98,19 @@ class QuickNodeTradesTest(SimpleTestCase):
                         tid=0, dir="Spot Dust Conversion", sz="0.00000492"
                     )
                     events[1:1] = [dust, deepcopy(dust)]
+                    for direction in (
+                        "Partial Borrow Liquidation",
+                        "Backstop Borrow Liquidation",
+                    ):
+                        for size in ("0", "2"):
+                            transfer = deepcopy(events[0])
+                            transfer[1].update(
+                                tid=900000 + len(events),
+                                dir=direction,
+                                sz=size,
+                                px="1",
+                            )
+                            events.insert(1, transfer)
                 if failure == "missing":
                     events.pop()
                 if failure in ("extra", "duplicate", "zero_id", "dust_trade_id"):
@@ -116,7 +129,7 @@ class QuickNodeTradesTest(SimpleTestCase):
                     patch(
                         "quant_tick.exchanges.quicknode.trades.query",
                         side_effect=[[rows[0]], [rows[1]], []],
-                    ),
+                    ) as query,
                     patch(
                         "quant_tick.exchanges.quicknode.blocks.get_trade_blocks",
                         return_value={rows[0]["block_number"]: events},
@@ -138,10 +151,19 @@ class QuickNodeTradesTest(SimpleTestCase):
                             sum(Decimal(r["size"]) for r in rows),
                         )
                     raw.assert_called_once_with([rows[0]["block_number"]])
+                    sql = query.call_args_list[0].args[0]
+                    self.assertIn(
+                        "AND NOT (buyer_dir IN ('Partial Borrow Liquidation', "
+                        "'Backstop Borrow Liquidation') AND seller_dir=buyer_dir)",
+                        sql,
+                    )
 
     def test_invalid_sql_pages_fail_before_persistence(self):
         for change in (
+            {"size": "0"},
+            {"size": "-1"},
             {"size": "NaN"},
+            {"size": "Infinity"},
             {"price": "-1"},
             {"side": "X"},
             {"buyer_crossed": 1},
@@ -217,10 +239,15 @@ class QuickNodeTradesTest(SimpleTestCase):
                         "trades": 18,
                     }
                 ],
-            ),
+            ) as query,
         ):
             result = validation_candles("BTC", self.start, self.end)
         self.assertEqual(result.iloc[0].notional, Decimal("5.000000000000000001"))
+        self.assertIn(
+            "AND NOT (buyer_dir IN ('Partial Borrow Liquidation', "
+            "'Backstop Borrow Liquidation') AND seller_dir=buyer_dir)",
+            query.call_args.args[0],
+        )
 
 
 class QuickNodeRequestTest(SimpleTestCase):
