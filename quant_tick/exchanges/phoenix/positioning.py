@@ -5,7 +5,8 @@ within the completed hour, not a snapshot of all open accounts. PnL events prove
 opening/closing flow, including reversals through zero. Market trade sequence
 numbers and account position continuity detect missing executions; every fill
 must also match native timestamp and signed quantities, preserving multiplicity.
-Non-trading transfers/ADL and global account cohorts are not inferred from fills.
+Transfers/ADL are aggregated separately from the complete position replay, not
+inferred from fills. liquidated_* contains only market-liquidation executions.
 When supplied, replayed_groups must have passed full reverse position and sequence
 validation; this includes transfers between trades that fill-only checks cannot
 reconcile. These groups replace individual paid transaction lookups.
@@ -207,6 +208,83 @@ def validate_native(trades, native, start, end):
         raise ValueError("Phoenix RPC fills do not match the native trade feed")
 
 
+def add_position_change(row, before, after, *, taker=False):
+    for direction, sign in (("long", 1), ("short", -1)):
+        change = max(sign * after, 0) - max(sign * before, 0)
+        action = "open" if change > 0 else "close"
+        field = direction + "_" + action + "_size"
+        row[field] += abs(change)
+        if taker:
+            row["taker_" + field] += abs(change)
+        row[direction + "_account_delta"] += int(sign * after > 0) - int(
+            sign * before > 0
+        )
+        row[direction + "_position_flips"] += int(sign * before < 0 < sign * after)
+
+
+def nontrade_flows(groups, asset_id, base_lot_decimals):
+    """Aggregate position-validated invocations from a complete hourly replay.
+
+    Backstop and ADL quantities count each event once, on the distressed side.
+    Shutdown closes are separate from ADL. No quote value is inferred from virtual
+    quote lots or the hourly mark price. Position changes include both accounts;
+    none of these events contributes to trade counts or taker flow.
+    """
+    base = Decimal(10) ** -base_lot_decimals
+    row = {
+        f"{kind}_{side}size": Decimal(0)
+        for kind in ("backstop", "adl")
+        for side in ("", "long_", "short_")
+    }
+    row.update({kind + "_events": 0 for kind in ("backstop", "adl", "shutdown")})
+    row["shutdown_size"] = Decimal(0)
+    for direction in ("long", "short"):
+        row[direction + "_open_size"] = Decimal(0)
+        row[direction + "_close_size"] = Decimal(0)
+        row[direction + "_account_delta"] = 0
+        row[direction + "_position_flips"] = 0
+    for group in groups:
+        selected = [item for item in group if item.get("asset_id") == asset_id]
+        if any(item["kind"] == "TradeSummary" for item in group):
+            raise ValueError(
+                "Phoenix mixed trading and transfer invocation is unsupported"
+            )
+        for item in selected:
+            kind = item["kind"]
+            if kind == "PnL":
+                add_position_change(
+                    row, item["base_lots_before"] * base, item["base_lots_after"] * base
+                )
+            elif kind in NONTRADE_EVENTS:
+                if kind == "LiquidationTransfer":
+                    quantity = item["base_lots_transferred"]
+                    category, side = "backstop", "long" if quantity > 0 else "short"
+                elif kind == "CloseMatchedPositions":
+                    quantity = item["base_lots_closed"]
+                    if item["closed_long"] == item["closed_short"] or item[
+                        "in_profit_account"
+                    ] not in (item["closed_long"], item["closed_short"]):
+                        raise ValueError(
+                            "Phoenix ADL lacks its profitable counterparty"
+                        )
+                    category = "adl"
+                    side = (
+                        "long"
+                        if item["in_profit_account"] == item["closed_short"]
+                        else "short"
+                    )
+                else:
+                    quantity = item["base_lots_closed"]
+                    category, side = "shutdown", None
+                if not quantity:
+                    raise ValueError("Phoenix forced position event has zero size")
+                row[category + "_events"] += 1
+                row[category + "_size"] += abs(quantity) * base
+                if side is not None:
+                    row[category + "_" + side + "_size"] += abs(quantity) * base
+    return row
+
+
 def aggregate(trades, *, replayed=False):
     row = dict.fromkeys(DECIMAL_FIELDS, Decimal(0)) | dict.fromkeys(COUNT_FIELDS, 0)
     positions = {}
@@ -241,19 +319,7 @@ def aggregate(trades, *, replayed=False):
             row["taker_realized_pnl" if taker else "maker_realized_pnl"] += (
                 pnl["realized_pnl"] * quote
             )
-            for direction, sign in (("long", 1), ("short", -1)):
-                change = max(sign * after, 0) - max(sign * before, 0)
-                action = "open" if change > 0 else "close"
-                field = direction + "_" + action + "_size"
-                row[field] += abs(change)
-                if taker:
-                    row["taker_" + field] += abs(change)
-                row[direction + "_account_delta"] += int(sign * after > 0) - int(
-                    sign * before > 0
-                )
-                row[direction + "_position_flips"] += int(
-                    sign * before < 0 < sign * after
-                )
+            add_position_change(row, before, after, taker=taker)
         if trade["liquidated"]:
             direction = "short" if bought else "long"
             row["liquidations"] += 1

@@ -67,7 +67,7 @@ def encode58(data):
     return "1" * (len(data) - len(data.lstrip(b"\0"))) + result
 
 
-def history_transaction(slot, timestamp, changes=(), transfer=None):
+def history_transaction(slot, timestamp, changes=(), transfer=None, adl=None):
     items = [struct.pack("<BQQ", 0, int(timestamp.timestamp()), slot)]
     for account, before, after in changes:
         items.append(
@@ -79,6 +79,24 @@ def history_transaction(slot, timestamp, changes=(), transfer=None):
         sender, receiver, quantity = transfer
         items.append(
             struct.pack("<B32s32sQqqHqq", 31, sender, receiver, 2, quantity, 0, 0, 0, 0)
+        )
+    if adl:
+        long, short, profitable, quantity = adl
+        items.append(
+            struct.pack(
+                "<B32s32s32s32sQqqqqq",
+                33,
+                b"a" * 32,
+                short,
+                long,
+                profitable,
+                2,
+                quantity,
+                0,
+                0,
+                0,
+                0,
+            )
         )
     logs = [
         (
@@ -692,6 +710,13 @@ class PhoenixReversePositionsTest(SimpleTestCase):
         replay = history.ReversePositions(state)
         replay.undo({**tx, "transactionIndex": 0}, groups, 1)
         self.assertEqual(replay.positions, {sender: 48, b"s" * 32: -48})
+        forced = positioning.nontrade_flows(groups, transfer["asset_id"], 1)
+        self.assertEqual(forced["backstop_events"], 1)
+        self.assertEqual(forced["backstop_long_size"], Decimal(4))
+        self.assertEqual(forced["adl_size"], 0)
+        self.assertEqual(forced["long_account_delta"], 1)
+        self.assertNotIn("backstop_value", forced)
+        self.assertEqual(positioning.nontrade_flows(groups, 2, 4)["backstop_events"], 0)
         for kind in ("CloseMatchedPositions", "ShutdownClosePositions"):
             short = b"s" * 32
             group = [
@@ -715,6 +740,7 @@ class PhoenixReversePositionsTest(SimpleTestCase):
                     "base_lots_closed": 4,
                     "closed_long": sender,
                     "closed_short": short,
+                    "in_profit_account": short,
                     "long_trader": sender,
                     "short_trader": short,
                     "trade_sequence_number": 9,
@@ -726,9 +752,54 @@ class PhoenixReversePositionsTest(SimpleTestCase):
                 )
                 replay.undo({**tx, "transactionIndex": 0}, [group], 1)
                 self.assertEqual(replay.positions, {sender: 10, short: -10})
+                flows = positioning.nontrade_flows([group], state["asset_id"], 1)
+                field = "adl" if kind == "CloseMatchedPositions" else "shutdown"
+                self.assertEqual(flows[field + "_events"], 1)
+                self.assertEqual(flows[field + "_size"], Decimal("0.4"))
+                self.assertEqual(flows["long_close_size"], Decimal("0.4"))
+                self.assertEqual(flows["short_close_size"], Decimal("0.4"))
+                self.assertEqual(flows["backstop_size"], 0)
+                self.assertNotIn("taker_buy_size", flows)
                 group[-1]["base_lots_closed"] = 5
                 with self.assertRaisesRegex(ValueError, "transfer/close"):
                     history.validate_transfers(group)
+
+        tx = self.fixture["adl_transaction"]
+        groups = events.transaction_events(tx, tx["transaction"]["signatures"][0])
+        adl = next(
+            item
+            for group in groups
+            for item in group
+            if item["kind"] == "CloseMatchedPositions"
+        )
+        for group in groups:
+            history.validate_transfers(group)
+        flows = positioning.nontrade_flows(
+            groups, adl["asset_id"], self.fixture["adl_base_lot_decimals"]
+        )
+        self.assertEqual(flows["adl_events"], 1)
+        self.assertEqual(flows["adl_short_size"], Decimal("0.110"))
+        self.assertEqual(flows["adl_long_size"], 0)
+        self.assertEqual(flows["long_account_delta"], -1)
+        self.assertEqual(flows["short_account_delta"], -1)
+        self.assertEqual(flows["shutdown_size"], 0)
+        oi = next(
+            item["open_interest"]
+            for group in groups
+            for item in group
+            if item["kind"] == "MarketSummary"
+        )
+        replay = history.ReversePositions(
+            {
+                **state,
+                "asset_id": adl["asset_id"],
+                "base_lot_decimals": self.fixture["adl_base_lot_decimals"],
+                "positions": {(b"x" * 32).hex(): oi, (b"y" * 32).hex(): -oi},
+            }
+        )
+        replay.undo(tx, groups, None)
+        self.assertEqual(replay.positions[adl["closed_long"]], 110)
+        self.assertEqual(replay.positions[adl["closed_short"]], -110)
 
     def test_bulk_pages_preserve_order_and_resume_with_an_exclusive_signature(self):
         transactions = self.fixture["transactions"]
@@ -888,7 +959,20 @@ class PhoenixHistoryCollectionTest(TestCase):
             patch.object(
                 history,
                 "phoenix_positioning",
-                return_value={"trade_position_flow_validated": True},
+                side_effect=positioning.phoenix_positioning,
+            )
+        )
+        self.enterContext(
+            patch.object(positioning, "get_trades", return_value=([], True, None))
+        )
+        self.enterContext(
+            patch.object(
+                positioning,
+                "phoenix_candles",
+                side_effect=lambda symbol, start, end, **kwargs: pd.DataFrame(
+                    [{"trades": 0, "notional": Decimal(0), "volume": Decimal(0)}],
+                    index=[start],
+                ),
             )
         )
         self.native = self.enterContext(
@@ -914,6 +998,12 @@ class PhoenixHistoryCollectionTest(TestCase):
         self.assertAlmostEqual(saved.long_account_ratio, Decimal(2) / 3, places=12)
         self.assertEqual(saved.json_data["cohort_available_at"], self.end)
         self.assertEqual(saved.json_data["cohort_price_source"], "native_hourly_mark")
+        self.assertEqual(
+            Decimal(saved.json_data["backstop_long_size"]), Decimal("0.0004")
+        )
+        self.assertEqual(saved.json_data["backstop_events"], 1)
+        self.assertEqual(saved.json_data["trades"], 0)
+        self.assertTrue(saved.json_data["liquidation_flow_validated"])
         checkpoint = Checkpoint.objects.get(timestamp=self.start + timedelta(hours=1))
         self.assertEqual(checkpoint.state["before"], "signature-120")
         self.assertFalse(Checkpoint.objects.filter(timestamp=self.start).exists())
@@ -934,6 +1024,106 @@ class PhoenixHistoryCollectionTest(TestCase):
         self.native.reset_mock()
         perpetual_stats(self.symbol, self.start, self.end)
         self.native.assert_not_called()
+
+    def test_transfers_and_adl_reconcile_without_market_trades_and_retry_idempotently(
+        self,
+    ):
+        end = self.start + timedelta(hours=1)
+        a, b, c, d = self.accounts
+        for sign in (1, -1):
+            with self.subTest(distressed_side=sign):
+                Checkpoint.objects.all().delete()
+                PerpetualStatsData.objects.all().delete()
+                self.snapshot.reset_mock()
+                snapshot, _, _ = self.snapshot.return_value
+                snapshot["positions"] = {a: sign * 4, b: sign * 4, c: -sign * 8}
+                self.snapshot.return_value = (
+                    snapshot,
+                    end + timedelta(minutes=10),
+                    end + timedelta(minutes=10),
+                )
+                transactions = [
+                    history_transaction(130, end + timedelta(minutes=5)),
+                    history_transaction(
+                        120,
+                        self.start + timedelta(minutes=30),
+                        [(a, sign * 6, sign * 4), (c, -sign * 10, -sign * 8)],
+                        adl=(a, c, c, 2) if sign == 1 else (c, a, c, 2),
+                    ),
+                    history_transaction(
+                        110,
+                        self.start,
+                        [(a, sign * 10, sign * 6), (b, 0, sign * 4)],
+                        (a, b, sign * 4),
+                    ),
+                    history_transaction(100, self.start - timedelta(seconds=1)),
+                ]
+
+                def fetch(method, params, transactions=transactions):
+                    before = params[1]["filters"].get("signature", {}).get("lt")
+                    offset = next(
+                        (
+                            i + 1
+                            for i, tx in enumerate(transactions)
+                            if tx["transaction"]["signatures"][0] == before
+                        ),
+                        0,
+                    )
+                    return {"data": transactions[offset:], "paginationToken": None}
+
+                self.rpc.side_effect = fetch
+                PerpetualStatsData.objects.create(
+                    symbol=self.symbol,
+                    timestamp=self.start,
+                    frequency=60,
+                    open_interest=1,
+                    open_interest_value=1,
+                    taker_long_short_volume_ratio=Decimal(7),
+                    json_data={"liquidated_size": "99"},
+                )
+                for retry in range(2):
+                    perpetual_stats(self.symbol, self.start, end, retry=True)
+                    saved = PerpetualStatsData.objects.get()
+                    row = saved.json_data
+                    side = "long" if sign == 1 else "short"
+                    self.assertEqual(row["backstop_events"], 1)
+                    self.assertEqual(row["adl_events"], 1)
+                    self.assertEqual(
+                        Decimal(row["backstop_" + side + "_size"]), Decimal("0.0004")
+                    )
+                    self.assertEqual(
+                        Decimal(row["adl_" + side + "_size"]), Decimal("0.0002")
+                    )
+                    self.assertEqual(
+                        Decimal(row[side + "_open_size"]), Decimal("0.0004")
+                    )
+                    self.assertEqual(
+                        Decimal(row[side + "_close_size"]), Decimal("0.0006")
+                    )
+                    self.assertEqual(row[side + "_account_delta"], 1)
+                    for field in (
+                        "trades",
+                        "liquidations",
+                        "liquidated_size",
+                        "taker_buy_size",
+                        "taker_sell_size",
+                    ):
+                        self.assertEqual(Decimal(row[field]), 0)
+                    self.assertTrue(row["liquidation_flow_validated"])
+                    self.assertIsNone(saved.taker_long_short_volume_ratio)
+                self.snapshot.assert_called_once()
+                self.assertEqual(Checkpoint.objects.count(), 2)
+
+                bad = history_transaction(
+                    120,
+                    self.start + timedelta(minutes=30),
+                    [(a, sign * 6, sign * 4), (c, -sign * 10, -sign * 8)],
+                    adl=(a, c, d, 2) if sign == 1 else (c, a, d, 2),
+                )
+                transactions[1] = bad
+                with self.assertRaisesRegex(ValueError, "profitable counterparty"):
+                    perpetual_stats(self.symbol, self.start, end, retry=True)
+                self.assertEqual(PerpetualStatsData.objects.get().json_data, row)
 
     def test_lost_lease_rolls_back_the_hour_and_its_lower_checkpoint(self):
         def lost_after_statistics_write():
@@ -1223,6 +1413,33 @@ class PhoenixPositioningTest(SimpleTestCase):
                 self.assertTrue(result["trade_position_flow_validated"])
                 self.assertNotIn("long_short_account_ratio", result)
                 self.assertNotIn("open_interest_high", result)
+                self.assertNotIn("liquidation_flow_validated", result)
+                if kind == "LiquidateViaMarketOrder":
+                    self.assertEqual(result["liquidations"], 1)
+                    self.assertEqual(result["liquidated_long_size"], Decimal("0.0107"))
+                    enhanced = deepcopy(decoded)
+                    for group in enhanced:
+                        group.extend(
+                            {**item, "kind": "LiquidationWithFee"}
+                            for item in group.copy()
+                            if item["kind"] == "Liquidation"
+                        )
+                    for keep_original in (True, False):
+                        groups = [
+                            [
+                                item
+                                for item in group
+                                if keep_original or item["kind"] != "Liquidation"
+                            ]
+                            for group in enhanced
+                        ]
+                        totals = positioning.aggregate(
+                            positioning.parsed_trades(groups, "BTC")
+                        )
+                        self.assertEqual(totals["liquidations"], 1)
+                        self.assertEqual(
+                            totals["liquidated_size"], result["liquidated_size"]
+                        )
 
     def test_missing_or_duplicate_executions_cannot_become_valid_flows(self):
         signatures = self.fixture["sequence"]

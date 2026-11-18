@@ -213,7 +213,12 @@ class PerpetualStatsData(models.Model):
                                     "long_short_account_ratio",
                                 )
                             )
-                            if getattr(row, field) is None and not replayed_ratio:
+                            execution_ratio = (row.json_data or {}).get(
+                                "liquidation_flow_validated"
+                            ) and field == "taker_long_short_volume_ratio"
+                            if getattr(row, field) is None and not (
+                                replayed_ratio or execution_ratio
+                            ):
                                 setattr(row, field, getattr(existing, field))
                         row.json_data = {
                             **(existing.json_data or {}),

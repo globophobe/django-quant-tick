@@ -2,7 +2,8 @@
 
 Rows describe completed intervals. Cohorts are positions just before the funding
 block near hour start; OI and OI counts describe the next settlement boundary.
-Trades between those blocks must reconcile both position sizes and account counts.
+All fills between those blocks must reconcile position sizes and account counts;
+only market executions contribute to taker flow and trade counts.
 The rate is the funding settled at the interval's end. Prices use actual execution
 order; trade IDs do not define execution order.
 
@@ -83,7 +84,6 @@ def market_window(coin, start, end):
                 "oi_timestamp": after["time"],
                 "oi_block": after["block_number"],
                 "funding_rate": after["rate"],
-                "trades": int(flow["trades"]),
                 **{
                     key: flow[key]
                     for key in (*FLOW_FIELDS, *SIGNED_FLOW_FIELDS, *COUNT_FIELDS)
@@ -106,6 +106,7 @@ def market_window(coin, start, end):
                 "open_interest_basis": "sum_absolute_positions",
                 "position_source": "funding_settlement",
                 "position_flow_validated": True,
+                "liquidation_flow_validated": True,
             }
         )
     return rows

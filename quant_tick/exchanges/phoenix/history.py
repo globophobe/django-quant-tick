@@ -12,11 +12,14 @@ Checkpoints retain the exclusive transaction boundary and all nonzero positions.
 Requested hours commit checkpoints with their statistics; intervening hours can
 save progress independently without publishing an observation. Hourly cohorts use
 the native bucket's mark price for size tiers, not the present snapshot's price.
+Exported position flows include transfers and forced closes and reconcile both
+hour boundaries; taker flow and liquidation executions remain trade-only.
 """
 
 from collections import Counter
 from copy import deepcopy
 from datetime import timedelta
+from decimal import Decimal
 from itertools import chain
 
 import pandas as pd
@@ -26,8 +29,8 @@ from quant_tick.models import Checkpoint
 
 from ..quicknode.solana import address_transactions, latest_address_signature
 from .accounts import cohort_values
-from .events import PROGRAM, transaction_events
-from .positioning import phoenix_positioning
+from .events import NONTRADE_EVENTS, PROGRAM, transaction_events
+from .positioning import nontrade_flows, phoenix_positioning
 from .snapshots import fetch_position_snapshot
 
 
@@ -323,17 +326,28 @@ class PhoenixPositionHistory:
 
     def rewind(self, boundary, *, collect=False):
         records = {}
+        forced = []
         limit = int(boundary.timestamp())
         while True:
             tx, groups, clock = self.peek()
             if clock < limit:
                 self.boundary = boundary
-                return records
+                return records, forced
             if collect and any(
                 item["kind"] == "TradeSummary"
                 for item in self.replay.market_events(groups)
             ):
                 records[tx["transaction"]["signatures"][0]] = groups
+            if collect:
+                forced.extend(
+                    group
+                    for group in groups
+                    if any(
+                        item["kind"] in NONTRADE_EVENTS
+                        and item["asset_id"] == self.replay.state["asset_id"]
+                        for item in group
+                    )
+                )
             self.replay.undo(tx, groups, clock)
             self.next_transaction = None
 
@@ -370,10 +384,37 @@ class PhoenixPositionHistory:
             cohort_replay_validated=True,
             cohort_transaction_index=self.replay.state.get("transaction_index"),
         )
-        groups = self.rewind(start, collect=True)
+        groups, forced = self.rewind(start, collect=True)
         flows = phoenix_positioning(
             self.symbol.api_symbol.upper(), start, end, replayed_groups=groups
         )
+        for key, value in nontrade_flows(
+            forced,
+            self.replay.state["asset_id"],
+            self.replay.state["base_lot_decimals"],
+        ).items():
+            flows[key] = flows.get(key, 0) + value
+        base = Decimal(10) ** -self.replay.state["base_lot_decimals"]
+        for direction, sign in (("long", 1), ("short", -1)):
+            before = [
+                sign * size
+                for size in self.replay.positions.values()
+                if sign * size > 0
+            ]
+            after = [
+                sign * size
+                for size in end_state["positions"].values()
+                if sign * size > 0
+            ]
+            if sum(before) * base + flows[direction + "_open_size"] - flows[
+                direction + "_close_size"
+            ] != sum(after) * base or len(before) + flows[
+                direction + "_account_delta"
+            ] != len(after):
+                raise ValueError(
+                    "Phoenix position flows do not reconcile with hour boundaries"
+                )
+        flows["liquidation_flow_validated"] = True
         self.pending = [(end, end_state), (start, self.replay.dump())]
         return {**flows, **values}
 

@@ -47,7 +47,9 @@ def phoenix_market_history(
     optional Solana endpoint enriches each hour with validated trade flows;
     incomplete RPC evidence raises and leaves existing observations untouched.
     The collector supplies position_history to reconstruct hour-end cohorts and
-    reuse bulk transactions. It requests one hour at a time, newest first.
+    reuse bulk transactions, including separate backstop and ADL quantities.
+    Fill-only requests cannot establish their absence. The collector requests
+    one hour at a time, newest first.
     """
     symbol = api_symbol.strip().upper()
     interval = pd.Timedelta(MARKET_HISTORY_INTERVAL)

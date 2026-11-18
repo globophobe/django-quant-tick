@@ -1,12 +1,16 @@
-"""Flip-aware position flows between consecutive funding blocks.
+"""Position changes and market executions between consecutive funding blocks.
 
-A buy first closes an existing short, then opens a long; a sell does the reverse.
-These sums do not depend on intra-block execution order. A liquidation is counted
-once per paired trade, on the liquidated account's side.
+All paired fills reconcile positions, including backstop transfers, ADL and vault
+netting. Only order-book executions contribute to trades and taker/maker metrics.
+liquidated_* describes market liquidations; backstop_* and adl_* are disjoint
+categories, counted once per paired event. Their long/short side is the distressed
+position, not the profitable counterparty closed by ADL. Values use event prices.
+Unknown directions or inconsistent liquidation metadata cannot become valid rows.
 """
 
 from .api import coin_literal, number, query, time_literal
 
+CATEGORIES = ("liquidated", "backstop", "adl")
 FLOW_FIELDS = (
     "long_open_size",
     "long_close_size",
@@ -16,26 +20,38 @@ FLOW_FIELDS = (
     "taker_short_open_size",
     "taker_long_close_size",
     "taker_short_close_size",
-    "liquidated_size",
-    "liquidated_long_size",
-    "liquidated_short_size",
     "taker_buy_size",
     "taker_sell_size",
     "taker_twap_buy_size",
     "taker_twap_sell_size",
     "taker_buy_value",
     "taker_sell_value",
-    "liquidated_value",
-    "liquidated_long_value",
-    "liquidated_short_value",
+    "netting_size",
+    "netting_value",
+    *(
+        f"{kind}_{side}{unit}"
+        for kind in CATEGORIES
+        for side in ("", "long_", "short_")
+        for unit in ("size", "value")
+    ),
 )
 SIGNED_FLOW_FIELDS = (
     "taker_realized_pnl",
     "maker_realized_pnl",
     "taker_fees",
     "maker_fees",
+    "nontrade_realized_pnl",
 )
-COUNT_FIELDS = ("long_position_flips", "short_position_flips")
+COUNT_FIELDS = (
+    "position_events",
+    "trades",
+    "liquidations",
+    "backstop_events",
+    "adl_events",
+    "netting_events",
+    "long_position_flips",
+    "short_position_flips",
+)
 
 
 def position_flows(coin, points, start, end):
@@ -44,41 +60,93 @@ def position_flows(coin, points, start, end):
         return {}
     first, last = blocks[0], blocks[-1]
     market, lower, upper = coin_literal(coin), time_literal(start), time_literal(end)
+    columns = [
+        f"arrayCount(b->block_number>=b,{blocks})-1 AS interval_index",
+        "count() AS position_events",
+        "countIf(is_market) AS trades",
+        "countIf(is_market_liquidation) AS liquidations",
+        "countIf(is_backstop) AS backstop_events",
+        "countIf(is_adl) AS adl_events",
+        "countIf(is_netting) AS netting_events",
+        "sum(lo) AS long_open_size",
+        "sum(so) AS short_open_size",
+        "sum(lc) AS long_close_size",
+        "sum(sc) AS short_close_size",
+        "sumIf(lo,is_market AND side='B') AS taker_long_open_size",
+        "sumIf(so,is_market AND side='A') AS taker_short_open_size",
+        "sumIf(lc,is_market AND side='A') AS taker_long_close_size",
+        "sumIf(sc,is_market AND side='B') AS taker_short_close_size",
+        "sumIf(size,is_market AND side='B') AS taker_buy_size",
+        "sumIf(size,is_market AND side='A') AS taker_sell_size",
+        "sumIf(size,is_market AND side='B' AND isNotNull(buyer_twap_id)) AS taker_twap_buy_size",
+        "sumIf(size,is_market AND side='A' AND isNotNull(seller_twap_id)) AS taker_twap_sell_size",
+        "toString(sumIf(trade_value,is_market AND side='B')) AS taker_buy_value",
+        "toString(sumIf(trade_value,is_market AND side='A')) AS taker_sell_value",
+        "sumIf(size,is_netting) AS netting_size",
+        "toString(sumIf(trade_value,is_netting)) AS netting_value",
+        "toString(sumIf(if(side='B',buyer_closed_pnl,seller_closed_pnl),is_market)) AS taker_realized_pnl",
+        "toString(sumIf(if(side='B',seller_closed_pnl,buyer_closed_pnl),is_market)) AS maker_realized_pnl",
+        "toString(sumIf(if(side='B',buyer_fee,seller_fee),is_market)) AS taker_fees",
+        "toString(sumIf(if(side='B',seller_fee,buyer_fee),is_market)) AS maker_fees",
+        "toString(sumIf(buyer_closed_pnl+seller_closed_pnl,NOT is_market)) AS nontrade_realized_pnl",
+        "countIf(buyer_start_position<0 AND buyer_start_position+size>0) AS long_position_flips",
+        "countIf(seller_start_position>0 AND seller_start_position-size<0) AS short_position_flips",
+        "groupUniqArray(fee_token) AS fee_tokens",
+        (
+            "sum(toInt64(buyer_start_position+size>0)-toInt64(buyer_start_position>0)"
+            "+toInt64(seller_start_position-size>0)-toInt64(seller_start_position>0)) AS long_account_delta"
+        ),
+        (
+            "sum(toInt64(buyer_start_position+size<0)-toInt64(buyer_start_position<0)"
+            "+toInt64(seller_start_position-size<0)-toInt64(seller_start_position<0)) AS short_account_delta"
+        ),
+        "countIf(NOT ifNull(valid_event,0)) AS invalid_events",
+    ]
+    for kind, condition in (
+        ("liquidated", "is_market_liquidation"),
+        ("backstop", "is_backstop"),
+        ("adl", "is_adl"),
+    ):
+        for side, direction in (
+            ("", "1"),
+            ("long_", "distressed_long"),
+            ("short_", "distressed_short"),
+        ):
+            predicate = f"{condition} AND {direction}"
+            columns.extend(
+                (
+                    f"sumIf(size,{predicate}) AS {kind}_{side}size",
+                    f"toString(sumIf(trade_value,{predicate})) AS {kind}_{side}value",
+                )
+            )
     rows = query(
         "WITH toDecimal128(0,18) AS zero, "
         "toDecimal256(size,18)*toDecimal256(price,18) AS trade_value, "
         "greatest(size+least(buyer_start_position,zero),zero) AS lo, "
         "least(size,greatest(-buyer_start_position,zero)) AS sc, "
         "greatest(size-greatest(seller_start_position,zero),zero) AS so, "
-        "least(size,greatest(seller_start_position,zero)) AS lc "
-        f"SELECT arrayCount(b->block_number>=b,{blocks})-1 AS interval_index, "
-        "count() AS trades, sum(lo) AS long_open_size, sum(so) AS short_open_size, "
-        "sum(lc) AS long_close_size, sum(sc) AS short_close_size, "
-        "sumIf(lo,side='B') AS taker_long_open_size, sumIf(so,side='A') AS taker_short_open_size, "
-        "sumIf(lc,side='A') AS taker_long_close_size, sumIf(sc,side='B') AS taker_short_close_size, "
-        "sumIf(size,notEmpty(ifNull(liquidated_user,''))) AS liquidated_size, "
-        "sumIf(size,liquidated_user=seller_address) AS liquidated_long_size, "
-        "sumIf(size,liquidated_user=buyer_address) AS liquidated_short_size, "
-        "sumIf(size,side='B') AS taker_buy_size, sumIf(size,side='A') AS taker_sell_size, "
-        "sumIf(size,side='B' AND isNotNull(buyer_twap_id)) AS taker_twap_buy_size, "
-        "sumIf(size,side='A' AND isNotNull(seller_twap_id)) AS taker_twap_sell_size, "
-        "toString(sumIf(trade_value,side='B')) AS taker_buy_value, "
-        "toString(sumIf(trade_value,side='A')) AS taker_sell_value, "
-        "toString(sumIf(trade_value,notEmpty(ifNull(liquidated_user,'')))) AS liquidated_value, "
-        "toString(sumIf(trade_value,liquidated_user=seller_address)) AS liquidated_long_value, "
-        "toString(sumIf(trade_value,liquidated_user=buyer_address)) AS liquidated_short_value, "
-        "toString(sum(if(side='B',buyer_closed_pnl,seller_closed_pnl))) AS taker_realized_pnl, "
-        "toString(sum(if(side='B',seller_closed_pnl,buyer_closed_pnl))) AS maker_realized_pnl, "
-        "toString(sum(if(side='B',buyer_fee,seller_fee))) AS taker_fees, "
-        "toString(sum(if(side='B',seller_fee,buyer_fee))) AS maker_fees, "
-        "countIf(buyer_start_position<0 AND buyer_start_position+size>0) AS long_position_flips, "
-        "countIf(seller_start_position>0 AND seller_start_position-size<0) AS short_position_flips, "
-        "groupUniqArray(fee_token) AS fee_tokens, "
-        "sum(toInt64(buyer_start_position+size>0)-toInt64(buyer_start_position>0)"
-        "+toInt64(seller_start_position-size>0)-toInt64(seller_start_position>0)) AS long_account_delta, "
-        "sum(toInt64(buyer_start_position+size<0)-toInt64(buyer_start_position<0)"
-        "+toInt64(seller_start_position-size<0)-toInt64(seller_start_position<0)) AS short_account_delta "
-        "FROM hyperliquid_trades FINAL "
+        "least(size,greatest(seller_start_position,zero)) AS lc, "
+        "ifNull(liquidation_method,'') AS method, "
+        "notEmpty(ifNull(liquidated_user,'')) AS tagged, "
+        "(buyer_dir='Auto-Deleveraging' OR seller_dir='Auto-Deleveraging') AS is_adl, "
+        "(method='backstop' AND NOT is_adl) AS is_backstop, "
+        "(buyer_dir='Net Child Vaults' AND seller_dir='Net Child Vaults') AS is_netting, "
+        "NOT (is_adl OR is_backstop OR is_netting) AS is_market, "
+        "(method='market' AND is_market) AS is_market_liquidation, "
+        "if(is_adl,buyer_dir='Auto-Deleveraging',ifNull(liquidated_user=seller_address,0)) AS distressed_long, "
+        "if(is_adl,seller_dir='Auto-Deleveraging',ifNull(liquidated_user=buyer_address,0)) AS distressed_short, "
+        "(method IN ('','market','backstop') AND tagged=(method!='') "
+        "AND (NOT tagged OR (buyer_address!=seller_address "
+        "AND ((distressed_long AND liquidated_user=seller_address) "
+        "OR (distressed_short AND liquidated_user=buyer_address)))) "
+        "AND ((is_adl AND buyer_dir!=seller_dir AND method IN ('','backstop') "
+        "AND buyer_start_position<=-size AND seller_start_position>=size) "
+        "OR (is_backstop AND ((distressed_long AND seller_start_position>=size) "
+        "OR (distressed_short AND buyer_start_position<=-size))) "
+        "OR (is_netting AND method='') "
+        "OR (is_market AND buyer_dir IN ('Open Long','Close Short','Short > Long') "
+        "AND seller_dir IN ('Open Short','Close Long','Long > Short')))) AS valid_event "
+        "SELECT " + ", ".join(columns) + " FROM hyperliquid_trades FINAL "
         f"WHERE coin={market} AND block_number>={first} AND block_number<{last} "
         f"AND block_time>={lower} AND block_time<{upper} "
         "GROUP BY interval_index ORDER BY interval_index LIMIT 100",
@@ -86,11 +154,15 @@ def position_flows(coin, points, start, end):
     )
     result = {}
     for row in rows:
+        if int(row.pop("invalid_events")):
+            raise ValueError(
+                "QuickNode returned unclassified or inconsistent liquidation events"
+            )
         index = int(row.pop("interval_index"))
         if (
             index in result
             or not 0 <= index < len(blocks) - 1
-            or int(row["trades"]) <= 0
+            or int(row["position_events"]) <= 0
         ):
             raise ValueError("QuickNode returned invalid position flow intervals")
         for key in FLOW_FIELDS:
@@ -101,8 +173,8 @@ def position_flows(coin, points, start, end):
             row[key] = number(row[key])
         for key in COUNT_FIELDS:
             row[key] = int(row[key])
-            if not 0 <= row[key] <= int(row["trades"]):
-                raise ValueError("QuickNode returned invalid position flip counts")
+            if not 0 <= row[key] <= int(row["position_events"]):
+                raise ValueError("QuickNode returned invalid position event counts")
         tokens = row.pop("fee_tokens")
         if len(tokens) != 1 or not tokens[0]:
             raise ValueError("QuickNode fee currencies cannot be combined")
@@ -120,16 +192,28 @@ def validate_flow(before, after, flow):
         ) != int(after[side + "_accounts"]):
             raise ValueError("QuickNode trades do not reconcile with funding positions")
     bought, sold = flow["taker_buy_size"], flow["taker_sell_size"]
+    total = (
+        bought + sold + sum(flow[k + "_size"] for k in ("backstop", "adl", "netting"))
+    )
     if (
-        flow["long_open_size"] + flow["short_close_size"] != bought + sold
-        or flow["short_open_size"] + flow["long_close_size"] != bought + sold
+        flow["long_open_size"] + flow["short_close_size"] != total
+        or flow["short_open_size"] + flow["long_close_size"] != total
         or flow["taker_long_open_size"] + flow["taker_short_close_size"] != bought
         or flow["taker_short_open_size"] + flow["taker_long_close_size"] != sold
-        or flow["liquidated_long_size"] + flow["liquidated_short_size"]
-        != flow["liquidated_size"]
         or flow["taker_twap_buy_size"] > bought
         or flow["taker_twap_sell_size"] > sold
-        or flow["liquidated_long_value"] + flow["liquidated_short_value"]
-        != flow["liquidated_value"]
+        or flow["liquidated_size"] > bought + sold
+        or flow["liquidations"] > flow["trades"]
+        or flow["position_events"]
+        != sum(
+            flow[k]
+            for k in ("trades", "backstop_events", "adl_events", "netting_events")
+        )
+        or any(
+            flow[k + "_long_" + unit] + flow[k + "_short_" + unit]
+            != flow[k + "_" + unit]
+            for k in CATEGORIES
+            for unit in ("size", "value")
+        )
     ):
         raise ValueError("QuickNode position flow components do not reconcile")

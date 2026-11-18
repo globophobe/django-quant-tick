@@ -10,7 +10,7 @@ from django.test import SimpleTestCase, TestCase
 
 from quant_tick.constants import Exchange, SymbolType
 from quant_tick.exchanges.perpetual_stats import perpetual_stats
-from quant_tick.exchanges.quicknode import market_history, positions
+from quant_tick.exchanges.quicknode import flows, market_history, positions
 from quant_tick.models import PerpetualStatsData
 
 from ..base import BaseSymbolTest
@@ -54,11 +54,20 @@ class QuickNodeStatsTest(SimpleTestCase):
             self.assertEqual(row["market_history_source"], "quicknode")
             self.assertEqual(row["cohort_price_source"], "last_trade_before_funding")
             self.assertTrue(row["position_flow_validated"])
+            self.assertTrue(row["liquidation_flow_validated"])
             self.assertLess(row["cohort_timestamp"], row["oi_timestamp"])
-        self.assertEqual(rows[2]["liquidated_size"], Decimal("17381.76653"))
+        self.assertEqual(rows[2]["liquidated_size"], Decimal("5472.31819"))
+        self.assertEqual(rows[2]["backstop_size"], Decimal("6077.05804"))
+        self.assertEqual(rows[2]["adl_size"], Decimal("5832.39030"))
+        self.assertEqual(rows[2]["netting_size"], Decimal("30.40946"))
+        self.assertEqual(rows[2]["adl_short_size"], Decimal("0.39549"))
+        self.assertEqual(rows[2]["backstop_short_size"], Decimal("367.16769"))
+        self.assertEqual(rows[2]["trades"], 229248)
+        self.assertEqual(rows[2]["position_events"], 233527)
+        self.assertEqual(rows[2]["adl_events"], 2443)
         self.assertEqual(rows[2]["cohort_price"], Decimal(114126))
         self.assertEqual(rows[2]["large_long_size"], Decimal("15650.21991"))
-        self.assertEqual(rows[2]["taker_buy_value"], Decimal("2443433157.364367"))
+        self.assertEqual(rows[2]["taker_buy_value"], Decimal("1218081260.02816"))
         self.assertEqual(rows[2]["long_position_flips"], 2007)
         self.assertEqual(rows[0]["maker_fees"], Decimal("-8959.142465"))
         self.assertEqual(rows[0]["fee_currency"], "USDC")
@@ -78,14 +87,23 @@ class QuickNodeStatsTest(SimpleTestCase):
             ("flows", "long_account_delta"),
             ("flows", "liquidated_short_size"),
             ("flows", "liquidated_short_value"),
+            ("flows", "adl_size"),
+            ("flows", "backstop_short_value"),
+            ("flows", "netting_size"),
+            ("flows", "trades"),
         ):
             data = fixture()
             data[section][0][field] = str(Decimal(str(data[section][0][field])) + 1)
             with (
                 self.subTest(section=section, field=field),
-                self.assertRaisesRegex(ValueError, "reconcile"),
+                self.assertRaisesRegex(ValueError, "reconcile|event counts"),
             ):
                 collect(data)
+
+        data = fixture()
+        data["flows"][0]["invalid_events"] = 1
+        with self.assertRaisesRegex(ValueError, "unclassified"):
+            collect(data)
 
     def test_absent_flow_is_left_retryable_instead_of_zero_filled(self):
         data = fixture()
@@ -95,6 +113,58 @@ class QuickNodeStatsTest(SimpleTestCase):
             [r["timestamp"] for r in rows],
             [START, START + pd.Timedelta(hours=2), START + pd.Timedelta(hours=3)],
         )
+
+    def test_forced_only_intervals_reconcile_without_inventing_market_trades(self):
+        points = {START: {"block_number": 1}, END: {"block_number": 2}}
+        for kind in ("backstop", "adl"):
+            for side in ("long", "short"):
+                with self.subTest(kind=kind, side=side):
+                    raw = {
+                        key: 0
+                        for key in (
+                            *flows.FLOW_FIELDS,
+                            *flows.SIGNED_FLOW_FIELDS,
+                            *flows.COUNT_FIELDS,
+                        )
+                    }
+                    raw.update(
+                        interval_index=0,
+                        invalid_events=0,
+                        position_events=1,
+                        trades=0,
+                        long_account_delta=0,
+                        short_account_delta=0,
+                        fee_tokens=["USDC"],
+                    )
+                    raw.update(
+                        {
+                            kind + "_events": 1,
+                            kind + "_size": 4,
+                            kind + "_" + side + "_size": 4,
+                            kind + "_value": 400,
+                            kind + "_" + side + "_value": 400,
+                        }
+                    )
+                    before = {
+                        "long_size": 10,
+                        "short_size": 10,
+                        "long_accounts": 1,
+                        "short_accounts": 1,
+                    }
+                    after = before.copy()
+                    if kind == "backstop":
+                        raw[side + "_open_size"] = raw[side + "_close_size"] = 4
+                        raw[side + "_account_delta"] = 1
+                        after[side + "_accounts"] += 1
+                    else:
+                        raw["long_close_size"] = raw["short_close_size"] = 4
+                        after["long_size"] = after["short_size"] = 6
+                    with patch.object(flows, "query", return_value=[raw]):
+                        row = flows.position_flows("BTC", points, START, END)[0]
+                    flows.validate_flow(before, after, row)
+                    self.assertEqual(row["trades"], 0)
+                    self.assertEqual(row["liquidated_size"], 0)
+                    self.assertEqual(row["taker_buy_size"] + row["taker_sell_size"], 0)
 
     def test_missing_terminal_snapshot_leaves_that_hour_retryable(self):
         data = fixture()
