@@ -77,6 +77,33 @@ class QuickNodeStatsTest(SimpleTestCase):
         with self.assertRaisesRegex(ValueError, "currencies"):
             collect(data)
 
+    def test_complete_fill_pairs_reconcile_missing_derived_trades(self):
+        path = (
+            Path(__file__).parent.parent / "fixtures/quicknode/missing_trade_pairs.json"
+        )
+        data = json.loads(path.read_text())
+        start = pd.Timestamp("2026-04-05T22:00Z")
+        end = start + pd.Timedelta(hours=1, minutes=1)
+        with patch.object(positions, "query", return_value=deepcopy(data["funding"])):
+            points = positions.funding_points("BTC", start, end, None)
+        before, after = points.values()
+
+        def request(sql, **kwargs):
+            if "FROM hyperliquid_fills" in sql:
+                return deepcopy(data["fill_flows"])
+            if "FROM hyperliquid_trades" in sql:
+                return deepcopy(data["derived_flows"])
+            self.fail("Unexpected position-flow source")
+
+        with patch.object(flows, "query", side_effect=request):
+            flow = flows.position_flows("BTC", points, start, end)[0]
+        flows.validate_flow(before, after, flow)
+        self.assertEqual(flow["trades"], 52940)
+        self.assertEqual(flow["long_open_size"], Decimal("1147.87021"))
+        self.assertEqual(flow["short_open_size"], Decimal("1692.68045"))
+        self.assertEqual(flow["taker_buy_value"], Decimal("138606178.54091"))
+        self.assertEqual(flow["taker_sell_value"], Decimal("78165996.16129"))
+
     def test_incomplete_or_inconsistent_evidence_cannot_become_valid_statistics(self):
         for section, field in (
             ("funding", "users"),

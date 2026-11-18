@@ -1,6 +1,9 @@
 """Position changes and market executions between consecutive funding blocks.
 
-All paired fills reconcile positions, including backstop transfers, ADL and vault
+Pairs are built from user fills: the derived trades table can omit complete
+pairs present in both fills and native blocks. Each pair must contain one buyer
+and one seller with identical execution details before contributing to totals.
+All fills reconcile positions, including backstop transfers, ADL and vault
 netting. Only order-book executions contribute to trades and taker/maker metrics.
 liquidated_* describes market liquidations; backstop_* and adl_* are disjoint
 categories, counted once per paired event. Their long/short side is the distressed
@@ -54,12 +57,51 @@ COUNT_FIELDS = (
 )
 
 
+def paired_fills(coin, first, last, start, end):
+    market, lower, upper = coin_literal(coin), time_literal(start), time_literal(end)
+    columns = [
+        "block_number",
+        "any(f.size) AS size",
+        "any(f.price) AS price",
+        "any(f.fee_token) AS fee_token",
+        "any(f.liquidation_method) AS liquidation_method",
+        "any(f.liquidated_user) AS liquidated_user",
+        "if(anyIf(f.crossed,f.side='B'),'B','A') AS side",
+        (
+            "(count()=2 AND countIf(f.side='B')=1 AND countIf(f.side='A')=1 "
+            "AND uniqExact(f.user)=2 AND sum(f.crossed)=1 "
+            "AND min(f.size)>0 AND min(f.price)>0 "
+            "AND uniqExact(tuple(f.size,f.price,f.time,f.fee_token,"
+            "f.liquidation_method,f.liquidated_user))=1) AS valid_pair"
+        ),
+    ]
+    for side, direction in (("buyer", "B"), ("seller", "A")):
+        for field, alias in (
+            ("user", "address"),
+            ("start_position", "start_position"),
+            ("dir", "dir"),
+            ("twap_id", "twap_id"),
+            ("closed_pnl", "closed_pnl"),
+            ("fee", "fee"),
+        ):
+            # A tuple preserves NULL twap IDs through conditional aggregation.
+            columns.append(
+                f"anyIf(tuple(f.{field}),f.side='{direction}').1 AS {side}_{alias}"
+            )
+    return (
+        "SELECT " + ", ".join(columns) + " FROM hyperliquid_fills AS f FINAL "
+        f"WHERE coin={market} AND block_number>={first} AND block_number<{last} "
+        f"AND block_time>={lower} AND block_time<{upper} "
+        "GROUP BY block_number,tid"
+    )
+
+
 def position_flows(coin, points, start, end):
     blocks = [p["block_number"] for p in points.values()]
     if len(blocks) < 2:
         return {}
     first, last = blocks[0], blocks[-1]
-    market, lower, upper = coin_literal(coin), time_literal(start), time_literal(end)
+    pairs = paired_fills(coin, first, last, start, end)
     columns = [
         f"arrayCount(b->block_number>=b,{blocks})-1 AS interval_index",
         "count() AS position_events",
@@ -135,7 +177,7 @@ def position_flows(coin, points, start, end):
         "(method='market' AND is_market) AS is_market_liquidation, "
         "if(is_adl,buyer_dir='Auto-Deleveraging',ifNull(liquidated_user=seller_address,0)) AS distressed_long, "
         "if(is_adl,seller_dir='Auto-Deleveraging',ifNull(liquidated_user=buyer_address,0)) AS distressed_short, "
-        "(method IN ('','market','backstop') AND tagged=(method!='') "
+        "(valid_pair AND method IN ('','market','backstop') AND tagged=(method!='') "
         "AND (NOT tagged OR (buyer_address!=seller_address "
         "AND ((distressed_long AND liquidated_user=seller_address) "
         "OR (distressed_short AND liquidated_user=buyer_address)))) "
@@ -146,17 +188,16 @@ def position_flows(coin, points, start, end):
         "OR (is_netting AND method='') "
         "OR (is_market AND buyer_dir IN ('Open Long','Close Short','Short > Long') "
         "AND seller_dir IN ('Open Short','Close Long','Long > Short')))) AS valid_event "
-        "SELECT " + ", ".join(columns) + " FROM hyperliquid_trades FINAL "
-        f"WHERE coin={market} AND block_number>={first} AND block_number<{last} "
-        f"AND block_time>={lower} AND block_time<{upper} "
+        "SELECT " + ", ".join(columns) + f" FROM ({pairs}) "
         "GROUP BY interval_index ORDER BY interval_index LIMIT 100",
-        scan_limit=2147483648,
+        # Both counterparty fills are scanned instead of one derived trade row.
+        scan_limit=4294967296,
     )
     result = {}
     for row in rows:
         if int(row.pop("invalid_events")):
             raise ValueError(
-                "QuickNode returned unclassified or inconsistent liquidation events"
+                "QuickNode returned incomplete, unclassified or inconsistent position events"
             )
         index = int(row.pop("interval_index"))
         if (
