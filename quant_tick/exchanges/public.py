@@ -92,6 +92,14 @@ def get_public_json(
                         response = transport.handle_request(request)
                         response.request = safe_request
                         response.read()
+                    logger.info(
+                        'HTTP Request: %s %s "%s %d %s"',
+                        safe_request.method,
+                        safe_request.url,
+                        response.http_version,
+                        response.status_code,
+                        response.reason_phrase,
+                    )
                 except httpx2.RequestError:
                     raise httpx2.ConnectError(
                         "Provider endpoint transport failed", request=safe_request

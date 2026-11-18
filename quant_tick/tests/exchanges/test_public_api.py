@@ -283,47 +283,78 @@ class PublicMarketRequestTest(SimpleTestCase):
 
     def test_credential_url_is_absent_from_logs_and_final_error(self):
         secret_url = "https://node.quiknode.pro/sample-secret/hypercore"
-        for failure in (
+        for result in (
+            self.response(200, "[]"),
             self.response(408, "{}"),
             self.response(429, "{}", {"Retry-After": "2"}),
             httpx2.ConnectError("failed at " + secret_url),
         ):
             events = []
+            recovers = isinstance(result, httpx2.Response) and result.status_code == 200
             with (
-                self.subTest(failure=type(failure).__name__),
+                self.subTest(result=type(result).__name__),
                 patch.dict(os.environ, {}, clear=True),
                 patch("quant_tick.exchanges.public.httpx2.HTTPTransport") as transport,
                 patch("quant_tick.exchanges.public.time.sleep") as sleep,
                 self.assertLogs("quant_tick.exchanges.public", level=logging.INFO)
-                if isinstance(failure, httpx2.Response) and failure.status_code == 429
-                else nullcontext(),
+                if isinstance(result, httpx2.Response)
+                else self.assertNoLogs("quant_tick.exchanges.public") as logs,
                 sentry_sdk.init(
                     dsn="https://public@example.invalid/1",
                     transport=events.append,
                     default_integrations=False,
+                    integrations=[
+                        LoggingIntegration(level=logging.INFO, event_level=None)
+                    ],
                     include_local_variables=False,
                     send_default_pii=False,
                 ),
             ):
                 handler = transport.return_value.__enter__.return_value.handle_request
                 handler.side_effect = (
-                    [failure] * 2 if isinstance(failure, Exception) else None
+                    [result] * 2 if isinstance(result, Exception) else None
                 )
-                handler.return_value = failure
-                with self.assertRaises(httpx2.HTTPError) as caught:
-                    get_public_json(
-                        secret_url,
-                        "",
-                        {},
-                        namespace="TEST",
-                        json_body=[],
-                        redact_url=True,
-                        retry=1,
+                handler.return_value = result
+                outcome = (
+                    nullcontext() if recovers else self.assertRaises(httpx2.HTTPError)
+                )
+                with outcome:
+                    self.assertEqual(
+                        get_public_json(
+                            secret_url,
+                            "",
+                            {},
+                            namespace="TEST",
+                            json_body=[],
+                            redact_url=True,
+                            retry=1,
+                        ),
+                        [],
                     )
-                self.assertNotIn("sample-secret", str(caught.exception))
-                self.assertNotIn("sample-secret", str(caught.exception.request.url))
-                sentry_sdk.capture_exception(caught.exception)
-                self.assertEqual(len(events), 1)
-                self.assertNotIn("sample-secret", json.dumps(events[0]))
-                self.assertEqual(handler.call_count, 2)
-                self.assertTrue(sleep.called)
+                if not recovers:
+                    self.assertNotIn("sample-secret", str(outcome.exception))
+                    self.assertNotIn(
+                        "sample-secret", str(outcome.exception.request.url)
+                    )
+                    sentry_sdk.capture_exception(outcome.exception)
+                    self.assertNotIn("sample-secret", json.dumps(events[0]))
+                self.assertEqual(len(events), 0 if recovers else 1)
+                self.assertEqual(handler.call_count, 1 if recovers else 2)
+                self.assertEqual(sleep.called, not recovers)
+                if isinstance(result, httpx2.Response):
+                    messages = [record.getMessage() for record in logs.records]
+                    self.assertNotIn("sample-secret", "\n".join(messages))
+                    self.assertEqual(
+                        [
+                            message
+                            for message in messages
+                            if message.startswith("HTTP Request:")
+                        ],
+                        [
+                            (
+                                'HTTP Request: POST https://quiknode.pro/rpc "HTTP/1.1 '
+                                f'{result.status_code} {result.reason_phrase}"'
+                            )
+                        ]
+                        * handler.call_count,
+                    )
