@@ -20,31 +20,37 @@ from ..base import BaseWriteTradeDataTest
 
 
 class HyperliquidTradesTest(SimpleTestCase):
-    def test_trades_use_websocket_controller(self):
-        symbol = Mock()
-        timestamp_from = datetime(2026, 7, 31, 1, tzinfo=UTC)
-        timestamp_to = timestamp_from + timedelta(minutes=1)
+    def test_spot_and_perpetual_controller_selection_follows_provider_availability(
+        self,
+    ):
+        start = datetime(2026, 7, 31, 1, tzinfo=UTC)
+        end = start + timedelta(minutes=1)
         on_data_frame = Mock()
-
-        with patch(
-            "quant_tick.exchanges.hyperliquid.controllers.HyperliquidTradesWebSocket"
-        ) as websocket:
-            hyperliquid_trades(
-                symbol,
-                timestamp_from,
-                timestamp_to,
-                on_data_frame,
-            )
-
-        websocket.assert_called_once_with(
-            symbol,
-            timestamp_from=timestamp_from,
-            timestamp_to=timestamp_to,
-            on_data_frame=on_data_frame,
-            retry=False,
-            verbose=False,
-        )
-        websocket.return_value.main.assert_called_once_with()
+        for coin, kind in (("BTC", SymbolType.PERPETUAL), ("@142", SymbolType.SPOT)):
+            symbol = Mock(api_symbol=coin, symbol_type=kind)
+            for key in ("", "test-key"):
+                with (
+                    self.subTest(coin=coin, key=bool(key)),
+                    patch.dict(os.environ, {"QUICKNODE_API_KEY": key}),
+                    patch(
+                        "quant_tick.exchanges.hyperliquid.controllers.HyperliquidTradesWebSocket"
+                    ) as native,
+                    patch(
+                        "quant_tick.exchanges.hyperliquid.controllers.HyperliquidTrades"
+                    ) as hybrid,
+                ):
+                    hyperliquid_trades(symbol, start, end, on_data_frame)
+                    selected, unused = (hybrid, native) if key else (native, hybrid)
+                    selected.assert_called_once_with(
+                        symbol,
+                        timestamp_from=start,
+                        timestamp_to=end,
+                        on_data_frame=on_data_frame,
+                        retry=False,
+                        verbose=False,
+                    )
+                    selected.return_value.main.assert_called_once_with()
+                    unused.assert_not_called()
 
     def test_websocket_controller_uses_one_minute_candles(self):
         symbol = Mock(api_symbol="BTC")
@@ -198,7 +204,7 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
         timestamp = self.start + timedelta(minutes=minute)
         WebSocketData.objects.create(
             exchange=Exchange.HYPERLIQUID,
-            api_symbol="BTC",
+            api_symbol=self.symbol.api_symbol,
             significant_trade_filter=1,
             timestamp=timestamp,
             raw_trades=[
@@ -227,60 +233,79 @@ class HyperliquidBackfillTest(BaseWriteTradeDataTest, TestCase):
         }
 
     def test_missing_or_invalid_native_minute_uses_only_vendor_remainder(self):
-        self.websocket_minute(1, "0.5")
-        self.websocket_minute(2)
-
-        def arriving_websocket(*args, **kwargs):
-            self.websocket_minute(0)
-            return self.candles
-
-        with (
-            time_machine.travel(self.end, tick=False),
-            patch(
-                "quant_tick.exchanges.hyperliquid.controllers.native_hyperliquid_candles",
-                side_effect=arriving_websocket,
+        symbols = (
+            self.symbol,
+            self.get_symbol(
+                exchange=Exchange.HYPERLIQUID,
+                api_symbol="@142",
+                symbol_type=SymbolType.SPOT,
+                save_aggregated=True,
+                significant_trade_filter=1,
             ),
-            patch(
-                "quant_tick.exchanges.quicknode.trades.iter_trades",
-                return_value=[self.vendor_minute(1)],
-            ) as request,
-            patch(
-                "quant_tick.exchanges.hyperliquid.candles.quicknode_candles"
-            ) as vendor_candles,
-        ):
-            api(self.symbol, self.start, self.end)
-            request.assert_called_once()
-            request.assert_called_once_with(
-                "BTC",
-                self.start + timedelta(minutes=1),
-                self.start + timedelta(minutes=2),
-            )
-            vendor_candles.assert_not_called()
-            request.reset_mock()
-            api(self.symbol, self.start, self.end)
-            request.assert_not_called()
-            with (
-                patch.dict(os.environ, {"QUICKNODE_API_KEY": ""}),
-                patch(
-                    "quant_tick.exchanges.hyperliquid.controllers.hyperliquid_candles",
-                    return_value=self.candles,
-                ),
-            ):
-                api(self.symbol, self.start, self.end)
-            request.assert_not_called()
-        rows = list(TradeData.objects.filter(symbol=self.symbol).order_by("timestamp"))
-        self.assertEqual([row.ok for row in rows], [True] * 3)
-        self.assertEqual(
-            [row.uid for row in rows],
-            ["native-0", "101:123456790", "native-2"],
         )
-        for row in rows:
-            self.assertEqual(set(row.json_data), {"candle"})
-            for field in (FileData.RAW, FileData.AGGREGATED, FileData.FILTERED):
-                frame = row.get_data_frame(field)
-                self.assertEqual(len(frame), 1)
-                self.assertEqual(frame.notional.sum(), Decimal(1))
-                self.assertNotIn("data_source", frame.columns)
+        for symbol in symbols:
+            self.symbol = symbol
+            with self.subTest(coin=symbol.api_symbol):
+                self.websocket_minute(1, "0.5")
+                self.websocket_minute(2)
+
+                def arriving_websocket(*args, **kwargs):
+                    self.websocket_minute(0)
+                    return self.candles
+
+                with (
+                    time_machine.travel(self.end, tick=False),
+                    patch(
+                        "quant_tick.exchanges.hyperliquid.controllers.native_hyperliquid_candles",
+                        side_effect=arriving_websocket,
+                    ),
+                    patch(
+                        "quant_tick.exchanges.hyperliquid.controllers.hyperliquid_candles",
+                        side_effect=arriving_websocket,
+                    ),
+                    patch(
+                        "quant_tick.exchanges.quicknode.trades.iter_trades",
+                        return_value=[self.vendor_minute(1)],
+                    ) as request,
+                    patch(
+                        "quant_tick.exchanges.hyperliquid.candles.quicknode_candles"
+                    ) as vendor_candles,
+                ):
+                    api(self.symbol, self.start, self.end)
+                    request.assert_called_once()
+                    request.assert_called_once_with(
+                        self.symbol.api_symbol,
+                        self.start + timedelta(minutes=1),
+                        self.start + timedelta(minutes=2),
+                    )
+                    vendor_candles.assert_not_called()
+                    request.reset_mock()
+                    api(self.symbol, self.start, self.end)
+                    request.assert_not_called()
+                    with (
+                        patch.dict(os.environ, {"QUICKNODE_API_KEY": ""}),
+                        patch(
+                            "quant_tick.exchanges.hyperliquid.controllers.hyperliquid_candles",
+                            return_value=self.candles,
+                        ),
+                    ):
+                        api(self.symbol, self.start, self.end)
+                    request.assert_not_called()
+                rows = list(
+                    TradeData.objects.filter(symbol=self.symbol).order_by("timestamp")
+                )
+                self.assertEqual([row.ok for row in rows], [True] * 3)
+                self.assertEqual(
+                    [row.uid for row in rows],
+                    ["native-0", "101:123456790", "native-2"],
+                )
+                for row in rows:
+                    self.assertEqual(set(row.json_data), {"candle"})
+                    for field in (FileData.RAW, FileData.AGGREGATED, FileData.FILTERED):
+                        frame = row.get_data_frame(field)
+                        self.assertEqual(len(frame), 1)
+                        self.assertEqual(frame.notional.sum(), Decimal(1))
+                        self.assertNotIn("data_source", frame.columns)
 
     def test_retry_prefers_recovered_native_minute_without_paid_request(self):
         self.websocket_minute(0)

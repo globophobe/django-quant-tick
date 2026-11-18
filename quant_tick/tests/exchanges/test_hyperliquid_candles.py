@@ -72,35 +72,43 @@ class HyperliquidCandleTest(SimpleTestCase):
             {"notional": [Decimal(2)] * 4},
             index=pd.date_range(start, periods=4, freq="min"),
         )
-        with (
-            patch.dict(os.environ, {"QUICKNODE_API_KEY": "test-key"}),
-            patch(
-                "quant_tick.exchanges.hyperliquid.candles.native_hyperliquid_candles",
-                return_value=native,
-            ) as native_request,
-            patch(
-                "quant_tick.exchanges.hyperliquid.candles.history_start",
-                return_value=start,
-            ),
-            patch(
-                "quant_tick.exchanges.hyperliquid.candles.quicknode_candles",
-                return_value=vendor,
-            ) as request,
-        ):
-            frame = hyperliquid_candles("BTC", start, end)
-        native_request.assert_called_once()
-        self.assertEqual(request.call_count, 2)
-        self.assertEqual(
-            frame.index.tolist(), list(pd.date_range(start, periods=3, freq="min"))
-        )
-        self.assertEqual(frame.notional.tolist(), [Decimal(2), Decimal(1), Decimal(2)])
-        self.assertEqual(frame.columns.tolist(), ["notional"])
+        for coin in ("BTC", "@142"):
+            with self.subTest(coin=coin):
+                with (
+                    patch.dict(os.environ, {"QUICKNODE_API_KEY": "test-key"}),
+                    patch(
+                        "quant_tick.exchanges.hyperliquid.candles.native_hyperliquid_candles",
+                        return_value=native,
+                    ) as native_request,
+                    patch(
+                        "quant_tick.exchanges.hyperliquid.candles.history_start",
+                        return_value=start,
+                    ),
+                    patch(
+                        "quant_tick.exchanges.hyperliquid.candles.quicknode_candles",
+                        return_value=vendor,
+                    ) as request,
+                ):
+                    frame = hyperliquid_candles(coin, start, end)
+                native_request.assert_called_once_with(coin, start, end, "1m")
+                self.assertTrue(all(c.args[0] == coin for c in request.call_args_list))
+                self.assertEqual(request.call_count, 2)
+                self.assertEqual(
+                    frame.index.tolist(),
+                    list(pd.date_range(start, periods=3, freq="min")),
+                )
+                self.assertEqual(
+                    frame.notional.tolist(), [Decimal(2), Decimal(1), Decimal(2)]
+                )
+                self.assertEqual(frame.columns.tolist(), ["notional"])
 
     def test_missing_key_or_disabled_fallback_never_requests_vendor_data(self):
         start = pd.Timestamp("2026-04-25", tz="UTC")
         for key, coin, allow in (
             ("", "BTC", True),
             ("test-key", "BTC", False),
+            ("", "@142", True),
+            ("test-key", "@142", False),
         ):
             with (
                 self.subTest(coin=coin, allow=allow),

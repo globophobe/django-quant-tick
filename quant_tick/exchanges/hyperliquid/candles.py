@@ -86,11 +86,7 @@ def fill_quicknode_candles(
     api_symbol, timestamp_from, timestamp_to, frame, resolution="1m", *, fetch=None
 ):
     interval = get_hyperliquid_interval(resolution)
-    if (
-        not available()
-        or normalize_coin(api_symbol).startswith("@")
-        or interval in ("3d", "1w", "1M")
-    ):
+    if not available() or interval in ("3d", "1w", "1M"):
         return frame
     frequency = get_hyperliquid_frequency(interval)
     start = pd.Timestamp(timestamp_from).ceil(f"{frequency}min")

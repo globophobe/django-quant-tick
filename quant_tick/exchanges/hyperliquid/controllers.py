@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pandas import DataFrame
 
-from quant_tick.constants import Frequency, SymbolType, TradeDataRetry
+from quant_tick.constants import Frequency, TradeDataRetry
 from quant_tick.controllers import ExchangeWebSocket
 from quant_tick.controllers.repair import ExchangeRepair
 from quant_tick.models import Symbol, TradeData
@@ -26,9 +26,9 @@ def hyperliquid_trades(
     retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
-    """Keep native trades where usable; backfill gaps with optional QuickNode."""
+    """Keep native spot/perpetual trades; backfill gaps with optional QuickNode."""
     controller = HyperliquidTradesWebSocket
-    if symbol.symbol_type == SymbolType.PERPETUAL and available():
+    if available():
         controller = HyperliquidTrades
     controller(
         symbol,
