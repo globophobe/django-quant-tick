@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
@@ -30,6 +31,8 @@ from .phoenix.market_history import phoenix_market_history
 from .quicknode.api import available as quicknode_available
 from .quicknode.market_history import quicknode_market_history
 from .quicknode.solana import available as solana_available
+
+logger = logging.getLogger(__name__)
 
 PERPETUAL_STATS_FETCH_WINDOW = timedelta(days=90)
 PERPETUAL_STATS_MIN_PERSISTENCE_INTERVAL_MINUTES = 60
@@ -232,10 +235,17 @@ def perpetual_stats(
                 if position_history is not None
                 else {}
             )
+            request_to = min(fetch_to, requested_timestamp_to)
+            logger.info(
+                "%s: fetching perpetual stats %s to %s",
+                symbol,
+                fetch_from,
+                request_to,
+            )
             df = perpetual_stats_api(
                 symbol,
                 fetch_from,
-                min(fetch_to, requested_timestamp_to),
+                request_to,
                 **options,
             )
             history_exhausted = df.attrs.get(HISTORY_EXHAUSTED_ATTR)
