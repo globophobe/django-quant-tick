@@ -4,6 +4,9 @@ The active trader buffer selects executions and position transfers, excluding
 price-only updates. Every position's after-state, market trade sequence and OI
 checkpoint must reconcile before undoing it. Unknown or missing history raises;
 neither native OI nor aggregate account deltas can substitute for account state.
+Before replay, the indexed head must match the latest successful transaction in
+the native finalized ledger through the snapshot slot. A snapshot awaiting index
+catch-up is stored separately and cannot be used as reconstructed hour-end state.
 
 Checkpoints retain the exclusive transaction boundary and all nonzero positions.
 Requested hours commit checkpoints with their statistics; intervening hours can
@@ -14,13 +17,14 @@ the native bucket's mark price for size tiers, not the present snapshot's price.
 from collections import Counter
 from copy import deepcopy
 from datetime import timedelta
+from itertools import chain
 
 import pandas as pd
 from django.db import transaction
 
 from quant_tick.models import Checkpoint
 
-from ..quicknode.solana import address_transactions
+from ..quicknode.solana import address_transactions, latest_address_signature
 from .accounts import cohort_values
 from .events import PROGRAM, transaction_events
 from .positioning import phoenix_positioning
@@ -192,6 +196,7 @@ class ReversePositions:
 
 class PhoenixPositionHistory:
     checkpoint_kind = "phoenix_positions"
+    snapshot_kind = "phoenix_snapshot"
 
     def __init__(self, symbol, *, assert_lease_owned=None):
         self.symbol = symbol
@@ -199,14 +204,15 @@ class PhoenixPositionHistory:
         self.replay = None
         self.pending = []
         self.next_transaction = None
+        self.snapshot_id = None
 
-    def save(self, timestamp, state):
+    def save(self, timestamp, state, *, kind=None):
         with transaction.atomic():
             if self.assert_lease_owned is not None:
                 self.assert_lease_owned()
             checkpoint, created = Checkpoint.objects.get_or_create(
                 symbol=self.symbol,
-                kind=self.checkpoint_kind,
+                kind=kind or self.checkpoint_kind,
                 timestamp=timestamp,
                 defaults={"state": state},
             )
@@ -223,6 +229,12 @@ class PhoenixPositionHistory:
                 raise ValueError(
                     "Phoenix replay disagrees with a saved position checkpoint"
                 )
+            if kind is None and self.snapshot_id is not None:
+                Checkpoint.objects.filter(
+                    pk=self.snapshot_id, kind=self.snapshot_kind
+                ).delete()
+                self.snapshot_id = None
+            return checkpoint
 
     def load(self, end):
         checkpoint = (
@@ -232,6 +244,15 @@ class PhoenixPositionHistory:
             .order_by("timestamp")
             .first()
         )
+        verified = checkpoint is not None
+        if checkpoint is None:
+            checkpoint = (
+                Checkpoint.objects.filter(
+                    symbol=self.symbol, kind=self.snapshot_kind, timestamp__gt=end
+                )
+                .order_by("timestamp")
+                .first()
+            )
         if checkpoint is None:
             snapshot, block_time, _ = fetch_position_snapshot(self.symbol.api_symbol)
             state = {
@@ -249,11 +270,14 @@ class PhoenixPositionHistory:
                 raise ValueError(
                     "Phoenix snapshot does not cover the requested hour end"
                 )
-            self.boundary = block_time
-        else:
-            self.boundary, state = checkpoint.timestamp, checkpoint.state
-        self.unverified_snapshot = checkpoint is None
-        self.replay = ReversePositions(state)
+            state["history_head"] = latest_address_signature(
+                state["history_address"], state["slot"]
+            )
+            checkpoint = self.save(block_time, state, kind=self.snapshot_kind)
+        self.boundary, state = checkpoint.timestamp, checkpoint.state
+        if not state.get("history_head"):
+            raise ValueError("Phoenix checkpoint lacks its ledger boundary")
+        replay = ReversePositions(state)
         self.transactions = iter(
             address_transactions(
                 state["history_address"],
@@ -262,6 +286,20 @@ class PhoenixPositionHistory:
                 transaction_index=state.get("transaction_index"),
             )
         )
+        if not verified:
+            self.snapshot_id = checkpoint.pk
+            first = next(self.transactions, None)
+            head = state["history_head"]
+            if (
+                first is None
+                or first["slot"] != head["slot"]
+                or first["transaction"]["signatures"][0] != head["signature"]
+            ):
+                raise ValueError(
+                    "Phoenix indexed history has not reached the snapshot ledger boundary"
+                )
+            self.transactions = chain((first,), self.transactions)
+        self.replay = replay
 
     def peek(self):
         while self.next_transaction is None:
@@ -289,10 +327,6 @@ class PhoenixPositionHistory:
         while True:
             tx, groups, clock = self.peek()
             if clock < limit:
-                if self.unverified_snapshot:
-                    raise ValueError(
-                        "Phoenix indexed history has not reached the snapshot boundary"
-                    )
                 self.boundary = boundary
                 return records
             if collect and any(
@@ -301,7 +335,6 @@ class PhoenixPositionHistory:
             ):
                 records[tx["transaction"]["signatures"][0]] = groups
             self.replay.undo(tx, groups, clock)
-            self.unverified_snapshot = False
             self.next_transaction = None
 
     def enrich(self, row):

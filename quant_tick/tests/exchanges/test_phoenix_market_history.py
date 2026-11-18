@@ -774,6 +774,56 @@ class PhoenixReversePositionsTest(SimpleTestCase):
             ):
                 list(solana.address_transactions("buffer", selected[0]["slot"]))
 
+    def test_native_ledger_boundary_skips_newer_slots_and_failed_transactions(self):
+        newer = [
+            {
+                "signature": f"signature-{slot}",
+                "slot": slot,
+                "err": None,
+                "confirmationStatus": "finalized",
+            }
+            for slot in range(2140, 1140, -1)
+        ]
+        failed = {**newer[-1], "slot": 140, "signature": "failed", "err": {"code": 1}}
+        head = {**failed, "signature": "head", "err": None}
+        with patch.object(
+            solana, "rpc", side_effect=[newer, [failed, head]]
+        ) as request:
+            self.assertEqual(
+                solana.latest_address_signature("buffer", 140),
+                {"signature": "head", "slot": 140},
+            )
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(
+                request.call_args.args,
+                (
+                    "getSignaturesForAddress",
+                    [
+                        "buffer",
+                        {
+                            "commitment": "finalized",
+                            "minContextSlot": 140,
+                            "limit": 1000,
+                            "before": newer[-1]["signature"],
+                        },
+                    ],
+                ),
+            )
+        for page in (
+            [],
+            [failed],
+            [failed, failed],
+            [failed, newer[0]],
+            [{**head, "confirmationStatus": "confirmed"}],
+            [{key: value for key, value in head.items() if key != "err"}],
+        ):
+            with (
+                self.subTest(page=page),
+                patch.object(solana, "rpc", return_value=page),
+                self.assertRaises(ValueError),
+            ):
+                solana.latest_address_signature("buffer", 140)
+
 
 class PhoenixHistoryCollectionTest(TestCase):
     def setUp(self):
@@ -827,6 +877,13 @@ class PhoenixHistoryCollectionTest(TestCase):
                 solana, "rpc", return_value={"data": self.txs, "paginationToken": None}
             )
         )
+        self.head = self.enterContext(
+            patch.object(
+                history,
+                "latest_address_signature",
+                return_value={"signature": "signature-130", "slot": 130},
+            )
+        )
         self.flows = self.enterContext(
             patch.object(
                 history,
@@ -857,13 +914,9 @@ class PhoenixHistoryCollectionTest(TestCase):
         self.assertAlmostEqual(saved.long_account_ratio, Decimal(2) / 3, places=12)
         self.assertEqual(saved.json_data["cohort_available_at"], self.end)
         self.assertEqual(saved.json_data["cohort_price_source"], "native_hourly_mark")
-        checkpoint = Checkpoint.objects.get(
-            timestamp=self.start + timedelta(hours=1)
-        )
+        checkpoint = Checkpoint.objects.get(timestamp=self.start + timedelta(hours=1))
         self.assertEqual(checkpoint.state["before"], "signature-120")
-        self.assertFalse(
-            Checkpoint.objects.filter(timestamp=self.start).exists()
-        )
+        self.assertFalse(Checkpoint.objects.filter(timestamp=self.start).exists())
         self.rpc.side_effect = None
         self.rpc.return_value = {"data": self.txs[2:], "paginationToken": None}
         self.snapshot.reset_mock()
@@ -895,12 +948,8 @@ class PhoenixHistoryCollectionTest(TestCase):
                 assert_lease_owned=lost_after_statistics_write,
             )
         self.assertFalse(PerpetualStatsData.objects.exists())
-        self.assertFalse(
-            Checkpoint.objects.filter(timestamp__lt=self.end).exists()
-        )
-        self.assertTrue(
-            Checkpoint.objects.filter(timestamp=self.end).exists()
-        )
+        self.assertFalse(Checkpoint.objects.filter(timestamp__lt=self.end).exists())
+        self.assertTrue(Checkpoint.objects.filter(timestamp=self.end).exists())
 
     def test_native_failure_retains_existing_data_and_does_not_advance_replay(self):
         PerpetualStatsData.objects.create(
@@ -914,18 +963,127 @@ class PhoenixHistoryCollectionTest(TestCase):
         with self.assertRaisesRegex(ValueError, "native mismatch"):
             perpetual_stats(self.symbol, self.start, self.end, retry=True)
         self.assertEqual(PerpetualStatsData.objects.get().open_interest, 4)
-        self.assertFalse(
-            Checkpoint.objects.filter(timestamp__lt=self.end).exists()
-        )
+        self.assertFalse(Checkpoint.objects.filter(timestamp__lt=self.end).exists())
 
     def test_missing_or_lagging_history_cannot_publish_counts(self):
-        for transactions in (self.txs[:1], self.txs[1:]):
+        wrong_head = deepcopy(self.txs[0])
+        wrong_head["transaction"]["signatures"] = ["earlier-in-the-same-slot"]
+        for transactions in (
+            [],
+            self.txs[:1],
+            self.txs[1:],
+            [wrong_head, *self.txs[1:]],
+        ):
             with self.subTest(slots=[tx["slot"] for tx in transactions]):
                 Checkpoint.objects.all().delete()
                 self.rpc.return_value = {"data": transactions, "paginationToken": None}
-                with self.assertRaisesRegex(ValueError, "ended|snapshot boundary"):
+                with self.assertRaisesRegex(ValueError, "ended|ledger boundary"):
                     perpetual_stats(self.symbol, self.start, self.end)
                 self.assertFalse(PerpetualStatsData.objects.exists())
+
+    def test_index_lag_keeps_the_snapshot_until_its_transfer_can_be_replayed(self):
+        end = self.start + timedelta(hours=1)
+        snapshot, _, _ = self.snapshot.return_value
+        snapshot_time = end + timedelta(minutes=10)
+        self.snapshot.return_value = snapshot, snapshot_time, snapshot_time
+        a, b, _, _ = self.accounts
+        transfer = history_transaction(
+            130,
+            end + timedelta(minutes=7),
+            [(a, 10, 6), (b, 0, 4)],
+            (a, b, 4),
+        )
+        older = [
+            history_transaction(120, end + timedelta(minutes=5)),
+            history_transaction(110, self.start + timedelta(minutes=30)),
+            history_transaction(100, self.start - timedelta(seconds=1)),
+        ]
+        self.head.side_effect = solana.latest_address_signature
+        self.flows.side_effect = positioning.phoenix_positioning
+        self.native.side_effect = None
+        self.native.return_value = response(
+            [observation(self.start, open_interest=Decimal("0.001"))]
+        )
+        self.enterContext(
+            patch.object(positioning, "get_trades", return_value=([], None, None))
+        )
+        self.enterContext(
+            patch.object(
+                positioning,
+                "phoenix_candles",
+                return_value=pd.DataFrame(
+                    [{"trades": 0, "notional": Decimal(0), "volume": Decimal(0)}],
+                    index=[self.start],
+                ),
+            )
+        )
+
+        for lagging in (False, True):
+            with self.subTest(lagging=lagging):
+                Checkpoint.objects.all().delete()
+                PerpetualStatsData.objects.all().delete()
+                self.snapshot.reset_mock()
+                self.head.reset_mock()
+                transactions = older.copy() if lagging else [transfer, *older]
+
+                def fetch(method, params, rows=transactions):
+                    if method == "getSignaturesForAddress":
+                        self.assertEqual(params[1]["minContextSlot"], 140)
+                        return [
+                            {
+                                "slot": 130,
+                                "signature": "signature-130",
+                                "err": None,
+                                "confirmationStatus": "finalized",
+                            }
+                        ]
+                    self.assertEqual(method, "getTransactionsForAddress")
+                    self.assertEqual(params[1]["filters"]["slot"], {"lte": 140})
+                    return {"data": rows, "paginationToken": None}
+
+                self.rpc.side_effect = fetch
+                if lagging:
+                    for retry in (False, True):
+                        with self.assertRaisesRegex(ValueError, "ledger boundary"):
+                            perpetual_stats(self.symbol, self.start, end, retry=retry)
+                        self.assertFalse(PerpetualStatsData.objects.exists())
+                        pending = Checkpoint.objects.get()
+                        self.assertEqual(pending.kind, "phoenix_snapshot")
+                        self.assertEqual(pending.timestamp, snapshot_time)
+                        self.assertEqual(pending.state["slot"], 140)
+                        self.assertEqual(
+                            pending.state["positions"],
+                            {
+                                key.hex(): value
+                                for key, value in snapshot["positions"].items()
+                            },
+                        )
+                    transactions.insert(0, transfer)
+                perpetual_stats(self.symbol, self.start, end, retry=True)
+                self.snapshot.assert_called_once()
+                self.head.assert_called_once()
+                saved = PerpetualStatsData.objects.get()
+                self.assertEqual(saved.json_data["long_accounts"], 1)
+                self.assertEqual(saved.json_data["short_accounts"], 1)
+                self.assertEqual(saved.long_account_ratio, Decimal("0.5"))
+                self.assertTrue(saved.json_data["cohort_replay_validated"])
+                self.assertTrue(saved.json_data["trade_position_flow_validated"])
+                self.assertFalse(
+                    Checkpoint.objects.filter(kind="phoenix_snapshot").exists()
+                )
+                self.assertEqual(
+                    Checkpoint.objects.filter(kind="phoenix_positions").count(), 2
+                )
+
+    def test_verified_idle_snapshot_does_not_require_a_transaction_after_hour_end(self):
+        self.head.return_value = {"signature": "signature-120", "slot": 120}
+        self.rpc.return_value = {"data": self.txs[1:], "paginationToken": None}
+        perpetual_stats(self.symbol, self.start, self.end)
+        saved = PerpetualStatsData.objects.get(
+            timestamp=self.start + timedelta(hours=1)
+        )
+        self.assertEqual(saved.json_data["long_accounts"], 2)
+        self.assertTrue(saved.json_data["cohort_replay_validated"])
 
     def test_existing_native_rows_receive_reconstruction_without_retry(self):
         unrelated = Checkpoint.objects.create(

@@ -75,6 +75,40 @@ def transaction(signature):
     return result
 
 
+def latest_address_signature(address, slot):
+    """Find the last successful ledger transaction at or before a snapshot slot.
+
+    minContextSlot fences the native RPC node, not the historical result range.
+    Newer slots and failed transactions must be passed before selecting the head.
+    """
+    options = {"commitment": "finalized", "minContextSlot": slot, "limit": 1000}
+    previous_slot, seen = None, set()
+    while True:
+        page = rpc("getSignaturesForAddress", [address, options])
+        if not isinstance(page, list):
+            raise TypeError("Invalid Solana signature history page")
+        for item in page:
+            signature, item_slot = item.get("signature"), item.get("slot")
+            if (
+                not isinstance(signature, str)
+                or not signature
+                or signature in seen
+                or type(item_slot) is not int
+                or item_slot < 0
+                or (previous_slot is not None and item_slot > previous_slot)
+                or item.get("confirmationStatus") != "finalized"
+                or "err" not in item
+            ):
+                raise ValueError("Invalid or unordered finalized Solana signatures")
+            previous_slot = item_slot
+            seen.add(signature)
+            if item_slot <= slot and item["err"] is None:
+                return {"signature": signature, "slot": item_slot}
+        if len(page) < options["limit"]:
+            raise ValueError("Solana ledger has no successful history for the snapshot")
+        options["before"] = page[-1]["signature"]
+
+
 def address_transactions(address, slot, *, before=None, transaction_index=None):
     """Stream finalized transactions backwards, preserving the venue's order.
 
