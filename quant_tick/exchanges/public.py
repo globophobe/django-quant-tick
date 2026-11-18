@@ -61,7 +61,7 @@ def get_public_json(
     """Use response quotas when max_requests is None; share HTTP/RPC retries.
 
     Honor provider retry timing; otherwise back off from one to thirty seconds
-    for rate limits. Transport and server errors retain the one-second wait.
+    for rate limits. Timeouts, transport and server errors use a one-second wait.
     """
     total_key = f"{namespace}_TOTAL_REQUESTS"
     reset_key = f"{namespace}_MAX_REQUESTS_RESET"
@@ -143,7 +143,7 @@ def get_public_json(
                 )
                 limit_reported = True
             if attempt == retry or (
-                status is not None and status not in (418, 429) and status < 500
+                status is not None and status not in (408, 418, 429) and status < 500
             ):
                 raise
             delay = 1

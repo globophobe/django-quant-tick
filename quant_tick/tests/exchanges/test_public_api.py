@@ -105,9 +105,9 @@ class PublicMarketRequestTest(SimpleTestCase):
             sleep.call_args_list, [call(delay) for delay in (1, 2, 4, 8, 16, 30)]
         )
 
-    def test_transport_and_server_errors_keep_bounded_retries(self):
+    def test_transient_errors_share_bounded_retries(self):
         module = "quant_tick.exchanges.public"
-        for method in ("get", "post"):
+        for method in ("get", "post", "HTTPTransport"):
             collect = partial(
                 get_public_json,
                 "https://venue.test",
@@ -115,31 +115,42 @@ class PublicMarketRequestTest(SimpleTestCase):
                 {},
                 namespace="TEST",
                 retry=3,
-                json_body={"query": "SELECT 1"} if method == "post" else None,
+                json_body={"query": "SELECT 1"} if method != "get" else None,
+                redact_url=method == "HTTPTransport",
             )
-            payload, expected, delay, error = "[]", [], 1, httpx2.HTTPStatusError
-            for recovers in (True, False):
-                responses = [
-                    httpx2.ReadTimeout("timeout"),
-                    self.response(503, "unavailable"),
-                    self.response(503, "unavailable"),
-                    self.response(200 if recovers else 503, payload),
-                ]
-                outcome = nullcontext() if recovers else self.assertRaises(error)
+            for final_status in (200, 408, 503):
+                outcome = (
+                    nullcontext()
+                    if final_status == 200
+                    else self.assertRaises(httpx2.HTTPStatusError)
+                )
                 with (
-                    self.subTest(module=module, recovers=recovers),
+                    self.subTest(method=method, final_status=final_status),
                     patch.dict(os.environ, {}, clear=True),
                     patch(f"{module}.throttle_api_requests"),
                     patch(f"{module}.increment_api_total_requests"),
                     patch(f"{module}.time.sleep") as sleep,
-                    patch(
-                        f"{module}.httpx2.{method}", side_effect=responses
-                    ) as request,
-                    outcome,
+                    patch(f"{module}.httpx2.{method}") as client,
                 ):
-                    self.assertEqual(collect(), expected)
-                self.assertEqual(request.call_count, 4)
-                self.assertEqual(sleep.call_args_list, [call(delay)] * 3)
+                    request = (
+                        client.return_value.__enter__.return_value.handle_request
+                        if method == "HTTPTransport"
+                        else client
+                    )
+                    request.side_effect = [
+                        httpx2.ReadTimeout("timeout"),
+                        self.response(408, "request timeout"),
+                        self.response(503, "unavailable"),
+                        self.response(final_status, "[]"),
+                    ]
+                    with outcome:
+                        self.assertEqual(collect(), [])
+                    self.assertEqual(request.call_count, 4)
+                    self.assertEqual(sleep.call_args_list, [call(1)] * 3)
+                    if final_status != 200:
+                        self.assertEqual(
+                            outcome.exception.response.status_code, final_status
+                        )
 
     def test_invalid_requests_are_not_retried(self):
         with (
@@ -273,17 +284,26 @@ class PublicMarketRequestTest(SimpleTestCase):
     def test_credential_url_is_absent_from_logs_and_final_error(self):
         secret_url = "https://node.quiknode.pro/sample-secret/hypercore"
         for failure in (
+            self.response(408, "{}"),
             self.response(429, "{}", {"Retry-After": "2"}),
             httpx2.ConnectError("failed at " + secret_url),
         ):
+            events = []
             with (
                 self.subTest(failure=type(failure).__name__),
                 patch.dict(os.environ, {}, clear=True),
                 patch("quant_tick.exchanges.public.httpx2.HTTPTransport") as transport,
                 patch("quant_tick.exchanges.public.time.sleep") as sleep,
                 self.assertLogs("quant_tick.exchanges.public", level=logging.INFO)
-                if isinstance(failure, httpx2.Response)
+                if isinstance(failure, httpx2.Response) and failure.status_code == 429
                 else nullcontext(),
+                sentry_sdk.init(
+                    dsn="https://public@example.invalid/1",
+                    transport=events.append,
+                    default_integrations=False,
+                    include_local_variables=False,
+                    send_default_pii=False,
+                ),
             ):
                 handler = transport.return_value.__enter__.return_value.handle_request
                 handler.side_effect = (
@@ -302,5 +322,8 @@ class PublicMarketRequestTest(SimpleTestCase):
                     )
                 self.assertNotIn("sample-secret", str(caught.exception))
                 self.assertNotIn("sample-secret", str(caught.exception.request.url))
+                sentry_sdk.capture_exception(caught.exception)
+                self.assertEqual(len(events), 1)
+                self.assertNotIn("sample-secret", json.dumps(events[0]))
                 self.assertEqual(handler.call_count, 2)
                 self.assertTrue(sleep.called)
