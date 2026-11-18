@@ -7,6 +7,7 @@ block supplies the order. Every raw fill is checked against the SQL row set.
 Order IDs alone are insufficient: previously placed stops can trigger later.
 """
 
+import logging
 from collections import defaultdict
 from itertools import groupby, pairwise
 
@@ -17,6 +18,8 @@ from quant_tick.controllers import ExchangeREST
 from ..hyperliquid.api import normalize_coin
 from . import blocks
 from .api import block_range, number, query, timestamp, trade_where
+
+logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 10000
 TRADE_COLUMNS = """block_number, timestamp, trade_id, price, size, side,
@@ -189,6 +192,12 @@ class QuickNodeTrades(ExchangeREST):
     partition_scoped = True
 
     def fetch_rest_data_frame(self, timestamp_from, timestamp_to):
+        logger.info(
+            "%s: trades %s to %s",
+            self.symbol,
+            timestamp_from,
+            timestamp_to,
+        )
         return trade_frame(
             iter_trades(
                 normalize_coin(self.symbol.api_symbol), timestamp_from, timestamp_to
