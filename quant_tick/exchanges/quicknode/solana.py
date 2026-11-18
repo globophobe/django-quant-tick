@@ -73,3 +73,49 @@ def transaction(signature):
     if not isinstance(result, dict) or not result:
         raise ValueError("QuickNode returned an invalid Solana transaction")
     return result
+
+
+def address_transactions(address, slot, *, before=None, transaction_index=None):
+    """Stream finalized transactions backwards, preserving the venue's order.
+
+    A saved signature is an exclusive boundary within its slot. Provider cursors
+    are used only between pages of that fixed request, never across snapshots.
+    """
+    options = {
+        "transactionDetails": "full",
+        "sortOrder": "desc",
+        "limit": 1000,
+        "encoding": "json",
+        "maxSupportedTransactionVersion": 1,
+        "commitment": "finalized",
+        "filters": {"slot": {"lte": slot}, "status": "succeeded"},
+    }
+    if before is not None:
+        options["filters"]["signature"] = {"lt": before}
+    previous = (slot, transaction_index) if transaction_index is not None else None
+    while True:
+        result = rpc("getTransactionsForAddress", [address, options])
+        if not isinstance(result, dict) or not isinstance(result.get("data"), list):
+            raise TypeError("Invalid Solana transaction history page")
+        for tx in result["data"]:
+            order = tx.get("slot"), tx.get("transactionIndex")
+            if (
+                any(type(value) is not int or value < 0 for value in order)
+                or order[0] > slot
+                or (previous is not None and order >= previous)
+            ):
+                raise ValueError(
+                    "Solana transaction history is not strictly newest first"
+                )
+            previous = order
+            yield tx
+        token = result.get("paginationToken")
+        if token is None:
+            return
+        if (
+            not result["data"]
+            or token != f"{previous[0]}:{previous[1]}"
+            or token == options.get("paginationToken")
+        ):
+            raise ValueError("Solana transaction history cursor did not advance")
+        options["paginationToken"] = token

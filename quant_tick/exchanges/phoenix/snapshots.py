@@ -28,7 +28,7 @@ RATIO_FIELDS = (
 )
 
 
-def fetch_snapshot(symbol):
+def fetch_position_snapshot(symbol):
     snapshot = decode_snapshot(
         rpc(
             "getProgramAccounts",
@@ -47,12 +47,16 @@ def fetch_snapshot(symbol):
     if type(timestamp) is not int:
         raise ValueError("Invalid Phoenix snapshot block time")
     block_time = datetime.fromtimestamp(timestamp, UTC)
-    values = cohort_values(snapshot)
     received = get_current_time()
     if not timedelta(0) <= received - block_time <= timedelta(minutes=5):
         raise ValueError("Phoenix snapshot is stale or has a future block time")
+    return snapshot, block_time, received
+
+
+def fetch_snapshot(symbol):
+    snapshot, block_time, received = fetch_position_snapshot(symbol)
     return {
-        **values,
+        **cohort_values(snapshot),
         "cohort_timestamp": block_time,
         "cohort_available_at": received,
     }

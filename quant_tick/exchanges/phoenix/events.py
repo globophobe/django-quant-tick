@@ -12,6 +12,11 @@ PROGRAM = "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih"
 LOG = 0xAACFD109F2D6E68D
 LENGTHS = 0x479947B5CB8607F7
 ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+NONTRADE_EVENTS = {
+    "LiquidationTransfer",
+    "CloseMatchedPositions",
+    "ShutdownClosePositions",
+}
 
 LAYOUTS = {
     0: ("SlotContext", "QQ", "timestamp slot"),
@@ -35,15 +40,30 @@ LAYOUTS = {
         "32sQQBQQQqqqq",
         "trader trade_sequence_number prev_trade_sequence_number_slot side base_lots_filled quote_lots_filled fee_in_quote_lots base_lot_position virtual_quote_lot_position quote_lot_collateral cumulative_funding_snapshot",
     ),
+    31: (
+        "LiquidationTransfer",
+        "32s32sQqqHqq",
+        "liquidatee liquidator asset_id base_lots_transferred virtual_quote_lots_transferred haircut_rate liquidatee_collateral_change liquidator_collateral_change",
+    ),
     32: (
         "Liquidation",
         "32s32sIQQQQB",
         "liquidator liquidated_trader asset_id liquidation_size mark_price base_lots_filled quote_lots_filled position_closed",
     ),
+    33: (
+        "CloseMatchedPositions",
+        "32s32s32s32sQqqqqq",
+        "caller closed_short closed_long in_profit_account asset_id base_lots_closed at_loss_close_value in_profit_close_value at_loss_collateral_change in_profit_collateral_change",
+    ),
     37: (
         "PnL",
         "32sI16sqqqqqq",
         "trader asset_id symbol realized_pnl funding_payment base_lots_before base_lots_after virtual_quote_lots_before virtual_quote_lots_after",
+    ),
+    65: (
+        "ShutdownClosePositions",
+        "32s32sIQQQQ",
+        "long_trader short_trader asset_id base_lots_closed settlement_price trade_sequence_number sequence_number",
     ),
 }
 

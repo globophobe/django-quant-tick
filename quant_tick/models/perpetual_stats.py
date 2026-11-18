@@ -203,7 +203,17 @@ class PerpetualStatsData(models.Model):
                     # Provider-specific evidence must not survive a source change.
                     if not (old_source and new_source and old_source != new_source):
                         for field in PERPETUAL_STATS_VALUE_FIELDS:
-                            if getattr(row, field) is None:
+                            replayed_ratio = (
+                                symbol.exchange == Exchange.PHOENIX
+                                and (row.json_data or {}).get("cohort_replay_validated")
+                                and field
+                                in (
+                                    "long_account_ratio",
+                                    "short_account_ratio",
+                                    "long_short_account_ratio",
+                                )
+                            )
+                            if getattr(row, field) is None and not replayed_ratio:
                                 setattr(row, field, getattr(existing, field))
                         row.json_data = {
                             **(existing.json_data or {}),

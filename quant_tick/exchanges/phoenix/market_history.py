@@ -32,7 +32,11 @@ MARKET_HISTORY_COLUMNS = [
 
 
 def phoenix_market_history(
-    api_symbol: str, timestamp_from: datetime, timestamp_to: datetime
+    api_symbol: str,
+    timestamp_from: datetime,
+    timestamp_to: datetime,
+    *,
+    position_history=None,
 ) -> DataFrame:
     """Fetch completed hourly open-interest buckets, retaining gaps.
 
@@ -42,6 +46,8 @@ def phoenix_market_history(
     the venue's slot and prices alongside the interval-start convention. An
     optional Solana endpoint enriches each hour with validated trade flows;
     incomplete RPC evidence raises and leaves existing observations untouched.
+    The collector supplies position_history to reconstruct hour-end cohorts and
+    reuse bulk transactions. It requests one hour at a time, newest first.
     """
     symbol = api_symbol.strip().upper()
     interval = pd.Timedelta(MARKET_HISTORY_INTERVAL)
@@ -118,7 +124,11 @@ def phoenix_market_history(
                         raise ValueError("Phoenix returned invalid cumulative fees")
                     row["cumulative_" + side + "_fees"] = value
             if solana_available():
-                row.update(phoenix_positioning(symbol, timestamp, timestamp + interval))
+                row.update(
+                    position_history.enrich(row)
+                    if position_history is not None
+                    else phoenix_positioning(symbol, timestamp, timestamp + interval)
+                )
             rows.append(row)
     frame = (
         DataFrame(rows)

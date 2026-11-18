@@ -6,6 +6,9 @@ opening/closing flow, including reversals through zero. Market trade sequence
 numbers and account position continuity detect missing executions; every fill
 must also match native timestamp and signed quantities, preserving multiplicity.
 Non-trading transfers/ADL and global account cohorts are not inferred from fills.
+When supplied, replayed_groups must have passed full reverse position and sequence
+validation; this includes transfers between trades that fill-only checks cannot
+reconcile. These groups replace individual paid transaction lookups.
 Taker fees are the reported TradeSummary fees; supplementary fee and liquidation
 charge events are not aggregated.
 """
@@ -17,7 +20,7 @@ import pandas as pd
 
 from ..quicknode.solana import transaction
 from .candles import phoenix_candles
-from .events import transaction_events
+from .events import NONTRADE_EVENTS, transaction_events
 from .trades import get_trades
 
 DECIMAL_FIELDS = (
@@ -204,14 +207,14 @@ def validate_native(trades, native, start, end):
         raise ValueError("Phoenix RPC fills do not match the native trade feed")
 
 
-def aggregate(trades):
+def aggregate(trades, *, replayed=False):
     row = dict.fromkeys(DECIMAL_FIELDS, Decimal(0)) | dict.fromkeys(COUNT_FIELDS, 0)
     positions = {}
     previous = None
     for trade in trades:
         summary = trade["summary"]
         sequence = summary["trade_sequence_number"]
-        if previous is not None and sequence != previous + 1:
+        if not replayed and previous is not None and sequence != previous + 1:
             raise ValueError("Phoenix market trade sequence has a gap or duplicate")
         previous = sequence
         base, quote, _ = units(trade["header"])
@@ -231,7 +234,7 @@ def aggregate(trades):
                 pnl["base_lots_after"] * base,
             )
             account = pnl["trader"]
-            if account in positions and positions[account] != before:
+            if not replayed and account in positions and positions[account] != before:
                 raise ValueError("Phoenix account position continuity is broken")
             positions[account] = after
             taker = account == summary["trader"]
@@ -269,7 +272,7 @@ def aggregate(trades):
     return row
 
 
-def phoenix_positioning(symbol, start, end):
+def phoenix_positioning(symbol, start, end, *, replayed_groups=None):
     native, _, _ = get_trades(symbol, start, end)
     candles = phoenix_candles(symbol, start, end, resolution="1h")
     if len(candles) != 1 or candles.index[0] != start:
@@ -289,12 +292,30 @@ def phoenix_positioning(symbol, start, end):
     by_signature = defaultdict(list)
     for row in native:
         by_signature[row["transactionSignature"]].append(row)
+    if replayed_groups is not None and replayed_groups.keys() != by_signature.keys():
+        raise ValueError(
+            "Phoenix replay and native feed have different trade transactions"
+        )
     trades = []
     for signature, rows in by_signature.items():
-        groups = transaction_events(transaction(signature), signature)
+        if replayed_groups is None:
+            groups = transaction_events(transaction(signature), signature)
+        else:
+            groups = []
+            for group in replayed_groups[signature]:
+                if any(item["kind"] in NONTRADE_EVENTS for item in group):
+                    if any(
+                        item["kind"] in ("TradeSummary", "OrderFilled", "SplineFilled")
+                        for item in group
+                    ):
+                        raise ValueError(
+                            "Phoenix mixed trading and transfer invocation is unsupported"
+                        )
+                else:
+                    groups.append(group)
         parsed = parsed_trades(groups, symbol)
         validate_native(parsed, rows, start, end)
         trades.extend(parsed)
     # This is the venue's explicit execution sequence, not timestamp ordering.
     trades.sort(key=lambda trade: trade["summary"]["trade_sequence_number"])
-    return aggregate(trades)
+    return aggregate(trades, replayed=replayed_groups is not None)

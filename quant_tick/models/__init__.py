@@ -3,6 +3,7 @@ from .candles import Candle, CandleCache, CandleData
 from .exchange_candles import ExchangeCandleData
 from .funding import FundingData
 from .perpetual_stats import PerpetualStatsData
+from .phoenix_positions import PhoenixPositionCheckpoint
 from .symbols import Symbol
 from .task_state import TaskState
 from .trades import TradeData
@@ -17,6 +18,7 @@ __all__ = [
     "ExchangeCandleData",
     "FundingData",
     "PerpetualStatsData",
+    "PhoenixPositionCheckpoint",
     "Symbol",
     "TaskState",
     "TimeBasedCandle",

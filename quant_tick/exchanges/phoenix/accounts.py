@@ -201,7 +201,12 @@ def decode_snapshot(result, symbol):
     short_lots = sum(max(-size, 0) for size in positions.values())
     if long_lots != short_lots or long_lots != metadata["open_interest_lots"]:
         raise ValueError("Phoenix snapshot positions do not reconcile with native OI")
-    return {"slot": slot, "positions": positions, **metadata}
+    return {
+        "slot": slot,
+        "positions": positions,
+        "history_address": globals_by_kind["active_trader_buffer"][0],
+        **metadata,
+    }
 
 
 def cohort_values(snapshot):
