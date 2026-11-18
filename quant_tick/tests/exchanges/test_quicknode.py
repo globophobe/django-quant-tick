@@ -2,6 +2,7 @@ import json
 import os
 from copy import deepcopy
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from unittest.mock import call, patch
 
@@ -10,7 +11,7 @@ import pandas as pd
 from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase
 
-from quant_tick.exchanges.quicknode import api
+from quant_tick.exchanges.quicknode import api, solana
 from quant_tick.exchanges.quicknode.blocks import get_trade_blocks
 from quant_tick.exchanges.quicknode.candles import quicknode_candles, validation_candles
 from quant_tick.exchanges.quicknode.trades import iter_trades, trade_frame
@@ -198,6 +199,92 @@ class QuickNodeTradesTest(SimpleTestCase):
 
 
 class QuickNodeRequestTest(SimpleTestCase):
+    def test_rpc_throttling_honors_timing_without_retrying_node_errors(self):
+        routes = (
+            (
+                partial(solana.rpc, "getBlockTime", [123]),
+                {"jsonrpc": "2.0", "id": 1, "result": 123},
+                123,
+            ),
+            (
+                partial(get_trade_blocks, [123]),
+                [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 123,
+                        "result": {"blocks": [{"block_number": 123, "events": []}]},
+                    }
+                ],
+                {123: []},
+            ),
+        )
+        cases = (
+            (429, "Requests per second exceed the plan", {}, 1),
+            (-32007, "Per-second request limit reached", {}, 1),
+            (-32008, "Per-minute request limit reached", {"Retry-After": "44"}, 44),
+            (-32011, "Method rate limit reached", {}, 1),
+            (-32029, "Rate limit reached; try again in 1500 ms", {}, 1.5),
+            (-32029, "Rate limit reached; retry after 5 seconds", {}, 5),
+            (-32029, "Rate limit reached; wait 5 seconds", {"Retry-After": "44"}, 44),
+            (
+                -32029,
+                "Rate limit reached; wait 5 seconds",
+                {"Retry-After": "invalid"},
+                5,
+            ),
+            (-32029, "Rate limit reached", {"Retry-After": "0"}, 0),
+            (-32007, "Slot 123 was skipped or missing due to ledger jump", {}, None),
+            (-32011, "Transaction history is not available from this node", {}, None),
+            (-32602, "Invalid param", {}, None),
+        )
+        module = "quant_tick.exchanges.public"
+        for collect, success, expected in routes:
+            for code, message, headers, delay in cases:
+                failure = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "error": {"code": code, "message": message},
+                }
+                if isinstance(success, list):
+                    failure["id"] = 123
+                    failure = [failure]
+                with (
+                    self.subTest(
+                        route=collect.func.__name__,
+                        code=code,
+                        message=message,
+                        headers=headers,
+                    ),
+                    patch.dict(
+                        os.environ,
+                        {
+                            "QUICKNODE_SOLANA_URL": "https://node.quiknode.pro/test-token/",
+                            "QUICKNODE_HYPERCORE_URL": "https://node.quiknode.pro/test-token/",
+                        },
+                        clear=True,
+                    ),
+                    patch(f"{module}.httpx2.HTTPTransport") as transport,
+                    patch(f"{module}.throttle_api_requests"),
+                    patch(f"{module}.increment_api_total_requests"),
+                    patch(f"{module}.time.sleep") as sleep,
+                ):
+                    request = (
+                        transport.return_value.__enter__.return_value.handle_request
+                    )
+                    request.side_effect = [
+                        httpx2.Response(200, json=failure, headers=headers),
+                        httpx2.Response(200, json=success),
+                    ]
+                    if delay is None:
+                        with self.assertRaises(ValueError):
+                            collect()
+                    else:
+                        self.assertEqual(collect(), expected)
+                    self.assertEqual(request.call_count, 1 if delay is None else 2)
+                    self.assertEqual(
+                        sleep.call_args_list, [] if delay is None else [call(delay)]
+                    )
+
     def test_sql_uses_response_quota_and_checks_schema(self):
         for headers, delay in (
             ({"X-RateLimit-Limit": "20", "X-RateLimit-Remaining": "59"}, None),

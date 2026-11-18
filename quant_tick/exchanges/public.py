@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import time
+from collections.abc import Callable
 from datetime import UTC
 from decimal import Decimal
 from email.utils import parsedate_to_datetime
@@ -19,7 +20,16 @@ from quant_tick.controllers import (
 logger = logging.getLogger(__name__)
 
 
-def retry_after_seconds(response, default=2):
+class RPCRateLimitError(RuntimeError):
+    """A provider throttle with an optional retry delay in seconds."""
+
+    def __init__(self, code, delay):
+        super().__init__(f"Provider RPC rate limit reached ({code})")
+        self.code = code
+        self.delay = delay
+
+
+def retry_after_seconds(response, default=1):
     value = response.headers.get("Retry-After", "")
     try:
         delay = float(value)
@@ -46,8 +56,13 @@ def get_public_json(
     headers: dict[str, str] | None = None,
     json_body: dict | list | None = None,
     redact_url: bool = False,
+    check_response: Callable[[httpx2.Response, object], None] | None = None,
 ):
-    """Use per-second response quotas when max_requests is None."""
+    """Use response quotas when max_requests is None; share HTTP/RPC retries.
+
+    Honor provider retry timing; otherwise back off from one to thirty seconds
+    for rate limits. Transport and server errors retain the one-second wait.
+    """
     total_key = f"{namespace}_TOTAL_REQUESTS"
     reset_key = f"{namespace}_MAX_REQUESTS_RESET"
     limit_reported = False
@@ -91,6 +106,8 @@ def get_public_json(
                 )
             response.raise_for_status()
             payload = json.loads(response.text, parse_float=Decimal)
+            if check_response is not None:
+                check_response(response, payload)
             if response.headers.get("X-Credits"):
                 logger.info(
                     "%s request used %s credits",
@@ -110,15 +127,19 @@ def get_public_json(
                         )
                         time.sleep(delay)
             return payload
-        except HTTPX_ERRORS as exc:
+        except (*HTTPX_ERRORS, RPCRateLimitError) as exc:
+            rpc_limit = isinstance(exc, RPCRateLimitError)
             status = (
                 exc.response.status_code
                 if isinstance(exc, httpx2.HTTPStatusError)
                 else None
             )
-            if status in (402, 429) and not limit_reported:
+            if (rpc_limit or status in (402, 429)) and not limit_reported:
                 logger.error(
-                    "%s API credit or rate limit reached (HTTP %s)", namespace, status
+                    "%s API credit or rate limit reached (%s %s)",
+                    namespace,
+                    "RPC" if rpc_limit else "HTTP",
+                    exc.code if rpc_limit else status,
                 )
                 limit_reported = True
             if attempt == retry or (
@@ -126,8 +147,11 @@ def get_public_json(
             ):
                 raise
             delay = 1
-            if status in (418, 429):
-                delay = retry_after_seconds(exc.response)
+            if rpc_limit:
+                delay = exc.delay if exc.delay is not None else min(2**attempt, 30)
+                logger.info("%s RPC %s, sleeping %g seconds", namespace, exc.code, delay)
+            elif status in (418, 429):
+                delay = retry_after_seconds(exc.response, default=min(2**attempt, 30))
                 logger.info("%s HTTP %s, sleeping %g seconds", namespace, status, delay)
             time.sleep(delay)
     raise AssertionError("unreachable")

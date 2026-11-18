@@ -61,7 +61,6 @@ def query(sql, *, scan_limit=536870912):
         {},
         namespace="QUICKNODE",
         max_requests=None,
-        retry=3,
         headers={"x-api-key": key},
         json_body={
             "clusterId": "hyperliquid-core-mainnet",

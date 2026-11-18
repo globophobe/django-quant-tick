@@ -54,9 +54,9 @@ def get_phoenix_response(path: str, params: dict, retry: int = 30):
             delay = 1
             if status == 429:
                 try:
-                    delay = max(2, float(exc.response.headers.get("Retry-After", "2")))
+                    delay = max(1, float(exc.response.headers.get("Retry-After", "1")))
                 except ValueError:
-                    delay = 2
+                    delay = 1
             time.sleep(delay)
         finally:
             elapsed = time.time() - start

@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from django.core.exceptions import ImproperlyConfigured
 
 from ..public import get_public_json
+from .rpc_errors import check_rpc_response
 
 
 def available():
@@ -36,8 +37,8 @@ def rpc(method, params, *, request_id=1):
         namespace="QUICKNODE_SOLANA",
         max_requests=1,
         reset_seconds=1 / rate,
-        retry=3,
         redact_url=True,
+        check_response=check_rpc_response,
         json_body={
             "jsonrpc": "2.0",
             "id": request_id,

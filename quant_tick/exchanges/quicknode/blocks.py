@@ -8,6 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 from ..public import get_public_json
 from .api import number
+from .rpc_errors import check_rpc_response
 
 
 def get_trade_blocks(numbers):
@@ -49,8 +50,8 @@ def get_trade_blocks(numbers):
             "",
             {},
             namespace="QUICKNODE_BLOCKS",
-            retry=3,
             redact_url=True,
+            check_response=check_rpc_response,
             json_body=payload,
         )
         if not isinstance(results, list) or len(results) != len(requested):

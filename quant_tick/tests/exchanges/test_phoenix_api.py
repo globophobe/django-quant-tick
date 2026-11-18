@@ -51,7 +51,7 @@ class PhoenixAPITest(SimpleTestCase):
         )
 
     def test_retry_after_and_decimal_precision(self):
-        for header, delay in (("5", 5), ("0", 2), ("invalid", 2), (None, 2)):
+        for header, delay in (("5", 5), ("0", 1), ("invalid", 1), (None, 1)):
             with self.subTest(header=header):
                 self.get.reset_mock()
                 self.sleep.reset_mock()

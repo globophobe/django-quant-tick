@@ -11,8 +11,10 @@ import sentry_sdk
 from django.test import SimpleTestCase
 from sentry_sdk.integrations.logging import LoggingIntegration
 
-from quant_tick.exchanges.public import get_public_json
+from quant_tick.exchanges.public import RPCRateLimitError, get_public_json
 from quant_tick.exchanges.quicknode.api import query
+from quant_tick.exchanges.quicknode.blocks import get_trade_blocks
+from quant_tick.exchanges.quicknode.solana import rpc
 
 
 class PublicMarketRequestTest(SimpleTestCase):
@@ -47,11 +49,11 @@ class PublicMarketRequestTest(SimpleTestCase):
 
     def test_rate_limit_cooldown_and_attempt_budget(self):
         for header, delay in (
-            (None, 2),
-            ("invalid", 2),
-            ("-1", 2),
-            ("nan", 2),
-            ("inf", 2),
+            (None, 1),
+            ("invalid", 1),
+            ("-1", 1),
+            ("nan", 1),
+            ("inf", 1),
             ("0", 0),
             ("44", 44),
             ("Thu, 01 Jan 1970 00:17:24 GMT", 44),
@@ -85,6 +87,23 @@ class PublicMarketRequestTest(SimpleTestCase):
             get_public_json(
                 "https://venue.test", "/trades", {}, namespace="TEST", retry=0
             )
+        with (
+            patch("quant_tick.exchanges.public.throttle_api_requests"),
+            patch("quant_tick.exchanges.public.increment_api_total_requests"),
+            patch("quant_tick.exchanges.public.time.sleep") as sleep,
+            patch(
+                "quant_tick.exchanges.public.httpx2.get",
+                return_value=self.response(429, "{}"),
+            ) as request,
+            self.assertRaises(httpx2.HTTPStatusError),
+        ):
+            get_public_json(
+                "https://venue.test", "/trades", {}, namespace="TEST", retry=6
+            )
+        self.assertEqual(request.call_count, 7)
+        self.assertEqual(
+            sleep.call_args_list, [call(delay) for delay in (1, 2, 4, 8, 16, 30)]
+        )
 
     def test_transport_and_server_errors_keep_bounded_retries(self):
         module = "quant_tick.exchanges.public"
@@ -143,24 +162,66 @@ class PublicMarketRequestTest(SimpleTestCase):
                 '{"data":[],"rows":0}',
                 [],
             ),
+            (
+                "QUICKNODE_SOLANA",
+                partial(rpc, "getBlockTime", [123]),
+                "HTTPTransport",
+                '{"jsonrpc":"2.0","id":1,"result":123}',
+                123,
+            ),
+            (
+                "QUICKNODE_BLOCKS",
+                partial(get_trade_blocks, [123]),
+                "HTTPTransport",
+                (
+                    '[{"jsonrpc":"2.0","id":123,"result":{"blocks":'
+                    '[{"block_number":123,"events":[]}]}}]'
+                ),
+                {123: []},
+            ),
         )
         module = "quant_tick.exchanges.public"
-        error = httpx2.HTTPStatusError
         for provider, collect, method, payload, expected in cases:
-            for statuses in ((429, 200), (429, 429, 429, 429), (402,)):
-                events = []
-                responses = [
-                    self.response(
-                        status,
-                        payload if status == 200 else '{"error":"sample-test-key"}',
-                        {
-                            "Retry-After": "44",
-                            "X-RateLimit-Limit": "20",
-                            "X-RateLimit-Remaining": "59" if status == 200 else "0",
-                        },
-                    )
-                    for status in statuses
+            scenarios = [((429, 200), [44]), ((429,) * 31, [44] * 30), ((402,), [])]
+            if method == "HTTPTransport":
+                scenarios += [
+                    ((-32029, None, 503, 429, 200), [1, 1, 1, 44]),
+                    (
+                        (-32029, None, 503, 429) + (-32029,) * 27,
+                        [1, 1, 1, 44, 16] + [30] * 25,
+                    ),
                 ]
+            for statuses, delays in scenarios:
+                events = []
+                responses = []
+                for status in statuses:
+                    if status is None:
+                        responses.append(httpx2.ReadTimeout("timeout"))
+                        continue
+                    body = payload if status == 200 else '{"error":"sample-test-key"}'
+                    if status < 0:
+                        body = json.dumps(
+                            {
+                                "jsonrpc": "2.0",
+                                "id": 123 if provider == "QUICKNODE_BLOCKS" else 1,
+                                "error": {
+                                    "code": status,
+                                    "message": "Rate limit reached",
+                                },
+                            }
+                        )
+                    headers = {
+                        "X-RateLimit-Limit": "20",
+                        "X-RateLimit-Remaining": "59" if status == 200 else "0",
+                    }
+                    if status == 429:
+                        headers["Retry-After"] = "44"
+                    responses.append(
+                        self.response(200 if status < 0 else status, body, headers)
+                    )
+                error = (
+                    RPCRateLimitError if statuses[-1] < 0 else httpx2.HTTPStatusError
+                )
                 outcome = (
                     nullcontext() if statuses[-1] == 200 else self.assertRaises(error)
                 )
@@ -170,12 +231,14 @@ class PublicMarketRequestTest(SimpleTestCase):
                         os.environ,
                         {
                             "QUICKNODE_API_KEY": "sample-test-key",
+                            "QUICKNODE_SOLANA_URL": "https://node.quiknode.pro/sample-test-key/",
+                            "QUICKNODE_HYPERCORE_URL": "https://node.quiknode.pro/sample-test-key/",
                         },
                         clear=True,
                     ),
-                    patch(
-                        f"{module}.httpx2.{method}", side_effect=responses
-                    ) as request,
+                    patch(f"{module}.httpx2.{method}") as client,
+                    patch(f"{module}.throttle_api_requests"),
+                    patch(f"{module}.increment_api_total_requests"),
                     patch(f"{module}.time.sleep") as sleep,
                     self.assertLogs(module, level=logging.ERROR),
                     sentry_sdk.init(
@@ -188,11 +251,17 @@ class PublicMarketRequestTest(SimpleTestCase):
                     ),
                     outcome,
                 ):
+                    request = (
+                        client.return_value.__enter__.return_value.handle_request
+                        if method == "HTTPTransport"
+                        else client
+                    )
+                    request.side_effect = responses
                     self.assertEqual(collect(), expected)
                 self.assertEqual(request.call_count, len(statuses))
                 self.assertEqual(
                     sleep.call_args_list,
-                    [call(44)] * sum(status == 429 for status in statuses[:-1]),
+                    [call(delay) for delay in delays],
                 )
                 self.assertEqual(len(events), 1)
                 event = events[0]
