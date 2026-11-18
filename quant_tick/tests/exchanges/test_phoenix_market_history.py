@@ -25,7 +25,7 @@ from quant_tick.exchanges.phoenix import (
 )
 from quant_tick.exchanges.phoenix.market_history import phoenix_market_history
 from quant_tick.exchanges.quicknode import solana
-from quant_tick.models import PerpetualStatsData, PhoenixPositionCheckpoint, Symbol
+from quant_tick.models import CollectorCheckpoint, PerpetualStatsData, Symbol
 
 
 def observation(timestamp, **overrides):
@@ -857,12 +857,12 @@ class PhoenixHistoryCollectionTest(TestCase):
         self.assertAlmostEqual(saved.long_account_ratio, Decimal(2) / 3, places=12)
         self.assertEqual(saved.json_data["cohort_available_at"], self.end)
         self.assertEqual(saved.json_data["cohort_price_source"], "native_hourly_mark")
-        checkpoint = PhoenixPositionCheckpoint.objects.get(
+        checkpoint = CollectorCheckpoint.objects.get(
             timestamp=self.start + timedelta(hours=1)
         )
         self.assertEqual(checkpoint.state["before"], "signature-120")
         self.assertFalse(
-            PhoenixPositionCheckpoint.objects.filter(timestamp=self.start).exists()
+            CollectorCheckpoint.objects.filter(timestamp=self.start).exists()
         )
         self.rpc.side_effect = None
         self.rpc.return_value = {"data": self.txs[2:], "paginationToken": None}
@@ -896,10 +896,10 @@ class PhoenixHistoryCollectionTest(TestCase):
             )
         self.assertFalse(PerpetualStatsData.objects.exists())
         self.assertFalse(
-            PhoenixPositionCheckpoint.objects.filter(timestamp__lt=self.end).exists()
+            CollectorCheckpoint.objects.filter(timestamp__lt=self.end).exists()
         )
         self.assertTrue(
-            PhoenixPositionCheckpoint.objects.filter(timestamp=self.end).exists()
+            CollectorCheckpoint.objects.filter(timestamp=self.end).exists()
         )
 
     def test_native_failure_retains_existing_data_and_does_not_advance_replay(self):
@@ -915,19 +915,25 @@ class PhoenixHistoryCollectionTest(TestCase):
             perpetual_stats(self.symbol, self.start, self.end, retry=True)
         self.assertEqual(PerpetualStatsData.objects.get().open_interest, 4)
         self.assertFalse(
-            PhoenixPositionCheckpoint.objects.filter(timestamp__lt=self.end).exists()
+            CollectorCheckpoint.objects.filter(timestamp__lt=self.end).exists()
         )
 
     def test_missing_or_lagging_history_cannot_publish_counts(self):
         for transactions in (self.txs[:1], self.txs[1:]):
             with self.subTest(slots=[tx["slot"] for tx in transactions]):
-                PhoenixPositionCheckpoint.objects.all().delete()
+                CollectorCheckpoint.objects.all().delete()
                 self.rpc.return_value = {"data": transactions, "paginationToken": None}
                 with self.assertRaisesRegex(ValueError, "ended|snapshot boundary"):
                     perpetual_stats(self.symbol, self.start, self.end)
                 self.assertFalse(PerpetualStatsData.objects.exists())
 
     def test_existing_native_rows_receive_reconstruction_without_retry(self):
+        unrelated = CollectorCheckpoint.objects.create(
+            symbol=self.symbol,
+            kind="other_collector",
+            timestamp=self.end,
+            state={"cursor": "unchanged"},
+        )
         PerpetualStatsData.objects.create(
             symbol=self.symbol,
             timestamp=self.start + timedelta(hours=1),
@@ -936,6 +942,14 @@ class PhoenixHistoryCollectionTest(TestCase):
             open_interest_value=Decimal(400),
         )
         perpetual_stats(self.symbol, self.start, self.end)
+        unrelated.refresh_from_db()
+        self.assertEqual(unrelated.state, {"cursor": "unchanged"})
+        self.assertEqual(
+            CollectorCheckpoint.objects.filter(
+                symbol=self.symbol, kind="phoenix_positions"
+            ).count(),
+            3,
+        )
         self.assertEqual(PerpetualStatsData.objects.count(), 2)
         self.assertEqual(
             PerpetualStatsData.objects.filter(

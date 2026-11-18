@@ -18,7 +18,7 @@ from datetime import timedelta
 import pandas as pd
 from django.db import transaction
 
-from quant_tick.models import PhoenixPositionCheckpoint
+from quant_tick.models import CollectorCheckpoint
 
 from ..quicknode.solana import address_transactions
 from .accounts import cohort_values
@@ -191,6 +191,8 @@ class ReversePositions:
 
 
 class PhoenixPositionHistory:
+    checkpoint_kind = "phoenix_positions"
+
     def __init__(self, symbol, *, assert_lease_owned=None):
         self.symbol = symbol
         self.assert_lease_owned = assert_lease_owned
@@ -202,8 +204,11 @@ class PhoenixPositionHistory:
         with transaction.atomic():
             if self.assert_lease_owned is not None:
                 self.assert_lease_owned()
-            checkpoint, created = PhoenixPositionCheckpoint.objects.get_or_create(
-                symbol=self.symbol, timestamp=timestamp, defaults={"state": state}
+            checkpoint, created = CollectorCheckpoint.objects.get_or_create(
+                symbol=self.symbol,
+                kind=self.checkpoint_kind,
+                timestamp=timestamp,
+                defaults={"state": state},
             )
             if not created and any(
                 checkpoint.state[key] != state[key]
@@ -221,8 +226,8 @@ class PhoenixPositionHistory:
 
     def load(self, end):
         checkpoint = (
-            PhoenixPositionCheckpoint.objects.filter(
-                symbol=self.symbol, timestamp__gte=end
+            CollectorCheckpoint.objects.filter(
+                symbol=self.symbol, kind=self.checkpoint_kind, timestamp__gte=end
             )
             .order_by("timestamp")
             .first()
