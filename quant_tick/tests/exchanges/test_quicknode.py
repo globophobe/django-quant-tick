@@ -4,6 +4,7 @@ import re
 from copy import deepcopy
 from decimal import Decimal
 from functools import partial
+from itertools import pairwise
 from pathlib import Path
 from unittest.mock import call, patch
 
@@ -225,29 +226,92 @@ class QuickNodeTradesTest(SimpleTestCase):
             row.volume, sum(Decimal(r["size"]) * Decimal(r["price"]) for r in self.rows)
         )
 
-    def test_separate_validation_query_preserves_exact_quantity(self):
-        with (
-            patch(
-                "quant_tick.exchanges.quicknode.candles.block_range", return_value=None
-            ),
-            patch(
-                "quant_tick.exchanges.quicknode.candles.query",
-                return_value=[
-                    {
-                        "minute": self.start.isoformat(),
-                        "notional": "5.000000000000000001",
-                        "trades": 18,
-                    }
-                ],
-            ) as query,
+    def test_validation_batches_preserve_complete_minutes_and_exact_quantity(self):
+        end = self.start + pd.Timedelta(hours=25, minutes=2)
+        moments = pd.date_range(self.start, end, freq="min", inclusive="left")
+        # Empty observations stay absent; they must not become zero-volume bars.
+        moments = moments[(moments.minute % 3 != 0) & (moments.hour != 12)]
+        quantity = Decimal("5.000000000000000001")
+        completed = []
+
+        def request(sql):
+            values = re.search(
+                r"AND timestamp >= '([^']+)' AND timestamp < '([^']+)'", sql
+            ).groups()
+            lower, upper = map(api.timestamp, values)
+            self.assertIn(
+                "AND NOT (buyer_dir IN ('Partial Borrow Liquidation', "
+                "'Backstop Borrow Liquidation') AND seller_dir=buyer_dir)",
+                sql,
+            )
+            if upper - lower > pd.Timedelta(hours=6):
+                httpx2.Response(
+                    400,
+                    json={"message": error},
+                    request=httpx2.Request("POST", "https://api.quicknode.com"),
+                ).raise_for_status()
+            completed.append((lower, upper))
+            return [
+                {"minute": moment.isoformat(), "notional": str(quantity), "trades": 18}
+                for moment in moments
+                if lower <= moment < upper
+            ]
+
+        for coin in ("BTC", "@142"):
+            for error in ("TOO_MANY_BYTES", "TOO_MANY_ROWS"):
+                for bounds in (None, (1, 2000000000)):
+                    completed.clear()
+                    with (
+                        self.subTest(coin=coin, error=error, bounds=bounds),
+                        patch(
+                            "quant_tick.exchanges.quicknode.candles.block_range",
+                            return_value=bounds,
+                        ),
+                        patch(
+                            "quant_tick.exchanges.quicknode.candles.query",
+                            side_effect=request,
+                        ),
+                    ):
+                        result = validation_candles(coin, self.start, end)
+                        self.assertEqual(result.index.tolist(), moments.tolist())
+                        self.assertEqual(
+                            result.notional.tolist(), [quantity] * len(moments)
+                        )
+                        self.assertEqual(result.trades.tolist(), [18] * len(moments))
+                        self.assertEqual(completed[0][0], self.start)
+                        self.assertEqual(completed[-1][1], end)
+                        for (_, left_end), (right_start, _) in pairwise(completed):
+                            self.assertEqual(left_end, right_start)
+
+    def test_validation_does_not_hide_other_errors_or_split_within_a_minute(self):
+        for status, error, duration in (
+            (400, "TOO_MANY_BYTES", pd.Timedelta(minutes=1)),
+            (400, "TOO_MANY_ROWS", pd.Timedelta(minutes=1)),
+            (400, "SYNTAX_ERROR", pd.Timedelta(days=1)),
+            (401, "TOO_MANY_BYTES", pd.Timedelta(days=1)),
         ):
-            result = validation_candles("BTC", self.start, self.end)
-        self.assertEqual(result.iloc[0].notional, Decimal("5.000000000000000001"))
-        self.assertIn(
-            "AND NOT (buyer_dir IN ('Partial Borrow Liquidation', "
-            "'Backstop Borrow Liquidation') AND seller_dir=buyer_dir)",
-            query.call_args.args[0],
-        )
+            response = httpx2.Response(
+                status,
+                json={"message": error},
+                request=httpx2.Request("POST", "https://api.quicknode.com"),
+            )
+            with (
+                self.subTest(status=status, error=error, duration=duration),
+                patch(
+                    "quant_tick.exchanges.quicknode.candles.block_range",
+                    return_value=None,
+                ),
+                patch(
+                    "quant_tick.exchanges.quicknode.candles.query",
+                    side_effect=lambda sql, response=response: (
+                        response.raise_for_status()
+                    ),
+                ) as request,
+                self.assertRaises(httpx2.HTTPStatusError) as raised,
+            ):
+                validation_candles("@142", self.start, self.start + duration)
+            self.assertIs(raised.exception.response, response)
+            request.assert_called_once()
 
 
 class QuickNodeRequestTest(SimpleTestCase):

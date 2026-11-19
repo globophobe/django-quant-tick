@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+import httpx2
 import pandas as pd
 
 from quant_tick.lib import get_current_time, iter_chunks, parse_fixed_resolution_minutes
@@ -11,15 +12,33 @@ from .trades import iter_trades
 
 
 def validation_candles(coin, start, end):
-    """Independent SQL totals catch missing or duplicated paginated trade rows."""
+    """Independent minute totals, splitting scan-limited queries at minute edges."""
     rows = []
-    for lower, upper in iter_chunks(start, end, value="1d"):
+    pending = list(iter_chunks(start, end, value="1d", reverse=True))
+    while pending:
+        lower, upper = pending.pop()
         where = trade_where(coin, lower, upper, block_range(lower, upper))
-        data = query(
-            "SELECT toStartOfMinute(timestamp) AS minute, sum(size) AS notional, "
-            "count() AS trades FROM hyperliquid_trades FINAL "
-            f"WHERE {where} GROUP BY minute ORDER BY minute LIMIT 1441"
-        )
+        try:
+            data = query(
+                "SELECT toStartOfMinute(timestamp) AS minute, sum(size) AS notional, "
+                "count() AS trades FROM hyperliquid_trades FINAL "
+                f"WHERE {where} GROUP BY minute ORDER BY minute LIMIT 1441"
+            )
+        except httpx2.HTTPStatusError as exc:
+            middle = (pd.Timestamp(lower) + (upper - lower) / 2).floor("min")
+            if (
+                exc.response.status_code != 400
+                or not any(
+                    code in exc.response.text
+                    for code in ("TOO_MANY_BYTES", "TOO_MANY_ROWS")
+                )
+                or not lower < middle < upper
+            ):
+                raise
+            # Keep successful queries complete and ordered, without raising the
+            # scan budget or counting a boundary minute in both halves.
+            pending.extend(((middle, upper), (lower, middle)))
+            continue
         previous = None
         for point in data:
             moment = timestamp(point["minute"])
