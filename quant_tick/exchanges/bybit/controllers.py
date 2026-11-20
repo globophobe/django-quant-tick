@@ -1,14 +1,14 @@
 from collections.abc import Callable
 from datetime import date, datetime
 
-from quant_tick.constants import TradeDataRetry
+from quant_tick.constants import Frequency, TradeDataRetry
 from quant_tick.controllers import (
     ChunkedExchangeS3,
     ExchangeWebSocket,
 )
 from quant_tick.controllers.s3 import get_archive_followup_start
 from quant_tick.lib import gzip_chunk_downloader
-from quant_tick.models import Symbol
+from quant_tick.models import Symbol, TradeData
 
 from .base import (
     BybitMixin,
@@ -26,27 +26,29 @@ def bybit_trades(
     retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
-    """Get Bybit trades."""
+    """Validate WebSocket minutes before archives, then recover remaining minutes."""
     category = validate_bybit_trade_symbol(symbol)
+    kwargs = {
+        "timestamp_from": timestamp_from,
+        "timestamp_to": timestamp_to,
+        "on_data_frame": on_data_frame,
+        "retry": retry,
+        "verbose": verbose,
+    }
+    followup_from = get_archive_followup_start(timestamp_from)
+    followup = (
+        BybitTradesWebSocket(symbol, **{**kwargs, "timestamp_from": followup_from})
+        if followup_from < timestamp_to
+        else None
+    )
+    websocket_rows = None
+    if followup is not None and retry is not True:
+        websocket_rows = followup.get_websocket_rows(followup_from, timestamp_to)
+        followup.collect_websocket(websocket_rows=websocket_rows)
     archive = BybitSpotTradesS3 if category == "spot" else BybitTradesS3
-    archive(
-        symbol,
-        timestamp_from=timestamp_from,
-        timestamp_to=timestamp_to,
-        on_data_frame=on_data_frame,
-        retry=retry,
-        verbose=verbose,
-    ).main()
-    recent_from = get_archive_followup_start(timestamp_from)
-    if recent_from < timestamp_to:
-        BybitTradesWebSocket(
-            symbol,
-            timestamp_from=recent_from,
-            timestamp_to=timestamp_to,
-            on_data_frame=on_data_frame,
-            retry=retry,
-            verbose=verbose,
-        ).main()
+    archive(symbol, **kwargs).main()
+    if followup is not None:
+        followup.main(websocket_rows=websocket_rows)
 
 
 class BybitTradesS3(BybitS3Mixin, ChunkedExchangeS3):
@@ -79,3 +81,18 @@ class BybitSpotTradesS3(BybitSpotS3Mixin, ChunkedExchangeS3):
 
 class BybitTradesWebSocket(BybitMixin, ExchangeWebSocket):
     """Bybit trades WebSocket."""
+
+    def validate_websocket_partition(
+        self, row, timestamp_to, candles, *, validated_only=True
+    ):
+        # Retain validated history when retained WebSocket rows are incomplete.
+        if TradeData.objects.filter(
+            symbol=self.symbol,
+            timestamp=row.timestamp,
+            frequency=Frequency.MINUTE,
+            ok=True,
+        ).exists():
+            return None
+        return super().validate_websocket_partition(
+            row, timestamp_to, candles, validated_only=validated_only
+        )

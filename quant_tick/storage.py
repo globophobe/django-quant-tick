@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import TruncDate, TruncHour
 from django.utils.translation import gettext_lazy as _
@@ -301,6 +301,8 @@ def convert_trade_data(
     if target_names & source_names:
         raise RuntimeError("Compacted target file conflicts with a source file.")
 
+    # Reading source files can leave the connection idle long enough to be dropped.
+    close_old_connections()
     if assert_lease_owned is not None:
         assert_lease_owned()
     with transaction.atomic():

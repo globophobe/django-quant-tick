@@ -112,6 +112,7 @@ class BinanceFuturesTradesTest(SimpleTestCase):
                     controller = BinanceFuturesTradesREST(
                         self.get_symbol(), start, windows[0][1], persisted, retry=retry
                     )
+                    controller.get_websocket_rows = Mock(return_value={})
                     controller.get_candles = Mock(return_value=pd.DataFrame([]))
                     controller.get_pagination_id = Mock(side_effect=[3000, 1000])
                     with (
@@ -388,8 +389,14 @@ class BinanceFuturesTradesTest(SimpleTestCase):
                 archive.return_value.main.side_effect = lambda calls=calls: (
                     calls.append("archive")
                 )
-                rest.return_value.main.side_effect = lambda calls=calls: calls.append(
-                    "rest"
+                rest.return_value.get_websocket_rows.side_effect = (
+                    lambda *args, calls=calls: calls.append("capture") or {}
+                )
+                rest.return_value.collect_websocket.side_effect = (
+                    lambda calls=calls, **kwargs: calls.append("validate")
+                )
+                rest.return_value.main.side_effect = lambda calls=calls, **kwargs: (
+                    calls.append("rest")
                 )
                 binance_futures_trades(
                     symbol, start, end, on_data_frame, retry=retry, verbose=True
@@ -408,7 +415,15 @@ class BinanceFuturesTradesTest(SimpleTestCase):
                     self.assertEqual(calls, ["archive"])
                     rest.assert_not_called()
                 else:
-                    self.assertEqual(calls, ["archive", "rest"])
+                    self.assertEqual(
+                        calls,
+                        ["archive", "rest"]
+                        if retry is True
+                        else ["capture", "validate", "archive", "rest"],
+                    )
+                    rest.return_value.main.assert_called_once_with(
+                        websocket_rows=None if retry is True else {}
+                    )
                     kwargs["timestamp_from"] = expected_start
                     rest.assert_called_once_with(symbol, **kwargs)
                 callback(symbol, start, end, data_frame, candles)

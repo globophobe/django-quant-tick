@@ -28,14 +28,16 @@ class TradeAggregatorTest(BaseRandomTradeTest, SimpleTestCase):
         data = aggregate_trades(data_frame)
         self.assertEqual(len(data), 2)
 
-    def test_not_equal_symbols_and_equal_timestamps_and_ticks(self):
+    def test_distinct_markets_do_not_merge_equal_timestamps_and_ticks(self):
         trades = [
             {"symbol": "A", "is_equal_timestamp": True, "ticks": [1, 1]},
             {"symbol": "B", "is_equal_timestamp": True, "ticks": [1, 1]},
         ]
         data_frame = self.get_data_frame(trades)
+        data_frame["timestamp"] = data_frame.iloc[0].timestamp
         data = aggregate_trades(data_frame)
-        self.assertEqual(len(data), 2)
+        self.assertEqual(data.symbol.tolist(), ["A", "B"])
+        self.assertEqual(data.volume.sum(), data_frame.volume.sum())
 
     def test_not_equal_symbols_and_timestamps_and_equal_ticks(self):
         trades = [

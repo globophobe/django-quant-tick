@@ -50,6 +50,8 @@ PERPETUAL_STATS_REQUIRED_FIELDS = {
         "short_account_ratio",
     ),
     Exchange.PHOENIX: ("open_interest", "open_interest_value"),
+    # The adapter omits hours missing cohorts once cohort history has begun.
+    Exchange.HYPERLIQUID: ("open_interest",),
 }
 
 
@@ -115,9 +117,7 @@ class PerpetualStatsData(models.Model):
     taker_long_short_volume_ratio = BigDecimalField(
         _("taker long short volume ratio"), null=True, blank=True
     )
-    long_account_ratio = BigDecimalField(
-        _("long account ratio"), null=True, blank=True
-    )
+    long_account_ratio = BigDecimalField(_("long account ratio"), null=True, blank=True)
     short_account_ratio = BigDecimalField(
         _("short account ratio"), null=True, blank=True
     )
@@ -198,15 +198,34 @@ class PerpetualStatsData(models.Model):
                     )
                     if existing_complete and not incoming_complete:
                         continue
-                    for field in PERPETUAL_STATS_VALUE_FIELDS:
-                        if getattr(row, field) is None:
-                            setattr(row, field, getattr(existing, field))
+                    old_source = (existing.json_data or {}).get("market_history_source")
+                    new_source = (row.json_data or {}).get("market_history_source")
+                    # Provider-specific evidence must not survive a source change.
+                    if not (old_source and new_source and old_source != new_source):
+                        for field in PERPETUAL_STATS_VALUE_FIELDS:
+                            replayed_ratio = (
+                                symbol.exchange == Exchange.PHOENIX
+                                and (row.json_data or {}).get("cohort_replay_validated")
+                                and field
+                                in (
+                                    "long_account_ratio",
+                                    "short_account_ratio",
+                                    "long_short_account_ratio",
+                                )
+                            )
+                            execution_ratio = (row.json_data or {}).get(
+                                "liquidation_flow_validated"
+                            ) and field == "taker_long_short_volume_ratio"
+                            if getattr(row, field) is None and not (
+                                replayed_ratio or execution_ratio
+                            ):
+                                setattr(row, field, getattr(existing, field))
+                        row.json_data = {
+                            **(existing.json_data or {}),
+                            **(row.json_data or {}),
+                        }
                     if not row.open_interest_unit:
                         row.open_interest_unit = existing.open_interest_unit
-                    row.json_data = {
-                        **(existing.json_data or {}),
-                        **(row.json_data or {}),
-                    }
                     replacements.append(row)
                 replacement_timestamps = [row.timestamp for row in replacements]
                 cls.objects.filter(

@@ -54,10 +54,19 @@ def binance_futures_trades(
         "retry": retry,
         "verbose": verbose,
     }
+    followup_from = get_archive_followup_start(timestamp_from)
+    rest = (
+        BinanceFuturesTradesREST(symbol, **{**kwargs, "timestamp_from": followup_from})
+        if followup_from < timestamp_to
+        else None
+    )
+    websocket_rows = None
+    if rest is not None and retry is not True:
+        websocket_rows = rest.get_websocket_rows(followup_from, timestamp_to)
+        rest.collect_websocket(websocket_rows=websocket_rows)
     BinanceFuturesTradesS3(symbol, **kwargs).main()
-    kwargs["timestamp_from"] = get_archive_followup_start(timestamp_from)
-    if kwargs["timestamp_from"] < timestamp_to:
-        BinanceFuturesTradesREST(symbol, **kwargs).main()
+    if rest is not None:
+        rest.main(websocket_rows=websocket_rows)
 
 
 class BinanceFuturesTradesREST(BinanceFuturesMixin, ExchangeREST):
@@ -67,9 +76,9 @@ class BinanceFuturesTradesREST(BinanceFuturesMixin, ExchangeREST):
     partition is never persisted as empty or complete, including during retries.
     """
 
-    def main(self) -> None:
+    def main(self, *, websocket_rows=None) -> None:
         try:
-            super().main()
+            super().main(websocket_rows=websocket_rows)
         except BinanceTradeHistoryExhausted:
             return
 

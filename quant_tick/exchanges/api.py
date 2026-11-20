@@ -122,6 +122,11 @@ def require_phoenix_perpetual(symbol: Symbol) -> None:
         raise ValueError("Phoenix requires a perpetual symbol.")
 
 
+def require_market_type(symbol: Symbol, expected: str) -> None:
+    if symbol.symbol_type != expected:
+        raise ValueError(f"{symbol.exchange} {symbol.api_symbol} requires {expected}.")
+
+
 def api(
     symbol: Symbol,
     timestamp_from: datetime,
@@ -183,7 +188,9 @@ def trades_api(
     timestamp_from, timestamp_to = timestamp_range
     exchange = symbol.exchange
     if exchange not in TRADE_SUPPORTED_EXCHANGES:
-        raise NotImplementedError(f"Trade collection is not implemented for {exchange}.")
+        raise NotImplementedError(
+            f"Trade collection is not implemented for {exchange}."
+        )
     kwargs = {
         "timestamp_from": timestamp_from,
         "timestamp_to": timestamp_to,
@@ -249,7 +256,10 @@ def candles_api(
     elif exchange == Exchange.DERIBIT:
         candles = deribit_candles(api_symbol, **kwargs)
     elif exchange == Exchange.HYPERLIQUID:
-        candles = hyperliquid_candles(api_symbol, **kwargs)
+        candles = hyperliquid_candles(
+            api_symbol,
+            **kwargs,
+        )
     elif exchange == Exchange.PHOENIX:
         require_phoenix_perpetual(symbol)
         candles = phoenix_candles(api_symbol, **kwargs)

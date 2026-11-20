@@ -1,0 +1,3847 @@
+{
+  "source": "Phoenix BTC public fills and QuickNode finalized Solana transactions, 2026-11-17 09:00-10:00 UTC",
+  "decoder": "phoenix-rise-events 0.10.2, rise-public f67e8b450d29a2c1031eb4669c6c70afefdab9fc",
+  "cases": {
+    "PlaceMarketOrder": "4RLdRUYpQC4BBdxc5Nvok5J1AMRUqaojwdgY4Bkuceqv3n7jx1tvaG39RJLWXVDsYVBkafHJ5hbsR3eZxtJ3tcYX",
+    "UncrossCrank": "r3K9pdMCUNbSX4qJZ2KFCR4dsY4CHDbgu954uHygn8jSDkUhwgKPup7R9Y1R3xZRVFehrhoa75Y7cW5nKqkVu8M",
+    "ExecuteConditionalOrders": "91vW6jWwQ81LSuLg2MiXyWLW8kqwjx3zm58gErp7BiSwH88wQ9TAaz2ce3SgqEjxbGZfubyCgegVLcR5HUaU5BK",
+    "PlaceMultiLimitOrder": "5885gfAtAzNBhWQRqtrxb6kKiib4Ai1s9bRZCV3ZQLT3NufkKnz99yPi9wkermR1AL9rtqSyQNRSCBWeyYHWBQfJ",
+    "PlaceLimitOrder": "2GDmGQv4PC9H5ww3vMg7wVZYEhEkP2hZNghvdAaX1xgk99A8EnbJjTLnE3fQUQD4x92WfcmiH7Q3RM8CPv2Xj5rC",
+    "LiquidateViaMarketOrder": "56PT62M4SaKtRqPWJy9DYU2jR1feHb4NKBtD9aSoyY43c5awJY6PzYhPfuKNBiYT5mLpdq4SSUwd7fPd34dp8xzZ"
+  },
+  "sequence": [
+    "2xkSc8JKXm2z4APoaubecLvrGH79nkHY5bx5L7eEDZ6DHch1XXi5rXkDtBBUzzvZoBXprkkWH665S7FQTv94H3fz",
+    "4c76stoA3viqb1MXerRFC8z3AYRGBFkUg1PJq74TnAcMYRkGSeoKeS5UqX6iJXcqvbNoHsgN4t3QXHF5stTi5JZz",
+    "4RLdRUYpQC4BBdxc5Nvok5J1AMRUqaojwdgY4Bkuceqv3n7jx1tvaG39RJLWXVDsYVBkafHJ5hbsR3eZxtJ3tcYX"
+  ],
+  "transactions": {
+    "4RLdRUYpQC4BBdxc5Nvok5J1AMRUqaojwdgY4Bkuceqv3n7jx1tvaG39RJLWXVDsYVBkafHJ5hbsR3eZxtJ3tcYX": {
+      "transaction": {
+        "slot": 470492268,
+        "blockTime": 1794909586,
+        "meta": {
+          "err": null,
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "innerInstructions": [
+            {
+              "index": 1,
+              "instructions": [
+                {
+                  "programIdIndex": 12,
+                  "accounts": [
+                    13
+                  ],
+                  "data": "6au4gBsBeMSHTpMG9LoS7J1QytKPaTJJ3s1ScgsfgsmWKPu",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 12,
+                  "accounts": [
+                    13
+                  ],
+                  "data": "F13vhLKTt6nLyge1EdP3Mdd98XUT6DdsEJZ4Bd4omw1rS7CEdUJusA6SwdykJnuxiusp3dkautNiEPJeKTVfXTuUDfT68sdSj3CPepwnwCBkgCrQ3MPxPbcRdtXq41HyY5E4rjxkUooktjp18VCJkUDDJTvWbV5YwFYRHfpbjNfDaQBWSMQ9Y722FRcw3tMdET1u8frtpP3FdvS6DaYb1nSE16VxDJnTyAggPhXVAbp1D2Qb77w2Wpbzj3xjzes8Krdrys3NQvPkzSk7uRWD8c7g57EAodmiwgec1XeG5x1LfchgFeKtTzhDiqNHb2ZQKLTt6gSabXmiwzZGC2KNNtsi2jn9JZcYPJU1rFJHpRUfR8dqvt97VSoEyfxRQuZ6HnMFg7HxwvCuH6PctMwWyyYzHwFDwWnF7tK5hAhDUs5PuFcUg5qUtj3XAiHhMmnTb92qwb5Hq5FtP6QDUL2ix8jcCKEK98kQsnHeDVDyMq79DUpLEemVDzU4orJjSgxkcKKrf7oucmEuQv3dXkZmhnfXt2xHVtJgBDkGgqjUQYtTc62Ytzy6emvZBMbyy4oGaJceizYCcRExEC3AziW7CUjHrW3devAoVVYW92uMwPGUm7v2avQcsLhspCFU3snvv2L1dPCTnJbMQgsYi3kRsX8g3m77p44FFrKXZ1Lh9z8Ut8LMjcuQc8HiefHK6DtC5HfdyzipzW8a4KJUJcn6nSyGqGZ9R5aqsfUkEEXFnkQiGSbeCakrf8sGEW668ivUnsyPPDDmz2aEzo8mJ8NWWusqoUUYrNG5WsoowTc9b7hzKBP3prxbP4DGR8wi48u23QJ23wvg7cfSd4SVojycrZPy5UiKFqWeZZWtUXFRjz29LFpi4cgrja4H2UVaHtgCUYsHPfZ7QkhfmtQ8VHMxXzxtp367mpWpXsfUxweH11T5RvmRUqTwFzdorp7SX2LaVAmiBU3kjTP3eyiAjsAwhFvoTuyEwmymVYofBgetNjwyGimNyb44TLKrn5gML7XsAtnAc3SUSA43xumf1hNcKodL9uY5WDuZNwKbWCqVkHEPu8HVh6246P8mpmXhpqisKV",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "transaction": {
+          "signatures": [
+            "4RLdRUYpQC4BBdxc5Nvok5J1AMRUqaojwdgY4Bkuceqv3n7jx1tvaG39RJLWXVDsYVBkafHJ5hbsR3eZxtJ3tcYX"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 5
+            },
+            "accountKeys": [
+              "BJsbrDPdpxvzP35TYJ7gmrcumqxVSqwDeEb4Gg3aV4Ax",
+              "2U32rSzzrQS3eVmGHsnbw5kcqKF3wQXpHGd3hMq5YJok",
+              "2nHGAaEw3D5dd4hVueaUNoygkQFmoeKqRQWnSPqSMFUC",
+              "2zskx2iyCvb6Stg7RBZkt1f6MrF4dpYtMG3yMvKwqtUZ",
+              "8J2trvSqns4iAfLVgh4MKwaxfwZFxmYyNagbMqvDcyW8",
+              "AXFz1MuzMUBHi5UKJuK3FDCQ73o3rSzubGU2mPr4LLU7",
+              "D1wLnpNgXyEFDRHmuj1rrToXZkWWva9DPHZNJYejDYrC",
+              "Dh9NrYjzzdvcYgFSbrkATQ1rPkPjDovXWnFVhfWmD2ZF",
+              "HCrPXLByGqRh2szQi3gj7oRdRVBNi1gccAyn4CQCT3HK",
+              "11111111111111111111111111111111",
+              "ComputeBudget111111111111111111111111111111",
+              "SysvarRecentB1ockHashes11111111111111111111",
+              "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih",
+              "GdxfTLSsdSY37G6fZoYtdGDSfgFnbT2EmRpuePZxWShS"
+            ],
+            "recentBlockhash": "3wkwSNw4yvBpDeDnou9yor6pkitd1GUyZLoubdRES4Vg",
+            "instructions": [
+              {
+                "programIdIndex": 9,
+                "accounts": [
+                  6,
+                  11,
+                  0
+                ],
+                "data": "6vx8P",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 12,
+                "accounts": [
+                  12,
+                  13,
+                  3,
+                  0,
+                  4,
+                  2,
+                  8,
+                  1,
+                  5,
+                  7
+                ],
+                "data": "8z22RsHryQg66kpp2oMnygTvpdpY4ZHUg6bYRPEfSCZAieh5CcfkRnMRGpNRemueHVB6sxjUFqVgEsbwJL2ogexCF",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 10,
+                "accounts": [],
+                "data": "K1FDJ7",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 10,
+                "accounts": [],
+                "data": "3dPdwmf3hBx3",
+                "stackHeight": 1
+              }
+            ]
+          }
+        }
+      },
+      "native_fills": [
+        {
+          "marketSymbol": "BTC",
+          "baseQty": "0.0001",
+          "quoteQty": "-6.4334",
+          "price": "64333.99999999999",
+          "timestamp": "2026-11-17T09:59:46Z",
+          "transactionSignature": "4RLdRUYpQC4BBdxc5Nvok5J1AMRUqaojwdgY4Bkuceqv3n7jx1tvaG39RJLWXVDsYVBkafHJ5hbsR3eZxtJ3tcYX",
+          "instructionType": "PlaceMarketOrder"
+        }
+      ],
+      "events": [
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470492268,
+            "timestamp": 1794909586
+          },
+          {
+            "kind": "Header",
+            "asset_id": 1,
+            "base_lot_decimals": 4,
+            "prev_sequence_number_slot": 470492263,
+            "quote_lot_decimals": 6,
+            "sequence_number": 39019311,
+            "signer": [
+              153,
+              40,
+              245,
+              35,
+              10,
+              34,
+              106,
+              64,
+              200,
+              61,
+              134,
+              187,
+              223,
+              241,
+              175,
+              162,
+              9,
+              43,
+              175,
+              110,
+              84,
+              204,
+              182,
+              159,
+              240,
+              211,
+              155,
+              196,
+              239,
+              31,
+              68,
+              157
+            ],
+            "tick_size": 100,
+            "trader_account": [
+              108,
+              94,
+              210,
+              239,
+              32,
+              48,
+              193,
+              46,
+              252,
+              31,
+              129,
+              36,
+              148,
+              94,
+              113,
+              9,
+              140,
+              31,
+              101,
+              232,
+              241,
+              162,
+              119,
+              213,
+              94,
+              20,
+              130,
+              158,
+              97,
+              180,
+              146,
+              209
+            ],
+            "symbol": "BTC"
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 23,
+            "base_lots_before": 24,
+            "funding_payment": 0,
+            "realized_pnl": -4596,
+            "trader": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "virtual_quote_lots_after": -148073916,
+            "virtual_quote_lots_before": -154511912,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "SplineFilled",
+            "base_lots_filled": 1,
+            "maker": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "maker_base_lot_position": 23,
+            "maker_cumulative_funding_snapshot": 46019,
+            "maker_fee_rate": 0,
+            "maker_quote_lot_collateral": 5237378018898,
+            "maker_virtual_quote_lot_position": -148073916,
+            "price": 64334,
+            "quote_lots_filled": 6433400,
+            "side": "ask",
+            "spline_sequence_number": 131430819
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 0,
+            "base_lots_before": -1,
+            "funding_payment": 0,
+            "realized_pnl": -1400,
+            "trader": [
+              108,
+              94,
+              210,
+              239,
+              32,
+              48,
+              193,
+              46,
+              252,
+              31,
+              129,
+              36,
+              148,
+              94,
+              113,
+              9,
+              140,
+              31,
+              101,
+              232,
+              241,
+              162,
+              119,
+              213,
+              94,
+              20,
+              130,
+              158,
+              97,
+              180,
+              146,
+              209
+            ],
+            "virtual_quote_lots_after": 0,
+            "virtual_quote_lots_before": 6432000,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "TradeSummary",
+            "base_lot_position": 0,
+            "base_lots_filled": 1,
+            "cumulative_funding_snapshot": 46019,
+            "fee_in_quote_lots": 0,
+            "prev_trade_sequence_number_slot": 470492070,
+            "quote_lot_collateral": 74181738,
+            "quote_lots_filled": 6433400,
+            "side": "bid",
+            "trade_sequence_number": 2458199,
+            "trader": [
+              108,
+              94,
+              210,
+              239,
+              32,
+              48,
+              193,
+              46,
+              252,
+              31,
+              129,
+              36,
+              148,
+              94,
+              113,
+              9,
+              140,
+              31,
+              101,
+              232,
+              241,
+              162,
+              119,
+              213,
+              94,
+              20,
+              130,
+              158,
+              97,
+              180,
+              146,
+              209
+            ],
+            "virtual_quote_lot_position": 0
+          },
+          {
+            "kind": "MarketSummary",
+            "asset_id": 1,
+            "mark_price": 64332,
+            "open_interest": 307001,
+            "spot_price": 64360,
+            "total_maker_quote_lot_fees": 22826910240,
+            "total_taker_quote_lot_fees": 325715842141,
+            "symbol": "BTC"
+          }
+        ]
+      ],
+      "stats": {
+        "long_open_size": "0.0000",
+        "long_close_size": "0.0001",
+        "long_account_delta": 0,
+        "long_position_flips": 0,
+        "short_open_size": "0.0000",
+        "short_close_size": "0.0001",
+        "short_account_delta": -1,
+        "short_position_flips": 0,
+        "taker_realized_pnl": "-0.001400",
+        "maker_realized_pnl": "-0.004596",
+        "taker_fees": "0.000000",
+        "trades": 1,
+        "liquidated_size": "0.0000"
+      }
+    },
+    "r3K9pdMCUNbSX4qJZ2KFCR4dsY4CHDbgu954uHygn8jSDkUhwgKPup7R9Y1R3xZRVFehrhoa75Y7cW5nKqkVu8M": {
+      "transaction": {
+        "slot": 470491818,
+        "blockTime": 1794909489,
+        "meta": {
+          "err": null,
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "innerInstructions": [
+            {
+              "index": 0,
+              "instructions": [
+                {
+                  "programIdIndex": 8,
+                  "accounts": [
+                    9
+                  ],
+                  "data": "rVtNDfR4HzX5esAdUQKvJGUQwnBrTZywpM3hyt5VZ",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 8,
+                  "accounts": [
+                    9
+                  ],
+                  "data": "JTKiXLZrZrc26nDtDxUL93XzqiV2ui14pXvnVw8riLU3QchhshXyk9mt4RqGkvt6xcuoeSgcT3y4ckfE7yxqqsSt2GpE8g7J8TfbEWuQgxsmPNd6yhv14TNK8FEZW1mLQZWaLMfMCdptTVFuifCQwKZopvsHXZz8w3hAehfDuWzm3hm3v7dXj9cvxb8pUpziKnx1mBf5iMVmjbV7DeKUUxtpcV3QzV3vdFuh4NF6i18CVUhLPwPJx7EEW7xwLePm3Kyxx77HjC1EGRinqVfhKn6RwVs1xPbLNK4Qwni4uaUjrxWwxJ8rXj3ci4Y2yXgnKfYZNPZ8hKsG8YgVVCTRFNX42RBBoMFizVUKD2QTtD1RA1YG1ZZbiY4qpp7mRHyq16NYHdr1xjnDczhuYFG4fQbyEweXwAETZCcxreNsK8Etzt9C46PpxKxMMvXGKpptyQKuofCjUGmtkbApNZfD1rmqfRErg1mbCnmtdP7pK5FWGvwb8pFTodLVynnK9xwT8FCSBNFwtBQ8YPDQsViwTtLSoZHGvrQdBdqrCG6BHeDUvV8JJfSUezV1SYeW1CReBxscEn76Y2uQEass5M5Qz6z1cDwypDnv82vzYtquEotL8EvaUYGVgn97eoaTC6o2mau9J4T6KqxHp71MVTD2T6fQafjDpd5uRjNeQfE45nAuCbLksbRzC9PK3hJV3VB3mwpAuwaafGywKqnZCHsovELW9kZTGqpCLi3fyaiKoMsXkfXPe1wdZ3cqq1T2yHNEo6BgvWkkRwt98RoDnNynNPUuuA9wyvWg5sd4gm35LH4LScCP9LaAteGcUUN3WPNecRxiU2TSSSBsaCzvKfAyiTFxpJ4vNJiWJoVCJMQuTvFPvCAc7",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "transaction": {
+          "signatures": [
+            "r3K9pdMCUNbSX4qJZ2KFCR4dsY4CHDbgu954uHygn8jSDkUhwgKPup7R9Y1R3xZRVFehrhoa75Y7cW5nKqkVu8M"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 3
+            },
+            "accountKeys": [
+              "kkUbnzG1DZxyEHZ9uwMgcZAL1PC7R4xKCEyBjBX7JNX",
+              "2U32rSzzrQS3eVmGHsnbw5kcqKF3wQXpHGd3hMq5YJok",
+              "2nHGAaEw3D5dd4hVueaUNoygkQFmoeKqRQWnSPqSMFUC",
+              "2zskx2iyCvb6Stg7RBZkt1f6MrF4dpYtMG3yMvKwqtUZ",
+              "AXFz1MuzMUBHi5UKJuK3FDCQ73o3rSzubGU2mPr4LLU7",
+              "Dh9NrYjzzdvcYgFSbrkATQ1rPkPjDovXWnFVhfWmD2ZF",
+              "HCrPXLByGqRh2szQi3gj7oRdRVBNi1gccAyn4CQCT3HK",
+              "ComputeBudget111111111111111111111111111111",
+              "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih",
+              "GdxfTLSsdSY37G6fZoYtdGDSfgFnbT2EmRpuePZxWShS"
+            ],
+            "recentBlockhash": "v3QzTmZt7qW8GkgBXh9vnCGNYGUZ72igoYXcBBFcHe1",
+            "instructions": [
+              {
+                "programIdIndex": 8,
+                "accounts": [
+                  8,
+                  9,
+                  3,
+                  2,
+                  6,
+                  1,
+                  4,
+                  5
+                ],
+                "data": "RGAZ28f6NUyAQg93D533d1",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 7,
+                "accounts": [],
+                "data": "HMypLP",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 7,
+                "accounts": [],
+                "data": "3wSh2dAr6N5m",
+                "stackHeight": 1
+              }
+            ]
+          }
+        }
+      },
+      "native_fills": [
+        {
+          "marketSymbol": "BTC",
+          "baseQty": "-0.0158",
+          "quoteQty": "1016.0822",
+          "price": "64308.99999999999",
+          "timestamp": "2026-11-17T09:58:09Z",
+          "transactionSignature": "r3K9pdMCUNbSX4qJZ2KFCR4dsY4CHDbgu954uHygn8jSDkUhwgKPup7R9Y1R3xZRVFehrhoa75Y7cW5nKqkVu8M",
+          "instructionType": "UncrossCrank"
+        }
+      ],
+      "events": [
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470491818,
+            "timestamp": 1794909489
+          },
+          {
+            "kind": "Header",
+            "asset_id": 1,
+            "base_lot_decimals": 4,
+            "prev_sequence_number_slot": 470491817,
+            "quote_lot_decimals": 6,
+            "sequence_number": 39019258,
+            "signer": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "tick_size": 100,
+            "trader_account": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "symbol": "BTC"
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 158,
+            "base_lots_before": 0,
+            "funding_payment": 0,
+            "realized_pnl": 0,
+            "trader": [
+              82,
+              131,
+              82,
+              202,
+              105,
+              163,
+              245,
+              255,
+              235,
+              104,
+              129,
+              94,
+              131,
+              26,
+              236,
+              90,
+              46,
+              136,
+              177,
+              202,
+              78,
+              43,
+              160,
+              194,
+              24,
+              77,
+              182,
+              75,
+              136,
+              103,
+              175,
+              146
+            ],
+            "virtual_quote_lots_after": -1016082200,
+            "virtual_quote_lots_before": 0,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "OrderFilled",
+            "base_lots_filled": 158,
+            "maker": [
+              82,
+              131,
+              82,
+              202,
+              105,
+              163,
+              245,
+              255,
+              235,
+              104,
+              129,
+              94,
+              131,
+              26,
+              236,
+              90,
+              46,
+              136,
+              177,
+              202,
+              78,
+              43,
+              160,
+              194,
+              24,
+              77,
+              182,
+              75,
+              136,
+              103,
+              175,
+              146
+            ],
+            "maker_base_lot_position": 158,
+            "maker_cumulative_funding_snapshot": 46019,
+            "maker_fee_rate": 50,
+            "maker_quote_lot_collateral": 14022996133,
+            "maker_virtual_quote_lot_position": -1016082200,
+            "order_sequence_number": 18446744073634045534,
+            "price": 64309,
+            "quantity_remaining": 0,
+            "quote_lots_filled": 1016082200,
+            "side": "bid"
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 1083,
+            "base_lots_before": 1241,
+            "funding_payment": 0,
+            "realized_pnl": -1271602,
+            "trader": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "virtual_quote_lots_after": -6973380809,
+            "virtual_quote_lots_before": -7990734611,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "TradeSummary",
+            "base_lot_position": 1083,
+            "base_lots_filled": 158,
+            "cumulative_funding_snapshot": 46019,
+            "fee_in_quote_lots": 0,
+            "prev_trade_sequence_number_slot": 470491787,
+            "quote_lot_collateral": 5237386245070,
+            "quote_lots_filled": 1016082200,
+            "side": "ask",
+            "trade_sequence_number": 2458192,
+            "trader": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "virtual_quote_lot_position": -6973380809
+          }
+        ]
+      ],
+      "stats": {
+        "long_open_size": "0.0158",
+        "long_close_size": "0.0158",
+        "long_account_delta": 1,
+        "long_position_flips": 0,
+        "short_open_size": "0.0000",
+        "short_close_size": "0.0000",
+        "short_account_delta": 0,
+        "short_position_flips": 0,
+        "taker_realized_pnl": "-1.271602",
+        "maker_realized_pnl": "0.000000",
+        "taker_fees": "0.000000",
+        "trades": 1,
+        "liquidated_size": "0.0000"
+      }
+    },
+    "91vW6jWwQ81LSuLg2MiXyWLW8kqwjx3zm58gErp7BiSwH88wQ9TAaz2ce3SgqEjxbGZfubyCgegVLcR5HUaU5BK": {
+      "transaction": {
+        "slot": 470486389,
+        "blockTime": 1794908326,
+        "meta": {
+          "err": null,
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "innerInstructions": [
+            {
+              "index": 0,
+              "instructions": [
+                {
+                  "programIdIndex": 13,
+                  "accounts": [
+                    14
+                  ],
+                  "data": "dYUNoGqqvRb1eo2Ks6eFrQAaQ3sXh7zVEscLPWj2tMmQwgEgSjNX",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 13,
+                  "accounts": [
+                    14
+                  ],
+                  "data": "GiWvxRAowKSveyRXqE3cf2PnhQpwYgGi1NCaiH55R7FEY5ZTSWDBD2GaK2LQw95eQtLKnrNeXGPnwaXZn84P5xPj7nJPN74obZfC5JkDmhoa7AMydTEKjaza47VsnKAufz3zw9JwtWmj5MjziuBBxk6svx9PYUhDLDHM4jcQFdrX2pmMjHGcA5KwHtNWnncc2NcgRbbe42ZfoZKWAw5LQw1zTLiykefpBqV7CWr2BTZz8PzmPsfw7agZ29qTDHfwHcU4e1NordY4WKP7axSmvq6vhpyoyCHz6scXi1jbsXfPHYg1rqV6LvL4QKShTYd7E4jdan8zxVm9zJULbbeq5QAfsvKPXUxuGvaXANsA1TGbkFRLf1rSTtZfbx1v8zkLdAjfwoDWSVa7NzrJT2yEbvujz687DTbtbU2ZvXhJM1rcv8bFbMQPvjRhsFGKtjVYjoPn7ZBshqLzkq5L3Vnd2wwQhw9w4wdwqCP7EhisyuuFNrbuP8ajhbL8V7ZRfP485udmKdSXenMmNQT6gN2SaSiFvoaYqS9W5qLKrc2MGHzsv6VDGVDFkH3wFCTgwAST4LTRbQ5TDJMa5pKpgTc3auDtJNedsPtxGP8fPZZRjmWhv5qZAtSHjfrxQrvqBonDaX7vSTR4hoz9vmqqCxzPCDupbenuk1koudknJadJTtYxuUdow4bwaN4ckSFb33qiyfmpYsSwih7GxHczTDen4hcgdLGb2obQjWTVMdAuTnQX61L9XuZPGY74fXRoV9oUbAwKzaRr9AUrRYehVKnLcHxpVhFZib5w9aiSdQG2iVZ7pfTwp62mz34AxUcpTbtNn5PArEQKytYS8wSu9eTkdWUZu9eyLP1CH65LNhbM5ME1hvuLFrmmkiEsyZpJobTPwikYaXQPBURG7FkKKrgNFowAbPdWUiZcYRzrDoXB2iD3nWqSTrY6u6iZYvoXxa6cAJn1c8ZV4VrTTVXsHpt4yirUkGKVx3VLmkeyh4FSDx8mr61iuHg3S5Lk1qXrDPGhy3FMAAjL8AeyPqAeJUmFhapk1ZirnQ5fCNBkLepa9g1CWpMLShuN643iNPHfXhsy1R7qrwVahnAo1FPtiBPFtGsx2gQWSEpCjQTMEgLV2poJp4uwUDGKDwSiwNXkWdo5jabYtSnzPCfkGdduDz1WSVgAeMHy4qA3PHiQsmYqzDpqraGv3KJS7wEvePQQwLVVpCY2oNF8qhekR8R5",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "transaction": {
+          "signatures": [
+            "91vW6jWwQ81LSuLg2MiXyWLW8kqwjx3zm58gErp7BiSwH88wQ9TAaz2ce3SgqEjxbGZfubyCgegVLcR5HUaU5BK"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 4
+            },
+            "accountKeys": [
+              "9RGvZQUiGScdDsvTGHdydvc14gjdqK7KWgCepJHnxSBL",
+              "12Xibfdu7XgEsaFTrD4Qgn9y1NUVnrLZYoVW3Wos7Pcv",
+              "2U32rSzzrQS3eVmGHsnbw5kcqKF3wQXpHGd3hMq5YJok",
+              "2nHGAaEw3D5dd4hVueaUNoygkQFmoeKqRQWnSPqSMFUC",
+              "2zskx2iyCvb6Stg7RBZkt1f6MrF4dpYtMG3yMvKwqtUZ",
+              "6uXcysFeYe8ymqLj9Ww4P2Y14wQDnaRTGgDBLmWSsL9z",
+              "7rW9E2Jr12jn2LkpLZnvra1FKrdiVoCAP2EoJX1Ah3kM",
+              "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+              "AXFz1MuzMUBHi5UKJuK3FDCQ73o3rSzubGU2mPr4LLU7",
+              "Dh9NrYjzzdvcYgFSbrkATQ1rPkPjDovXWnFVhfWmD2ZF",
+              "HCrPXLByGqRh2szQi3gj7oRdRVBNi1gccAyn4CQCT3HK",
+              "11111111111111111111111111111111",
+              "ComputeBudget111111111111111111111111111111",
+              "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih",
+              "GdxfTLSsdSY37G6fZoYtdGDSfgFnbT2EmRpuePZxWShS"
+            ],
+            "recentBlockhash": "FWmB2vkASjYxyRa1jWKZGMX2ahTSGsT6tvWz1fzFRrfY",
+            "instructions": [
+              {
+                "programIdIndex": 13,
+                "accounts": [
+                  13,
+                  14,
+                  4,
+                  0,
+                  6,
+                  1,
+                  3,
+                  10,
+                  2,
+                  8,
+                  9,
+                  5
+                ],
+                "data": "6iqs8FxcxGQZV1",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 12,
+                "accounts": [],
+                "data": "K1FDJ7",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 11,
+                "accounts": [
+                  0,
+                  7
+                ],
+                "data": "3Bxs4RT1WtKKXCEs",
+                "stackHeight": 1
+              }
+            ]
+          }
+        }
+      },
+      "native_fills": [
+        {
+          "marketSymbol": "BTC",
+          "baseQty": "-0.0504",
+          "quoteQty": "3247.7048",
+          "price": "64438.5873015873",
+          "timestamp": "2026-11-17T09:38:46Z",
+          "transactionSignature": "91vW6jWwQ81LSuLg2MiXyWLW8kqwjx3zm58gErp7BiSwH88wQ9TAaz2ce3SgqEjxbGZfubyCgegVLcR5HUaU5BK",
+          "instructionType": "ExecuteConditionalOrders"
+        }
+      ],
+      "events": [
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470486389,
+            "timestamp": 1794908326
+          },
+          {
+            "kind": "Header",
+            "asset_id": 1,
+            "base_lot_decimals": 4,
+            "prev_sequence_number_slot": 470486380,
+            "quote_lot_decimals": 6,
+            "sequence_number": 39018618,
+            "signer": [
+              125,
+              21,
+              112,
+              131,
+              80,
+              154,
+              149,
+              165,
+              154,
+              117,
+              12,
+              177,
+              194,
+              236,
+              218,
+              2,
+              190,
+              105,
+              16,
+              211,
+              153,
+              4,
+              116,
+              157,
+              144,
+              201,
+              143,
+              185,
+              59,
+              108,
+              14,
+              3
+            ],
+            "tick_size": 100,
+            "trader_account": [
+              0,
+              100,
+              80,
+              23,
+              145,
+              184,
+              207,
+              228,
+              137,
+              214,
+              166,
+              141,
+              238,
+              59,
+              119,
+              88,
+              182,
+              243,
+              10,
+              205,
+              33,
+              40,
+              95,
+              18,
+              189,
+              195,
+              24,
+              67,
+              84,
+              72,
+              165,
+              75
+            ],
+            "symbol": "BTC"
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": -1361,
+            "base_lots_before": -1865,
+            "funding_payment": 0,
+            "realized_pnl": -1735961,
+            "trader": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "virtual_quote_lots_after": 8765403951,
+            "virtual_quote_lots_before": 12011372790,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "SplineFilled",
+            "base_lots_filled": 504,
+            "maker": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "maker_base_lot_position": -1361,
+            "maker_cumulative_funding_snapshot": 46019,
+            "maker_fee_rate": 0,
+            "maker_quote_lot_collateral": 5237398262178,
+            "maker_virtual_quote_lot_position": 8765403951,
+            "price": 64437,
+            "quote_lots_filled": 3247704800,
+            "side": "bid",
+            "spline_sequence_number": 131425361
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 0,
+            "base_lots_before": 504,
+            "funding_payment": 0,
+            "realized_pnl": 3234400,
+            "trader": [
+              0,
+              100,
+              80,
+              23,
+              145,
+              184,
+              207,
+              228,
+              137,
+              214,
+              166,
+              141,
+              238,
+              59,
+              119,
+              88,
+              182,
+              243,
+              10,
+              205,
+              33,
+              40,
+              95,
+              18,
+              189,
+              195,
+              24,
+              67,
+              84,
+              72,
+              165,
+              75
+            ],
+            "virtual_quote_lots_after": 0,
+            "virtual_quote_lots_before": -3244470400,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "TradeSummary",
+            "base_lot_position": 0,
+            "base_lots_filled": 504,
+            "cumulative_funding_snapshot": 46019,
+            "fee_in_quote_lots": 1023028,
+            "prev_trade_sequence_number_slot": 470486273,
+            "quote_lot_collateral": 1143595912,
+            "quote_lots_filled": 3247704800,
+            "side": "ask",
+            "trade_sequence_number": 2458111,
+            "trader": [
+              0,
+              100,
+              80,
+              23,
+              145,
+              184,
+              207,
+              228,
+              137,
+              214,
+              166,
+              141,
+              238,
+              59,
+              119,
+              88,
+              182,
+              243,
+              10,
+              205,
+              33,
+              40,
+              95,
+              18,
+              189,
+              195,
+              24,
+              67,
+              84,
+              72,
+              165,
+              75
+            ],
+            "virtual_quote_lot_position": 0
+          },
+          {
+            "kind": "MarketSummary",
+            "asset_id": 1,
+            "mark_price": 64434,
+            "open_interest": 308872,
+            "spot_price": 64464,
+            "total_maker_quote_lot_fees": 22826349083,
+            "total_taker_quote_lot_fees": 325702396467,
+            "symbol": "BTC"
+          }
+        ]
+      ],
+      "stats": {
+        "long_open_size": "0.0000",
+        "long_close_size": "0.0504",
+        "long_account_delta": -1,
+        "long_position_flips": 0,
+        "short_open_size": "0.0000",
+        "short_close_size": "0.0504",
+        "short_account_delta": 0,
+        "short_position_flips": 0,
+        "taker_realized_pnl": "3.234400",
+        "maker_realized_pnl": "-1.735961",
+        "taker_fees": "1.023028",
+        "trades": 1,
+        "liquidated_size": "0.0000"
+      }
+    },
+    "5885gfAtAzNBhWQRqtrxb6kKiib4Ai1s9bRZCV3ZQLT3NufkKnz99yPi9wkermR1AL9rtqSyQNRSCBWeyYHWBQfJ": {
+      "transaction": {
+        "slot": 470481357,
+        "blockTime": 1794907243,
+        "meta": {
+          "err": null,
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "innerInstructions": [
+            {
+              "index": 0,
+              "instructions": [
+                {
+                  "programIdIndex": 9,
+                  "accounts": [
+                    10
+                  ],
+                  "data": "rVtNDfR4HzX5esAdUQKvJGUQwnBo9K3XnxYaBsCAT",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 9,
+                  "accounts": [
+                    10
+                  ],
+                  "data": "5PiiLM683sLsRcX7xQjxsnPh4aHXroufJGrEoGfgAQPVpcCMyDgZcjK7EtgfkisXKfxsB6uPYYgp1UEMf7Ww91FLRVDQtfA5RUsUijELfdgEupTJtpmKpUjnL6uBADqUe85426v6LPMQ6TMbsm6J46gwyj7y1F4X33EUFi1ZvStGtbuqHnASTBXUZ8x9vSpNpLv2NdeYXd5boR2JAHZQpVSBZ6tC4Bde54DNK3FBB94KLFQcq63Z3vu7iTt8EFGePa2SAnC6qL7xfCbMH5r6KPQnTVAtC9m9Rm5nx81qaoRZh58yanHyQhr5rnL5a2mUME2rk1J5CyyzuuUJWW4kEKyWUFJJ7Yg4EuVAoWpUUpNNdftTt3tDyBVGW5sjkHv2amnxbJiCX5BTuRsiCQqP41y7S9TTiDAhKbBDghae9cdXsreD1vEsXentxrZVcstLEtPqTsc1Wwgn41Hrt8A5rje2LneX5CWznVnu27VRtJxXXYur2t2uN7YL8JwjtLv4ByTn5bHNLDSgSGitf",
+                  "stackHeight": 2
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "instructions": [
+                {
+                  "programIdIndex": 9,
+                  "accounts": [
+                    10
+                  ],
+                  "data": "TyjMXsWJsR48MR7z2dnD62sCWeyaFUePeFYNmzk6jsCG161w7JQWut7HfNGC4FZ",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 9,
+                  "accounts": [
+                    10
+                  ],
+                  "data": "d4snnsJF19dbz8uKRbCFNwQ5fNAWmaNb9UPvXKWL9AHofwMqNUmigKS53jj3k5qskM5RjPjT6iYBVCC2STfJoU4jbzwTYrbxVsdugTLyZpM6VKvQQyoWTmjJUU7EaXRsgtAbFETzXVLxH2uCwusBQvaXk5uJ1aW2cTr6m46DsymY1BUXe9C7y5N4FeB3aYuuXfBs78JE7ZMCqmZDAuvkERy3fEoC7hfhuhUqC6cv4LXJVahNcLSYjztxoNPL5y4nzvDhm3vQuf3WEwvipfuMXaeAKmpCCUZWxPLKwEoPYEupx5UqEyxPFcqKqYm7fWnj58yoX8Fe41sQsWFSt7FGrqwxvoeKMy5X4dYWYSM7T6Mj2deZHDRPN5tNy8LSynzHEFp3Lfsvc4141jfZaoHbAM891XoRrjcVigyMKjvVox2nt8M8cFfAhPBV4GpiJEWmF9oxN8gb2KiPmoUw21TJwWAHUeLfZUGCcwqMPg9dSPG537nbDoVyzpbrqXz3cWvdpSiffZUhBDW8nignUp4iEUxobYFF9CJeUDV1WReCg76iLrg8KxkNkFpbSVU558vuXCLtcUrXjcVkeYLNNgfsqZMgUr7FZRpwfZuLSRXrfJJtg4rc4pj8ymwBPAtqrT6C3UCTboFB7SUB9gvzRwzHmraX8Se1CP3rgt8vJCe3FnJN68TjtJr7QYdmyy1174N4rLw1YYeVS9tJZFE1WhDHsUcJdHYu37waFdG5z49vDktCk74rdeJ17SAb1tPwd3AvRanKpEFGP4rYvE5Uwgz5QQ25fGyUpY1H8h2YjARKFTtGx1uNgAJ9uB9YkRGa6AHvZUzLLP1XajXGKfQJBCHniRxmNwTwmY9wVbk2FyAedAdh69trdWisWfCYCFEwt3nVpgKxT9ap7fjwTvc5mVZfV74mHca816HBkaNMycJ5MGWFDSFZQDiBXCY6FLGWjc7Yo6w2vkfV9BeeEJrzT7F3LrbN53iFRi1gBx3jB4hkevoAhMQ232mx8Eq4bbin1tq3pGiZ5XY5vi8wVTndSSJz43GyVK8Ua88Jokq4a3ejxNtKsgzGtPY3i6LHtActgp5Je94vCULQjnczFcViHKkbY74aaVBTXGqw7vSX3k5zAST2ooGTKkcUs2UouTJAG9CDYnQSJx3GeLTgvfK5TaGDjt3Ss2trV45mMchn16ek7MTmra65qX4k9frHjMZrwZ9zWL7c3ZpEFjUuzopG9iQRkgcHwHK4tdSjWidWDQiEre3snJ5GkcXqAjhPbNGKoyJpN5PQmvYnfaC5Mg5mhPHgmwFzjQVyTFPcgxMgH6h2es2MwN5ZNpuE49ody57wjCjYFyvtiTHG3T8Dzx78eCksEhWsdNYbgKe5h5162Cp5182kJ3pxrMFHy8qaXF91JXsGRnCfSZjtuaSX2oLCg8yWrcNimHQ3Cc8u3UEj1Y3BsaKBddErgHBiNTMKQbKTiiUtAN5h51Dgwgc636Gds1NVX7uE6ErHHg33tn7GsMBhDi2driUKFo1kww23yWtNYBpvZKVeisdDJe7zNgG5xmM8bVS15YvGKypz5oDVwfHA1WnBJevBGgRuhcMnwykMjhFXtZwg8Acx4vRKS2qb5ToTVscKs8usPRAMfBj6HErMLuRazwmJwCer32tWJLnjXNhYPJk21QLSxcSCw",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 9,
+                  "accounts": [
+                    10
+                  ],
+                  "data": "4ScKjFNztkAxi2R4b7Jz1iwhBKZh",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 9,
+                  "accounts": [
+                    10
+                  ],
+                  "data": "AUuB8w485ZZ6MqabvFTQPFNgb6TC9HJZez9yPVYw4MhsHKmw2X1VDKwqCXpecPhirysPYYra8LEoFwjoW7NQ2iX2WSJeVkMyQZ88pE5J35BTFrrmGv33SBRHAFymGhhLicC8ErQimA1hZYBxySvQuuexj46W5Gc2yZRsiRkLxxyTtmGifJoA5Yqe7opsvAUydngnXGVJCwy6X9mZWhU7TzuKTNEAf4xUNaB",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "transaction": {
+          "signatures": [
+            "5885gfAtAzNBhWQRqtrxb6kKiib4Ai1s9bRZCV3ZQLT3NufkKnz99yPi9wkermR1AL9rtqSyQNRSCBWeyYHWBQfJ"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 3
+            },
+            "accountKeys": [
+              "1imt7zeK3mE17dvdfztuEDhfoCUwnK8RVcjRzxnXLba",
+              "2U32rSzzrQS3eVmGHsnbw5kcqKF3wQXpHGd3hMq5YJok",
+              "2nHGAaEw3D5dd4hVueaUNoygkQFmoeKqRQWnSPqSMFUC",
+              "2zskx2iyCvb6Stg7RBZkt1f6MrF4dpYtMG3yMvKwqtUZ",
+              "AXFz1MuzMUBHi5UKJuK3FDCQ73o3rSzubGU2mPr4LLU7",
+              "Dh9NrYjzzdvcYgFSbrkATQ1rPkPjDovXWnFVhfWmD2ZF",
+              "HCrPXLByGqRh2szQi3gj7oRdRVBNi1gccAyn4CQCT3HK",
+              "HMvgP5p9oPz8PiKGXiEdYzZDnK7SwqDmfBRib6UUuQUk",
+              "ComputeBudget111111111111111111111111111111",
+              "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih",
+              "GdxfTLSsdSY37G6fZoYtdGDSfgFnbT2EmRpuePZxWShS"
+            ],
+            "recentBlockhash": "4qgAPY1ArHoBn1grFWqjovVw3M1GgVweHSUy58qdjm9A",
+            "instructions": [
+              {
+                "programIdIndex": 9,
+                "accounts": [
+                  9,
+                  10,
+                  3,
+                  0,
+                  7,
+                  2,
+                  6,
+                  1,
+                  4,
+                  5
+                ],
+                "data": "HWyNvPTcEeY",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 9,
+                "accounts": [
+                  9,
+                  10,
+                  3,
+                  0,
+                  7,
+                  2,
+                  6,
+                  1,
+                  4,
+                  5
+                ],
+                "data": "vGJ7HFTMvXtX9nKfeF59QCWurdwSPJ4gE6QpNtNVCoCdW838AMkRQygte6BGyZZ2QLktgoyHkyTFVr9TuNwALKquheVMqm6GnNYb75hhwU6y4TNLSD7gqrCABV857TbchuDi3xjd1iNN3k5ecpxFs4DhboB2Fqh36Ai6qHivBDRCSwEYv6uGz7i",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 8,
+                "accounts": [],
+                "data": "K1FDJ7",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 8,
+                "accounts": [],
+                "data": "3DTZbgwsozUF",
+                "stackHeight": 1
+              }
+            ]
+          }
+        }
+      },
+      "native_fills": [
+        {
+          "marketSymbol": "BTC",
+          "baseQty": "0.0059",
+          "quoteQty": "-379.1517",
+          "price": "64263",
+          "timestamp": "2026-11-17T09:20:43Z",
+          "transactionSignature": "5885gfAtAzNBhWQRqtrxb6kKiib4Ai1s9bRZCV3ZQLT3NufkKnz99yPi9wkermR1AL9rtqSyQNRSCBWeyYHWBQfJ",
+          "instructionType": "PlaceMultiLimitOrder"
+        }
+      ],
+      "events": [
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470481357,
+            "timestamp": 1794907243
+          },
+          {
+            "kind": "Header",
+            "asset_id": 1,
+            "base_lot_decimals": 4,
+            "prev_sequence_number_slot": 470481352,
+            "quote_lot_decimals": 6,
+            "sequence_number": 39018031,
+            "signer": [
+              0,
+              47,
+              59,
+              218,
+              173,
+              231,
+              92,
+              247,
+              76,
+              195,
+              10,
+              253,
+              195,
+              139,
+              173,
+              29,
+              64,
+              234,
+              197,
+              54,
+              213,
+              209,
+              74,
+              119,
+              174,
+              226,
+              14,
+              204,
+              255,
+              68,
+              123,
+              161
+            ],
+            "tick_size": 100,
+            "trader_account": [
+              243,
+              23,
+              77,
+              81,
+              3,
+              18,
+              188,
+              147,
+              233,
+              127,
+              83,
+              176,
+              27,
+              114,
+              94,
+              44,
+              74,
+              161,
+              252,
+              213,
+              213,
+              218,
+              49,
+              136,
+              199,
+              231,
+              33,
+              11,
+              99,
+              88,
+              34,
+              117
+            ],
+            "symbol": "BTC"
+          }
+        ],
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470481357,
+            "timestamp": 1794907243
+          },
+          {
+            "kind": "Header",
+            "asset_id": 1,
+            "base_lot_decimals": 4,
+            "prev_sequence_number_slot": 470481357,
+            "quote_lot_decimals": 6,
+            "sequence_number": 39018032,
+            "signer": [
+              0,
+              47,
+              59,
+              218,
+              173,
+              231,
+              92,
+              247,
+              76,
+              195,
+              10,
+              253,
+              195,
+              139,
+              173,
+              29,
+              64,
+              234,
+              197,
+              54,
+              213,
+              209,
+              74,
+              119,
+              174,
+              226,
+              14,
+              204,
+              255,
+              68,
+              123,
+              161
+            ],
+            "tick_size": 100,
+            "trader_account": [
+              243,
+              23,
+              77,
+              81,
+              3,
+              18,
+              188,
+              147,
+              233,
+              127,
+              83,
+              176,
+              27,
+              114,
+              94,
+              44,
+              74,
+              161,
+              252,
+              213,
+              213,
+              218,
+              49,
+              136,
+              199,
+              231,
+              33,
+              11,
+              99,
+              88,
+              34,
+              117
+            ],
+            "symbol": "BTC"
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 0,
+            "base_lots_before": 59,
+            "funding_payment": 0,
+            "realized_pnl": 230100,
+            "trader": [
+              148,
+              162,
+              140,
+              95,
+              24,
+              53,
+              204,
+              5,
+              53,
+              164,
+              105,
+              130,
+              112,
+              194,
+              66,
+              106,
+              184,
+              125,
+              236,
+              64,
+              58,
+              241,
+              46,
+              147,
+              34,
+              28,
+              38,
+              29,
+              21,
+              252,
+              84,
+              35
+            ],
+            "virtual_quote_lots_after": 0,
+            "virtual_quote_lots_before": -378921600,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "OrderFilled",
+            "base_lots_filled": 59,
+            "maker": [
+              148,
+              162,
+              140,
+              95,
+              24,
+              53,
+              204,
+              5,
+              53,
+              164,
+              105,
+              130,
+              112,
+              194,
+              66,
+              106,
+              184,
+              125,
+              236,
+              64,
+              58,
+              241,
+              46,
+              147,
+              34,
+              28,
+              38,
+              29,
+              21,
+              252,
+              84,
+              35
+            ],
+            "maker_base_lot_position": 0,
+            "maker_cumulative_funding_snapshot": 46019,
+            "maker_fee_rate": 50,
+            "maker_quote_lot_collateral": 24797538513,
+            "maker_virtual_quote_lot_position": 0,
+            "order_sequence_number": 75504238,
+            "price": 64263,
+            "quantity_remaining": 0,
+            "quote_lots_filled": 379151700,
+            "side": "ask"
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": -2018,
+            "base_lots_before": -2077,
+            "funding_payment": 0,
+            "realized_pnl": -433962,
+            "trader": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "virtual_quote_lots_after": 12953430443,
+            "virtual_quote_lots_before": 13332148181,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "TradeSummary",
+            "base_lot_position": -2018,
+            "base_lots_filled": 59,
+            "cumulative_funding_snapshot": 46019,
+            "fee_in_quote_lots": 0,
+            "prev_trade_sequence_number_slot": 470481352,
+            "quote_lot_collateral": 5237400580185,
+            "quote_lots_filled": 379151700,
+            "side": "bid",
+            "trade_sequence_number": 2458038,
+            "trader": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "virtual_quote_lot_position": 12953430443
+          },
+          {
+            "kind": "MarketSummary",
+            "asset_id": 1,
+            "mark_price": 64263,
+            "open_interest": 309034,
+            "spot_price": 64292,
+            "total_maker_quote_lot_fees": 22826075842,
+            "total_taker_quote_lot_fees": 325694642104,
+            "symbol": "BTC"
+          }
+        ]
+      ],
+      "stats": {
+        "long_open_size": "0.0000",
+        "long_close_size": "0.0059",
+        "long_account_delta": -1,
+        "long_position_flips": 0,
+        "short_open_size": "0.0000",
+        "short_close_size": "0.0059",
+        "short_account_delta": 0,
+        "short_position_flips": 0,
+        "taker_realized_pnl": "-0.433962",
+        "maker_realized_pnl": "0.230100",
+        "taker_fees": "0.000000",
+        "trades": 1,
+        "liquidated_size": "0.0000"
+      }
+    },
+    "2GDmGQv4PC9H5ww3vMg7wVZYEhEkP2hZNghvdAaX1xgk99A8EnbJjTLnE3fQUQD4x92WfcmiH7Q3RM8CPv2Xj5rC": {
+      "transaction": {
+        "slot": 470480813,
+        "blockTime": 1794907125,
+        "meta": {
+          "err": null,
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "innerInstructions": [
+            {
+              "index": 2,
+              "instructions": [
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "BFGh71jubXvAdUSdsbbKRFuhq",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "j9um8QgyWSwhZH3GarMjrCG2VYVJoZUhnCAjFe5Ex94Kq",
+                  "stackHeight": 2
+                }
+              ]
+            },
+            {
+              "index": 3,
+              "instructions": [
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "PXAvLUFUZunHtCT5vHrzGHd511dLwk3pT",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "4GRk1p47vKZjjRBu1dvqEtpaKfp6Y1NuYJx7Vf7xZPSbFi4AzJrfRQjyAyBUJng8erFgVNcpBRnNCWQd82wrsV7eGuG9FYR9Rq5xD7y4NX1NoodTvyztb7tthUTQDneR2wpDFc8TWqzanHBCkTtx37SttPh9VqKPaBvvXSJipVemKNnqT89dz7Y6Dqp6A1kB48DfcQVdTcT2nv82JHFcMzdbeY7FFHscWqiaC7mMLCx78ehW2KAyP5BYG6PgJpkdmHgMsP1U7wabuA2QptnS239rdUFfuub4HdUokMPHCofzcMWzgLfZV1kaxQKVV6z3QoExcvYRW3QX69d35QgPJBCzT8jXbBLAKhuDy",
+                  "stackHeight": 2
+                }
+              ]
+            },
+            {
+              "index": 4,
+              "instructions": [
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "6au4gBsBeMSHTpMG9LoS7J1QytKPTqVKaEUWzeTpGtVTCVm",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "2KUiNgAS8jJ5bvHjsLRDEruacXh3JXzSSicuoBDPqiLcnBk9RR5Af7D7DVaFtW3yrHEybbKW37qAZnBtvqNwdT9XaskogqQQpjwiQta85cfd3u9TotWDSgYVwprdKtzv5SSBPUxHktRZRSehGuq8TY2gzKJLaWFkTUbFkJ5yiH3XkacpHgh29ta4RH95yXSKVkmasUcXdSkUsTQzmbGHbBRxxfm2Xbc4cN8StTvCgyE71h2BDpwVcqcyZRG82YDr7gZwmQFGb8VP2hqMYzCtae5ZfStiJYmyetMHzZswHtQ7Y4Wwmr88CnnoX4qb95t4quJkuWp2HabUEp7T4QKYWZuso2zYqfdofoMR2YaU5pcsETw6YzwkKGVpaQkGnm4X5KJdYsZ59kbHQvhX9iRZHkFvVMVxBPqCmiYmvxqTKCp3fWhtkSpQcpgYRh6iG671dsqbW5c2bXAW8xe4Rm3f7EZqpLGbXzTnH5bLiDfTbbxFwZPL2CXbWG3STqBKifYUa8m1V73ZRWY5gWBQDUPTLr28ndHk3zfYzozhKTPJp86LWFvPEEVwexGzJUh2JPYbBSp4dyUevpgn5PZVuAyVmzKbF1ZRnRb9eWeBcEcSx9Ay3jS9jrcr3xNXzStTkUnfQWJq6aXMVaaybs8qNyGcCb2znmVxuJJqGVnc5b6qXnn7kRcKfPKyWkzPeDuwvvUBZCDJMVvGGbvpyvqjjNMwzSMqyjoTyD4ooiX1AnkBYRF6sY24wqYPCqGZXXyDgMQDXMNtNhmdboh8J36xq59ycQXAq86TmwsxHsjaQCi9VveTs1Hmn9CGGKFXiKiyawYGu7RiSjKU2nqiJF5j1JD9TQM7JAXmwDmToqdUmdzs81FqBRXmcKcrYZXLPXMYgrPV845BYcUskCoVku82pZcnndDJKbBfjwqD3Xi9PXHafpzUk9jyNdfAiWb8z2e3GVj76cQ8pPZM8XEFo2qsSxJGft2fsaUMwUJ11ejaeBCndbvB2Vvs4RhvMBGFwPvNnKRkmZj9BRdNUcv7CxMH5HPjD5qDYeCTQj963Xzz36fn7H",
+                  "stackHeight": 2
+                }
+              ]
+            },
+            {
+              "index": 5,
+              "instructions": [
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "BFGh71jubXvAdUSdsbbKRFuhq",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "j9um8QgyWSwhZH3GarMjrCG2VYVJoZUhnCAjFe5Ex94Kq",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "transaction": {
+          "signatures": [
+            "2GDmGQv4PC9H5ww3vMg7wVZYEhEkP2hZNghvdAaX1xgk99A8EnbJjTLnE3fQUQD4x92WfcmiH7Q3RM8CPv2Xj5rC",
+            "2rGLqW1ZQwD1Z8wajJ6WH7iYzje4dtqPbvWX3wSQVF8VSCdSJW9pbnHy5YHcD74zC7JamiTBPSG21eL6M6oyXPfi"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 2,
+              "numReadonlySignedAccounts": 1,
+              "numReadonlyUnsignedAccounts": 4
+            },
+            "accountKeys": [
+              "DcZ7qnYyKyLx9jhgfidSpWW1aibFboerFBhKHcvxYjZp",
+              "F4zDfdMiW9c811Q7sjp3JfvV66b3XNYkgrezbj7xYcsn",
+              "2nHGAaEw3D5dd4hVueaUNoygkQFmoeKqRQWnSPqSMFUC",
+              "2U32rSzzrQS3eVmGHsnbw5kcqKF3wQXpHGd3hMq5YJok",
+              "2zskx2iyCvb6Stg7RBZkt1f6MrF4dpYtMG3yMvKwqtUZ",
+              "618Bt6C1sVeKRVCgEkSF9DzaDmwNtMb7uok3eJHNKMRF",
+              "AXFz1MuzMUBHi5UKJuK3FDCQ73o3rSzubGU2mPr4LLU7",
+              "CXmjtbmhJArv3RtmsfrCzi9ysdwpJu2KZAHNtkyuvcZT",
+              "Dh9NrYjzzdvcYgFSbrkATQ1rPkPjDovXWnFVhfWmD2ZF",
+              "HCrPXLByGqRh2szQi3gj7oRdRVBNi1gccAyn4CQCT3HK",
+              "ComputeBudget111111111111111111111111111111",
+              "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih",
+              "GdxfTLSsdSY37G6fZoYtdGDSfgFnbT2EmRpuePZxWShS",
+              "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"
+            ],
+            "recentBlockhash": "3MCThEJoeRisFg3zcTJkmGfnE1X2XsMFTE8yfGyLXJKr",
+            "instructions": [
+              {
+                "programIdIndex": 10,
+                "accounts": [],
+                "data": "3cDeqiGMb6md",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 10,
+                "accounts": [],
+                "data": "EvSMNP",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 11,
+                "accounts": [
+                  11,
+                  12,
+                  4,
+                  1,
+                  5,
+                  7,
+                  9
+                ],
+                "data": "WMwhMJinDPp",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 11,
+                "accounts": [
+                  11,
+                  12,
+                  4,
+                  1,
+                  7,
+                  2,
+                  9,
+                  3,
+                  6,
+                  8
+                ],
+                "data": "GoZFsp34t26vvtJWdBpnpA1eV6KaYC9wemByn71h4sJe",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 11,
+                "accounts": [
+                  11,
+                  12,
+                  4,
+                  1,
+                  7,
+                  2,
+                  9,
+                  3,
+                  6,
+                  8
+                ],
+                "data": "uPgEZTFubuM3fSHeJAyu4sKAi5528ntzVBjZBxXYo5aYz87bVt53f2WukVKkV11q",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 11,
+                "accounts": [
+                  11,
+                  12,
+                  4,
+                  1,
+                  7,
+                  5,
+                  2,
+                  9,
+                  3
+                ],
+                "data": "9bad8QaU7rr",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 13,
+                "accounts": [],
+                "data": "HREFgTev464sQiXU",
+                "stackHeight": 1
+              }
+            ]
+          }
+        }
+      },
+      "native_fills": [
+        {
+          "marketSymbol": "BTC",
+          "baseQty": "0.02",
+          "quoteQty": "-1283.5",
+          "price": "64175",
+          "timestamp": "2026-11-17T09:18:45Z",
+          "transactionSignature": "2GDmGQv4PC9H5ww3vMg7wVZYEhEkP2hZNghvdAaX1xgk99A8EnbJjTLnE3fQUQD4x92WfcmiH7Q3RM8CPv2Xj5rC",
+          "instructionType": "PlaceLimitOrder"
+        }
+      ],
+      "events": [
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470480813,
+            "timestamp": 1794907125
+          }
+        ],
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470480813,
+            "timestamp": 1794907125
+          },
+          {
+            "kind": "Header",
+            "asset_id": 1,
+            "base_lot_decimals": 4,
+            "prev_sequence_number_slot": 470480799,
+            "quote_lot_decimals": 6,
+            "sequence_number": 39017964,
+            "signer": [
+              209,
+              9,
+              14,
+              113,
+              197,
+              126,
+              172,
+              245,
+              208,
+              172,
+              66,
+              94,
+              249,
+              148,
+              202,
+              43,
+              88,
+              189,
+              107,
+              7,
+              77,
+              49,
+              121,
+              22,
+              147,
+              225,
+              2,
+              204,
+              81,
+              230,
+              196,
+              245
+            ],
+            "tick_size": 100,
+            "trader_account": [
+              171,
+              82,
+              145,
+              74,
+              239,
+              78,
+              15,
+              161,
+              111,
+              160,
+              45,
+              88,
+              127,
+              99,
+              139,
+              63,
+              46,
+              204,
+              67,
+              55,
+              90,
+              198,
+              16,
+              122,
+              36,
+              205,
+              82,
+              219,
+              116,
+              92,
+              189,
+              14
+            ],
+            "symbol": "BTC"
+          }
+        ],
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470480813,
+            "timestamp": 1794907125
+          },
+          {
+            "kind": "Header",
+            "asset_id": 1,
+            "base_lot_decimals": 4,
+            "prev_sequence_number_slot": 470480813,
+            "quote_lot_decimals": 6,
+            "sequence_number": 39017965,
+            "signer": [
+              209,
+              9,
+              14,
+              113,
+              197,
+              126,
+              172,
+              245,
+              208,
+              172,
+              66,
+              94,
+              249,
+              148,
+              202,
+              43,
+              88,
+              189,
+              107,
+              7,
+              77,
+              49,
+              121,
+              22,
+              147,
+              225,
+              2,
+              204,
+              81,
+              230,
+              196,
+              245
+            ],
+            "tick_size": 100,
+            "trader_account": [
+              171,
+              82,
+              145,
+              74,
+              239,
+              78,
+              15,
+              161,
+              111,
+              160,
+              45,
+              88,
+              127,
+              99,
+              139,
+              63,
+              46,
+              204,
+              67,
+              55,
+              90,
+              198,
+              16,
+              122,
+              36,
+              205,
+              82,
+              219,
+              116,
+              92,
+              189,
+              14
+            ],
+            "symbol": "BTC"
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 739,
+            "base_lots_before": 939,
+            "funding_payment": 0,
+            "realized_pnl": -341469,
+            "trader": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "virtual_quote_lots_after": -4743794231,
+            "virtual_quote_lots_before": -6027635700,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "SplineFilled",
+            "base_lots_filled": 200,
+            "maker": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "maker_base_lot_position": 739,
+            "maker_cumulative_funding_snapshot": 46019,
+            "maker_fee_rate": 0,
+            "maker_quote_lot_collateral": 5237401343112,
+            "maker_virtual_quote_lot_position": -4743794231,
+            "price": 64175,
+            "quote_lots_filled": 1283500000,
+            "side": "ask",
+            "spline_sequence_number": 131419737
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": -1035,
+            "base_lots_before": -1235,
+            "funding_payment": 0,
+            "realized_pnl": 10074736,
+            "trader": [
+              171,
+              82,
+              145,
+              74,
+              239,
+              78,
+              15,
+              161,
+              111,
+              160,
+              45,
+              88,
+              127,
+              99,
+              139,
+              63,
+              46,
+              204,
+              67,
+              55,
+              90,
+              198,
+              16,
+              122,
+              36,
+              205,
+              82,
+              219,
+              116,
+              92,
+              189,
+              14
+            ],
+            "virtual_quote_lots_after": 6694249264,
+            "virtual_quote_lots_before": 7987824000,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "TradeSummary",
+            "base_lot_position": -1035,
+            "base_lots_filled": 200,
+            "cumulative_funding_snapshot": 46019,
+            "fee_in_quote_lots": 449225,
+            "prev_trade_sequence_number_slot": 470480678,
+            "quote_lot_collateral": 83164862,
+            "quote_lots_filled": 1283500000,
+            "side": "bid",
+            "trade_sequence_number": 2458027,
+            "trader": [
+              171,
+              82,
+              145,
+              74,
+              239,
+              78,
+              15,
+              161,
+              111,
+              160,
+              45,
+              88,
+              127,
+              99,
+              139,
+              63,
+              46,
+              204,
+              67,
+              55,
+              90,
+              198,
+              16,
+              122,
+              36,
+              205,
+              82,
+              219,
+              116,
+              92,
+              189,
+              14
+            ],
+            "virtual_quote_lot_position": 6694249264
+          },
+          {
+            "kind": "MarketSummary",
+            "asset_id": 1,
+            "mark_price": 64178,
+            "open_interest": 308111,
+            "spot_price": 64210,
+            "total_maker_quote_lot_fees": 22826024752,
+            "total_taker_quote_lot_fees": 325690175392,
+            "symbol": "BTC"
+          }
+        ],
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470480813,
+            "timestamp": 1794907125
+          }
+        ]
+      ],
+      "stats": {
+        "long_open_size": "0.0000",
+        "long_close_size": "0.0200",
+        "long_account_delta": 0,
+        "long_position_flips": 0,
+        "short_open_size": "0.0000",
+        "short_close_size": "0.0200",
+        "short_account_delta": 0,
+        "short_position_flips": 0,
+        "taker_realized_pnl": "10.074736",
+        "maker_realized_pnl": "-0.341469",
+        "taker_fees": "0.449225",
+        "trades": 1,
+        "liquidated_size": "0.0000"
+      }
+    },
+    "56PT62M4SaKtRqPWJy9DYU2jR1feHb4NKBtD9aSoyY43c5awJY6PzYhPfuKNBiYT5mLpdq4SSUwd7fPd34dp8xzZ": {
+      "transaction": {
+        "slot": 470476109,
+        "blockTime": 1794906116,
+        "meta": {
+          "err": null,
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "innerInstructions": [
+            {
+              "index": 1,
+              "instructions": [
+                {
+                  "programIdIndex": 12,
+                  "accounts": [
+                    13
+                  ],
+                  "data": "DGueBo2TWkUKwMH3eSL5EtwgJnLV8ppSLFnZwpj9wfXbUbYeRzayYSB",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 12,
+                  "accounts": [
+                    13
+                  ],
+                  "data": "29fAFBuU8SNYFx6YPY48E19AiWRXAbSMENcTW7HgHiZycmrru74SZm3CfeRXjcBois5JSAb4PWS1txnCGXCreiF9N3tyoQFk9rE4KgYWSad2yBdyAf19D2ig3cXF6exgdCyXRmETaa9rAac5qwh4g6XSitk4iCmk9yEMmZUKz9CyaAEyCscg1s5SRY8KcGeGUL7dj1d7heTs4SLvnoLJokq5SyzVKGL8BjMYqRQWbpkWwjA8Hth54BWwpEan7Z2ExMb6jfSAh19EJbWCPysA2SyyWbmR3uWmwcAkidpSSxuaM39rpwsNgPCLTfhHSMLM5vm55q6iFBLfbyVyqHoL1QbQhZ83qTYjacAnSY7TkLjVUBwuaXadfB66pn56cLZskbsDp2ACRW4XTqWQ1R8rtq8y1Anqkh9xBEhVszyiN4ZmpcFySPDd8zbDMUNQjjywoohqz3WsTt9FN6P5Wnt6hhH9iErxjaZvL83pyYzmQwbGReGvJi5EMTYKBvmrzhstc42hBeaBYXatKKGQEenVTm3gBwFVVXucAfs8u9mUdZcxkdkiE8z7TvZZBb5LiZjNZE8Bznay1tbz5ud3nj8vJ7ryn1DAnNig19rL8WJHGrFTqD5X2z4KJHUazkQgRCtCYRRamcb9qp7M8VP7FJ1paTXEJ8vqkmzuXGRtSAyP9LrkUHai2vxhwzzV4i72ixnge1aScAhx93CZCWcYTwukdygX4NghKJQo9UVL2tBMWiHHLRqUsF5jsuy2zLawA3MVK26wXVkohVHYFSbAL8fyajNr1Yhts71u1bzMFU37hma9CNuBvLs8NT3reHf4vxfoaTPUVLxeD8qM8nBiUuhUFXmwz5bHeLr5ScCr7A3H1dTvxcNjfeFFqTLyR9REVC3K5G9NHDZAY9gL8WTpZKzYoUyxkKhznKLUD6JEyJ22VEDq7d1bHCyhgHKLo6kHTxYpgHWfsZritDsiKzQqxDywJpEzYc7EJJAAhPxZXmfPWLZZLGB1aZaVvn6FEvzDeeCFq68c14BtN81Qq9TUopoqNvcKCp8FkekU6TxAYFd6itrs3xAfuwBJk1JkGAEyb3khLZyd68Xa9wSzZhHsSwvwj7jffxJfjBdZAdT93fy9ihdpajuV6DDphTq7hmCozisiHuz6YojKKnmwQvANVSRbFLEXNR9YgL6gSWAhsNGC2mGekXdidSANXQn9jFLHP6PxMWnHq6wWssCj9ZDNordu2E3FCTmzpw8NMKmLZGWCmaHvSvBUNwA2cNcb1dvh4GpM8AVfjrdCkPDEjXncJ3p3Bc5BYJo86W3MPdctrNJZ9CS2RVG58r5UQJyVEx6RjJm7dMaA8Ce36zQfdV3gCjik4tHS9QJ4frVDsHgWneoY1wSoDzVQD1KHJadTYcVesXeaajAANn2BqdLBa6ME3WVw6MCiZnGof4qzMhAwPdEkCByLzQP6VH19CCSAhJTEndYEb",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "transaction": {
+          "signatures": [
+            "56PT62M4SaKtRqPWJy9DYU2jR1feHb4NKBtD9aSoyY43c5awJY6PzYhPfuKNBiYT5mLpdq4SSUwd7fPd34dp8xzZ"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 5
+            },
+            "accountKeys": [
+              "BP7sV1VFnbPMPyJX1tZNbXHbZkyLNFEaBWJhyMvkbxKz",
+              "2U32rSzzrQS3eVmGHsnbw5kcqKF3wQXpHGd3hMq5YJok",
+              "2nHGAaEw3D5dd4hVueaUNoygkQFmoeKqRQWnSPqSMFUC",
+              "2phwGYii6j8Z1pXDVXVXnJs3RaQhSNau2scJwCCpomDZ",
+              "2zskx2iyCvb6Stg7RBZkt1f6MrF4dpYtMG3yMvKwqtUZ",
+              "AXFz1MuzMUBHi5UKJuK3FDCQ73o3rSzubGU2mPr4LLU7",
+              "Dh9NrYjzzdvcYgFSbrkATQ1rPkPjDovXWnFVhfWmD2ZF",
+              "F3uGiUt1zJp9MHzS5h8DGpS73HTiWiCAU5swE2JE9Erm",
+              "HCrPXLByGqRh2szQi3gj7oRdRVBNi1gccAyn4CQCT3HK",
+              "11111111111111111111111111111111",
+              "ComputeBudget111111111111111111111111111111",
+              "SysvarRecentB1ockHashes11111111111111111111",
+              "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih",
+              "GdxfTLSsdSY37G6fZoYtdGDSfgFnbT2EmRpuePZxWShS"
+            ],
+            "recentBlockhash": "88ZGiD3gbqNTczD8QP3Vd9EkEdTGS9nHpSbhUUjnoPrh",
+            "instructions": [
+              {
+                "programIdIndex": 9,
+                "accounts": [
+                  7,
+                  11,
+                  0
+                ],
+                "data": "6vx8P",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 12,
+                "accounts": [
+                  12,
+                  13,
+                  4,
+                  0,
+                  3,
+                  3,
+                  2,
+                  8,
+                  1,
+                  5,
+                  6
+                ],
+                "data": "PEWvsaa4Bjji7Lrun92SLsR2zE4SMXKNGjVZnHZRaLejcBHyjFE7mMiVrCYrKwrMixr3YhdWSEZhay3hZ6BtVoxBq",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 10,
+                "accounts": [],
+                "data": "K1FDJ7",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 10,
+                "accounts": [],
+                "data": "3F8aKq24k59R",
+                "stackHeight": 1
+              }
+            ]
+          }
+        }
+      },
+      "native_fills": [
+        {
+          "marketSymbol": "BTC",
+          "baseQty": "-0.0107",
+          "quoteQty": "686.8102",
+          "price": "64187.86915887851",
+          "timestamp": "2026-11-17T09:01:56Z",
+          "transactionSignature": "56PT62M4SaKtRqPWJy9DYU2jR1feHb4NKBtD9aSoyY43c5awJY6PzYhPfuKNBiYT5mLpdq4SSUwd7fPd34dp8xzZ",
+          "instructionType": "LiquidateViaMarketOrder"
+        }
+      ],
+      "events": [
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470476109,
+            "timestamp": 1794906116
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 107,
+            "base_lots_before": 107,
+            "funding_payment": -8774,
+            "realized_pnl": 0,
+            "trader": [
+              27,
+              20,
+              69,
+              99,
+              81,
+              66,
+              239,
+              160,
+              53,
+              43,
+              11,
+              68,
+              173,
+              221,
+              181,
+              51,
+              101,
+              181,
+              13,
+              179,
+              243,
+              61,
+              201,
+              151,
+              127,
+              222,
+              191,
+              200,
+              56,
+              189,
+              22,
+              200
+            ],
+            "virtual_quote_lots_after": -696689100,
+            "virtual_quote_lots_before": -696689100,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "Header",
+            "asset_id": 1,
+            "base_lot_decimals": 4,
+            "prev_sequence_number_slot": 470476102,
+            "quote_lot_decimals": 6,
+            "sequence_number": 39017430,
+            "signer": [
+              154,
+              63,
+              106,
+              90,
+              128,
+              80,
+              147,
+              171,
+              109,
+              131,
+              190,
+              86,
+              4,
+              129,
+              178,
+              236,
+              14,
+              186,
+              127,
+              236,
+              6,
+              190,
+              224,
+              44,
+              129,
+              197,
+              251,
+              237,
+              90,
+              59,
+              27,
+              41
+            ],
+            "tick_size": 100,
+            "trader_account": [
+              27,
+              20,
+              69,
+              99,
+              81,
+              66,
+              239,
+              160,
+              53,
+              43,
+              11,
+              68,
+              173,
+              221,
+              181,
+              51,
+              101,
+              181,
+              13,
+              179,
+              243,
+              61,
+              201,
+              151,
+              127,
+              222,
+              191,
+              200,
+              56,
+              189,
+              22,
+              200
+            ],
+            "symbol": "BTC"
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 30,
+            "base_lots_before": -77,
+            "funding_payment": 0,
+            "realized_pnl": 310933,
+            "trader": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "virtual_quote_lots_after": -192563608,
+            "virtual_quote_lots_before": 494557525,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "SplineFilled",
+            "base_lots_filled": 107,
+            "maker": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "maker_base_lot_position": 30,
+            "maker_cumulative_funding_snapshot": 46019,
+            "maker_fee_rate": 0,
+            "maker_quote_lot_collateral": 5237401915537,
+            "maker_virtual_quote_lot_position": -192563608,
+            "price": 64186,
+            "quote_lots_filled": 686810200,
+            "side": "bid",
+            "spline_sequence_number": 131414592
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 0,
+            "base_lots_before": 107,
+            "funding_payment": 0,
+            "realized_pnl": -9878900,
+            "trader": [
+              27,
+              20,
+              69,
+              99,
+              81,
+              66,
+              239,
+              160,
+              53,
+              43,
+              11,
+              68,
+              173,
+              221,
+              181,
+              51,
+              101,
+              181,
+              13,
+              179,
+              243,
+              61,
+              201,
+              151,
+              127,
+              222,
+              191,
+              200,
+              56,
+              189,
+              22,
+              200
+            ],
+            "virtual_quote_lots_after": 0,
+            "virtual_quote_lots_before": -696689100,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "TradeSummary",
+            "base_lot_position": 0,
+            "base_lots_filled": 107,
+            "cumulative_funding_snapshot": 46019,
+            "fee_in_quote_lots": 216346,
+            "prev_trade_sequence_number_slot": 470476008,
+            "quote_lot_collateral": 8468068,
+            "quote_lots_filled": 686810200,
+            "side": "ask",
+            "trade_sequence_number": 2457971,
+            "trader": [
+              27,
+              20,
+              69,
+              99,
+              81,
+              66,
+              239,
+              160,
+              53,
+              43,
+              11,
+              68,
+              173,
+              221,
+              181,
+              51,
+              101,
+              181,
+              13,
+              179,
+              243,
+              61,
+              201,
+              151,
+              127,
+              222,
+              191,
+              200,
+              56,
+              189,
+              22,
+              200
+            ],
+            "virtual_quote_lot_position": 0
+          },
+          {
+            "kind": "Liquidation",
+            "asset_id": 1,
+            "base_lots_filled": 107,
+            "liquidated_trader": [
+              27,
+              20,
+              69,
+              99,
+              81,
+              66,
+              239,
+              160,
+              53,
+              43,
+              11,
+              68,
+              173,
+              221,
+              181,
+              51,
+              101,
+              181,
+              13,
+              179,
+              243,
+              61,
+              201,
+              151,
+              127,
+              222,
+              191,
+              200,
+              56,
+              189,
+              22,
+              200
+            ],
+            "liquidation_size": 107,
+            "liquidator": [
+              154,
+              63,
+              106,
+              90,
+              128,
+              80,
+              147,
+              171,
+              109,
+              131,
+              190,
+              86,
+              4,
+              129,
+              178,
+              236,
+              14,
+              186,
+              127,
+              236,
+              6,
+              190,
+              224,
+              44,
+              129,
+              197,
+              251,
+              237,
+              90,
+              59,
+              27,
+              41
+            ],
+            "mark_price": 64177,
+            "position_closed": true,
+            "quote_lots_filled": 686593854
+          },
+          {
+            "kind": "MarketSummary",
+            "asset_id": 1,
+            "mark_price": 64177,
+            "open_interest": 308905,
+            "spot_price": 64210,
+            "total_maker_quote_lot_fees": 22825920756,
+            "total_taker_quote_lot_fees": 325684962542,
+            "symbol": "BTC"
+          }
+        ]
+      ],
+      "stats": {
+        "long_open_size": "0.0030",
+        "long_close_size": "0.0107",
+        "long_account_delta": 0,
+        "long_position_flips": 1,
+        "short_open_size": "0.0000",
+        "short_close_size": "0.0077",
+        "short_account_delta": -1,
+        "short_position_flips": 0,
+        "taker_realized_pnl": "-9.878900",
+        "maker_realized_pnl": "0.310933",
+        "taker_fees": "0.216346",
+        "trades": 1,
+        "liquidated_size": "0.0107"
+      }
+    },
+    "2xkSc8JKXm2z4APoaubecLvrGH79nkHY5bx5L7eEDZ6DHch1XXi5rXkDtBBUzzvZoBXprkkWH665S7FQTv94H3fz": {
+      "transaction": {
+        "slot": 470492070,
+        "blockTime": 1794909544,
+        "meta": {
+          "err": null,
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "innerInstructions": [
+            {
+              "index": 3,
+              "instructions": [
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "6au4gBsBeMSHTpMG9LoS7J1QytKPdPt4V2oQfpPbsY7Xho5",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "BLWT587UNdNDY9AWgUGELaifcVKv5tbfbytZbi89veZivSGsWdQNhd8MB1H6xQUrBUMct6uJsBJyeZgLuUAT7b793g1SJtC9CVAJKJyyYexp4frar3nDWCJEUs5BCXZbnfD8b5yxjT5CAqZs4cTY9HrNooxocQZH2yFbaiZJXfZEkzLkVBsyG7ALN66XDYpRAnFGh9kAPrLzGDqyPg5tpNQqKJeAVGVaUxTrfvZ4drKYX2oAqouCVgkakWyA8pVUfJNDn5HGSuGWJzU6o41SJMcLQNnErhZctjGMz3zZJR7cKQ9JL1cXBN36C7vJ6tfQYdxzcdSyaVC1haAotbFcTey8VrkVSez7wqX1r2efM7HhyBCZAmtH3Los2VRkSceScWp8drAKKFPSGUu9ycomJuWq4rrELjErHBwzt4kiAVYN4WuQx97fzJMCVrYmK7JJShtf5XJx6SSJnsmoJ7wU52gDA4wC1ACtEYjJTgqnCWL1Z2CcFkyhuVSyGX6mxR8vuSEEcyFHpRVXoKWEw93x6X9ZVf4ehwrxYB47YfaZJXwbJB3Xj5TbofkzuxRo3Xpkpt2Am94MLgNHiMKrx32BDVyq6VfEKWHcGvsPvoQBQ8hsRhERjQCGMtkyZRchwLqoToBJEFkeuiA9dnAKzLQdyvn2qTXS2nUGMrg9FEev48HjuBKank21jD4ZvSFxoLMZtmaMxnPZyNPQE7N5mB4yDnQj1DHEiU8di1JTWxgE7LFLpsVhkFY44izeFDiBUzNiQ7T72v5csNTQVwouC36DRmUUWvmmbFL8yiyPWr478514r4np7NhzkJ6dzuVZz5h27LWYikjPKohj3tsfpL2ijL39A9wNGEniZga8HoD685Y41BFcTiwhbUPQLB28BHPoQEfwxyfxVCb5YZQhc9Sou9LBySNDGLTwnAgYwKXqcEdoeb8UKFvF6XhQZ8HgotKo5dwvZBnXo1adBcv7iNa2hcQJCAJnTjBymyYK5zRba5SBESn5PxTGGXJLp3vryRE6UB4d26eLjiFwS7RfPCdqwAYXUekuqUDCx8Hki35WNGsNxFnNCSm2BBruMevhZoX47FUL1f86GaeSj",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "transaction": {
+          "signatures": [
+            "2xkSc8JKXm2z4APoaubecLvrGH79nkHY5bx5L7eEDZ6DHch1XXi5rXkDtBBUzzvZoBXprkkWH665S7FQTv94H3fz"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 4
+            },
+            "accountKeys": [
+              "BfcT7VZhL2D5tRqtyzUmoye8vYXqQi372LsDXxhobm4t",
+              "2U32rSzzrQS3eVmGHsnbw5kcqKF3wQXpHGd3hMq5YJok",
+              "2nHGAaEw3D5dd4hVueaUNoygkQFmoeKqRQWnSPqSMFUC",
+              "2nyhqdwKcJZR2vcqCyrYsaPVdAnFoJjiksCXJ7hfEYgD",
+              "2zskx2iyCvb6Stg7RBZkt1f6MrF4dpYtMG3yMvKwqtUZ",
+              "AXFz1MuzMUBHi5UKJuK3FDCQ73o3rSzubGU2mPr4LLU7",
+              "CTatpSZHZBrvsqLM9wt5gXZiy39jiH283PVpjLwT9tSn",
+              "Dh9NrYjzzdvcYgFSbrkATQ1rPkPjDovXWnFVhfWmD2ZF",
+              "HCrPXLByGqRh2szQi3gj7oRdRVBNi1gccAyn4CQCT3HK",
+              "11111111111111111111111111111111",
+              "ComputeBudget111111111111111111111111111111",
+              "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih",
+              "GdxfTLSsdSY37G6fZoYtdGDSfgFnbT2EmRpuePZxWShS"
+            ],
+            "recentBlockhash": "CiV53xQC3tDbFCqK6ChWNuLnKf5KgwjkkTnscGTpi2hT",
+            "instructions": [
+              {
+                "programIdIndex": 10,
+                "accounts": [],
+                "data": "FKjJ6B",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 10,
+                "accounts": [],
+                "data": "3gJqkocMWaMm",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 9,
+                "accounts": [
+                  0,
+                  3
+                ],
+                "data": "3Bxs4PckVVt51W8w",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 11,
+                "accounts": [
+                  11,
+                  12,
+                  4,
+                  0,
+                  6,
+                  2,
+                  8,
+                  1,
+                  5,
+                  7
+                ],
+                "data": "6tq6x192ZuvqJtRABorbkoF1wCRzzCQAGFtNMYrZV9s22QnuBjdx9JzQnjwPcEDiCMVVsJoosHvj4pNSDZnXaJ38oV5Z5PCKPqQT",
+                "stackHeight": 1
+              }
+            ]
+          }
+        }
+      },
+      "native_fills": [
+        {
+          "marketSymbol": "BTC",
+          "baseQty": "0.06",
+          "quoteQty": "-3860.34",
+          "price": "64339.00000000001",
+          "timestamp": "2026-11-17T09:59:03Z",
+          "transactionSignature": "2xkSc8JKXm2z4APoaubecLvrGH79nkHY5bx5L7eEDZ6DHch1XXi5rXkDtBBUzzvZoBXprkkWH665S7FQTv94H3fz",
+          "instructionType": "PlaceMarketOrder"
+        }
+      ],
+      "events": [
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470492070,
+            "timestamp": 1794909543
+          },
+          {
+            "kind": "Header",
+            "asset_id": 1,
+            "base_lot_decimals": 4,
+            "prev_sequence_number_slot": 470492070,
+            "quote_lot_decimals": 6,
+            "sequence_number": 39019285,
+            "signer": [
+              158,
+              121,
+              6,
+              16,
+              38,
+              54,
+              51,
+              132,
+              231,
+              70,
+              175,
+              245,
+              25,
+              246,
+              216,
+              232,
+              11,
+              255,
+              186,
+              240,
+              211,
+              191,
+              120,
+              223,
+              52,
+              14,
+              210,
+              224,
+              75,
+              32,
+              61,
+              1
+            ],
+            "tick_size": 100,
+            "trader_account": [
+              170,
+              63,
+              251,
+              10,
+              142,
+              198,
+              128,
+              195,
+              195,
+              150,
+              142,
+              214,
+              204,
+              104,
+              213,
+              212,
+              179,
+              159,
+              137,
+              236,
+              164,
+              215,
+              200,
+              20,
+              23,
+              194,
+              58,
+              151,
+              96,
+              73,
+              7,
+              99
+            ],
+            "symbol": "BTC"
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 42,
+            "base_lots_before": 642,
+            "funding_payment": 0,
+            "realized_pnl": -2457782,
+            "trader": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "virtual_quote_lots_after": -270395845,
+            "virtual_quote_lots_before": -4133193627,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "SplineFilled",
+            "base_lots_filled": 600,
+            "maker": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "maker_base_lot_position": 42,
+            "maker_cumulative_funding_snapshot": 46019,
+            "maker_fee_rate": 0,
+            "maker_quote_lot_collateral": 5237379469169,
+            "maker_virtual_quote_lot_position": -270395845,
+            "price": 64339,
+            "quote_lots_filled": 3860340000,
+            "side": "ask",
+            "spline_sequence_number": 131430655
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 300,
+            "base_lots_before": -300,
+            "funding_payment": 0,
+            "realized_pnl": 1780000,
+            "trader": [
+              170,
+              63,
+              251,
+              10,
+              142,
+              198,
+              128,
+              195,
+              195,
+              150,
+              142,
+              214,
+              204,
+              104,
+              213,
+              212,
+              179,
+              159,
+              137,
+              236,
+              164,
+              215,
+              200,
+              20,
+              23,
+              194,
+              58,
+              151,
+              96,
+              73,
+              7,
+              99
+            ],
+            "virtual_quote_lots_after": -1930170000,
+            "virtual_quote_lots_before": 1931950000,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "TradeSummary",
+            "base_lot_position": 300,
+            "base_lots_filled": 600,
+            "cumulative_funding_snapshot": 46019,
+            "fee_in_quote_lots": 0,
+            "prev_trade_sequence_number_slot": 470492070,
+            "quote_lot_collateral": 269089345,
+            "quote_lots_filled": 3860340000,
+            "side": "bid",
+            "trade_sequence_number": 2458197,
+            "trader": [
+              170,
+              63,
+              251,
+              10,
+              142,
+              198,
+              128,
+              195,
+              195,
+              150,
+              142,
+              214,
+              204,
+              104,
+              213,
+              212,
+              179,
+              159,
+              137,
+              236,
+              164,
+              215,
+              200,
+              20,
+              23,
+              194,
+              58,
+              151,
+              96,
+              73,
+              7,
+              99
+            ],
+            "virtual_quote_lot_position": -1930170000
+          },
+          {
+            "kind": "MarketSummary",
+            "asset_id": 1,
+            "mark_price": 64330,
+            "open_interest": 307467,
+            "spot_price": 64359,
+            "total_maker_quote_lot_fees": 22826910240,
+            "total_taker_quote_lot_fees": 325715842141,
+            "symbol": "BTC"
+          }
+        ]
+      ],
+      "stats": {
+        "long_open_size": "0.0300",
+        "long_close_size": "0.0600",
+        "long_account_delta": 1,
+        "long_position_flips": 1,
+        "short_open_size": "0.0000",
+        "short_close_size": "0.0300",
+        "short_account_delta": -1,
+        "short_position_flips": 0,
+        "taker_realized_pnl": "1.780000",
+        "maker_realized_pnl": "-2.457782",
+        "taker_fees": "0.000000",
+        "trades": 1,
+        "liquidated_size": "0.0000"
+      }
+    },
+    "4c76stoA3viqb1MXerRFC8z3AYRGBFkUg1PJq74TnAcMYRkGSeoKeS5UqX6iJXcqvbNoHsgN4t3QXHF5stTi5JZz": {
+      "transaction": {
+        "slot": 470492070,
+        "blockTime": 1794909544,
+        "meta": {
+          "err": null,
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "innerInstructions": [
+            {
+              "index": 3,
+              "instructions": [
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "dYUNoGqqvRb1eo2Ks6eFrQAaQ3saZ7Uikn2kXTWMz56YuF2UdZJw",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 11,
+                  "accounts": [
+                    12
+                  ],
+                  "data": "T9tWZ9erarhiauBFvsz8ZJucBSMjf9cqYUHpLMuFaMTCSqyVJSbB7dZpTaRdef5BWxSy7NPUwo3gHrK469x7hu8r87rhRVy6kwXTwMifC2U54XgD4NLvGkw2FB87dNtmedDSrtgwj7LrKyUnRUkzzfM8v5z2PgP8en7FcWq6anrtXJjRinVF3e9YBvfAmCrfgqnpdeAuNjjFPXc5ZdjidnJqthUbqS5zt6F91JVGAptzGqggZcrPo4LngDvQ9TC8e96UqVg22F8JFBUFnoPs1pq2k6PzD4PpbqqpAKo6YKn8J8CWs23ZcYybsZ4FE2o4GXJnq3xJSrUN5yJ9w91S2XFUgPPK5tCpGtUwMywzgYxTGigFB7wjFxzmR2tEQWZrRBhN3E3hxnyTnM6cwYg8QKCJFqjS5C27XeVYjqXmWBq6xCKoUy6a9xSE5rmB5g5HdFag2oPJ7RxSmy79MugUQsprBkT8n6vmx4yMd67SxPGwyZuVLoT65omcrDGSUpzTMvA9fuJs2PkwbKdqCkx9dMzbmMa2mEyRD7QLyG13AvVKNrChiutrwYcJTC72hRH9FWHcK7dJ6LPxJ6DWqATyUZUDmb26GSi5sxnNNypDbmvVPKDnNakXnkSTjUhbv6wag8dkv7NMpq7C3mP8Y2d6SYdEwfKhCTLbT5TadLx3rdYRWfAz9R9vkQk2zspCXoFxoV7zwmAhXm7kKxRMTXVmW1Rrzrgt1rABqtrBQvBQfbgcb1BkhMBpcu1uJwpqLWyfCCXLtwRFkduaiGdti4VQ63v9CCCXTWueVEAA5rFsBUmEmgc3ou4HvfVDPic3h2b9osYgVw3dG591dmH8i5XLqrNYQ1AKxBB4b7D4AhNpN6Jj31VNXFdj6NRGpwZSmakw6XdtrAxaTYai5fpyjwVgwTz3DeHyByVR6ovZvtqw3MNmQitoYTYU5tfXW7sDMp2EQZWfPQCYZXUSLJZ5e8CNGnctLBwMg6AviJTYrgpwaRqktGjzPo724idebvwNcvF2pjHpVQbf6nYNTPWJ2RZ5CSgMhFHMULt2yBMmD3WRBNkv5a7wJv6QSH4W7bCjgX7B5DcKrmZbpn5Xp83qgiySpAWw13rMv1wzzisPaBezLAoa8RUwjSVpF1k7WsiYkrm7HWrFtjPj7FpR3Tud8J32a63XBwBgYV6kLELbr6DCs6zUtFh3UdYJeC27sQRsLLUaLd9Ax3cw5V3RpzpGtG5BpVHhJtNMytbrE67RpbBcAeZnRFzW1YKtaUjgN2L2MPNAzjfgnxMX9o2fVVzP4mH1yVKShcxfn5BAXCdhesyGfEG5N6cGa1xbELuWqhgo1r3VqnnsSB35fg2daPRo3RnJnDZtHWzCoUEtTy",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "transaction": {
+          "signatures": [
+            "4c76stoA3viqb1MXerRFC8z3AYRGBFkUg1PJq74TnAcMYRkGSeoKeS5UqX6iJXcqvbNoHsgN4t3QXHF5stTi5JZz"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 4
+            },
+            "accountKeys": [
+              "6BLkjBHCU83sSJX6vb7Bp5TWvBkbXh2ThVXmZSXiDyNF",
+              "2U32rSzzrQS3eVmGHsnbw5kcqKF3wQXpHGd3hMq5YJok",
+              "2nHGAaEw3D5dd4hVueaUNoygkQFmoeKqRQWnSPqSMFUC",
+              "2zskx2iyCvb6Stg7RBZkt1f6MrF4dpYtMG3yMvKwqtUZ",
+              "4eFpN6QjhntXzKKK4PhtQ3q49Ene8wbTEedRcBkWkgZ6",
+              "9bnz4RShgq1hAnLnZbP8kbgBg1kEmcJBYQq3gQbmnSta",
+              "AXFz1MuzMUBHi5UKJuK3FDCQ73o3rSzubGU2mPr4LLU7",
+              "Dh9NrYjzzdvcYgFSbrkATQ1rPkPjDovXWnFVhfWmD2ZF",
+              "HCrPXLByGqRh2szQi3gj7oRdRVBNi1gccAyn4CQCT3HK",
+              "11111111111111111111111111111111",
+              "ComputeBudget111111111111111111111111111111",
+              "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih",
+              "GdxfTLSsdSY37G6fZoYtdGDSfgFnbT2EmRpuePZxWShS"
+            ],
+            "recentBlockhash": "8tNzJCo8nLrdorWdFsYZnRHzsP5XwEXJv8NTYQ5fZPFt",
+            "instructions": [
+              {
+                "programIdIndex": 10,
+                "accounts": [],
+                "data": "HMypLP",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 10,
+                "accounts": [],
+                "data": "3Sy41WEwNLnT",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 9,
+                "accounts": [
+                  0,
+                  5
+                ],
+                "data": "3Bxs4PckVVt51W8w",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 11,
+                "accounts": [
+                  11,
+                  12,
+                  3,
+                  0,
+                  4,
+                  2,
+                  8,
+                  1,
+                  6,
+                  7
+                ],
+                "data": "6tq6x192ZuvqJtRKiArPQxcigqbZJ98wJ9Hh27ycaUBu6jNZWNFuKmkyLbVWrj9MdBAexkW4NrqM3Y6nJ86KsKQxaRZYhdtscuhh",
+                "stackHeight": 1
+              }
+            ]
+          }
+        }
+      },
+      "native_fills": [
+        {
+          "marketSymbol": "BTC",
+          "baseQty": "0.0018",
+          "quoteQty": "-115.8138",
+          "price": "64341",
+          "timestamp": "2026-11-17T09:59:03Z",
+          "transactionSignature": "4c76stoA3viqb1MXerRFC8z3AYRGBFkUg1PJq74TnAcMYRkGSeoKeS5UqX6iJXcqvbNoHsgN4t3QXHF5stTi5JZz",
+          "instructionType": "PlaceMarketOrder"
+        },
+        {
+          "marketSymbol": "BTC",
+          "baseQty": "0.0913",
+          "quoteQty": "-5874.242",
+          "price": "64340",
+          "timestamp": "2026-11-17T09:59:03Z",
+          "transactionSignature": "4c76stoA3viqb1MXerRFC8z3AYRGBFkUg1PJq74TnAcMYRkGSeoKeS5UqX6iJXcqvbNoHsgN4t3QXHF5stTi5JZz",
+          "instructionType": "PlaceMarketOrder"
+        }
+      ],
+      "events": [
+        [
+          {
+            "kind": "SlotContext",
+            "slot": 470492070,
+            "timestamp": 1794909543
+          },
+          {
+            "kind": "Header",
+            "asset_id": 1,
+            "base_lot_decimals": 4,
+            "prev_sequence_number_slot": 470492070,
+            "quote_lot_decimals": 6,
+            "sequence_number": 39019286,
+            "signer": [
+              76,
+              240,
+              148,
+              27,
+              181,
+              190,
+              161,
+              65,
+              188,
+              119,
+              132,
+              112,
+              212,
+              93,
+              73,
+              230,
+              72,
+              30,
+              208,
+              209,
+              14,
+              75,
+              139,
+              82,
+              113,
+              92,
+              183,
+              8,
+              20,
+              142,
+              19,
+              32
+            ],
+            "tick_size": 100,
+            "trader_account": [
+              54,
+              30,
+              77,
+              205,
+              94,
+              236,
+              94,
+              80,
+              196,
+              118,
+              50,
+              114,
+              8,
+              170,
+              75,
+              91,
+              122,
+              179,
+              87,
+              107,
+              236,
+              168,
+              197,
+              59,
+              194,
+              12,
+              176,
+              177,
+              192,
+              221,
+              83,
+              41
+            ],
+            "symbol": "BTC"
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 173815,
+            "base_lots_before": 174728,
+            "funding_payment": 0,
+            "realized_pnl": -48548641,
+            "trader": [
+              185,
+              72,
+              179,
+              148,
+              95,
+              246,
+              243,
+              235,
+              172,
+              43,
+              254,
+              60,
+              242,
+              145,
+              210,
+              248,
+              147,
+              56,
+              195,
+              20,
+              84,
+              136,
+              234,
+              135,
+              46,
+              131,
+              27,
+              171,
+              130,
+              72,
+              12,
+              185
+            ],
+            "virtual_quote_lots_after": -1127568297252,
+            "virtual_quote_lots_before": -1133491087893,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "SplineFilled",
+            "base_lots_filled": 913,
+            "maker": [
+              185,
+              72,
+              179,
+              148,
+              95,
+              246,
+              243,
+              235,
+              172,
+              43,
+              254,
+              60,
+              242,
+              145,
+              210,
+              248,
+              147,
+              56,
+              195,
+              20,
+              84,
+              136,
+              234,
+              135,
+              46,
+              131,
+              27,
+              171,
+              130,
+              72,
+              12,
+              185
+            ],
+            "maker_base_lot_position": 173815,
+            "maker_cumulative_funding_snapshot": 46019,
+            "maker_fee_rate": 0,
+            "maker_quote_lot_collateral": 5322766695938,
+            "maker_virtual_quote_lot_position": -1127568297252,
+            "price": 64340,
+            "quote_lots_filled": 5874242000,
+            "side": "ask",
+            "spline_sequence_number": 131430654
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 24,
+            "base_lots_before": 42,
+            "funding_payment": 0,
+            "realized_pnl": -70133,
+            "trader": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "virtual_quote_lots_after": -154511912,
+            "virtual_quote_lots_before": -270395845,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "SplineFilled",
+            "base_lots_filled": 18,
+            "maker": [
+              51,
+              149,
+              142,
+              235,
+              18,
+              77,
+              14,
+              220,
+              222,
+              1,
+              233,
+              82,
+              130,
+              39,
+              222,
+              148,
+              190,
+              153,
+              245,
+              208,
+              197,
+              25,
+              209,
+              206,
+              197,
+              78,
+              62,
+              158,
+              246,
+              15,
+              95,
+              63
+            ],
+            "maker_base_lot_position": 24,
+            "maker_cumulative_funding_snapshot": 46019,
+            "maker_fee_rate": 0,
+            "maker_quote_lot_collateral": 5237379399036,
+            "maker_virtual_quote_lot_position": -154511912,
+            "price": 64341,
+            "quote_lots_filled": 115813800,
+            "side": "ask",
+            "spline_sequence_number": 131430655
+          },
+          {
+            "kind": "PnL",
+            "asset_id": 1,
+            "base_lots_after": 466,
+            "base_lots_before": -465,
+            "funding_payment": 0,
+            "realized_pnl": 2550059,
+            "trader": [
+              54,
+              30,
+              77,
+              205,
+              94,
+              236,
+              94,
+              80,
+              196,
+              118,
+              50,
+              114,
+              8,
+              170,
+              75,
+              91,
+              122,
+              179,
+              87,
+              107,
+              236,
+              168,
+              197,
+              59,
+              194,
+              12,
+              176,
+              177,
+              192,
+              221,
+              83,
+              41
+            ],
+            "virtual_quote_lots_after": -2998244901,
+            "virtual_quote_lots_before": 2994360958,
+            "symbol": "BTC"
+          },
+          {
+            "kind": "TradeSummary",
+            "base_lot_position": 466,
+            "base_lots_filled": 931,
+            "cumulative_funding_snapshot": 46019,
+            "fee_in_quote_lots": 0,
+            "prev_trade_sequence_number_slot": 470492070,
+            "quote_lot_collateral": 2027141023,
+            "quote_lots_filled": 5990055800,
+            "side": "bid",
+            "trade_sequence_number": 2458198,
+            "trader": [
+              54,
+              30,
+              77,
+              205,
+              94,
+              236,
+              94,
+              80,
+              196,
+              118,
+              50,
+              114,
+              8,
+              170,
+              75,
+              91,
+              122,
+              179,
+              87,
+              107,
+              236,
+              168,
+              197,
+              59,
+              194,
+              12,
+              176,
+              177,
+              192,
+              221,
+              83,
+              41
+            ],
+            "virtual_quote_lot_position": -2998244901
+          },
+          {
+            "kind": "MarketSummary",
+            "asset_id": 1,
+            "mark_price": 64330,
+            "open_interest": 307002,
+            "spot_price": 64359,
+            "total_maker_quote_lot_fees": 22826910240,
+            "total_taker_quote_lot_fees": 325715842141,
+            "symbol": "BTC"
+          }
+        ]
+      ],
+      "stats": {
+        "long_open_size": "0.0466",
+        "long_close_size": "0.0931",
+        "long_account_delta": 1,
+        "long_position_flips": 1,
+        "short_open_size": "0.0000",
+        "short_close_size": "0.0465",
+        "short_account_delta": -1,
+        "short_position_flips": 0,
+        "taker_realized_pnl": "2.550059",
+        "maker_realized_pnl": "-48.618774",
+        "taker_fees": "0.000000",
+        "trades": 2,
+        "liquidated_size": "0.0000"
+      }
+    }
+  }
+}

@@ -10,6 +10,7 @@ from quant_tick.constants import Exchange
 from .aggregate import filter_by_timestamp
 from .calendar import iter_window
 from .dataframe import has_column_group, is_decimal_close
+from .volume_brackets import aggregate_volume_brackets, parse_volume_brackets
 
 ZERO = Decimal(0)
 
@@ -41,8 +42,14 @@ def resample_candles(
     timestamp_to: datetime,
     resolution_minutes: int,
     source_resolution_minutes: int | None = None,
+    missing_candles_are_zero: bool = False,
 ) -> DataFrame:
-    """Aggregate candle to a coarser resolution."""
+    """Aggregate fully elapsed target intervals from source candles.
+
+    Sources that omit zero-trade intervals may set missing_candles_are_zero.
+    Their traded windows use observed prices and totals; wholly quiet windows
+    remain absent. Other sources require every constituent candle.
+    """
     if data_frame.empty:
         return data_frame
     frame = data_frame.copy()
@@ -58,7 +65,14 @@ def resample_candles(
     frame.index = frame.index.floor(f"{resolution_minutes}min")
     frame.index.name = "timestamp"
     counts = frame.groupby(level=0)["_source_timestamp"].nunique()
-    complete = counts[counts == expected_rows].index
+    complete = (
+        counts.index
+        if missing_candles_are_zero
+        else counts[counts == expected_rows].index
+    )
+    complete = complete[
+        complete + pd.Timedelta(minutes=resolution_minutes) <= timestamp_to
+    ]
     frame = frame[frame.index.isin(complete)]
     if frame.empty:
         return data_frame.iloc[0:0].copy()
@@ -140,6 +154,7 @@ def aggregate_candle(
     timestamp: datetime | None = None,
     min_volume_exponent: int | None = None,
     min_notional_exponent: int | None = None,
+    volume_brackets: list | None = None,
 ) -> dict:
     """Aggregate candle."""
     ts = timestamp if timestamp else data_frame.iloc[0].timestamp
@@ -153,6 +168,9 @@ def aggregate_candle(
         )
     )
     data.update(_aggregate_realized_variance(data_frame))
+    bounds = parse_volume_brackets(volume_brackets)
+    if bounds:
+        data["volumeBrackets"] = aggregate_volume_brackets(data_frame, bounds, data)
     return data
 
 

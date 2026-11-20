@@ -1,8 +1,6 @@
 from collections.abc import Generator
 from datetime import datetime
 
-from django.db.models import Q
-
 from quant_tick.constants import RETRY_INDETERMINATE, Frequency, TradeDataRetry
 from quant_tick.lib import (
     get_current_time,
@@ -90,19 +88,15 @@ class TradeDataIterator:
         timestamp_to: datetime,
         retry: TradeDataRetry = False,
     ) -> list[datetime]:
-        """Return existing minute timestamps for the partition."""
-        queryset = TradeData.objects.filter(
-            symbol=self.symbol,
-            timestamp__gte=timestamp_from,
-            timestamp__lt=timestamp_to,
+        """Return coverage without mutating stored rows or files during discovery."""
+        queryset = TradeData.objects.overlapping(
+            self.symbol,
+            timestamp_from,
+            timestamp_to,
+            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
         )
         if retry:
             retry_indeterminate = retry == RETRY_INDETERMINATE
-            # Delete daily data.
-            daily_filter = Q(frequency=Frequency.DAY, ok=False)
-            if retry_indeterminate:
-                daily_filter |= Q(frequency=Frequency.DAY, ok__isnull=True)
-            queryset.filter(daily_filter).delete()
             # Only leave rows that should block refetching in the existing set.
             if retry_indeterminate:
                 queryset = queryset.filter(ok=True)

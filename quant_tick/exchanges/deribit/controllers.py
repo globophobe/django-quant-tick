@@ -18,17 +18,22 @@ def deribit_trades(
     verbose: bool = False,
 ) -> None:
     """Get Deribit trades."""
-    timestamp_from = max(timestamp_from, _get_deribit_history_start(symbol))
-    if timestamp_from >= timestamp_to:
-        return
-    DeribitTrades(
+    controller = DeribitTrades(
         symbol,
         timestamp_from=timestamp_from,
         timestamp_to=timestamp_to,
         on_data_frame=on_data_frame,
         retry=retry,
         verbose=verbose,
-    ).main()
+    )
+    websocket_rows = (
+        controller.get_websocket_rows(timestamp_from, timestamp_to)
+        if retry is not True
+        else None
+    )
+    controller.timestamp_from = max(timestamp_from, _get_deribit_history_start(symbol))
+    if controller.timestamp_from < timestamp_to:
+        controller.main(websocket_rows=websocket_rows)
 
 
 def _get_deribit_history_start(symbol: Symbol) -> datetime:

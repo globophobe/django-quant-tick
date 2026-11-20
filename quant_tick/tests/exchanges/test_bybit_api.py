@@ -44,11 +44,11 @@ class BybitAPITest(SimpleTestCase):
     def test_rate_limit_retries_after_reset_or_fallback(self):
         for reset, expected_delay in (
             ("1004500", 4.5),
-            (None, 2),
-            ("invalid", 2),
-            ("999000", 2),
-            ("1000000", 2),
-            ("1000250", 2),
+            (None, 1),
+            ("invalid", 1),
+            ("999000", 1),
+            ("1000000", 1),
+            ("1000250", 1),
         ):
             with self.subTest(reset=reset):
                 self.now = 1000.0
@@ -85,7 +85,7 @@ class BybitAPITest(SimpleTestCase):
                 self.assertEqual(self.get.call_count, attempts)
                 self.assertEqual(
                     self.sleep.call_args_list,
-                    [call(2)] * (attempts - 1) + [call(0.5)],
+                    [call(1)] * (attempts - 1) + [call(0.5)],
                 )
 
     def test_other_api_errors_fail_without_retry(self):

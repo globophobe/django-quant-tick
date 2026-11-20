@@ -69,6 +69,10 @@ class TimeBasedCandleFastPathTest(BaseWriteTradeDataTest, TestCase):
             data = candle.get_trade_candle(self.day_from, self.one_day_from, trade_data)
 
         self.assertEqual(data, payload)
+        candle.json_data["volume_brackets"] = [10000, 100000]
+        self.assertIsNone(
+            candle.get_trade_candle(self.day_from, self.one_day_from, trade_data)
+        )
 
     def test_get_trade_candle_returns_none_when_source_data_differs(self):
         symbol = self.get_symbol(save_raw=False)

@@ -126,6 +126,40 @@ class IterChunksTest(SimpleTestCase):
 
 
 class IterTimeframeTest(SimpleTestCase):
+    def test_partial_edges_preserve_complete_coverage_in_both_directions(self):
+        anchor = datetime(2025, 1, 1, tzinfo=UTC)
+        cases = (
+            (1, 5, [(1, 4), (4, 5)]),
+            (1, 9, [(1, 4), (4, 8), (8, 9)]),
+            (3, 5, [(3, 4), (4, 5)]),
+            (1, 3, [(1, 3)]),
+            (1, 8, [(1, 4), (4, 8)]),
+            (0, 5, [(0, 4), (4, 5)]),
+            (0, 8, [(0, 4), (4, 8)]),
+        )
+        for value in ("1h", "1d"):
+            quarter = pd.Timedelta(value) / 4
+            for first, last, intervals in cases:
+                expected = [
+                    (anchor + start * quarter, anchor + end * quarter)
+                    for start, end in intervals
+                ]
+                for reverse in (False, True):
+                    with self.subTest(
+                        value=value, first=first, last=last, reverse=reverse
+                    ):
+                        self.assertEqual(
+                            list(
+                                iter_timeframe(
+                                    anchor + first * quarter,
+                                    anchor + last * quarter,
+                                    value=value,
+                                    reverse=reverse,
+                                )
+                            ),
+                            expected[::-1] if reverse else expected,
+                        )
+
     def setUp(self):
         self.now = get_current_time()
 

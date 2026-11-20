@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -8,14 +9,14 @@ from django.urls import reverse
 
 from quant_tick.constants import Exchange, SymbolType, TaskType
 from quant_tick.models import Symbol, TaskState
+from quant_tick.views.fetch_exchange_data import FetchExchangeDataView
 
 
 class FetchExchangeDataViewTest(TestCase):
     def setUp(self):
         super().setUp()
         perpetual_stats_patcher = patch(
-            "quant_tick.views.fetch_exchange_data."
-            "fetch_symbol_perpetual_stats"
+            "quant_tick.views.fetch_exchange_data.fetch_symbol_perpetual_stats"
         )
         self.mock_perpetual_stats = perpetual_stats_patcher.start()
         self.addCleanup(perpetual_stats_patcher.stop)
@@ -68,6 +69,73 @@ class FetchExchangeDataViewTest(TestCase):
     def get_url(self) -> str:
         return reverse("fetch_exchange_data")
 
+    def test_optional_positioning_runs_after_native_data_and_only_with_key(self):
+        symbol = Symbol.objects.get(exchange=Exchange.HYPERLIQUID, api_symbol="BTC")
+        start = datetime(2026, 5, 1, tzinfo=UTC)
+        end = datetime(2026, 5, 2, tzinfo=UTC)
+        for key in ("", "test-key"):
+            events = []
+            with (
+                self.subTest(configured=bool(key)),
+                patch.dict(os.environ, {"QUICKNODE_API_KEY": key}),
+                patch(
+                    "quant_tick.views.fetch_exchange_data.fetch_symbol_funding",
+                    side_effect=lambda *a, events=events, **kw: events.append(
+                        "funding"
+                    ),
+                ),
+                patch(
+                    "quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles",
+                    side_effect=lambda *a, events=events, **kw: events.append(
+                        "candles"
+                    ),
+                ),
+                patch(
+                    "quant_tick.views.fetch_exchange_data.fetch_symbol_perpetual_stats",
+                    side_effect=lambda *a, events=events, **kw: events.append(
+                        "positioning"
+                    ),
+                ),
+            ):
+                counts = FetchExchangeDataView().fetch_symbol_exchange_data(
+                    symbol, start, end, False, current_timestamp_to=end
+                )
+            self.assertEqual(
+                events, ["funding", "candles"] + (["positioning"] if key else [])
+            )
+            self.assertEqual(counts["perpetual_stats"], int(bool(key)))
+
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
+    def test_collection_selects_only_active_symbols(self, mock_funding):
+        symbol = Symbol.objects.create(
+            exchange=Exchange.PHOENIX,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        Symbol.objects.create(
+            exchange=Exchange.PHOENIX,
+            api_symbol="ETH",
+            symbol_type=SymbolType.PERPETUAL,
+            is_active=False,
+        )
+        order = []
+        self.mock_perpetual_stats.side_effect = lambda *a, **kw: order.append("history")
+        with patch(
+            "quant_tick.views.fetch_exchange_data.collect_snapshot",
+            side_effect=lambda *a, **kw: order.append("snapshot"),
+        ) as snapshot:
+            response = self.client.get(self.get_url(), {"exchange": Exchange.PHOENIX})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["funding"], 1)
+        self.assertEqual(response.json()["perpetual_stats"], 1)
+        mock_funding.assert_called_once()
+        self.assertEqual(mock_funding.call_args.args[0], symbol)
+        self.assertTrue(callable(mock_funding.call_args.kwargs["assert_lease_owned"]))
+        self.assertEqual(order, ["snapshot", "history"])
+        snapshot.assert_called_once()
+        self.assertEqual(snapshot.call_args.args, (symbol,))
+        self.assertTrue(callable(snapshot.call_args.kwargs["assert_lease_owned"]))
+
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_exchange_candles")
     @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_funding")
     def test_get_fetches_supported_exchange_data(self, mock_funding, mock_candles):
@@ -118,7 +186,9 @@ class FetchExchangeDataViewTest(TestCase):
         )
         completed_minute = datetime(2026, 5, 2, 0, 0, tzinfo=UTC)
         self.assertTrue(
-            all(call.args[2] == completed_minute for call in mock_candles.call_args_list)
+            all(
+                call.args[2] == completed_minute for call in mock_candles.call_args_list
+            )
         )
         funding_symbols = {
             (call.args[0].exchange, call.args[0].api_symbol)
