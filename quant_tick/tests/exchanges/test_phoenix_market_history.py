@@ -1079,7 +1079,14 @@ class PhoenixHistoryCollectionTest(TestCase):
                     open_interest=1,
                     open_interest_value=1,
                     taker_long_short_volume_ratio=Decimal(7),
-                    json_data={"liquidated_size": "99"},
+                    json_data={
+                        "liquidated_size": "99",
+                        "taker_flow_concentration": {
+                            "accounts": 1,
+                            "buy": {"top1_share": "1"},
+                            "sell": {"top1_share": "1"},
+                        },
+                    },
                 )
                 for retry in range(2):
                     perpetual_stats(self.symbol, self.start, end, retry=True)
@@ -1129,6 +1136,14 @@ class PhoenixHistoryCollectionTest(TestCase):
                     ):
                         self.assertEqual(Decimal(row[field]), 0)
                     self.assertTrue(row["liquidation_flow_validated"])
+                    self.assertEqual(row["taker_flow_concentration"]["accounts"], 0)
+                    for direction in ("buy", "sell"):
+                        self.assertIsNone(
+                            row["taker_flow_concentration"][direction]["top1_share"]
+                        )
+                        self.assertIsNone(
+                            row["taker_flow_concentration"][direction]["top5_share"]
+                        )
                     self.assertIsNone(saved.taker_long_short_volume_ratio)
                 self.snapshot.assert_called_once()
                 self.assertEqual(Checkpoint.objects.count(), 2)
@@ -1430,6 +1445,20 @@ class PhoenixPositioningTest(SimpleTestCase):
                 for field, value in case["stats"].items():
                     self.assertEqual(Decimal(result[field]), Decimal(value), field)
                 self.assertTrue(result["trade_position_flow_validated"])
+                concentration = result["taker_flow_concentration"]
+                self.assertEqual(concentration["accounts"], 1)
+                for side in ("buy", "sell"):
+                    active = result["taker_" + side + "_size"] > 0
+                    self.assertEqual(concentration[side]["accounts"], int(active))
+                    self.assertEqual(
+                        concentration[side]["top1_share"], 1 if active else None
+                    )
+                for tier in result["position_size_flows"]:
+                    for field, value in tier["liquidation"].items():
+                        self.assertEqual(
+                            value,
+                            tier[field] if kind == "LiquidateViaMarketOrder" else 0,
+                        )
                 self.assertNotIn("long_short_account_ratio", result)
                 self.assertNotIn("open_interest_high", result)
                 self.assertNotIn("minute_open_interest_high", result)
@@ -1479,6 +1508,79 @@ class PhoenixPositioningTest(SimpleTestCase):
                         self.assertEqual(
                             totals["liquidated_size"], result["liquidated_size"]
                         )
+
+    def test_concentration_combines_repeated_accounts_on_each_side(self):
+        trades, positions = [], {}
+        for index, (account, quantity) in enumerate(
+            (
+                ("a", 1),
+                ("a", 2),
+                ("b", 2),
+                ("c", 1),
+                ("d", 1),
+                ("e", 1),
+                ("f", 1),
+                ("b", -1),
+            ),
+            1,
+        ):
+            before = positions.get(account, 0)
+            after = positions[account] = before + quantity
+            size, bought = abs(quantity), quantity > 0
+            maker = "maker-" + str(index)
+            trade = {
+                "header": {
+                    "base_lot_decimals": 0,
+                    "quote_lot_decimals": 0,
+                    "tick_size": 1,
+                },
+                "summary": {
+                    "trader": account,
+                    "side": "bid" if bought else "ask",
+                    "trade_sequence_number": index,
+                    "base_lots_filled": size,
+                    "quote_lots_filled": size * 100,
+                    "base_lot_position": after,
+                    "fee_in_quote_lots": 0,
+                },
+                "fills": [
+                    {
+                        "maker": maker,
+                        "side": "ask" if bought else "bid",
+                        "base_lots_filled": size,
+                        "quote_lots_filled": size * 100,
+                        "maker_base_lot_position": 0,
+                        "price": 100,
+                    }
+                ],
+                "pnls": [
+                    {
+                        "trader": account,
+                        "base_lots_before": before,
+                        "base_lots_after": after,
+                        "realized_pnl": 0,
+                    },
+                    {
+                        "trader": maker,
+                        "base_lots_before": quantity,
+                        "base_lots_after": 0,
+                        "realized_pnl": 0,
+                    },
+                ],
+                "liquidated": False,
+            }
+            positioning.validate_trade(trade)
+            trades.append(trade)
+        result = positioning.aggregate(trades)["taker_flow_concentration"]
+        self.assertEqual(result["accounts"], 6)
+        self.assertEqual(result["buy"]["accounts"], 6)
+        self.assertEqual(result["sell"]["accounts"], 1)
+        self.assertEqual(result["buy"]["size"], 9)
+        self.assertEqual(result["buy"]["top1_size"], 3)
+        self.assertEqual(result["buy"]["top5_size"], 8)
+        self.assertEqual(result["buy"]["top1_share"], Decimal(1) / 3)
+        self.assertEqual(result["buy"]["top5_share"], Decimal(8) / 9)
+        self.assertEqual(result["sell"]["top1_share"], 1)
 
     def test_one_order_can_cross_position_brackets_between_fills(self):
         for sign in (1, -1):

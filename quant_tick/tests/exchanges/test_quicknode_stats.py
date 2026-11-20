@@ -80,12 +80,34 @@ class QuickNodeStatsTest(SimpleTestCase):
                     row["minute_open_interest_" + field],
                 )
             self.assertEqual(len(row["position_size_flows"]), 5)
+            concentration = row["taker_flow_concentration"]
+            for side in ("buy", "sell"):
+                self.assertEqual(
+                    concentration[side]["size"], row["taker_" + side + "_size"]
+                )
+                self.assertGreater(concentration[side]["accounts"], 5)
+                self.assertLess(
+                    concentration[side]["top1_share"], concentration[side]["top5_share"]
+                )
+            for unit in ("size", "value"):
+                self.assertEqual(
+                    sum(
+                        tier["liquidation"]["taker_buy_" + unit]
+                        + tier["liquidation"]["taker_sell_" + unit]
+                        for tier in row["position_size_flows"]
+                    ),
+                    row["liquidated_" + unit],
+                )
             self.assertEqual(row["market_history_source"], "quicknode")
             self.assertEqual(row["cohort_price_source"], "last_trade_before_funding")
             self.assertTrue(row["position_flow_validated"])
             self.assertTrue(row["liquidation_flow_validated"])
             self.assertLess(row["cohort_timestamp"], row["oi_timestamp"])
         self.assertEqual(rows[2]["liquidated_size"], Decimal("5472.31819"))
+        self.assertGreater(
+            rows[2]["taker_long_realized_loss"], abs(rows[2]["taker_realized_pnl"])
+        )
+        self.assertGreater(rows[2]["taker_long_realized_profit"], 0)
         self.assertEqual(rows[2]["backstop_size"], Decimal("6077.05804"))
         self.assertEqual(rows[2]["adl_size"], Decimal("5832.39030"))
         self.assertEqual(rows[2]["netting_size"], Decimal("30.40946"))
@@ -168,7 +190,17 @@ class QuickNodeStatsTest(SimpleTestCase):
     def test_inconsistent_size_or_minute_breakdowns_cannot_become_valid_statistics(
         self,
     ):
-        for corruption in ("tier", "size", "minute", "delta", "missing_minutes"):
+        for corruption in (
+            "tier",
+            "size",
+            "minute",
+            "delta",
+            "missing_minutes",
+            "liquidation",
+            "pnl",
+            "concentration",
+            "accounts",
+        ):
             data = fixture()
             raw = data["flows"][0]
             if corruption == "tier":
@@ -182,11 +214,21 @@ class QuickNodeStatsTest(SimpleTestCase):
                     raw["minute_deltas"][0][i] = str(
                         Decimal(raw["minute_deltas"][0][i]) + 1
                     )
+            elif corruption == "liquidation":
+                raw["size_flows"][0][9] = str(Decimal(raw["size_flows"][0][9]) + 1)
+            elif corruption == "pnl":
+                raw["taker_long_realized_profit"] = str(
+                    Decimal(raw["taker_long_realized_profit"]) + 1
+                )
+            elif corruption == "concentration":
+                raw["account_buy_size"] = str(Decimal(raw["account_buy_size"]) + 1)
+            elif corruption == "accounts":
+                raw["active_taker_accounts"] = 0
             else:
                 raw["minute_deltas"] = []
             with (
                 self.subTest(corruption=corruption),
-                self.assertRaisesRegex(ValueError, "position|reconcile"),
+                self.assertRaisesRegex(ValueError, "position|reconcile|account"),
             ):
                 collect(data)
 
@@ -209,6 +251,7 @@ class QuickNodeStatsTest(SimpleTestCase):
                         for key in (
                             *flows.FLOW_FIELDS,
                             *flows.SIGNED_FLOW_FIELDS,
+                            *flows.PNL_FIELDS,
                             *flows.COUNT_FIELDS,
                         )
                     }
@@ -221,6 +264,12 @@ class QuickNodeStatsTest(SimpleTestCase):
                         short_account_delta=0,
                         fee_tokens=["USDC"],
                         size_flows=[],
+                        active_taker_accounts=0,
+                        **{
+                            f"account_{side}_{field}": 0
+                            for side in ("buy", "sell")
+                            for field in ("count", "size", "top1_size", "top5_size")
+                        },
                         minute_deltas=[
                             [
                                 str(START),
@@ -431,6 +480,12 @@ class QuickNodeStatsPersistenceTest(BaseSymbolTest, TestCase):
         )
         stored = PerpetualStatsData.objects.get(timestamp=START).to_row()
         self.assertEqual(stored["position_size_flows"], row["position_size_flows"])
+        self.assertEqual(
+            stored["taker_flow_concentration"], row["taker_flow_concentration"]
+        )
+        self.assertEqual(
+            stored["taker_long_realized_loss"], row["taker_long_realized_loss"]
+        )
         self.assertEqual(
             stored["minute_open_interest_low"], row["minute_open_interest_low"]
         )

@@ -13,7 +13,9 @@ reconcile. These groups replace individual paid transaction lookups.
 Taker fees are the reported TradeSummary fees; supplementary fee and liquidation
 charge events are not aggregated. position_size_flows values each taker position
 before each individual fill at its quote/base execution price, splitting multi-fill
-orders across tiers as the position changes. It includes market liquidations.
+orders across tiers as the position changes. Its liquidation subset reuses those
+same fills. Account concentration and gross realized PnL reuse the validated
+TradeSummary/PnL events; they do not request additional transactions.
 """
 
 from collections import Counter, defaultdict
@@ -21,7 +23,15 @@ from decimal import Decimal
 
 import pandas as pd
 
-from ..position_metrics import add_taker_fill, empty_flow_tiers, validate_flow_tiers
+from ..position_metrics import (
+    PNL_FIELDS,
+    add_realized_pnl,
+    add_taker_fill,
+    concentration_values,
+    empty_flow_tiers,
+    validate_flow_tiers,
+    validate_realized_pnl,
+)
 from ..quicknode.solana import transaction
 from .candles import phoenix_candles
 from .events import NONTRADE_EVENTS, transaction_events
@@ -289,9 +299,12 @@ def nontrade_flows(groups, asset_id, base_lot_decimals):
 
 
 def aggregate(trades, *, replayed=False):
-    row = dict.fromkeys(DECIMAL_FIELDS, Decimal(0)) | dict.fromkeys(COUNT_FIELDS, 0)
+    row = dict.fromkeys((*DECIMAL_FIELDS, *PNL_FIELDS), Decimal(0)) | dict.fromkeys(
+        COUNT_FIELDS, 0
+    )
     positions = {}
     tiers = empty_flow_tiers()
+    participants = {side: defaultdict(Decimal) for side in ("buy", "sell")}
     previous = None
     for trade in trades:
         summary = trade["summary"]
@@ -306,6 +319,7 @@ def aggregate(trades, *, replayed=False):
             summary["base_lots_filled"] * base,
             summary["quote_lots_filled"] * quote,
         )
+        participants[side][summary["trader"]] += size
         row["trades"] += len(trade["fills"])
         row["taker_" + side + "_size"] += size
         row["taker_" + side + "_value"] += value
@@ -317,7 +331,13 @@ def aggregate(trades, *, replayed=False):
         )
         for fill in trade["fills"]:
             after = before + (1 if bought else -1) * fill["base_lots_filled"] * base
-            add_taker_fill(tiers, before, after, fill["quote_lots_filled"] * quote)
+            add_taker_fill(
+                tiers,
+                before,
+                after,
+                fill["quote_lots_filled"] * quote,
+                liquidated=trade["liquidated"],
+            )
             before = after
         for pnl in trade["pnls"]:
             before, after = (
@@ -332,6 +352,9 @@ def aggregate(trades, *, replayed=False):
             row["taker_realized_pnl" if taker else "maker_realized_pnl"] += (
                 pnl["realized_pnl"] * quote
             )
+            add_realized_pnl(
+                row, before, after, pnl["realized_pnl"] * quote, taker=taker
+            )
             add_position_change(row, before, after, taker=taker)
         if trade["liquidated"]:
             direction = "short" if bought else "long"
@@ -340,6 +363,21 @@ def aggregate(trades, *, replayed=False):
                 row["liquidated_" + suffix] += amount
                 row["liquidated_" + direction + "_" + suffix] += amount
     validate_flow_tiers(tiers, row)
+    validate_realized_pnl(row)
+    concentration = {}
+    for side, accounts in participants.items():
+        sizes = sorted(accounts.values(), reverse=True)
+        concentration[side] = {
+            "accounts": len(sizes),
+            "size": sum(sizes, Decimal(0)),
+            "top1_size": sizes[0] if sizes else Decimal(0),
+            "top5_size": sum(sizes[:5], Decimal(0)),
+        }
+    row["taker_flow_concentration"] = concentration_values(
+        len(participants["buy"].keys() | participants["sell"].keys()),
+        concentration,
+        row,
+    )
     row["position_size_flows"] = tiers
     row["active_trader_accounts"] = len(positions)
     row["taker_long_short_volume_ratio"] = (

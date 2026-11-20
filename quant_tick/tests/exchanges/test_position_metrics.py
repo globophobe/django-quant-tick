@@ -3,9 +3,13 @@ from decimal import Decimal as D
 from django.test import SimpleTestCase
 
 from quant_tick.exchanges.position_metrics import (
+    PNL_FIELDS,
+    add_realized_pnl,
     add_taker_fill,
+    concentration_values,
     empty_flow_tiers,
     minute_open_interest,
+    validate_realized_pnl,
 )
 
 
@@ -61,3 +65,44 @@ class PositionMetricsTest(SimpleTestCase):
         ):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 minute_open_interest(before, after, changes)
+
+    def test_profit_and_loss_are_preserved_when_the_net_cancels(self):
+        row = dict.fromkeys(PNL_FIELDS, D(0))
+        row.update(taker_realized_pnl=D(0), maker_realized_pnl=D(60))
+        for before, after, pnl, taker in (
+            (10, 5, 100, True),
+            (-3, 0, -100, True),
+            (-2, 1, 80, False),
+            (3, -1, -20, False),
+        ):
+            add_realized_pnl(row, D(before), D(after), D(pnl), taker=taker)
+        self.assertEqual(row["taker_long_realized_profit"], 100)
+        self.assertEqual(row["taker_short_realized_loss"], 100)
+        self.assertEqual(row["maker_short_realized_profit"], 80)
+        self.assertEqual(row["maker_long_realized_loss"], 20)
+        validate_realized_pnl(row)
+        with self.assertRaisesRegex(ValueError, "closing"):
+            add_realized_pnl(row, D(1), D(2), D(1), taker=True)
+        row["maker_long_realized_loss"] += 1
+        with self.assertRaisesRegex(ValueError, "reconcile"):
+            validate_realized_pnl(row)
+
+    def test_concentration_handles_empty_sides_and_rejects_inconsistent_counts(self):
+        zero = {"accounts": 0, "size": D(0), "top1_size": D(0), "top5_size": D(0)}
+        buy = {"accounts": 6, "size": D(9), "top1_size": D(3), "top5_size": D(8)}
+        totals = {"taker_buy_size": D(9), "taker_sell_size": D(0)}
+        row = concentration_values(6, {"buy": buy, "sell": zero}, totals)
+        self.assertEqual(row["buy"]["top1_share"], D(1) / 3)
+        self.assertEqual(row["buy"]["top5_share"], D(8) / 9)
+        self.assertIsNone(row["sell"]["top1_share"])
+        for change in (
+            {"accounts": 2},
+            {"top1_size": D(0)},
+            {"top5_size": D(10)},
+            {"size": D(10)},
+            {"top1_size": D("NaN")},
+        ):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                concentration_values(
+                    6, {"buy": {**buy, **change}, "sell": zero}, totals
+                )

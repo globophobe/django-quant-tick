@@ -24,7 +24,7 @@ from quant_tick.lib import get_current_time, iter_chunks
 
 from ..binance_futures.market_history import HISTORY_EXHAUSTED_ATTR
 from ..hyperliquid.api import normalize_coin
-from ..position_metrics import minute_open_interest
+from ..position_metrics import PNL_FIELDS, minute_open_interest
 from .api import block_range, query, timestamp
 from .flows import (
     COUNT_FIELDS,
@@ -89,9 +89,15 @@ def market_window(coin, start, end):
                 "funding_rate": after["rate"],
                 **{
                     key: flow[key]
-                    for key in (*FLOW_FIELDS, *SIGNED_FLOW_FIELDS, *COUNT_FIELDS)
+                    for key in (
+                        *FLOW_FIELDS,
+                        *SIGNED_FLOW_FIELDS,
+                        *COUNT_FIELDS,
+                        *PNL_FIELDS,
+                    )
                 },
                 "position_size_flows": flow["position_size_flows"],
+                "taker_flow_concentration": flow["taker_flow_concentration"],
                 **minute_open_interest(
                     before["long_size"], after["long_size"], flow["minute_deltas"]
                 ),

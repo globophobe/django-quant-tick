@@ -11,16 +11,22 @@ position, not the profitable counterparty closed by ADL. Values use event prices
 Unknown directions or inconsistent liquidation metadata cannot become valid rows.
 SQL also groups by execution minute and pre-fill taker position value. Only those
 aggregates cross the API boundary; no individual fills are downloaded here.
+A second grouping set totals each taker account across the full interval. Only
+counts and top-one/top-five quantities leave SQL, never account identifiers.
+Market-liquidation subsets and gross closing PnL reconcile against existing totals.
 """
 
 from collections import defaultdict
 from decimal import Decimal
 
 from ..position_metrics import (
+    PNL_FIELDS,
     POSITION_BOUNDS,
     TAKER_FIELDS,
+    concentration_values,
     empty_flow_tiers,
     validate_flow_tiers,
+    validate_realized_pnl,
 )
 from .api import coin_literal, number, query, time_literal, timestamp
 
@@ -121,6 +127,8 @@ def position_flows(coin, points, start, end):
     tier = f"if(is_market,multiIf({brackets},{len(POSITION_BOUNDS)}),0)"
     columns = [
         "toStartOfMinute(event_time) AS minute",
+        "if(is_market,toString(if(side='B',buyer_address,seller_address)),'') AS taker_account",
+        "GROUPING(taker_account) AS by_minute",
         tier + " AS tier",
         f"arrayCount(b->block_number>=b,{blocks})-1 AS interval_index",
         "count() AS position_events",
@@ -133,16 +141,8 @@ def position_flows(coin, points, start, end):
         "sum(so) AS short_open_size",
         "sum(lc) AS long_close_size",
         "sum(sc) AS short_close_size",
-        "sumIf(lo,is_market AND side='B') AS taker_long_open_size",
-        "sumIf(so,is_market AND side='A') AS taker_short_open_size",
-        "sumIf(lc,is_market AND side='A') AS taker_long_close_size",
-        "sumIf(sc,is_market AND side='B') AS taker_short_close_size",
-        "sumIf(size,is_market AND side='B') AS taker_buy_size",
-        "sumIf(size,is_market AND side='A') AS taker_sell_size",
         "sumIf(size,is_market AND side='B' AND isNotNull(buyer_twap_id)) AS taker_twap_buy_size",
         "sumIf(size,is_market AND side='A' AND isNotNull(seller_twap_id)) AS taker_twap_sell_size",
-        "toString(sumIf(trade_value,is_market AND side='B')) AS taker_buy_value",
-        "toString(sumIf(trade_value,is_market AND side='A')) AS taker_sell_value",
         "sumIf(size,is_netting) AS netting_size",
         "toString(sumIf(trade_value,is_netting)) AS netting_value",
         "toString(sumIf(if(side='B',buyer_closed_pnl,seller_closed_pnl),is_market)) AS taker_realized_pnl",
@@ -163,6 +163,33 @@ def position_flows(coin, points, start, end):
         ),
         "countIf(NOT ifNull(valid_event,0)) AS invalid_events",
     ]
+    for predicate, prefix in (("is_market", ""), ("is_market_liquidation", "liq_")):
+        for field, amount, side in (
+            ("buy_size", "size", "B"),
+            ("sell_size", "size", "A"),
+            ("long_open_size", "lo", "B"),
+            ("long_close_size", "lc", "A"),
+            ("short_open_size", "so", "A"),
+            ("short_close_size", "sc", "B"),
+            ("buy_value", "trade_value", "B"),
+            ("sell_value", "trade_value", "A"),
+        ):
+            expression = f"sumIf({amount},{predicate} AND side='{side}')"
+            if field.endswith("value"):
+                expression = f"toString({expression})"
+            columns.append(f"{expression} AS {prefix}taker_{field}")
+    for role in ("taker", "maker"):
+        for direction, participant, side in (
+            ("long", "seller", "A"),
+            ("short", "buyer", "B"),
+        ):
+            comparison = "=" if role == "taker" else "!="
+            for result, sign in (("profit", ""), ("loss", "-")):
+                key = f"{role}_{direction}_realized_{result}"
+                columns.append(
+                    f"toString(sumIf(greatest({sign}{participant}_closed_pnl,zero),"
+                    f"is_market AND side{comparison}'{side}')) AS {key}"
+                )
     for kind, condition in (
         ("liquidated", "is_market_liquidation"),
         ("backstop", "is_backstop"),
@@ -198,7 +225,8 @@ def position_flows(coin, points, start, end):
         "(method='market' AND is_market) AS is_market_liquidation, "
         "if(is_adl,buyer_dir='Auto-Deleveraging',ifNull(liquidated_user=seller_address,0)) AS distressed_long, "
         "if(is_adl,seller_dir='Auto-Deleveraging',ifNull(liquidated_user=buyer_address,0)) AS distressed_short, "
-        "(valid_pair AND method IN ('','market','backstop') AND tagged=(method!='') "
+        "(valid_pair AND (NOT is_market OR ((sc>0 OR buyer_closed_pnl=0) "
+        "AND (lc>0 OR seller_closed_pnl=0))) AND method IN ('','market','backstop') AND tagged=(method!='') "
         "AND (NOT tagged OR (buyer_address!=seller_address "
         "AND ((distressed_long AND liquidated_user=seller_address) "
         "OR (distressed_short AND liquidated_user=buyer_address)))) "
@@ -210,11 +238,12 @@ def position_flows(coin, points, start, end):
         "OR (is_market AND buyer_dir IN ('Open Long','Close Short','Short > Long') "
         "AND seller_dir IN ('Open Short','Close Long','Long > Short')))) AS valid_event "
         "SELECT " + ", ".join(columns) + f" FROM ({pairs}) "
-        "GROUP BY interval_index,minute,tier"
+        "GROUP BY GROUPING SETS ((interval_index,minute,tier),(interval_index,taker_account))"
     )
     summed = (
         *FLOW_FIELDS,
         *SIGNED_FLOW_FIELDS,
+        *PNL_FIELDS,
         *COUNT_FIELDS,
         "long_account_delta",
         "short_account_delta",
@@ -223,23 +252,40 @@ def position_flows(coin, points, start, end):
     totals = ["interval_index"]
     for key in summed:
         expression = (
-            f"toString(sum(toDecimal256(g.{key},18)))"
-            if key.endswith("value") or key in SIGNED_FLOW_FIELDS
-            else f"sum(g.{key})"
+            f"toString(sumIf(toDecimal256(g.{key},18),g.by_minute=1))"
+            if key.endswith("value") or key in (*SIGNED_FLOW_FIELDS, *PNL_FIELDS)
+            else f"sumIf(g.{key},g.by_minute=1)"
         )
         totals.append(f"{expression} AS {key}")
     totals.extend(
         (
-            "arrayDistinct(arrayFlatten(groupArray(g.fee_tokens))) AS fee_tokens",
+            "arrayDistinct(arrayFlatten(groupArrayIf(g.fee_tokens,g.by_minute=1))) AS fee_tokens",
             (
-                "groupArray(tuple(g.minute,g.long_open_size-g.long_close_size,"
-                "g.short_open_size-g.short_close_size)) AS minute_deltas"
+                "groupArrayIf(tuple(g.minute,g.long_open_size-g.long_close_size,"
+                "g.short_open_size-g.short_close_size),g.by_minute=1) AS minute_deltas"
             ),
             "groupArrayIf(tuple(g.tier,"
-            + ",".join("g." + key for key in TAKER_FIELDS)
-            + "),g.tier>0) AS size_flows",
+            + ",".join(
+                "g." + key
+                for key in (*TAKER_FIELDS, *("liq_" + k for k in TAKER_FIELDS))
+            )
+            + "),g.by_minute=1 AND g.tier>0) AS size_flows",
         )
     )
+    totals.append(
+        "countIf(g.by_minute=0 AND (g.taker_buy_size>0 OR g.taker_sell_size>0)) AS active_taker_accounts"
+    )
+    for side in ("buy", "sell"):
+        size = "g.taker_" + side + "_size"
+        active = f"g.by_minute=0 AND {size}>0"
+        totals.extend(
+            (
+                f"countIf({active}) AS account_{side}_count",
+                f"toString(sumIf({size},g.by_minute=0)) AS account_{side}_size",
+                f"toString(maxIf({size},g.by_minute=0)) AS account_{side}_top1_size",
+                f"toString(arraySum(arraySlice(arrayReverseSort(groupArrayIf({size},{active})),1,5))) AS account_{side}_top5_size",
+            )
+        )
     rows = query(
         "SELECT " + ",".join(totals) + f" FROM ({grouped}) AS g "
         "GROUP BY interval_index ORDER BY interval_index LIMIT 100",
@@ -262,7 +308,7 @@ def position_flows(coin, points, start, end):
             or int(row["position_events"]) <= 0
         ):
             raise ValueError("QuickNode returned invalid position flow intervals")
-        for key in FLOW_FIELDS:
+        for key in (*FLOW_FIELDS, *PNL_FIELDS):
             row[key] = number(row[key])
             if row[key] < 0:
                 raise ValueError("QuickNode returned negative position flows")
@@ -279,14 +325,39 @@ def position_flows(coin, points, start, end):
         tiers = empty_flow_tiers()
         for values in row.pop("size_flows"):
             tier = int(values[0])
-            if not 1 <= tier <= len(tiers) or len(values) != len(TAKER_FIELDS) + 1:
+            if not 1 <= tier <= len(tiers) or len(values) != 2 * len(TAKER_FIELDS) + 1:
                 raise ValueError("QuickNode returned invalid position-size flows")
-            for key, value in zip(TAKER_FIELDS, values[1:], strict=True):
-                amount = number(value)
-                if amount < 0:
-                    raise ValueError("QuickNode returned negative position-size flow")
-                tiers[tier - 1][key] += amount
+            for offset, target in (
+                (1, tiers[tier - 1]),
+                (1 + len(TAKER_FIELDS), tiers[tier - 1]["liquidation"]),
+            ):
+                for key, value in zip(
+                    TAKER_FIELDS,
+                    values[offset : offset + len(TAKER_FIELDS)],
+                    strict=True,
+                ):
+                    amount = number(value)
+                    if amount < 0:
+                        raise ValueError(
+                            "QuickNode returned negative position-size flow"
+                        )
+                    target[key] += amount
         validate_flow_tiers(tiers, row)
+        validate_realized_pnl(row)
+        participants = {}
+        for side in ("buy", "sell"):
+            participants[side] = {
+                "accounts": int(row.pop("account_" + side + "_count")),
+                **{
+                    key: number(row.pop("account_" + side + "_" + key))
+                    for key in ("size", "top1_size", "top5_size")
+                },
+            }
+            if not 0 <= participants[side]["accounts"] <= row["trades"]:
+                raise ValueError("QuickNode returned invalid active taker accounts")
+        row["taker_flow_concentration"] = concentration_values(
+            int(row.pop("active_taker_accounts")), participants, row
+        )
         changes = defaultdict(Decimal)
         for minute, long_delta, short_delta in row.pop("minute_deltas"):
             minute = timestamp(minute)

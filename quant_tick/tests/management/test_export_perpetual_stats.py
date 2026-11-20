@@ -39,9 +39,18 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
                     {
                         "tier": 4,
                         "taker_short_close_size": Decimal("2.123456789123456789"),
+                        "liquidation": {
+                            "taker_short_close_size": Decimal("1.123456789123456789")
+                        },
                     }
                 ],
                 "minute_open_interest_low": Decimal("9.123456789123456789"),
+                "taker_long_realized_loss": Decimal("123.123456789123456789"),
+                "taker_flow_concentration": {
+                    "accounts": 1,
+                    "buy": {"top1_share": Decimal(1)},
+                    "sell": {"top1_share": None},
+                },
             },
         )
         with TemporaryDirectory() as directory:
@@ -66,6 +75,13 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
             "2.123456789123456789",
         )
         self.assertEqual(metadata["minute_open_interest_low"], "9.123456789123456789")
+        self.assertEqual(
+            metadata["position_size_flows"][0]["liquidation"]["taker_short_close_size"],
+            "1.123456789123456789",
+        )
+        self.assertEqual(metadata["taker_long_realized_loss"], "123.123456789123456789")
+        self.assertEqual(metadata["taker_flow_concentration"]["buy"]["top1_share"], "1")
+        self.assertIsNone(metadata["taker_flow_concentration"]["sell"]["top1_share"])
 
     def setUp(self):
         super().setUp()
