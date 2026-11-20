@@ -1,12 +1,17 @@
 import json
 from copy import deepcopy
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 import pandas as pd
 from django.test import SimpleTestCase
 
-from quant_tick.lib import get_next_cache, merge_cache, volume_filter_with_time_window
+from quant_tick.lib import (
+    aggregate_trades,
+    get_next_cache,
+    merge_cache,
+    volume_filter_with_time_window,
+)
 from quant_tick.lib.candles import aggregate_candle, resample_candles
 from quant_tick.models.base import QuantTickDecoder, QuantTickEncoder
 
@@ -250,6 +255,42 @@ class CandleTest(SimpleTestCase):
                 self.assertRaisesRegex(ValueError, "volume_brackets changed"),
             ):
                 merge_cache(deepcopy(previous), deepcopy(current))
+
+    def test_volume_brackets_only_tolerate_decimal_roundoff(self):
+        for precision in (12, 28, 38):
+            with self.subTest(precision=precision), localcontext() as context:
+                context.prec = precision
+                df = self.get_data_frame(
+                    [Decimal("62500.50")] * 3,
+                    [10, 1000, 10],
+                    [1, -1, 1],
+                )
+                df["notional"] = df.volume / df.price
+                df["uid"], df["nanoseconds"] = range(len(df)), 0
+                filtered = volume_filter_with_time_window(
+                    aggregate_trades(df), min_volume=1000, window=None
+                )
+                result = aggregate_candle(filtered, volume_brackets=[100, 10000])
+                remainder = result["volumeBrackets"]["unclassified"]
+                self.assertEqual(remainder["volume"], 20)
+                self.assertEqual(remainder["buyVolume"], 20)
+                self.assertGreater(remainder["notional"], 0)
+                self.assertLessEqual(remainder["buyNotional"], remainder["notional"])
+                for field, delta in (
+                    ("totalNotional", Decimal("-1e-9")),
+                    ("totalBuyNotional", Decimal("1e-9")),
+                    ("totalVolume", Decimal("-0.000001")),
+                    ("totalBuyVolume", Decimal("0.000001")),
+                    ("totalTicks", -1),
+                    ("totalBuyTicks", 1),
+                ):
+                    corrupted = filtered.copy()
+                    corrupted.loc[0, field] += delta
+                    with (
+                        self.subTest(field=field),
+                        self.assertRaisesRegex(ValueError, "reconcile"),
+                    ):
+                        aggregate_candle(corrupted, volume_brackets=[100, 10000])
 
 
 class ResampleCandleTest(SimpleTestCase):

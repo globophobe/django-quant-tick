@@ -11,11 +11,12 @@ classify retained execution aggregates, not account positions or whole orders.
 Filtered records retain an execution's own quantities alongside totals that can
 include smaller trades of either side. Only the own quantities are classified;
 the remainder stays in volumeBrackets.unclassified because its individual sizes
-are unavailable. Brackets plus that remainder reconcile to ordinary candle totals.
+are unavailable. Brackets plus that remainder reconcile to ordinary candle totals
+within Decimal summation precision. Fill counts always reconcile exactly.
 """
 
 from bisect import bisect_right
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, getcontext
 
 from pandas import DataFrame
 
@@ -78,14 +79,29 @@ def aggregate_volume_brackets(
             bucket["buyVolume"] += volume
             bucket["buyNotional"] += notional
             bucket["buyTicks"] += int(ticks)
-    remainder = {
-        key: totals[key] - sum(bucket[key] for bucket in buckets) for key in FIELDS
+    classified = {key: sum(bucket[key] for bucket in buckets) for key in FIELDS}
+    remainder = {key: totals[key] - classified[key] for key in FIELDS}
+    # Inverse quantities can round differently when added in bracket order.
+    # Bound both sums' roundoff by their magnitude, precision and addition count.
+    unit = Decimal(1).scaleb(1 - getcontext().prec)
+    roundoff = {
+        key: max(abs(totals[key]), abs(classified[key]))
+        * unit
+        * (2 * (len(df) + len(buckets)))
+        for key in AMOUNT_FIELDS
     }
-    if any(value < 0 for value in remainder.values()) or any(
-        remainder[buy] > remainder[total]
-        for buy, total in zip(FIELDS[1::2], FIELDS[::2], strict=True)
-    ):
+    for key, tolerance in roundoff.items():
+        if abs(remainder[key]) <= tolerance:
+            remainder[key] = Decimal(0)
+    if any(value < 0 for value in remainder.values()):
         raise ValueError("Volume brackets do not reconcile with candle totals")
+    for total, buy in zip(FIELDS[::2], FIELDS[1::2], strict=True):
+        if remainder[buy] > remainder[total]:
+            if remainder[buy] - remainder[total] > roundoff.get(buy, 0) + roundoff.get(
+                total, 0
+            ):
+                raise ValueError("Volume brackets do not reconcile with candle totals")
+            remainder[buy] = remainder[total]
     return {"buckets": buckets, "unclassified": remainder}
 
 

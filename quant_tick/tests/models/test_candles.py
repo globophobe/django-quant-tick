@@ -1,12 +1,15 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from itertools import product
 from unittest.mock import patch
 
 import pandas as pd
 import time_machine
 from django.test import TestCase
 
-from quant_tick.constants import FileData, Frequency, SampleType
+from quant_tick.constants import Exchange, FileData, Frequency, SampleType, SymbolType
+from quant_tick.exchanges.deribit.controllers import DeribitTrades
+from quant_tick.lib import aggregate_candle
 from quant_tick.models import (
     AdaptiveCandle,
     Candle,
@@ -54,6 +57,87 @@ class CandleDataFrameTest(BaseWriteTradeDataTest, TestCase):
 
 
 class CandleVolumeBracketsTest(BaseWriteTradeDataTest, TestCase):
+    def test_inverse_contract_brackets_survive_trade_storage(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.DERIBIT,
+            api_symbol="BTC-PERPETUAL",
+            symbol_type=SymbolType.PERPETUAL,
+            save_aggregated=True,
+        )
+        sides = (
+            ("buy", "buy", "buy"),
+            ("sell", "sell", "sell"),
+            ("buy", "sell", "buy"),
+            ("sell", "buy", "sell"),
+        )
+        for case, (directions, threshold) in enumerate(product(sides, (1, 1000))):
+            start = (
+                self.timestamp_from - pd.Timedelta(days=3) + pd.Timedelta(hours=case)
+            )
+            end = start + pd.Timedelta(hours=1)
+            symbol.significant_trade_filter = threshold
+            symbol.save()
+            controller = DeribitTrades.__new__(DeribitTrades)
+            controller.symbol = symbol
+            raw = controller.get_data_frame(
+                controller.parse_data(
+                    [
+                        {
+                            "trade_seq": index,
+                            "timestamp": int(start.timestamp() * 1000) + index,
+                            "direction": direction,
+                            "amount": amount,
+                            "price": "62500.50",
+                        }
+                        for index, (amount, direction) in enumerate(
+                            zip((10, 1000, 10), directions, strict=True)
+                        )
+                    ]
+                )
+            )
+            TradeData.write(symbol, start, end, pd.DataFrame([]), raw_trades=raw)
+            stored = TradeData.objects.get(symbol=symbol, timestamp=start)
+            for source in FileData:
+                with self.subTest(
+                    directions=directions, source=source, threshold=threshold
+                ):
+                    frame = stored.get_data_frame(source)
+                    ordinary = aggregate_candle(frame)
+                    result = aggregate_candle(frame, volume_brackets=[100, 10000])
+                    brackets = result.pop("volumeBrackets")
+                    self.assertEqual(result, ordinary)
+                    compressed = source == FileData.FILTERED and threshold == 1000
+                    remainder = brackets["unclassified"]
+                    self.assertEqual(remainder["volume"], 20 if compressed else 0)
+                    self.assertEqual(remainder["ticks"], 2 if compressed else 0)
+                    self.assertTrue(all(value >= 0 for value in remainder.values()))
+                    self.assertLessEqual(
+                        remainder["buyNotional"], remainder["notional"]
+                    )
+                    self.assertEqual(
+                        [bucket["volume"] for bucket in brackets["buckets"]],
+                        [0 if compressed else 20, 1000, 0],
+                    )
+                    for key in ("notional", "buyNotional"):
+                        difference = (
+                            sum(bucket[key] for bucket in brackets["buckets"])
+                            + remainder[key]
+                            - result[key]
+                        )
+                        self.assertLessEqual(abs(difference), Decimal("1e-28"))
+                    candle = TimeBasedCandle.objects.create(
+                        symbol=symbol,
+                        json_data={
+                            "source_data": source,
+                            "window": "1h",
+                            "volume_brackets": [100, 10000],
+                        },
+                    )
+                    candle.candles(start, end)
+                    self.assertEqual(
+                        CandleData.objects.filter(candle=candle).count(), 1
+                    )
+
     def test_all_candle_types_preserve_brackets_through_resume_and_retry(self):
         start = self.timestamp_from - pd.Timedelta(days=3)
         middle, end = start + pd.Timedelta(hours=1), start + pd.Timedelta(hours=2)
