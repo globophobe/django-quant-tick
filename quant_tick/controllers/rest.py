@@ -5,12 +5,14 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 import pandas as pd
+from django.db.models import Exists, OuterRef, Q
 from pandas import DataFrame
 
 from quant_tick.constants import Frequency
 from quant_tick.lib import (
     assert_type_decimal,
     get_current_time,
+    get_existing,
     get_min_time,
     has_zero_trade_candle,
     iter_window,
@@ -163,11 +165,12 @@ def throttle_api_requests(
 class ExchangeREST(BaseController):
     """Base controller for REST trade ingestion.
 
-    Capture retained WebSocket rows before network requests, then refresh each
-    window after fetching its candles. Cleanup cannot remove captured evidence,
-    and late arrivals can complete a minute before validation. Archive callers
-    may pass a snapshot taken before their own requests. REST retries bypass
-    WebSocket data; optional paid repair still prefers validated native minutes.
+    Capture enabled WebSocket payloads outside validated stored coverage before
+    network requests, then refresh each window after fetching its candles.
+    Cleanup cannot remove captured evidence, and late arrivals can complete a
+    minute before validation. Archive callers may pass a snapshot taken before
+    their own requests. REST retries bypass WebSocket data; optional paid repair
+    still prefers validated native minutes.
     """
 
     partition_scoped = False
@@ -303,10 +306,26 @@ class ExchangeREST(BaseController):
                 break
 
     def get_websocket_rows(self, timestamp_from, timestamp_to):
+        validated = TradeData.objects.overlapping(
+            self.symbol,
+            OuterRef("timestamp"),
+            OuterRef("timestamp") + timedelta(minutes=1),
+            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
+        ).filter(ok=True)
+        fields = ["timestamp"]
+        if self.symbol.save_raw:
+            fields.append("raw_trades")
+        if self.symbol.save_aggregated:
+            fields.append("aggregated_trades")
+        if self.symbol.significant_trade_filter:
+            fields.append("filtered_trades")
         return {
             row.timestamp: row
-            for row in WebSocketData.objects.for_symbol(self.symbol).filter(
-                timestamp__gte=timestamp_from, timestamp__lt=timestamp_to
+            for row in (
+                WebSocketData.objects.for_symbol(self.symbol)
+                .filter(timestamp__gte=timestamp_from, timestamp__lt=timestamp_to)
+                .filter(~Exists(validated))
+                .only(*fields)
             )
         }
 
@@ -714,7 +733,7 @@ class ExchangeREST(BaseController):
 
 
 class ExchangeWebSocket(ExchangeREST):
-    """WebSocket trades."""
+    """Recover missing or unvalidated minutes outside compacted partitions."""
 
     write_unvalidated_websocket_partitions = True
 
@@ -736,6 +755,23 @@ class ExchangeWebSocket(ExchangeREST):
         if timestamp_from >= timestamp_to:
             return
 
+        stored = TradeData.objects.overlapping(
+            self.symbol,
+            timestamp_from,
+            timestamp_to,
+            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
+        ).filter(Q(ok=True) | Q(frequency__in=(Frequency.HOUR, Frequency.DAY)))
+        covered = set(get_existing(stored.values("timestamp", "frequency")))
+        pending = [
+            (start, end)
+            for start, end in iter_window(
+                timestamp_from, timestamp_to, value="1min", reverse=True
+            )
+            if start not in covered
+        ]
+        if not pending:
+            return
+        timestamp_from, timestamp_to = pending[-1][0], pending[0][1]
         candles = self.get_candles(timestamp_from, timestamp_to)
         partitions = self.validate_websocket_partitions(
             timestamp_from,
@@ -743,19 +779,7 @@ class ExchangeWebSocket(ExchangeREST):
             candles,
             websocket_rows=websocket_rows,
         )
-        for ts_from, ts_to in iter_window(
-            timestamp_from,
-            timestamp_to,
-            value="1min",
-            reverse=True,
-        ):
-            if TradeData.objects.overlapping(
-                self.symbol,
-                ts_from,
-                ts_to,
-                (Frequency.HOUR, Frequency.DAY),
-            ).exists():
-                continue
+        for ts_from, ts_to in pending:
             frames = partitions.get(ts_from)
             if frames is None:
                 if not has_zero_trade_candle(

@@ -7,7 +7,7 @@ import pandas as pd
 import time_machine
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from quant_tick.constants import Exchange, FileData, SymbolType
+from quant_tick.constants import Exchange, FileData, Frequency, SymbolType
 from quant_tick.exchanges.api import api
 from quant_tick.exchanges.bybit.controllers import (
     BybitSpotTradesS3,
@@ -147,7 +147,7 @@ class BybitTradesTest(SimpleTestCase):
         with patch(
             "quant_tick.controllers.rest.TradeData.objects.overlapping"
         ) as overlapping:
-            overlapping.return_value.exists.return_value = False
+            overlapping.return_value.filter.return_value.values.return_value = []
             controller.main()
 
         on_data_frame.assert_called_once_with(
@@ -193,7 +193,7 @@ class BybitTradesTest(SimpleTestCase):
         with patch(
             "quant_tick.controllers.rest.TradeData.objects.overlapping"
         ) as overlapping:
-            overlapping.return_value.exists.return_value = False
+            overlapping.return_value.filter.return_value.values.return_value = []
             controller.main()
 
         self.assertEqual(
@@ -233,9 +233,15 @@ class BybitTradesTest(SimpleTestCase):
         with patch(
             "quant_tick.controllers.rest.TradeData.objects.overlapping"
         ) as overlapping:
-            overlapping.return_value.exists.return_value = True
+            overlapping.return_value.filter.return_value.values.return_value = [
+                {
+                    "timestamp": timestamp_from.replace(hour=0),
+                    "frequency": Frequency.DAY,
+                }
+            ]
             controller.main()
 
+        controller.get_candles.assert_not_called()
         on_data_frame.assert_not_called()
 
     def test_spot_archive_normalizes_chunked_hours(self):

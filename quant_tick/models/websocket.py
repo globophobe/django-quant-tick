@@ -96,15 +96,17 @@ class WebSocketData(models.Model):
         self,
         symbol: Symbol,
     ) -> tuple[DataFrame | None, DataFrame | None, DataFrame | None]:
-        raw_trades = self.get_data_frame(self.raw_trades)
-        aggregated_trades = self.get_data_frame(self.aggregated_trades)
-        filtered_trades = self.get_data_frame(self.filtered_trades)
-        if not symbol.save_raw:
-            raw_trades = None
-        if not symbol.save_aggregated:
-            aggregated_trades = None
-        if not symbol.significant_trade_filter:
-            filtered_trades = None
+        raw_trades = self.get_data_frame(self.raw_trades) if symbol.save_raw else None
+        aggregated_trades = (
+            self.get_data_frame(self.aggregated_trades)
+            if symbol.save_aggregated
+            else None
+        )
+        filtered_trades = (
+            self.get_data_frame(self.filtered_trades)
+            if symbol.significant_trade_filter
+            else None
+        )
         return raw_trades, aggregated_trades, filtered_trades
 
     class Meta:

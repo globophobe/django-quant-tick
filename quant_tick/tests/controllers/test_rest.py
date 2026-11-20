@@ -7,7 +7,7 @@ import pandas as pd
 import time_machine
 from django.test import SimpleTestCase, TestCase
 
-from quant_tick.constants import RETRY_INDETERMINATE, Exchange
+from quant_tick.constants import RETRY_INDETERMINATE, Exchange, Frequency
 from quant_tick.controllers import (
     ExchangeREST,
     ExchangeWebSocket,
@@ -841,6 +841,124 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
                         ),
                         True,
                     )
+
+    def test_websocket_snapshot_only_loads_unvalidated_enabled_payloads(self):
+        self.symbol.save_raw = False
+        self.symbol.significant_trade_filter = 1000
+        self.symbol.save()
+        other_symbol = self.get_symbol(api_symbol="other")
+        start = self.timestamp_from
+        for frequency in (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY):
+            for ok in (True, False, None):
+                with self.subTest(frequency=frequency, ok=ok):
+                    TradeData.objects.all().delete()
+                    WebSocketData.objects.all().delete()
+                    minutes = {0, frequency - 1, frequency, frequency + 1}
+                    for minute in minutes:
+                        trade = self.get_trade(minute, minute)
+                        WebSocketData.objects.create(
+                            exchange=self.symbol.exchange,
+                            api_symbol=self.symbol.api_symbol,
+                            significant_trade_filter=1000,
+                            timestamp=start + minute * self.one_minute,
+                            raw_trades=[trade],
+                            aggregated_trades=[trade],
+                            filtered_trades=[trade],
+                        )
+                    TradeData.objects.create(
+                        symbol=self.symbol, timestamp=start, frequency=frequency, ok=ok
+                    )
+                    TradeData.objects.create(
+                        symbol=self.symbol,
+                        timestamp=start + frequency * self.one_minute,
+                        frequency=Frequency.MINUTE,
+                        ok=True,
+                    )
+                    TradeData.objects.create(
+                        symbol=other_symbol,
+                        timestamp=start + (frequency + 1) * self.one_minute,
+                        frequency=Frequency.MINUTE,
+                        ok=True,
+                    )
+                    # Hour/day coverage starts before the requested window.
+                    first = 1 if frequency > 1 else 0
+                    window_from = start + first * self.one_minute
+                    window_to = start + (frequency + 2) * self.one_minute
+                    controller = DummyExchangeREST(
+                        self.symbol, window_from, window_to, api_results=[]
+                    )
+                    with self.assertNumQueries(1):
+                        rows = controller.get_websocket_rows(window_from, window_to)
+                    expected = {
+                        start + minute * self.one_minute
+                        for minute in minutes
+                        if minute >= first
+                        and minute != frequency
+                        and (ok is not True or minute >= frequency)
+                    }
+                    self.assertEqual(set(rows), expected)
+                    for row in rows.values():
+                        self.assertTrue(
+                            {"raw_trades", "aggregated_trades"}
+                            <= row.get_deferred_fields()
+                        )
+                        with self.assertNumQueries(0):
+                            raw, aggregated, filtered = row.get_data_frames(self.symbol)
+                        self.assertIsNone(raw)
+                        self.assertIsNone(aggregated)
+                        self.assertEqual(len(filtered), 1)
+
+    def test_websocket_main_skips_validated_minutes_and_compacted_history(self):
+        start = self.timestamp_from
+        for minute in (59, 60, 61, 62, 64):
+            self.create_websocket_data(minute, minute)
+        TradeData.objects.create(
+            symbol=self.symbol, timestamp=start, frequency=Frequency.HOUR, ok=False
+        )
+        for minute, ok in ((60, True), (61, False), (62, None), (64, True)):
+            TradeData.objects.create(
+                symbol=self.symbol,
+                timestamp=start + minute * self.one_minute,
+                frequency=Frequency.MINUTE,
+                ok=ok,
+            )
+        controller = DummyExchangeWebSocket(
+            self.symbol,
+            start + 59 * self.one_minute,
+            start + 65 * self.one_minute,
+            api_results=[],
+        )
+        candles = self.get_candles(
+            {
+                minute: Decimal(0 if minute in (63, 64) else 1)
+                for minute in range(59, 65)
+            }
+        )
+        with patch.object(controller, "get_candles", return_value=candles) as fetch:
+            controller.main()
+        fetch.assert_called_once_with(
+            start + 61 * self.one_minute, start + 64 * self.one_minute
+        )
+        self.assertEqual(
+            [frame[0] for frame in controller.frames],
+            [start + minute * self.one_minute for minute in (63, 62, 61)],
+        )
+        self.assertTrue(controller.frames[0][2].empty)
+        self.assertEqual(controller.frames[1][2].uid.tolist(), ["62"])
+        self.assertEqual(controller.frames[2][2].uid.tolist(), ["61"])
+
+        TradeData.objects.filter(frequency=Frequency.MINUTE).update(ok=True)
+        TradeData.objects.create(
+            symbol=self.symbol,
+            timestamp=start + 63 * self.one_minute,
+            frequency=Frequency.MINUTE,
+            ok=True,
+        )
+        controller.frames.clear()
+        with patch.object(controller, "get_candles") as fetch:
+            controller.main()
+        fetch.assert_not_called()
+        self.assertEqual(controller.frames, [])
 
     def test_websocket_validation_and_fallback_across_modes(self):
         start, end = self.timestamp_from, self.timestamp_from + self.one_minute
