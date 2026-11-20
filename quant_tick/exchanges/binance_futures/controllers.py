@@ -60,11 +60,10 @@ def binance_futures_trades(
         if followup_from < timestamp_to
         else None
     )
-    websocket_rows = (
-        rest.get_websocket_rows(followup_from, timestamp_to)
-        if rest is not None and not retry
-        else None
-    )
+    websocket_rows = None
+    if rest is not None and retry is not True:
+        websocket_rows = rest.get_websocket_rows(followup_from, timestamp_to)
+        rest.collect_websocket(websocket_rows=websocket_rows)
     BinanceFuturesTradesS3(symbol, **kwargs).main()
     if rest is not None:
         rest.main(websocket_rows=websocket_rows)

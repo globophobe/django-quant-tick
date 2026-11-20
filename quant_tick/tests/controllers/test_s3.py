@@ -1,16 +1,18 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import pandas as pd
 import time_machine
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
-from quant_tick.constants import Frequency
+from quant_tick.constants import RETRY_INDETERMINATE, FileData, Frequency
 from quant_tick.controllers import ExchangeS3
 from quant_tick.lib.download import ArchiveDownloadError
-from quant_tick.models import TradeData
+from quant_tick.models import TradeData, WebSocketData
 
 from ..base import BaseSymbolTest
+from .test_rest import DummyExchangeREST, DummyExchangeWebSocket
 
 
 class DummyExchangeS3(ExchangeS3):
@@ -89,6 +91,105 @@ class ExchangeS3Test(BaseSymbolTest, TestCase):
             + (self.one_minute * missing_minute)
         )
         return expected_from, expected_from + self.one_minute
+
+    @override_settings(
+        STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
+    )
+    def test_websocket_prepass_preserves_archive_fallback_for_unvalidated_minutes(self):
+        start, end = self.timestamp_from, self.timestamp_from + self.one_minute
+        trade = {
+            "uid": "archive",
+            "timestamp": start,
+            "nanoseconds": 0,
+            "price": Decimal(100),
+            "volume": Decimal(100),
+            "notional": Decimal(1),
+            "tickRule": 1,
+            "index": 0,
+        }
+
+        def persist(symbol, lower, upper, frame, candles, **kwargs):
+            if not kwargs:
+                kwargs["raw_trades"] = frame
+            return TradeData.write(symbol, lower, upper, candles, **kwargs)
+
+        for mode in (DummyExchangeREST, DummyExchangeWebSocket):
+            for retry in (False, RETRY_INDETERMINATE):
+                for scenario in ("valid", "invalid", "unknown", "quiet"):
+                    with self.subTest(
+                        mode=mode.__name__, retry=retry, scenario=scenario
+                    ):
+                        TradeData.objects.all().delete()
+                        WebSocketData.objects.all().delete()
+                        if retry:
+                            TradeData.objects.create(
+                                symbol=self.symbol,
+                                timestamp=start,
+                                frequency=Frequency.MINUTE,
+                                ok=None,
+                            )
+                        if scenario != "quiet":
+                            quantity = Decimal("0.5" if scenario == "invalid" else "1")
+                            WebSocketData.objects.create(
+                                exchange=self.symbol.exchange,
+                                api_symbol=self.symbol.api_symbol,
+                                significant_trade_filter=0,
+                                timestamp=start,
+                                raw_trades=[
+                                    {
+                                        **trade,
+                                        "uid": "websocket",
+                                        "price": Decimal(101),
+                                        "notional": quantity,
+                                        "volume": quantity * 101,
+                                    }
+                                ],
+                            )
+                        candles = (
+                            pd.DataFrame([])
+                            if scenario == "unknown"
+                            else pd.DataFrame(
+                                {
+                                    "notional": [
+                                        Decimal(0 if scenario == "quiet" else 1)
+                                    ]
+                                },
+                                index=[start],
+                            )
+                        )
+                        native = mode(
+                            self.symbol, start, end, retry=retry, api_results=[]
+                        )
+                        archive = DummyExchangeS3(
+                            self.symbol,
+                            start,
+                            end,
+                            retry=retry,
+                            data_frame=pd.DataFrame([trade]),
+                        )
+                        native.on_data_frame = archive.on_data_frame = persist
+                        with (
+                            time_machine.travel(end + timedelta(minutes=3), tick=False),
+                            patch.object(native, "get_candles", return_value=candles),
+                            patch.object(archive, "get_candles", return_value=candles),
+                        ):
+                            native.collect_websocket()
+                            archive.main()
+                        stored = TradeData.objects.get(symbol=self.symbol)
+                        use_archive = scenario in ("invalid", "unknown")
+                        self.assertEqual(archive.download_calls, int(use_archive))
+                        self.assertIs(
+                            stored.ok, None if scenario == "unknown" else True
+                        )
+                        frame = stored.get_data_frame(FileData.RAW)
+                        if scenario == "quiet":
+                            self.assertIsNone(frame)
+                        else:
+                            self.assertEqual(frame.notional.sum(), Decimal(1))
+                            self.assertEqual(
+                                frame.price.tolist(),
+                                [Decimal(100 if use_archive else 101)],
+                            )
 
     def test_main_writes_whole_day_when_no_existing_coverage(self):
         controller = DummyExchangeS3(

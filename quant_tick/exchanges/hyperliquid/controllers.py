@@ -56,7 +56,9 @@ class HyperliquidTradesWebSocket(ExchangeWebSocket):
             allow_quicknode=False,
         )
 
-    def validate_websocket_partition(self, row, timestamp_to, candles):
+    def validate_websocket_partition(
+        self, row, timestamp_to, candles, *, validated_only=True
+    ):
         # Removing a vendor key must not downgrade previously validated history.
         if TradeData.objects.filter(
             symbol=self.symbol,
@@ -65,7 +67,9 @@ class HyperliquidTradesWebSocket(ExchangeWebSocket):
             ok=True,
         ).exists():
             return None
-        return super().validate_websocket_partition(row, timestamp_to, candles)
+        return super().validate_websocket_partition(
+            row, timestamp_to, candles, validated_only=validated_only
+        )
 
 
 class HyperliquidTrades(QuickNodeTrades, ExchangeRepair, HyperliquidTradesWebSocket):

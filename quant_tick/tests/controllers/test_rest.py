@@ -697,12 +697,14 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
         self.assertEqual(list(frame.uid), [str(9000 + minute) for minute in range(10)])
         self.assertEqual(kwargs, {})
 
-    def test_retry_preserves_each_collection_modes_source_policy(self):
+    def test_automatic_repairs_use_websocket_and_forced_retries_keep_source_policy(
+        self,
+    ):
         start, end = self.timestamp_from, self.timestamp_from + self.one_minute
         self.create_websocket_data(1, 0)
         candles = self.get_candles({0: Decimal(1)})
         for mode in COLLECTION_MODES:
-            for retry in (True, RETRY_INDETERMINATE):
+            for retry in (False, True, RETRY_INDETERMINATE):
                 with self.subTest(mode=mode.__name__, retry=retry):
                     controller = mode(
                         self.symbol,
@@ -729,11 +731,16 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
                     ):
                         controller.main()
                     history.assert_not_called()
-                    if mode is not DummyRepairTrades:
+                    if retry is True and mode is not DummyRepairTrades:
                         rows.assert_not_called()
-                    uses_rest = mode in (DummyExchangeREST, DummyPartitionREST)
+                    else:
+                        self.assertGreater(rows.call_count, 0)
+                    uses_rest = retry is True and mode in (
+                        DummyExchangeREST,
+                        DummyPartitionREST,
+                    )
                     self.assertEqual(controller.api_calls, int(uses_rest))
-                    if mode is DummyExchangeWebSocket:
+                    if mode is DummyExchangeWebSocket and retry is True:
                         self.assertEqual(controller.frames, [])
                     else:
                         self.assertEqual(len(controller.frames), 1)

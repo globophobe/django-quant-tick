@@ -169,12 +169,11 @@ class ExchangeREST(BaseController):
     network requests, then refresh each window after fetching its candles.
     Cleanup cannot remove captured evidence, and late arrivals can complete a
     minute before validation. Archive callers may pass a snapshot taken before
-    their own requests. REST retries bypass WebSocket data; optional paid repair
-    still prefers validated native minutes.
+    their own requests. Normal collection and indeterminate repairs prefer
+    validated WebSocket minutes; explicit REST retries bypass them.
     """
 
     partition_scoped = False
-    write_unvalidated_websocket_partitions = False
 
     def get_pagination_id(self, timestamp_to: datetime) -> None:
         raise NotImplementedError
@@ -206,7 +205,7 @@ class ExchangeREST(BaseController):
         Ordinary partition backfills can stop at a venue-confirmed history end;
         retries keep scanning the requested repair range.
         """
-        if not self.retry and websocket_rows is None:
+        if self.retry is not True and websocket_rows is None:
             websocket_rows = self.get_websocket_rows(
                 self.timestamp_from, self.timestamp_to
             )
@@ -218,7 +217,7 @@ class ExchangeREST(BaseController):
         for timestamp_from, timestamp_to, candles in self.iter_candle_windows():
             websocket_partitions = (
                 {}
-                if self.retry
+                if self.retry is True
                 else self.validate_websocket_partitions(
                     timestamp_from,
                     timestamp_to,
@@ -228,7 +227,7 @@ class ExchangeREST(BaseController):
             )
             websocket_window_from = max(timestamp_from, websocket_timestamp_from)
             has_zero_websocket_range = (
-                not self.retry
+                self.retry is not True
                 and websocket_window_from < timestamp_to
                 and self.has_zero_trade_candles(
                     candles,
@@ -329,6 +328,95 @@ class ExchangeREST(BaseController):
             )
         }
 
+    def collect_websocket(self, *, websocket_rows=None, validated_only=True) -> None:
+        """Save native minutes; archive prepasses require successful validation."""
+        if self.retry is True:
+            return
+        if websocket_rows is None:
+            websocket_rows = self.get_websocket_rows(
+                self.timestamp_from, self.timestamp_to
+            )
+        timestamp_from = max(
+            self.timestamp_from,
+            min(
+                self.get_websocket_timestamp_from(),
+                min(websocket_rows, default=self.timestamp_to),
+            ),
+        )
+        timestamp_to = self.timestamp_to
+        if timestamp_from >= timestamp_to:
+            return
+
+        stored = TradeData.objects.overlapping(
+            self.symbol,
+            timestamp_from,
+            timestamp_to,
+            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
+        ).filter(Q(ok=True) | Q(frequency__in=(Frequency.HOUR, Frequency.DAY)))
+        covered = set(get_existing(stored.values("timestamp", "frequency")))
+        pending = [
+            (start, end)
+            for start, end in iter_window(
+                timestamp_from, timestamp_to, value="1min", reverse=True
+            )
+            if start not in covered
+        ]
+        if not pending:
+            return
+        timestamp_from, timestamp_to = pending[-1][0], pending[0][1]
+        candles = self.get_candles(timestamp_from, timestamp_to)
+        partitions = self.validate_websocket_partitions(
+            timestamp_from,
+            timestamp_to,
+            candles,
+            websocket_rows=websocket_rows,
+            validated_only=validated_only,
+        )
+        for ts_from, ts_to in pending:
+            # Compaction can finish while validation candles are in flight.
+            if TradeData.objects.overlapping(
+                self.symbol, ts_from, ts_to, (Frequency.HOUR, Frequency.DAY)
+            ).exists():
+                continue
+            frames = partitions.get(ts_from)
+            if frames is None:
+                if not has_zero_trade_candle(
+                    self.symbol.exchange,
+                    candles,
+                    ts_from,
+                    ts_to,
+                ):
+                    continue
+                self.on_data_frame(
+                    self.symbol,
+                    ts_from,
+                    ts_to,
+                    pd.DataFrame([]),
+                    candles,
+                )
+                continue
+
+            raw_trades, aggregated_trades, filtered_trades = frames
+            data_frame = TradeData._get_validation_frame(
+                raw_trades=raw_trades,
+                aggregated_trades=aggregated_trades,
+                filtered_trades=filtered_trades,
+            )
+            if data_frame is None:
+                data_frame = pd.DataFrame([])
+            self.on_data_frame(
+                self.symbol,
+                ts_from,
+                ts_to,
+                data_frame,
+                candles,
+                **self.get_data_frame_kwargs(
+                    raw_trades,
+                    aggregated_trades,
+                    filtered_trades,
+                ),
+            )
+
     def validate_websocket_partitions(
         self,
         timestamp_from: datetime,
@@ -336,6 +424,7 @@ class ExchangeREST(BaseController):
         candles: DataFrame,
         *,
         websocket_rows=None,
+        validated_only=True,
     ) -> dict[datetime, tuple[DataFrame | None, DataFrame | None, DataFrame | None]]:
         if websocket_rows is None:
             websocket_rows = {}
@@ -345,7 +434,9 @@ class ExchangeREST(BaseController):
             bucket_to = minute + pd.Timedelta("1min")
             if minute < timestamp_from or bucket_to > timestamp_to:
                 continue
-            frames = self.validate_websocket_partition(row, bucket_to, candles)
+            frames = self.validate_websocket_partition(
+                row, bucket_to, candles, validated_only=validated_only
+            )
             if frames is not None:
                 partitions[minute] = frames
         return partitions
@@ -359,6 +450,8 @@ class ExchangeREST(BaseController):
         row: WebSocketData,
         timestamp_to: datetime,
         candles: DataFrame,
+        *,
+        validated_only=True,
     ) -> tuple[DataFrame | None, DataFrame | None, DataFrame | None] | None:
         raw_trades, aggregated_trades, filtered_trades = row.get_data_frames(
             self.symbol
@@ -375,7 +468,7 @@ class ExchangeREST(BaseController):
                 aggregated_trades=aggregated_trades,
                 filtered_trades=filtered_trades,
             )
-            if ok is not True and not self.write_unvalidated_websocket_partitions:
+            if ok is not True and validated_only:
                 return None
             raw_trades, aggregated_trades, filtered_trades = (
                 TradeData._prepare_partition_data(
@@ -735,94 +828,8 @@ class ExchangeREST(BaseController):
 class ExchangeWebSocket(ExchangeREST):
     """Recover missing or unvalidated minutes outside compacted partitions."""
 
-    write_unvalidated_websocket_partitions = True
-
     def main(self, *, websocket_rows=None) -> None:
-        if self.retry:
-            return
-        if websocket_rows is None:
-            websocket_rows = self.get_websocket_rows(
-                self.timestamp_from, self.timestamp_to
-            )
-        timestamp_from = max(
-            self.timestamp_from,
-            min(
-                self.get_websocket_timestamp_from(),
-                min(websocket_rows, default=self.timestamp_to),
-            ),
-        )
-        timestamp_to = self.timestamp_to
-        if timestamp_from >= timestamp_to:
-            return
-
-        stored = TradeData.objects.overlapping(
-            self.symbol,
-            timestamp_from,
-            timestamp_to,
-            (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY),
-        ).filter(Q(ok=True) | Q(frequency__in=(Frequency.HOUR, Frequency.DAY)))
-        covered = set(get_existing(stored.values("timestamp", "frequency")))
-        pending = [
-            (start, end)
-            for start, end in iter_window(
-                timestamp_from, timestamp_to, value="1min", reverse=True
-            )
-            if start not in covered
-        ]
-        if not pending:
-            return
-        timestamp_from, timestamp_to = pending[-1][0], pending[0][1]
-        candles = self.get_candles(timestamp_from, timestamp_to)
-        partitions = self.validate_websocket_partitions(
-            timestamp_from,
-            timestamp_to,
-            candles,
-            websocket_rows=websocket_rows,
-        )
-        for ts_from, ts_to in pending:
-            # Compaction can finish while validation candles are in flight.
-            if TradeData.objects.overlapping(
-                self.symbol, ts_from, ts_to, (Frequency.HOUR, Frequency.DAY)
-            ).exists():
-                continue
-            frames = partitions.get(ts_from)
-            if frames is None:
-                if not has_zero_trade_candle(
-                    self.symbol.exchange,
-                    candles,
-                    ts_from,
-                    ts_to,
-                ):
-                    continue
-                self.on_data_frame(
-                    self.symbol,
-                    ts_from,
-                    ts_to,
-                    pd.DataFrame([]),
-                    candles,
-                )
-                continue
-
-            raw_trades, aggregated_trades, filtered_trades = frames
-            data_frame = TradeData._get_validation_frame(
-                raw_trades=raw_trades,
-                aggregated_trades=aggregated_trades,
-                filtered_trades=filtered_trades,
-            )
-            if data_frame is None:
-                data_frame = pd.DataFrame([])
-            self.on_data_frame(
-                self.symbol,
-                ts_from,
-                ts_to,
-                data_frame,
-                candles,
-                **self.get_data_frame_kwargs(
-                    raw_trades,
-                    aggregated_trades,
-                    filtered_trades,
-                ),
-            )
+        self.collect_websocket(websocket_rows=websocket_rows, validated_only=False)
 
 
 class IntegerPaginationMixin:

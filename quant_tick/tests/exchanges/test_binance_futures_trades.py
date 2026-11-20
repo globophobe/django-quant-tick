@@ -392,6 +392,9 @@ class BinanceFuturesTradesTest(SimpleTestCase):
                 rest.return_value.get_websocket_rows.side_effect = (
                     lambda *args, calls=calls: calls.append("capture") or {}
                 )
+                rest.return_value.collect_websocket.side_effect = (
+                    lambda calls=calls, **kwargs: calls.append("validate")
+                )
                 rest.return_value.main.side_effect = lambda calls=calls, **kwargs: (
                     calls.append("rest")
                 )
@@ -415,11 +418,11 @@ class BinanceFuturesTradesTest(SimpleTestCase):
                     self.assertEqual(
                         calls,
                         ["archive", "rest"]
-                        if retry
-                        else ["capture", "archive", "rest"],
+                        if retry is True
+                        else ["capture", "validate", "archive", "rest"],
                     )
                     rest.return_value.main.assert_called_once_with(
-                        websocket_rows=None if retry else {}
+                        websocket_rows=None if retry is True else {}
                     )
                     kwargs["timestamp_from"] = expected_start
                     rest.assert_called_once_with(symbol, **kwargs)

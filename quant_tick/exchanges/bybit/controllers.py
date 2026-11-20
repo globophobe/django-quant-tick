@@ -26,7 +26,7 @@ def bybit_trades(
     retry: TradeDataRetry = False,
     verbose: bool = False,
 ) -> None:
-    """Use native archives first, then recover retained WebSocket minutes."""
+    """Validate WebSocket minutes before archives, then recover remaining minutes."""
     category = validate_bybit_trade_symbol(symbol)
     kwargs = {
         "timestamp_from": timestamp_from,
@@ -41,11 +41,10 @@ def bybit_trades(
         if followup_from < timestamp_to
         else None
     )
-    websocket_rows = (
-        followup.get_websocket_rows(followup_from, timestamp_to)
-        if followup is not None and not retry
-        else None
-    )
+    websocket_rows = None
+    if followup is not None and retry is not True:
+        websocket_rows = followup.get_websocket_rows(followup_from, timestamp_to)
+        followup.collect_websocket(websocket_rows=websocket_rows)
     archive = BybitSpotTradesS3 if category == "spot" else BybitTradesS3
     archive(symbol, **kwargs).main()
     if followup is not None:
@@ -83,7 +82,9 @@ class BybitSpotTradesS3(BybitSpotS3Mixin, ChunkedExchangeS3):
 class BybitTradesWebSocket(BybitMixin, ExchangeWebSocket):
     """Bybit trades WebSocket."""
 
-    def validate_websocket_partition(self, row, timestamp_to, candles):
+    def validate_websocket_partition(
+        self, row, timestamp_to, candles, *, validated_only=True
+    ):
         # Retain validated history when retained WebSocket rows are incomplete.
         if TradeData.objects.filter(
             symbol=self.symbol,
@@ -92,4 +93,6 @@ class BybitTradesWebSocket(BybitMixin, ExchangeWebSocket):
             ok=True,
         ).exists():
             return None
-        return super().validate_websocket_partition(row, timestamp_to, candles)
+        return super().validate_websocket_partition(
+            row, timestamp_to, candles, validated_only=validated_only
+        )

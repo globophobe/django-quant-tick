@@ -20,8 +20,6 @@ from quant_tick.models import TradeData
 
 
 class ExchangeRepair(ExchangeREST):
-    write_unvalidated_websocket_partitions = False
-
     def history_start(self):
         raise NotImplementedError
 

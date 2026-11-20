@@ -52,7 +52,7 @@ class BybitTradesTest(SimpleTestCase):
         )
 
     @time_machine.travel(datetime(2026, 7, 25, 12, 0, 30, tzinfo=UTC), tick=False)
-    def test_trades_use_full_archive_range_then_recent_websocket(self):
+    def test_trades_validate_websocket_before_archives_and_refresh_after(self):
         timestamp_to = datetime(2026, 7, 25, 12, tzinfo=UTC)
         recent_start = timestamp_to - timedelta(days=2)
         old_start = timestamp_to - timedelta(days=30)
@@ -92,6 +92,9 @@ class BybitTradesTest(SimpleTestCase):
                     websocket.return_value.get_websocket_rows.side_effect = (
                         lambda *args, calls=calls: calls.append("capture") or {}
                     )
+                    websocket.return_value.collect_websocket.side_effect = (
+                        lambda calls=calls, **kwargs: calls.append("validate")
+                    )
                     websocket.return_value.main.side_effect = (
                         lambda calls=calls, **kwargs: calls.append("websocket")
                     )
@@ -110,7 +113,9 @@ class BybitTradesTest(SimpleTestCase):
                         self.assertEqual(calls, ["archive"])
                         websocket.assert_not_called()
                     else:
-                        self.assertEqual(calls, ["capture", "archive", "websocket"])
+                        self.assertEqual(
+                            calls, ["capture", "validate", "archive", "websocket"]
+                        )
                         kwargs["timestamp_from"] = expected_start
                         websocket.assert_called_once_with(symbol, **kwargs)
                         websocket.return_value.main.assert_called_once_with(
@@ -488,7 +493,7 @@ class BybitTradesTest(SimpleTestCase):
     STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
 )
 class BybitArchiveRecoveryTest(BaseWriteTradeDataTest, TestCase):
-    def test_incomplete_archive_recovers_from_websocket_captured_before_download(self):
+    def test_incomplete_archive_recovers_retained_websocket_when_candles_catch_up(self):
         start = datetime(2026, 7, 31, 1, tzinfo=UTC)
         for exchange, kind, archive in (
             (Exchange.BYBIT, SymbolType.SPOT, "BybitSpotTradesS3"),
@@ -547,16 +552,21 @@ class BybitArchiveRecoveryTest(BaseWriteTradeDataTest, TestCase):
                     patch(
                         f"quant_tick.exchanges.bybit.controllers.{archive}.get_data_frame_chunks",
                         side_effect=download,
-                    ),
+                    ) as archive_download,
                     patch(
                         "quant_tick.exchanges.bybit.base.bybit_candles",
-                        return_value=pd.DataFrame(
-                            {"notional": [Decimal(1)], "volume": [Decimal(100)]},
-                            index=[start],
-                        ),
+                        side_effect=[pd.DataFrame([])]
+                        + [
+                            pd.DataFrame(
+                                {"notional": [Decimal(1)], "volume": [Decimal(100)]},
+                                index=[start],
+                            )
+                        ]
+                        * 2,
                     ),
                 ):
                     api(symbol, start, start + timedelta(minutes=1))
+                archive_download.assert_called_once()
                 stored = TradeData.objects.get(symbol=symbol, timestamp=start)
                 self.assertIs(stored.ok, True)
                 self.assertEqual(

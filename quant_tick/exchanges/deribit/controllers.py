@@ -28,7 +28,7 @@ def deribit_trades(
     )
     websocket_rows = (
         controller.get_websocket_rows(timestamp_from, timestamp_to)
-        if not retry
+        if retry is not True
         else None
     )
     controller.timestamp_from = max(timestamp_from, _get_deribit_history_start(symbol))
