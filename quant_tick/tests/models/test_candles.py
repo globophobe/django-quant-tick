@@ -7,7 +7,15 @@ import time_machine
 from django.test import TestCase
 
 from quant_tick.constants import FileData, Frequency, SampleType
-from quant_tick.models import Candle, CandleCache, CandleData, ConstantCandle, TradeData
+from quant_tick.models import (
+    AdaptiveCandle,
+    Candle,
+    CandleCache,
+    CandleData,
+    ConstantCandle,
+    TimeBasedCandle,
+    TradeData,
+)
 from quant_tick.services.task_lease import TaskLeaseLost
 
 from ..base import BaseSymbolTest, BaseWriteTradeDataTest
@@ -43,6 +51,91 @@ class CandleDataFrameTest(BaseWriteTradeDataTest, TestCase):
         df = self.candle.get_data_frame(self.timestamp_from, self.timestamp_to, t)
         self.assertTrue(all(data_frame.columns == df.columns))
         self.assertTrue(all(data_frame == df))
+
+
+class CandleVolumeBracketsTest(BaseWriteTradeDataTest, TestCase):
+    def test_all_candle_types_preserve_brackets_through_resume_and_retry(self):
+        start = self.timestamp_from - pd.Timedelta(days=3)
+        middle, end = start + pd.Timedelta(hours=1), start + pd.Timedelta(hours=2)
+        symbol = self.get_symbol(save_aggregated=True, significant_trade_filter=1000)
+        total_notional = Decimal("4.45")
+        TradeData.objects.create(
+            symbol=symbol,
+            timestamp=start - pd.Timedelta(days=1),
+            frequency=Frequency.DAY,
+            json_data={"candle": {"notional": total_notional}},
+        )
+        for lower, upper, trades in (
+            (start, middle, ((900, -1), (1500, 1))),
+            (middle, end, ((2000, -1), (50, 1))),
+        ):
+            raw = pd.DataFrame(
+                [
+                    self.get_random_trade(
+                        timestamp=lower + pd.Timedelta(seconds=index),
+                        price=Decimal(1000),
+                        notional=Decimal(volume) / 1000,
+                        tick_rule=side,
+                    )
+                    for index, (volume, side) in enumerate(trades)
+                ]
+            )
+            TradeData.write(symbol, lower, upper, pd.DataFrame([]), raw_trades=raw)
+        for source in FileData:
+            for cls, config in (
+                (TimeBasedCandle, {"window": "2h"}),
+                (
+                    ConstantCandle,
+                    {"sample_type": "notional", "target_value": total_notional},
+                ),
+                (
+                    AdaptiveCandle,
+                    {
+                        "sample_type": "notional",
+                        "target_candles_per_day": 1,
+                        "moving_average_number_of_days": 1,
+                    },
+                ),
+            ):
+                with self.subTest(source=source, candle=cls.__name__):
+                    options = {"source_data": source, **config}
+                    baseline = cls.objects.create(symbol=symbol, json_data=options)
+                    baseline.candles(start, end)
+                    expected = list(baseline.get_candle_data())
+                    self.assertEqual(len(expected), 1)
+                    candle = cls.objects.create(
+                        symbol=symbol,
+                        json_data={**options, "volume_brackets": [1000, 2000]},
+                    )
+                    candle.candles(start, middle)
+                    self.assertFalse(CandleData.objects.filter(candle=candle).exists())
+                    saved_cache = CandleCache.objects.get(candle=candle).json_data[
+                        "next"
+                    ]["volumeBrackets"]
+                    self.assertEqual(saved_cache["buckets"][1]["buyVolume"], 1500)
+                    candle = cls.objects.get(pk=candle.pk)
+                    candle.candles(middle, end)
+                    actual = list(candle.get_candle_data())
+                    self.assertEqual(len(actual), 1)
+                    brackets = actual[0].pop("volumeBrackets")
+                    self.assertEqual(actual, expected)
+                    self.assertEqual(brackets["buckets"][1]["buyVolume"], 1500)
+                    self.assertEqual(brackets["buckets"][2]["volume"], 2000)
+                    remainder = 950 if source == FileData.FILTERED else 0
+                    self.assertEqual(brackets["unclassified"]["volume"], remainder)
+                    candle.candles(start, end, retry=True)
+                    rebuilt = list(candle.get_candle_data())
+                    self.assertEqual(rebuilt[0].pop("volumeBrackets"), brackets)
+                    self.assertEqual(rebuilt, expected)
+
+    def test_invalid_bracket_config_is_rejected_before_retry_deletion(self):
+        candle = ConstantCandle(json_data={"volume_brackets": [2000, 1000]})
+        with (
+            patch.object(candle, "initialize") as initialize,
+            self.assertRaisesRegex(ValueError, "volume_brackets"),
+        ):
+            candle.candles(self.timestamp_from, self.timestamp_from, retry=True)
+        initialize.assert_not_called()
 
 
 @time_machine.travel(datetime(2009, 1, 4, tzinfo=UTC), tick=False)

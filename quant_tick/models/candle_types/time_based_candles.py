@@ -22,6 +22,8 @@ class TimeBasedCandle(Candle):
         trade_data,
     ) -> dict | None:
         """Return a trade candle for aligned daily-or-higher slices."""
+        if self.json_data.get("volume_brackets"):
+            return None
         window = self.json_data["window"]
         window_minutes = int(pd.Timedelta(window).total_seconds() / 60)
         if window_minutes < Frequency.DAY:

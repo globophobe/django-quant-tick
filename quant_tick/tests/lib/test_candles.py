@@ -1,11 +1,14 @@
+import json
+from copy import deepcopy
 from datetime import UTC, datetime
 from decimal import Decimal
 
 import pandas as pd
 from django.test import SimpleTestCase
 
-from quant_tick.lib import merge_cache
+from quant_tick.lib import get_next_cache, merge_cache, volume_filter_with_time_window
 from quant_tick.lib.candles import aggregate_candle, resample_candles
+from quant_tick.models.base import QuantTickDecoder, QuantTickEncoder
 
 
 class CandleTest(SimpleTestCase):
@@ -150,6 +153,103 @@ class CandleTest(SimpleTestCase):
 
         self.assertNotIn("roundVolume", result)
         self.assertNotIn("roundNotional", result)
+        self.assertNotIn("volumeBrackets", result)
+
+    def test_volume_brackets_use_exact_exclusive_upper_bounds(self):
+        bounds = [10000, 100000, 1000000, 10000000]
+        values = [Decimal("9999.999999999999999999"), *map(Decimal, bounds)]
+        df = self.get_data_frame([Decimal(1000)] * 5, values, [1, -1, 1, -1, 1])
+        df["notional"] = df.volume / Decimal(1000)
+        df["ticks"] = [2, 3, 4, 5, 6]
+        ordinary = aggregate_candle(df)
+        result = aggregate_candle(df, volume_brackets=bounds)
+        brackets = result.pop("volumeBrackets")
+        self.assertEqual(result, ordinary)
+        self.assertEqual(aggregate_candle(df, volume_brackets=[]), ordinary)
+        for i, bucket in enumerate(brackets["buckets"]):
+            self.assertEqual(bucket["volume"], values[i])
+            self.assertEqual(bucket["buyVolume"], values[i] if i % 2 == 0 else 0)
+            self.assertEqual(bucket["notional"], values[i] / 1000)
+            self.assertEqual(bucket["ticks"], i + 2)
+            self.assertEqual(bucket["minVolume"], 0 if i == 0 else bounds[i - 1])
+            self.assertEqual(bucket["maxVolume"], bounds[i] if i < 4 else None)
+        self.assertTrue(all(value == 0 for value in brackets["unclassified"].values()))
+
+    def test_filtered_volume_brackets_preserve_sides_and_cache_remainders(self):
+        df = self.get_data_frame(
+            [Decimal(1000)] * 6,
+            [900, 900, 1500, 2000, 100, 200],
+            [-1, -1, 1, -1, 1, -1],
+        )
+        df["notional"] = df.volume / Decimal(1000)
+        df["uid"], df["nanoseconds"], df["ticks"] = range(len(df)), 0, 1
+        filtered = volume_filter_with_time_window(df, min_volume=1000, window=None)
+        expected = aggregate_candle(filtered, volume_brackets=[1000, 2000])
+        brackets = expected["volumeBrackets"]
+        self.assertEqual(
+            [bucket["volume"] for bucket in brackets["buckets"]], [0, 1500, 2000]
+        )
+        self.assertEqual(
+            [bucket["buyVolume"] for bucket in brackets["buckets"]], [0, 1500, 0]
+        )
+        self.assertEqual(brackets["unclassified"]["volume"], 2100)
+        self.assertEqual(brackets["unclassified"]["buyVolume"], 100)
+        self.assertEqual(brackets["unclassified"]["ticks"], 4)
+        self.assertEqual(brackets["unclassified"]["buyTicks"], 1)
+        for field, remainder in brackets["unclassified"].items():
+            self.assertEqual(
+                remainder + sum(bucket[field] for bucket in brackets["buckets"]),
+                expected[field],
+            )
+        for split in range(1, len(filtered)):
+            with self.subTest(split=split):
+                cache = get_next_cache(
+                    filtered.iloc[:split], {}, volume_brackets=[1000, 2000]
+                )
+                cache = json.loads(
+                    json.dumps(cache, cls=QuantTickEncoder), cls=QuantTickDecoder
+                )
+                result = aggregate_candle(
+                    filtered.iloc[split:], volume_brackets=[1000, 2000]
+                )
+                self.assertEqual(merge_cache(cache["next"], result), expected)
+        corrupted = filtered.copy()
+        corrupted.loc[0, "totalBuyVolume"] = 0
+        with self.assertRaisesRegex(ValueError, "reconcile"):
+            aggregate_candle(corrupted, volume_brackets=[1000, 2000])
+
+    def test_volume_brackets_reject_invalid_configuration_and_mixed_cache(self):
+        df = self.get_data_frame([100, 100])
+        for bounds in (
+            [0],
+            [-1],
+            [10, 10],
+            [20, 10],
+            [True],
+            [None],
+            ["NaN"],
+            ["Infinity"],
+            "10000",
+            False,
+        ):
+            with (
+                self.subTest(bounds=bounds),
+                self.assertRaises((TypeError, ValueError)),
+            ):
+                aggregate_candle(df, volume_brackets=bounds)
+        ordinary = aggregate_candle(df)
+        first = aggregate_candle(df, volume_brackets=[10])
+        second = aggregate_candle(df, volume_brackets=[20])
+        for previous, current in (
+            (ordinary, first),
+            (first, ordinary),
+            (first, second),
+        ):
+            with (
+                self.subTest(previous=previous),
+                self.assertRaisesRegex(ValueError, "volume_brackets changed"),
+            ):
+                merge_cache(deepcopy(previous), deepcopy(current))
 
 
 class ResampleCandleTest(SimpleTestCase):

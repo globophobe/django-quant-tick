@@ -10,6 +10,7 @@ from quant_tick.constants import Exchange
 from .aggregate import filter_by_timestamp
 from .calendar import iter_window
 from .dataframe import has_column_group, is_decimal_close
+from .volume_brackets import aggregate_volume_brackets, parse_volume_brackets
 
 ZERO = Decimal(0)
 
@@ -153,6 +154,7 @@ def aggregate_candle(
     timestamp: datetime | None = None,
     min_volume_exponent: int | None = None,
     min_notional_exponent: int | None = None,
+    volume_brackets: list | None = None,
 ) -> dict:
     """Aggregate candle."""
     ts = timestamp if timestamp else data_frame.iloc[0].timestamp
@@ -166,6 +168,9 @@ def aggregate_candle(
         )
     )
     data.update(_aggregate_realized_variance(data_frame))
+    bounds = parse_volume_brackets(volume_brackets)
+    if bounds:
+        data["volumeBrackets"] = aggregate_volume_brackets(data_frame, bounds, data)
     return data
 
 
