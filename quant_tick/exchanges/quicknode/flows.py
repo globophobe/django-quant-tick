@@ -9,9 +9,20 @@ liquidated_* describes market liquidations; backstop_* and adl_* are disjoint
 categories, counted once per paired event. Their long/short side is the distressed
 position, not the profitable counterparty closed by ADL. Values use event prices.
 Unknown directions or inconsistent liquidation metadata cannot become valid rows.
+SQL also groups by execution minute and pre-fill taker position value. Only those
+aggregates cross the API boundary; no individual fills are downloaded here.
 """
 
-from .api import coin_literal, number, query, time_literal
+from collections import defaultdict
+from decimal import Decimal
+
+from ..position_metrics import (
+    POSITION_BOUNDS,
+    TAKER_FIELDS,
+    empty_flow_tiers,
+    validate_flow_tiers,
+)
+from .api import coin_literal, number, query, time_literal, timestamp
 
 CATEGORIES = ("liquidated", "backstop", "adl")
 FLOW_FIELDS = (
@@ -61,6 +72,7 @@ def paired_fills(coin, first, last, start, end):
     market, lower, upper = coin_literal(coin), time_literal(start), time_literal(end)
     columns = [
         "block_number",
+        "any(f.time) AS event_time",
         "any(f.size) AS size",
         "any(f.price) AS price",
         "any(f.fee_token) AS fee_token",
@@ -102,7 +114,14 @@ def position_flows(coin, points, start, end):
         return {}
     first, last = blocks[0], blocks[-1]
     pairs = paired_fills(coin, first, last, start, end)
+    brackets = ",".join(
+        f"position_value<{bound},{tier}"
+        for tier, bound in enumerate(POSITION_BOUNDS[1:], 1)
+    )
+    tier = f"if(is_market,multiIf({brackets},{len(POSITION_BOUNDS)}),0)"
     columns = [
+        "toStartOfMinute(event_time) AS minute",
+        tier + " AS tier",
         f"arrayCount(b->block_number>=b,{blocks})-1 AS interval_index",
         "count() AS position_events",
         "countIf(is_market) AS trades",
@@ -161,9 +180,11 @@ def position_flows(coin, points, start, end):
                     f"toString(sumIf(trade_value,{predicate})) AS {kind}_{side}value",
                 )
             )
-    rows = query(
+    grouped = (
         "WITH toDecimal128(0,18) AS zero, "
         "toDecimal256(size,18)*toDecimal256(price,18) AS trade_value, "
+        "abs(toDecimal256(if(side='B',buyer_start_position,seller_start_position),18))"
+        "*toDecimal256(price,18) AS position_value, "
         "greatest(size+least(buyer_start_position,zero),zero) AS lo, "
         "least(size,greatest(-buyer_start_position,zero)) AS sc, "
         "greatest(size-greatest(seller_start_position,zero),zero) AS so, "
@@ -189,11 +210,46 @@ def position_flows(coin, points, start, end):
         "OR (is_market AND buyer_dir IN ('Open Long','Close Short','Short > Long') "
         "AND seller_dir IN ('Open Short','Close Long','Long > Short')))) AS valid_event "
         "SELECT " + ", ".join(columns) + f" FROM ({pairs}) "
+        "GROUP BY interval_index,minute,tier"
+    )
+    summed = (
+        *FLOW_FIELDS,
+        *SIGNED_FLOW_FIELDS,
+        *COUNT_FIELDS,
+        "long_account_delta",
+        "short_account_delta",
+        "invalid_events",
+    )
+    totals = ["interval_index"]
+    for key in summed:
+        expression = (
+            f"toString(sum(toDecimal256(g.{key},18)))"
+            if key.endswith("value") or key in SIGNED_FLOW_FIELDS
+            else f"sum(g.{key})"
+        )
+        totals.append(f"{expression} AS {key}")
+    totals.extend(
+        (
+            "arrayDistinct(arrayFlatten(groupArray(g.fee_tokens))) AS fee_tokens",
+            (
+                "groupArray(tuple(g.minute,g.long_open_size-g.long_close_size,"
+                "g.short_open_size-g.short_close_size)) AS minute_deltas"
+            ),
+            "groupArrayIf(tuple(g.tier,"
+            + ",".join("g." + key for key in TAKER_FIELDS)
+            + "),g.tier>0) AS size_flows",
+        )
+    )
+    rows = query(
+        "SELECT " + ",".join(totals) + f" FROM ({grouped}) AS g "
         "GROUP BY interval_index ORDER BY interval_index LIMIT 100",
         # Both counterparty fills are scanned instead of one derived trade row.
         scan_limit=4294967296,
     )
+    if len(rows) >= 100:
+        raise ValueError("QuickNode position-flow interval limit reached")
     result = {}
+    anchors = list(points)
     for row in rows:
         if int(row.pop("invalid_events")):
             raise ValueError(
@@ -220,6 +276,32 @@ def position_flows(coin, points, start, end):
         if len(tokens) != 1 or not tokens[0]:
             raise ValueError("QuickNode fee currencies cannot be combined")
         row["fee_currency"] = tokens[0]
+        tiers = empty_flow_tiers()
+        for values in row.pop("size_flows"):
+            tier = int(values[0])
+            if not 1 <= tier <= len(tiers) or len(values) != len(TAKER_FIELDS) + 1:
+                raise ValueError("QuickNode returned invalid position-size flows")
+            for key, value in zip(TAKER_FIELDS, values[1:], strict=True):
+                amount = number(value)
+                if amount < 0:
+                    raise ValueError("QuickNode returned negative position-size flow")
+                tiers[tier - 1][key] += amount
+        validate_flow_tiers(tiers, row)
+        changes = defaultdict(Decimal)
+        for minute, long_delta, short_delta in row.pop("minute_deltas"):
+            minute = timestamp(minute)
+            long_delta, short_delta = number(long_delta), number(short_delta)
+            if (
+                minute != minute.floor("min")
+                or not anchors[index] <= minute <= anchors[index + 1]
+                or long_delta != short_delta
+            ):
+                raise ValueError("QuickNode returned invalid minute position changes")
+            changes[minute] += long_delta
+        if not changes:
+            raise ValueError("QuickNode omitted minute position changes")
+        row["minute_deltas"] = dict(changes)
+        row["position_size_flows"] = tiers
         result[index] = row
     return result
 

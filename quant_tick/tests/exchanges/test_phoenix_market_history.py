@@ -1088,6 +1088,25 @@ class PhoenixHistoryCollectionTest(TestCase):
                     side = "long" if sign == 1 else "short"
                     self.assertEqual(row["backstop_events"], 1)
                     self.assertEqual(row["adl_events"], 1)
+                    self.assertEqual(row["minute_open_interest_open"], Decimal("0.001"))
+                    self.assertEqual(
+                        row["minute_open_interest_close"], Decimal("0.0008")
+                    )
+                    self.assertEqual(row["minute_open_interest_low"], Decimal("0.0008"))
+                    self.assertEqual(row["minute_open_interest_high"], Decimal("0.001"))
+                    self.assertEqual(
+                        row["minute_open_interest_max_drawdown"], Decimal("0.0002")
+                    )
+                    self.assertEqual(row["minute_open_interest_increase"], 0)
+                    self.assertEqual(
+                        row["minute_open_interest_decrease"], Decimal("0.0002")
+                    )
+                    self.assertTrue(
+                        all(
+                            not (r["taker_buy_size"] or r["taker_sell_size"])
+                            for r in row["position_size_flows"]
+                        )
+                    )
                     self.assertEqual(
                         Decimal(row["backstop_" + side + "_size"]), Decimal("0.0004")
                     )
@@ -1413,6 +1432,26 @@ class PhoenixPositioningTest(SimpleTestCase):
                 self.assertTrue(result["trade_position_flow_validated"])
                 self.assertNotIn("long_short_account_ratio", result)
                 self.assertNotIn("open_interest_high", result)
+                self.assertNotIn("minute_open_interest_high", result)
+                tiers = result["position_size_flows"]
+                nonempty = [
+                    r for r in tiers if r["taker_buy_size"] or r["taker_sell_size"]
+                ]
+                self.assertEqual(
+                    [r["tier"] for r in nonempty],
+                    [2 if kind == "PlaceMultiLimitOrder" else 1],
+                )
+                for field in (
+                    "taker_buy_size",
+                    "taker_sell_size",
+                    "taker_long_open_size",
+                    "taker_long_close_size",
+                    "taker_short_open_size",
+                    "taker_short_close_size",
+                    "taker_buy_value",
+                    "taker_sell_value",
+                ):
+                    self.assertEqual(sum(r[field] for r in tiers), result[field])
                 self.assertNotIn("liquidation_flow_validated", result)
                 if kind == "LiquidateViaMarketOrder":
                     self.assertEqual(result["liquidations"], 1)
@@ -1440,6 +1479,67 @@ class PhoenixPositioningTest(SimpleTestCase):
                         self.assertEqual(
                             totals["liquidated_size"], result["liquidated_size"]
                         )
+
+    def test_one_order_can_cross_position_brackets_between_fills(self):
+        for sign in (1, -1):
+            with self.subTest(taker_direction=sign):
+                sizes = (150, 100, 100)
+                trade = {
+                    "header": {
+                        "base_lot_decimals": 0,
+                        "quote_lot_decimals": 0,
+                        "tick_size": 1,
+                    },
+                    "summary": {
+                        "trader": "taker",
+                        "side": "bid" if sign == 1 else "ask",
+                        "trade_sequence_number": 1,
+                        "base_lots_filled": 350,
+                        "quote_lots_filled": 35000,
+                        "base_lot_position": sign * 150,
+                        "fee_in_quote_lots": 0,
+                    },
+                    "fills": [
+                        {
+                            "maker": i,
+                            "side": "ask" if sign == 1 else "bid",
+                            "base_lots_filled": size,
+                            "quote_lots_filled": size * 100,
+                            "maker_base_lot_position": 0,
+                            "price": 100,
+                        }
+                        for i, size in enumerate(sizes)
+                    ],
+                    "pnls": [
+                        {
+                            "trader": "taker",
+                            "base_lots_before": -sign * 200,
+                            "base_lots_after": sign * 150,
+                            "realized_pnl": 0,
+                        },
+                        *(
+                            {
+                                "trader": i,
+                                "base_lots_before": sign * size,
+                                "base_lots_after": 0,
+                                "realized_pnl": 0,
+                            }
+                            for i, size in enumerate(sizes)
+                        ),
+                    ],
+                    "liquidated": False,
+                }
+                positioning.validate_trade(trade)
+                row = positioning.aggregate([trade])
+                small, medium = row["position_size_flows"][:2]
+                side = "buy" if sign == 1 else "sell"
+                closed = "short" if sign == 1 else "long"
+                opened = "long" if sign == 1 else "short"
+                self.assertEqual(medium["taker_" + side + "_size"], 150)
+                self.assertEqual(medium["taker_" + closed + "_close_size"], 150)
+                self.assertEqual(small["taker_" + side + "_size"], 200)
+                self.assertEqual(small["taker_" + closed + "_close_size"], 50)
+                self.assertEqual(small["taker_" + opened + "_open_size"], 150)
 
     def test_missing_or_duplicate_executions_cannot_become_valid_flows(self):
         signatures = self.fixture["sequence"]

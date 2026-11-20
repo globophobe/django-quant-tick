@@ -14,9 +14,11 @@ save progress independently without publishing an observation. Hourly cohorts us
 the native bucket's mark price for size tiers, not the present snapshot's price.
 Exported position flows include transfers and forced closes and reconcile both
 hour boundaries; taker flow and liquidation executions remain trade-only.
+Minute-sampled OI includes every replayed position change, including transfers,
+ADL and shutdowns. It uses exact hour boundaries, independently of native sampled OI.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
@@ -27,6 +29,7 @@ from django.db import transaction
 
 from quant_tick.models import Checkpoint
 
+from ..position_metrics import minute_open_interest
 from ..quicknode.solana import address_transactions, latest_address_signature
 from .accounts import cohort_values
 from .events import NONTRADE_EVENTS, PROGRAM, transaction_events
@@ -327,18 +330,27 @@ class PhoenixPositionHistory:
     def rewind(self, boundary, *, collect=False):
         records = {}
         forced = []
+        changes = defaultdict(Decimal)
+        base = Decimal(10) ** -self.replay.state["base_lot_decimals"]
         limit = int(boundary.timestamp())
         while True:
             tx, groups, clock = self.peek()
             if clock < limit:
                 self.boundary = boundary
-                return records, forced
-            if collect and any(
-                item["kind"] == "TradeSummary"
-                for item in self.replay.market_events(groups)
-            ):
-                records[tx["transaction"]["signatures"][0]] = groups
+                return records, forced, changes
             if collect:
+                events = self.replay.market_events(groups)
+                if any(item["kind"] == "TradeSummary" for item in events):
+                    records[tx["transaction"]["signatures"][0]] = groups
+                changes[clock // 60] += (
+                    sum(
+                        max(item["base_lots_after"], 0)
+                        - max(item["base_lots_before"], 0)
+                        for item in events
+                        if item["kind"] == "PnL"
+                    )
+                    * base
+                )
                 forced.extend(
                     group
                     for group in groups
@@ -384,7 +396,8 @@ class PhoenixPositionHistory:
             cohort_replay_validated=True,
             cohort_transaction_index=self.replay.state.get("transaction_index"),
         )
-        groups, forced = self.rewind(start, collect=True)
+        end_oi = self.replay.open_interest()
+        groups, forced, changes = self.rewind(start, collect=True)
         flows = phoenix_positioning(
             self.symbol.api_symbol.upper(), start, end, replayed_groups=groups
         )
@@ -414,6 +427,11 @@ class PhoenixPositionHistory:
                 raise ValueError(
                     "Phoenix position flows do not reconcile with hour boundaries"
                 )
+        flows.update(
+            minute_open_interest(
+                self.replay.open_interest() * base, end_oi * base, changes
+            )
+        )
         flows["liquidation_flow_validated"] = True
         self.pending = [(end, end_state), (start, self.replay.dump())]
         return {**flows, **values}

@@ -1,3 +1,4 @@
+import gzip
 import json
 import os
 from copy import deepcopy
@@ -19,9 +20,20 @@ START = pd.Timestamp("2025-10-10T19:00Z")
 END = START + pd.Timedelta(hours=4)
 
 
+def flow_details(name):
+    path = (
+        Path(__file__).parent.parent
+        / "fixtures/quicknode/position_flow_details.json.gz"
+    )
+    return json.loads(gzip.decompress(path.read_bytes()))[name]
+
+
 def fixture():
     path = Path(__file__).parent.parent / "fixtures/quicknode/positioning.json"
-    return json.loads(path.read_text())
+    data = json.loads(path.read_text())
+    for row, details in zip(data["flows"], flow_details("crash"), strict=True):
+        row.update(details)
+    return data
 
 
 def collect(data=None):
@@ -51,6 +63,23 @@ class QuickNodeStatsTest(SimpleTestCase):
                 self.assertEqual(Decimal(str(row[field])), Decimal(str(value)), field)
             self.assertIsNone(row["open_interest_high"])
             self.assertIsNone(row["open_interest_low"])
+            self.assertEqual(row["minute_open_interest_basis"], "one_sided_positions")
+            self.assertEqual(
+                row["minute_open_interest_close"], row["single_open_interest"]
+            )
+            self.assertEqual(
+                row["minute_open_interest_open"] * 2, row["open_interest_open"]
+            )
+            for field in ("open", "close"):
+                self.assertLessEqual(
+                    row["minute_open_interest_low"],
+                    row["minute_open_interest_" + field],
+                )
+                self.assertGreaterEqual(
+                    row["minute_open_interest_high"],
+                    row["minute_open_interest_" + field],
+                )
+            self.assertEqual(len(row["position_size_flows"]), 5)
             self.assertEqual(row["market_history_source"], "quicknode")
             self.assertEqual(row["cohort_price_source"], "last_trade_before_funding")
             self.assertTrue(row["position_flow_validated"])
@@ -82,6 +111,10 @@ class QuickNodeStatsTest(SimpleTestCase):
             Path(__file__).parent.parent / "fixtures/quicknode/missing_trade_pairs.json"
         )
         data = json.loads(path.read_text())
+        for row, details in zip(
+            data["fill_flows"], flow_details("missing-pairs"), strict=True
+        ):
+            row.update(details)
         start = pd.Timestamp("2026-04-05T22:00Z")
         end = start + pd.Timedelta(hours=1, minutes=1)
         with patch.object(positions, "query", return_value=deepcopy(data["funding"])):
@@ -132,6 +165,31 @@ class QuickNodeStatsTest(SimpleTestCase):
         with self.assertRaisesRegex(ValueError, "unclassified"):
             collect(data)
 
+    def test_inconsistent_size_or_minute_breakdowns_cannot_become_valid_statistics(
+        self,
+    ):
+        for corruption in ("tier", "size", "minute", "delta", "missing_minutes"):
+            data = fixture()
+            raw = data["flows"][0]
+            if corruption == "tier":
+                raw["size_flows"][0][0] = 6
+            elif corruption == "size":
+                raw["size_flows"][0][1] = str(Decimal(raw["size_flows"][0][1]) + 1)
+            elif corruption == "minute":
+                raw["minute_deltas"][0][0] = str(START - pd.Timedelta(minutes=1))
+            elif corruption == "delta":
+                for i in (1, 2):
+                    raw["minute_deltas"][0][i] = str(
+                        Decimal(raw["minute_deltas"][0][i]) + 1
+                    )
+            else:
+                raw["minute_deltas"] = []
+            with (
+                self.subTest(corruption=corruption),
+                self.assertRaisesRegex(ValueError, "position|reconcile"),
+            ):
+                collect(data)
+
     def test_absent_flow_is_left_retryable_instead_of_zero_filled(self):
         data = fixture()
         data["flows"].pop(1)
@@ -162,6 +220,14 @@ class QuickNodeStatsTest(SimpleTestCase):
                         long_account_delta=0,
                         short_account_delta=0,
                         fee_tokens=["USDC"],
+                        size_flows=[],
+                        minute_deltas=[
+                            [
+                                str(START),
+                                0 if kind == "backstop" else -4,
+                                0 if kind == "backstop" else -4,
+                            ]
+                        ],
                     )
                     raw.update(
                         {
@@ -364,6 +430,10 @@ class QuickNodeStatsPersistenceTest(BaseSymbolTest, TestCase):
             "femtos",
         )
         stored = PerpetualStatsData.objects.get(timestamp=START).to_row()
+        self.assertEqual(stored["position_size_flows"], row["position_size_flows"])
+        self.assertEqual(
+            stored["minute_open_interest_low"], row["minute_open_interest_low"]
+        )
         self.assertIsNone(stored.get("open_interest_high"))
         self.assertEqual(stored["cohort_price_source"], "last_trade_before_funding")
         self.assertEqual(

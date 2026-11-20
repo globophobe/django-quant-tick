@@ -9,8 +9,10 @@ order; trade IDs do not define execution order.
 
 Funding coverage, not trade or node-snapshot coverage, bounds this collector.
 Old stored history remains usable. Missing anchors, prices or flows leave hours retryable;
-provider errors and reconciliation failures propagate. Intrahour OI high/low is
-unavailable here, and is explicitly null rather than inferred from block sums.
+provider errors and reconciliation failures propagate. Tick-level OI high/low
+remains unavailable. Separate minute_open_interest_* fields use one-sided OI
+at minute closes and both settlement anchors. They include forced transfers and
+ADL, while position_size_flows splits market taker flow by pre-fill position value.
 """
 
 from functools import lru_cache
@@ -22,6 +24,7 @@ from quant_tick.lib import get_current_time, iter_chunks
 
 from ..binance_futures.market_history import HISTORY_EXHAUSTED_ATTR
 from ..hyperliquid.api import normalize_coin
+from ..position_metrics import minute_open_interest
 from .api import block_range, query, timestamp
 from .flows import (
     COUNT_FIELDS,
@@ -88,6 +91,10 @@ def market_window(coin, start, end):
                     key: flow[key]
                     for key in (*FLOW_FIELDS, *SIGNED_FLOW_FIELDS, *COUNT_FIELDS)
                 },
+                "position_size_flows": flow["position_size_flows"],
+                **minute_open_interest(
+                    before["long_size"], after["long_size"], flow["minute_deltas"]
+                ),
                 "long_account_delta": int(flow["long_account_delta"]),
                 "short_account_delta": int(flow["short_account_delta"]),
                 "fee_currency": flow["fee_currency"],

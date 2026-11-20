@@ -18,7 +18,7 @@ from ..base import BaseSymbolTest
 
 
 class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
-    def test_femtos_default_export_retains_exact_cohort_and_flow_metadata(self):
+    def test_default_export_retains_exact_cohort_and_flow_metadata(self):
         symbol = self.get_symbol(
             exchange=Exchange.HYPERLIQUID,
             api_symbol="BTC",
@@ -35,10 +35,17 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
                 "cohort_timestamp": timestamp + timedelta(milliseconds=23),
                 "long_open_size": Decimal("1.123456789123456789"),
                 "cohorts": [{"tier": 4, "longSz": Decimal("7.123456789123456789")}],
+                "position_size_flows": [
+                    {
+                        "tier": 4,
+                        "taker_short_close_size": Decimal("2.123456789123456789"),
+                    }
+                ],
+                "minute_open_interest_low": Decimal("9.123456789123456789"),
             },
         )
         with TemporaryDirectory() as directory:
-            output = Path(directory) / "femtos.parquet"
+            output = Path(directory) / "stats.parquet"
             call_command(
                 "export_perpetual_stats",
                 "--code-name",
@@ -54,6 +61,11 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
         self.assertEqual(metadata["cohort_timestamp"], "2026-01-01T00:00:00.023000Z")
         self.assertEqual(metadata["long_open_size"], "1.123456789123456789")
         self.assertEqual(metadata["cohorts"][0]["longSz"], "7.123456789123456789")
+        self.assertEqual(
+            metadata["position_size_flows"][0]["taker_short_close_size"],
+            "2.123456789123456789",
+        )
+        self.assertEqual(metadata["minute_open_interest_low"], "9.123456789123456789")
 
     def setUp(self):
         super().setUp()

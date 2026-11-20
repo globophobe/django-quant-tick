@@ -11,7 +11,9 @@ When supplied, replayed_groups must have passed full reverse position and sequen
 validation; this includes transfers between trades that fill-only checks cannot
 reconcile. These groups replace individual paid transaction lookups.
 Taker fees are the reported TradeSummary fees; supplementary fee and liquidation
-charge events are not aggregated.
+charge events are not aggregated. position_size_flows values each taker position
+before each individual fill at its quote/base execution price, splitting multi-fill
+orders across tiers as the position changes. It includes market liquidations.
 """
 
 from collections import Counter, defaultdict
@@ -19,6 +21,7 @@ from decimal import Decimal
 
 import pandas as pd
 
+from ..position_metrics import add_taker_fill, empty_flow_tiers, validate_flow_tiers
 from ..quicknode.solana import transaction
 from .candles import phoenix_candles
 from .events import NONTRADE_EVENTS, transaction_events
@@ -288,6 +291,7 @@ def nontrade_flows(groups, asset_id, base_lot_decimals):
 def aggregate(trades, *, replayed=False):
     row = dict.fromkeys(DECIMAL_FIELDS, Decimal(0)) | dict.fromkeys(COUNT_FIELDS, 0)
     positions = {}
+    tiers = empty_flow_tiers()
     previous = None
     for trade in trades:
         summary = trade["summary"]
@@ -306,6 +310,15 @@ def aggregate(trades, *, replayed=False):
         row["taker_" + side + "_size"] += size
         row["taker_" + side + "_value"] += value
         row["taker_fees"] += summary["fee_in_quote_lots"] * quote
+        before = next(
+            pnl["base_lots_before"] * base
+            for pnl in trade["pnls"]
+            if pnl["trader"] == summary["trader"]
+        )
+        for fill in trade["fills"]:
+            after = before + (1 if bought else -1) * fill["base_lots_filled"] * base
+            add_taker_fill(tiers, before, after, fill["quote_lots_filled"] * quote)
+            before = after
         for pnl in trade["pnls"]:
             before, after = (
                 pnl["base_lots_before"] * base,
@@ -326,6 +339,8 @@ def aggregate(trades, *, replayed=False):
             for suffix, amount in (("size", size), ("value", value)):
                 row["liquidated_" + suffix] += amount
                 row["liquidated_" + direction + "_" + suffix] += amount
+    validate_flow_tiers(tiers, row)
+    row["position_size_flows"] = tiers
     row["active_trader_accounts"] = len(positions)
     row["taker_long_short_volume_ratio"] = (
         row["taker_buy_size"] / row["taker_sell_size"]
