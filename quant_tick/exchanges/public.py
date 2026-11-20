@@ -20,13 +20,20 @@ from quant_tick.controllers import (
 logger = logging.getLogger(__name__)
 
 
-class RPCRateLimitError(RuntimeError):
+class RPCRetryError(RuntimeError):
+    """A temporary RPC failure with a safe message and optional wait in seconds."""
+
+    def __init__(self, code, message, delay=None):
+        super().__init__(f"Provider RPC error ({code}): {message}")
+        self.code = code
+        self.delay = delay
+
+
+class RPCRateLimitError(RPCRetryError):
     """A provider throttle with an optional retry delay in seconds."""
 
     def __init__(self, code, delay):
-        super().__init__(f"Provider RPC rate limit reached ({code})")
-        self.code = code
-        self.delay = delay
+        super().__init__(code, "rate limit reached", delay)
 
 
 def retry_after_seconds(response, default=1):
@@ -129,7 +136,7 @@ def get_public_json(
                         )
                         time.sleep(delay)
             return payload
-        except (*HTTPX_ERRORS, RPCRateLimitError) as exc:
+        except (*HTTPX_ERRORS, RPCRetryError) as exc:
             rpc_limit = isinstance(exc, RPCRateLimitError)
             status = (
                 exc.response.status_code
@@ -149,9 +156,12 @@ def get_public_json(
             ):
                 raise
             delay = 1
-            if rpc_limit:
-                delay = exc.delay if exc.delay is not None else min(2**attempt, 30)
-                logger.info("%s RPC %s, sleeping %g seconds", namespace, exc.code, delay)
+            if isinstance(exc, RPCRetryError):
+                fallback = min(2**attempt, 30) if rpc_limit else 1
+                delay = exc.delay if exc.delay is not None else fallback
+                logger.info(
+                    "%s RPC %s, sleeping %g seconds", namespace, exc.code, delay
+                )
             elif status in (418, 429):
                 delay = retry_after_seconds(exc.response, default=min(2**attempt, 30))
                 logger.info("%s HTTP %s, sleeping %g seconds", namespace, status, delay)

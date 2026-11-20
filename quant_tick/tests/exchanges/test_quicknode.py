@@ -315,8 +315,8 @@ class QuickNodeTradesTest(SimpleTestCase):
 
 
 class QuickNodeRequestTest(SimpleTestCase):
-    def test_rpc_throttling_honors_timing_without_retrying_node_errors(self):
-        routes = (
+    def rpc_routes(self):
+        return (
             (
                 partial(solana.rpc, "getBlockTime", [123]),
                 {"jsonrpc": "2.0", "id": 1, "result": 123},
@@ -334,6 +334,8 @@ class QuickNodeRequestTest(SimpleTestCase):
                 {123: []},
             ),
         )
+
+    def test_rpc_retries_honor_timing_and_reject_permanent_errors(self):
         cases = (
             (429, "Requests per second exceed the plan", {}, 1),
             (-32007, "Per-second request limit reached", {}, 1),
@@ -349,12 +351,25 @@ class QuickNodeRequestTest(SimpleTestCase):
                 5,
             ),
             (-32029, "Rate limit reached", {"Retry-After": "0"}, 0),
+            (-32603, "Internal error", {}, 1),
+            (-32603, "Internal error", {"Retry-After": "7"}, 7),
+            (-32000, "Upstream request timed out", {}, 1),
+            (-32000, "context deadline exceeded", {}, 1),
+            (-32002, "Service temporarily unavailable", {}, 1),
+            (-32005, "Node is unhealthy", {}, 1),
+            (-32016, "Minimum context slot has not been reached", {}, 1),
+            (-32014, "Block status not available yet", {}, 1),
             (-32007, "Slot 123 was skipped or missing due to ledger jump", {}, None),
             (-32011, "Transaction history is not available from this node", {}, None),
             (-32602, "Invalid param", {}, None),
+            (-32602, "Invalid request timeout", {}, None),
+            (-32005, "Block range limit exceeded", {}, None),
+            (-32004, "Block not available for slot 123", {}, None),
+            (-32009, "Slot missing from long-term storage", {}, None),
+            (-32000, "Invalid input", {}, None),
         )
         module = "quant_tick.exchanges.public"
-        for collect, success, expected in routes:
+        for collect, success, expected in self.rpc_routes():
             for code, message, headers, delay in cases:
                 failure = {
                     "jsonrpc": "2.0",
@@ -399,6 +414,127 @@ class QuickNodeRequestTest(SimpleTestCase):
                     self.assertEqual(request.call_count, 1 if delay is None else 2)
                     self.assertEqual(
                         sleep.call_args_list, [] if delay is None else [call(delay)]
+                    )
+
+    def test_rpc_retry_budget_and_failure_details_keep_credentials_private(self):
+        module = "quant_tick.exchanges.public"
+        environment = {
+            "QUICKNODE_API_KEY": "other-api-key",
+            "QUICKNODE_SOLANA_URL": "https://solana.quiknode.pro/solana-test-token/",
+            "QUICKNODE_HYPERCORE_URL": "https://hype.quiknode.pro/hypercore-test-token/evm",
+        }
+        secrets = (
+            "other-api-key",
+            "solana-test-token",
+            "hypercore-test-token",
+            "solana.quiknode.pro",
+            "hype.quiknode.pro",
+            "private-error-data",
+        )
+        message = (
+            "Internal error contacting https://hype.quiknode.pro/hypercore-test-token/hypercore "
+            "with hypercore-test-token, solana-test-token and other-api-key"
+        )
+        for collect, success, expected in self.rpc_routes():
+            for code, recover in ((-32603, True), (-32603, False), (-32602, False)):
+                failure = {
+                    "jsonrpc": "2.0",
+                    "id": 123 if isinstance(success, list) else 1,
+                    "error": {
+                        "code": code,
+                        "message": message,
+                        "data": "private-error-data",
+                    },
+                }
+                if isinstance(success, list):
+                    failure = [failure]
+                attempts = 1 if code == -32602 else 31
+                with (
+                    self.subTest(
+                        route=collect.func.__name__, code=code, recover=recover
+                    ),
+                    patch.dict(os.environ, environment, clear=True),
+                    patch(f"{module}.httpx2.HTTPTransport") as transport,
+                    patch(f"{module}.throttle_api_requests"),
+                    patch(f"{module}.increment_api_total_requests"),
+                    patch(f"{module}.time.sleep") as sleep,
+                    self.assertLogs(module, level="INFO") as logs,
+                ):
+                    request = (
+                        transport.return_value.__enter__.return_value.handle_request
+                    )
+                    request.side_effect = [
+                        httpx2.Response(
+                            200, json=success if recover and index == 30 else failure
+                        )
+                        for index in range(attempts)
+                    ]
+                    if recover:
+                        self.assertEqual(collect(), expected)
+                        detail = ""
+                    else:
+                        with self.assertRaises(
+                            ValueError if code == -32602 else RuntimeError
+                        ) as raised:
+                            collect()
+                        detail = str(raised.exception)
+                        self.assertIn(str(code), detail)
+                        self.assertIn("Internal error contacting", detail)
+                    self.assertEqual(request.call_count, attempts)
+                    self.assertEqual(sleep.call_args_list, [call(1)] * (attempts - 1))
+                    for secret in secrets:
+                        self.assertNotIn(secret, detail + " ".join(logs.output))
+
+    def test_rpc_batch_errors_require_all_results_to_succeed(self):
+        module = "quant_tick.exchanges.public"
+        good = {"id": 123, "result": {"blocks": [{"block_number": 123, "events": []}]}}
+        success = [
+            good,
+            {"id": 124, "result": {"blocks": [{"block_number": 124, "events": []}]}},
+        ]
+        for permanent in (False, True):
+            for reverse in (False, True):
+                initial = [
+                    good,
+                    {"id": 124, "error": {"code": -32603, "message": "Internal error"}},
+                ]
+                if permanent:
+                    initial[0] = {
+                        "id": 123,
+                        "error": {"code": -32602, "message": "Invalid params"},
+                    }
+                if reverse:
+                    initial.reverse()
+                with (
+                    self.subTest(permanent=permanent, reverse=reverse),
+                    patch.dict(
+                        os.environ,
+                        {
+                            "QUICKNODE_HYPERCORE_URL": "https://node.quiknode.pro/test-token/"
+                        },
+                    ),
+                    patch(f"{module}.httpx2.HTTPTransport") as transport,
+                    patch(f"{module}.throttle_api_requests"),
+                    patch(f"{module}.increment_api_total_requests"),
+                    patch(f"{module}.time.sleep") as sleep,
+                ):
+                    request = (
+                        transport.return_value.__enter__.return_value.handle_request
+                    )
+                    request.side_effect = [
+                        httpx2.Response(200, json=initial),
+                        httpx2.Response(200, json=success),
+                    ]
+                    if permanent:
+                        with self.assertRaisesRegex(ValueError, "-32602"):
+                            get_trade_blocks([123, 124])
+                    else:
+                        self.assertEqual(
+                            get_trade_blocks([123, 124]), {123: [], 124: []}
+                        )
+                    self.assertEqual(request.call_count, 1 if permanent else 2)
+                    self.assertEqual(
+                        sleep.call_args_list, [] if permanent else [call(1)]
                     )
 
     def test_sql_uses_response_quota_and_checks_schema(self):
