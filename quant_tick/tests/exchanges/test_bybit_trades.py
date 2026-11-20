@@ -148,6 +148,7 @@ class BybitTradesTest(SimpleTestCase):
             "quant_tick.controllers.rest.TradeData.objects.overlapping"
         ) as overlapping:
             overlapping.return_value.filter.return_value.values.return_value = []
+            overlapping.return_value.exists.return_value = False
             controller.main()
 
         on_data_frame.assert_called_once_with(
@@ -194,6 +195,7 @@ class BybitTradesTest(SimpleTestCase):
             "quant_tick.controllers.rest.TradeData.objects.overlapping"
         ) as overlapping:
             overlapping.return_value.filter.return_value.values.return_value = []
+            overlapping.return_value.exists.return_value = False
             controller.main()
 
         self.assertEqual(

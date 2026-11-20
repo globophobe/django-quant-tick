@@ -5,9 +5,9 @@ from unittest.mock import patch
 
 import pandas as pd
 import time_machine
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
-from quant_tick.constants import RETRY_INDETERMINATE, Exchange, Frequency
+from quant_tick.constants import RETRY_INDETERMINATE, Exchange, FileData, Frequency
 from quant_tick.controllers import (
     ExchangeREST,
     ExchangeWebSocket,
@@ -17,6 +17,7 @@ from quant_tick.controllers import (
 )
 from quant_tick.controllers.repair import ExchangeRepair
 from quant_tick.models import TradeData, WebSocketData
+from quant_tick.storage import convert_trade_data_to_daily, get_compact_max_timestamp_to
 
 from ..base import BaseSymbolTest
 
@@ -959,6 +960,49 @@ class ExchangeRESTTest(BaseSymbolTest, TestCase):
             controller.main()
         fetch.assert_not_called()
         self.assertEqual(controller.frames, [])
+
+    @override_settings(
+        STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
+    )
+    def test_websocket_rechecks_compacted_coverage_after_candle_fetch(self):
+        start = self.timestamp_from
+        candles = self.get_candles({minute: Decimal(1) for minute in range(60)})
+        for minute in range(60):
+            timestamp = start + minute * self.one_minute
+            TradeData.write(
+                self.symbol,
+                timestamp,
+                timestamp + self.one_minute,
+                candles,
+                raw_trades=pd.DataFrame([self.get_trade(minute, minute)]),
+            )
+        TradeData.objects.filter(symbol=self.symbol).update(ok=None)
+        self.create_websocket_data(10, 10)
+        lower, upper = start + 10 * self.one_minute, start + 11 * self.one_minute
+        controller = DummyExchangeWebSocket(self.symbol, lower, upper, api_results=[])
+        retained = controller.get_websocket_rows(lower, upper)
+        WebSocketData.objects.all().delete()
+
+        def persist(symbol, lower, upper, frame, candles, **kwargs):
+            return TradeData.write(symbol, lower, upper, candles, **kwargs)
+
+        controller.on_data_frame = persist
+        now = start + timedelta(hours=3)
+
+        def fetch_candles(*args):
+            convert_trade_data_to_daily(
+                self.symbol, start, get_compact_max_timestamp_to(now)
+            )
+            return candles
+
+        with (
+            time_machine.travel(now, tick=False),
+            patch.object(controller, "get_candles", side_effect=fetch_candles),
+        ):
+            controller.main(websocket_rows=retained)
+        stored = TradeData.objects.get(symbol=self.symbol)
+        self.assertEqual(stored.frequency, Frequency.HOUR)
+        self.assertEqual(len(stored.get_data_frame(FileData.RAW)), 60)
 
     def test_websocket_validation_and_fallback_across_modes(self):
         start, end = self.timestamp_from, self.timestamp_from + self.one_minute

@@ -780,6 +780,11 @@ class ExchangeWebSocket(ExchangeREST):
             websocket_rows=websocket_rows,
         )
         for ts_from, ts_to in pending:
+            # Compaction can finish while validation candles are in flight.
+            if TradeData.objects.overlapping(
+                self.symbol, ts_from, ts_to, (Frequency.HOUR, Frequency.DAY)
+            ).exists():
+                continue
             frames = partitions.get(ts_from)
             if frames is None:
                 if not has_zero_trade_candle(
