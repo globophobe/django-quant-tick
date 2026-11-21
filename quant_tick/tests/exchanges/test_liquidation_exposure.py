@@ -278,7 +278,7 @@ class HyperliquidLiquidationTest(SimpleTestCase):
         self.assertEqual(
             result["summary"]["coverage_basis"], "observed_sample_positions"
         )
-        select.assert_called_once_with(5000)
+        select.assert_called_once_with(1000)
         self.assertEqual(metadata.call_count, 2)
         fetch.assert_called_once_with(list(census))
         return result["summary"]

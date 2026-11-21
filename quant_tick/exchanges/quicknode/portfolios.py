@@ -18,7 +18,7 @@ from ..public import get_public_json
 from .api import number, query, timestamp
 from .rpc_errors import check_rpc_response
 
-ACCOUNT_LIMIT = 5000
+ACCOUNT_LIMIT = 1000
 
 
 def position_census(limit=ACCOUNT_LIMIT):
