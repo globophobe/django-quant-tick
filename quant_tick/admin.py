@@ -24,8 +24,10 @@ from quant_tick.models import (
     Candle,
     CandleCache,
     CandleData,
+    Checkpoint,
     ExchangeCandleData,
     FundingData,
+    OrderBookData,
     PerpetualStatsData,
     Symbol,
     TaskState,
@@ -126,6 +128,7 @@ class SymbolAdmin(ReadOnlyAdmin):
         "api_symbol",
         "symbol_type",
         "exchange_candle_resolution",
+        "collect_order_book",
         "funding_interval",
         "date_from",
         "is_active",
@@ -303,7 +306,21 @@ class PerpetualStatsDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
         return format_display_rate(obj.long_short_account_ratio)
 
 
+class CheckpointAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
+    list_display = ("timestamp", "symbol_link", "kind")
+    list_select_related = ("symbol",)
+    ordering = ("-timestamp",)
+
+
+class OrderBookDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
+    list_display = ("timestamp", "symbol_link")
+    list_select_related = ("symbol",)
+    ordering = ("-timestamp",)
+
+
 if apps.is_installed("django.contrib.admin"):
+    admin.site.register(Checkpoint, CheckpointAdmin)
+    admin.site.register(OrderBookData, OrderBookDataAdmin)
     admin.site.register(Symbol, SymbolAdmin)
     admin.site.register(Candle, CandleAdmin)
     admin.site.register(TaskState, TaskStateAdmin)

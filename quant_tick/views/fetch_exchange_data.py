@@ -16,6 +16,9 @@ from quant_tick.exchanges.api import (
 from quant_tick.exchanges.api import (
     funding as fetch_symbol_funding,
 )
+from quant_tick.exchanges.order_book.collector import (
+    order_book as fetch_symbol_order_book,
+)
 from quant_tick.exchanges.perpetual_stats import (
     enabled_perpetual_stats_exchanges,
 )
@@ -60,7 +63,11 @@ class FetchExchangeDataView(View):
             symbol_type=SymbolType.PERPETUAL,
         )
         exchanges = (
-            self.queryset.filter(configured_funding | configured_exchange_candles)
+            self.queryset.filter(
+                configured_funding
+                | configured_exchange_candles
+                | Q(exchange=Exchange.HYPERLIQUID, collect_order_book=True)
+            )
             .order_by("exchange")
             .values_list("exchange", flat=True)
             .distinct()
@@ -69,6 +76,11 @@ class FetchExchangeDataView(View):
 
     def has_exchange_data(self, exchange: str) -> bool:
         queryset = self.queryset.filter(exchange=exchange)
+        if (
+            exchange == Exchange.HYPERLIQUID
+            and queryset.filter(collect_order_book=True).exists()
+        ):
+            return True
         configured_exchange_candles = ~Q(exchange_candle_resolution="")
         if exchange in FUNDING_SUPPORTED_EXCHANGES:
             return queryset.filter(
@@ -96,6 +108,8 @@ class FetchExchangeDataView(View):
         configured = ~Q(exchange_candle_resolution="")
         if exchange in FUNDING_SUPPORTED_EXCHANGES:
             configured |= Q(symbol_type=SymbolType.PERPETUAL)
+        if exchange == Exchange.HYPERLIQUID:
+            configured |= Q(collect_order_book=True)
         return list(queryset.filter(configured))
 
     def get_task_state(self, symbol: Symbol) -> TaskState:
@@ -120,6 +134,7 @@ class FetchExchangeDataView(View):
             "funding": 0,
             "perpetual_stats": 0,
             "exchange_candles": 0,
+            "order_book": 0,
         }
         if (
             symbol.exchange in FUNDING_SUPPORTED_EXCHANGES
@@ -160,6 +175,15 @@ class FetchExchangeDataView(View):
                 assert_lease_owned=assert_lease_owned,
             )
             counts["perpetual_stats"] = 1
+        if symbol.exchange == Exchange.HYPERLIQUID and symbol.collect_order_book:
+            fetch_symbol_order_book(
+                symbol,
+                timestamp_from,
+                timestamp_to,
+                retry,
+                assert_lease_owned=assert_lease_owned,
+            )
+            counts["order_book"] = 1
         return counts
 
     def fetch_exchange_data(
@@ -176,6 +200,7 @@ class FetchExchangeDataView(View):
             "funding": 0,
             "perpetual_stats": 0,
             "exchange_candles": 0,
+            "order_book": 0,
             "failed": 0,
             "skipped": 0,
         }
@@ -225,6 +250,7 @@ class FetchExchangeDataView(View):
                     counts["funding"] += symbol_counts["funding"]
                     counts["perpetual_stats"] += symbol_counts["perpetual_stats"]
                     counts["exchange_candles"] += symbol_counts["exchange_candles"]
+                    counts["order_book"] += symbol_counts["order_book"]
             except TaskLeaseLost:
                 counts["failed"] += 1
                 logger.exception("%s: task lease ownership lost", symbol)
@@ -248,6 +274,7 @@ class FetchExchangeDataView(View):
             "funding": 0,
             "perpetual_stats": 0,
             "exchange_candles": 0,
+            "order_book": 0,
             "failed": 0,
             "skipped": 0,
         }
@@ -264,6 +291,7 @@ class FetchExchangeDataView(View):
             totals["funding"] += counts["funding"]
             totals["perpetual_stats"] += counts["perpetual_stats"]
             totals["exchange_candles"] += counts["exchange_candles"]
+            totals["order_book"] += counts["order_book"]
             totals["failed"] += counts["failed"]
             totals["skipped"] += counts["skipped"]
         return {**totals, "exchanges": data}

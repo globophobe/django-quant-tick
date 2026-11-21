@@ -69,6 +69,29 @@ class FetchExchangeDataViewTest(TestCase):
     def get_url(self) -> str:
         return reverse("fetch_exchange_data")
 
+    @patch("quant_tick.views.fetch_exchange_data.fetch_symbol_order_book")
+    def test_order_books_are_opt_in_and_work_without_candles(self, collect):
+        Symbol.objects.all().delete()
+        symbol = Symbol.objects.create(
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="@142",
+            symbol_type=SymbolType.SPOT,
+        )
+        response = self.client.get(self.get_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["order_book"], 0)
+        collect.assert_not_called()
+        symbol.collect_order_book = True
+        symbol.save(update_fields=["collect_order_book"])
+        response = self.client.get(self.get_url(), {"exchange": Exchange.HYPERLIQUID})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["order_book"], 1)
+        self.assertEqual(response.json()["exchange_candles"], 0)
+        collect.assert_called_once()
+        self.assertEqual(collect.call_args.args[0], symbol)
+        self.assertTrue(callable(collect.call_args.kwargs["assert_lease_owned"]))
+        self.assertIsNone(TaskState.objects.get(api_symbol="@142").locked_until)
+
     def test_optional_positioning_runs_after_native_data_and_only_with_key(self):
         symbol = Symbol.objects.get(exchange=Exchange.HYPERLIQUID, api_symbol="BTC")
         start = datetime(2026, 5, 1, tzinfo=UTC)
