@@ -33,8 +33,8 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="symbol",
-            name="collect_order_book",
-            field=models.BooleanField(default=False, verbose_name="collect order book"),
+            name="save_order_book",
+            field=models.BooleanField(default=False, verbose_name="save order book"),
         ),
         migrations.AlterField(
             model_name="checkpoint",

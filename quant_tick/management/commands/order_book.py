@@ -12,7 +12,7 @@ class Command(BaseTradeDataWithRetryCommand):
 
     def get_queryset(self):
         return Symbol.objects.filter(
-            exchange=Exchange.HYPERLIQUID, collect_order_book=True
+            exchange=Exchange.HYPERLIQUID, save_order_book=True
         )
 
     def handle(self, *args, **options):

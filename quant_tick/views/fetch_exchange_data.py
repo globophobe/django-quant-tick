@@ -66,7 +66,7 @@ class FetchExchangeDataView(View):
             self.queryset.filter(
                 configured_funding
                 | configured_exchange_candles
-                | Q(exchange=Exchange.HYPERLIQUID, collect_order_book=True)
+                | Q(exchange=Exchange.HYPERLIQUID, save_order_book=True)
             )
             .order_by("exchange")
             .values_list("exchange", flat=True)
@@ -78,7 +78,7 @@ class FetchExchangeDataView(View):
         queryset = self.queryset.filter(exchange=exchange)
         if (
             exchange == Exchange.HYPERLIQUID
-            and queryset.filter(collect_order_book=True).exists()
+            and queryset.filter(save_order_book=True).exists()
         ):
             return True
         configured_exchange_candles = ~Q(exchange_candle_resolution="")
@@ -109,7 +109,7 @@ class FetchExchangeDataView(View):
         if exchange in FUNDING_SUPPORTED_EXCHANGES:
             configured |= Q(symbol_type=SymbolType.PERPETUAL)
         if exchange == Exchange.HYPERLIQUID:
-            configured |= Q(collect_order_book=True)
+            configured |= Q(save_order_book=True)
         return list(queryset.filter(configured))
 
     def get_task_state(self, symbol: Symbol) -> TaskState:
@@ -175,7 +175,7 @@ class FetchExchangeDataView(View):
                 assert_lease_owned=assert_lease_owned,
             )
             counts["perpetual_stats"] = 1
-        if symbol.exchange == Exchange.HYPERLIQUID and symbol.collect_order_book:
+        if symbol.exchange == Exchange.HYPERLIQUID and symbol.save_order_book:
             fetch_symbol_order_book(
                 symbol,
                 timestamp_from,

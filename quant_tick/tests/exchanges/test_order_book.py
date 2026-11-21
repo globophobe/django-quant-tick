@@ -186,7 +186,7 @@ class OrderBookCollectionTest(BookFixture, TestCase):
             exchange=Exchange.HYPERLIQUID,
             api_symbol="BTC",
             symbol_type=SymbolType.PERPETUAL,
-            collect_order_book=True,
+            save_order_book=True,
         )
         self.env = patch.dict(os.environ, {"QUICKNODE_API_KEY": "test-key"})
         self.env.start()

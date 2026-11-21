@@ -81,8 +81,8 @@ class FetchExchangeDataViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["order_book"], 0)
         collect.assert_not_called()
-        symbol.collect_order_book = True
-        symbol.save(update_fields=["collect_order_book"])
+        symbol.save_order_book = True
+        symbol.save(update_fields=["save_order_book"])
         response = self.client.get(self.get_url(), {"exchange": Exchange.HYPERLIQUID})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["order_book"], 1)

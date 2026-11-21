@@ -128,7 +128,7 @@ class SymbolAdmin(ReadOnlyAdmin):
         "api_symbol",
         "symbol_type",
         "exchange_candle_resolution",
-        "collect_order_book",
+        "save_order_book",
         "funding_interval",
         "date_from",
         "is_active",

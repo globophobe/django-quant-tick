@@ -49,7 +49,7 @@ class Symbol(AbstractCodeName):
         blank=True,
         editable=False,
     )
-    collect_order_book = models.BooleanField(_("collect order book"), default=False)
+    save_order_book = models.BooleanField(_("save order book"), default=False)
     is_active = models.BooleanField(_("active"), default=True)
 
     @property
