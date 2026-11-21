@@ -55,6 +55,34 @@ PERPETUAL_STATS_REQUIRED_FIELDS = {
 }
 
 
+def preserve_price_context(existing, incoming):
+    """Keep a live price set together when retrying sparse historical marks.
+
+    Within the same hour, a native mark/oracle/mid observation takes precedence
+    over an archive containing only marks. Otherwise keep the later observation.
+    """
+    old_time, new_time = (
+        existing.get("price_timestamp"),
+        incoming.get("price_timestamp"),
+    )
+    if old_time is None:
+        return
+    old_context = existing.get("oracle_price") is not None
+    new_context = incoming.get("oracle_price") is not None
+    if (old_context and not new_context) or (
+        old_context == new_context
+        and (new_time is None or to_utc_datetime(old_time) > to_utc_datetime(new_time))
+    ):
+        for key in (
+            "mark_price",
+            "oracle_price",
+            "mid_price",
+            "price_timestamp",
+            "price_block",
+        ):
+            incoming[key] = existing.get(key)
+
+
 def perpetual_stats_required_fields(exchange: str) -> tuple[str, ...]:
     """Return fields proving every native endpoint contributed an observation."""
     try:
@@ -202,6 +230,10 @@ class PerpetualStatsData(models.Model):
                     new_source = (row.json_data or {}).get("market_history_source")
                     # Provider-specific evidence must not survive a source change.
                     if not (old_source and new_source and old_source != new_source):
+                        if symbol.exchange == Exchange.HYPERLIQUID:
+                            preserve_price_context(
+                                existing.json_data or {}, row.json_data
+                            )
                         for field in PERPETUAL_STATS_VALUE_FIELDS:
                             replayed_ratio = (
                                 symbol.exchange == Exchange.PHOENIX

@@ -10,8 +10,9 @@ import pandas as pd
 from django.test import SimpleTestCase, TestCase
 
 from quant_tick.constants import Exchange, SymbolType
+from quant_tick.exchanges.hyperliquid import prices as native_prices
 from quant_tick.exchanges.perpetual_stats import perpetual_stats
-from quant_tick.exchanges.quicknode import flows, market_history, positions
+from quant_tick.exchanges.quicknode import flows, market_history, positions, prices
 from quant_tick.models import PerpetualStatsData
 
 from ..base import BaseSymbolTest
@@ -36,7 +37,7 @@ def fixture():
     return data
 
 
-def collect(data=None):
+def collect(data=None, *, marks=None):
     data = deepcopy(data or fixture())
     with (
         patch.object(
@@ -50,8 +51,146 @@ def collect(data=None):
             ],
         ),
         patch("quant_tick.exchanges.quicknode.flows.query", return_value=data["flows"]),
+        patch.object(market_history, "mark_prices", return_value=marks or {}),
     ):
         return market_history.market_window("BTC", START, END)
+
+
+class QuickNodePricesTest(SimpleTestCase):
+    def setUp(self):
+        prices.mark_history_start.cache_clear()
+        prices.price_scale.cache_clear()
+        self.addCleanup(prices.mark_history_start.cache_clear)
+        self.addCleanup(prices.price_scale.cache_clear)
+
+    def test_marks_keep_the_last_snapshot_inside_each_hour_in_quote_units(self):
+        raw = [
+            {
+                "block_number": 10,
+                "snapshot_time": START + pd.Timedelta(minutes=3),
+                "mark_px": "620010",
+            },
+            {
+                "block_number": 20,
+                "snapshot_time": START + pd.Timedelta(minutes=55),
+                "mark_px": "621235",
+            },
+            {
+                "block_number": 30,
+                "snapshot_time": START + pd.Timedelta(hours=2, minutes=10),
+                "mark_px": "625000",
+            },
+        ]
+        with (
+            patch.object(prices, "mark_history_start", return_value=START),
+            patch.object(
+                prices, "query", side_effect=[raw, [{"coin": "BTC", "sz_decimals": 5}]]
+            ) as request,
+        ):
+            marks = prices.mark_prices("BTC", START, END)
+        self.assertEqual(set(marks), {START, START + pd.Timedelta(hours=2)})
+        self.assertEqual(marks[START]["mark_price"], Decimal("62123.5"))
+        self.assertEqual(marks[START]["price_timestamp"], raw[1]["snapshot_time"])
+        self.assertEqual(marks[START]["price_block"], 20)
+        self.assertIsNone(marks[START]["oracle_price"])
+        self.assertIsNone(marks[START]["mid_price"])
+        self.assertIn("snapshot_time >=", request.call_args_list[0].args[0])
+        self.assertIn("snapshot_time <", request.call_args_list[0].args[0])
+        rows = collect(marks=marks)
+        self.assertEqual(rows[0]["mark_price"], marks[START]["mark_price"])
+        self.assertNotEqual(rows[0]["last_price"], rows[0]["mark_price"])
+        self.assertNotIn("mark_price", rows[1])
+
+    def test_missing_marks_and_precoverage_do_not_invent_prices(self):
+        for first, raw in ((END, None), (None, None), (START, [])):
+            with (
+                self.subTest(first=first),
+                patch.object(prices, "mark_history_start", return_value=first),
+                patch.object(prices, "query", return_value=raw) as request,
+            ):
+                self.assertEqual(prices.mark_prices("BTC", START, END), {})
+                self.assertEqual(request.call_count, int(raw == []))
+
+    def test_invalid_or_truncated_marks_fail_instead_of_becoming_prices(self):
+        valid = {"block_number": 10, "snapshot_time": START, "mark_px": "620010"}
+        samples = [
+            [valid, valid],
+            [valid] * 1001,
+            [{**valid, "snapshot_time": START - pd.Timedelta(seconds=1)}],
+            [{**valid, "snapshot_time": END}],
+        ]
+        samples += [
+            [{**valid, "mark_px": value}] for value in ("NaN", "0", "-1", "1.5")
+        ]
+        for raw in samples:
+            with (
+                self.subTest(raw=raw[:2]),
+                patch.object(prices, "mark_history_start", return_value=START),
+                patch.object(prices, "price_scale", return_value=Decimal("0.1")),
+                patch.object(prices, "query", return_value=raw),
+                self.assertRaises(ValueError),
+            ):
+                prices.mark_prices("BTC", START, END)
+
+    def test_perpetual_price_precision_is_validated_and_cached(self):
+        for decimals, expected in ((5, "0.1"), (4, "0.01"), (0, "0.000001"), (6, "1")):
+            prices.price_scale.cache_clear()
+            with (
+                self.subTest(decimals=decimals),
+                patch.object(
+                    prices,
+                    "query",
+                    return_value=[{"coin": "BTC", "sz_decimals": decimals}],
+                ) as request,
+            ):
+                self.assertEqual(prices.price_scale("BTC"), Decimal(expected))
+                prices.price_scale("BTC")
+                request.assert_called_once()
+        for rows in (
+            [],
+            [{"coin": "ETH", "sz_decimals": 5}],
+            [{"coin": "BTC", "sz_decimals": 7}],
+        ):
+            prices.price_scale.cache_clear()
+            with (
+                patch.object(prices, "query", return_value=rows),
+                self.assertRaises(ValueError),
+            ):
+                prices.price_scale("BTC")
+
+    def test_native_prices_share_one_observation_time_and_keep_an_absent_mid(self):
+        for mid in ("62002.5", None):
+            with (
+                patch.object(native_prices, "get_current_time", return_value=START),
+                patch.object(
+                    native_prices,
+                    "post_hyperliquid_info",
+                    return_value=[
+                        {"universe": [{"name": "BTC"}]},
+                        [{"markPx": "62001", "oraclePx": "62010", "midPx": mid}],
+                    ],
+                ),
+            ):
+                observation = native_prices.price_context("BTC")
+            self.assertEqual(observation["mark_price"], Decimal(62001))
+            self.assertEqual(observation["oracle_price"], Decimal(62010))
+            self.assertEqual(observation["mid_price"], Decimal(mid) if mid else None)
+            self.assertEqual(observation["price_timestamp"], START)
+
+    def test_bad_native_contexts_are_not_saved(self):
+        for context in ({"markPx": "62001"}, {"markPx": "NaN", "oraclePx": "62010"}):
+            with (
+                patch.object(
+                    native_prices,
+                    "post_hyperliquid_info",
+                    return_value=[
+                        {"universe": [{"name": "BTC"}]},
+                        [context],
+                    ],
+                ),
+                self.assertRaises(ValueError),
+            ):
+                native_prices.price_context("BTC")
 
 
 class QuickNodeStatsTest(SimpleTestCase):
@@ -435,6 +574,152 @@ class QuickNodeStatsPersistenceTest(BaseSymbolTest, TestCase):
             exchange=Exchange.HYPERLIQUID,
             api_symbol="BTC",
             symbol_type=SymbolType.PERPETUAL,
+        )
+
+    def test_live_prices_remain_partial_then_survive_completed_history_and_retries(
+        self,
+    ):
+        now = START + pd.Timedelta(minutes=50)
+        context = {
+            "mark_price": Decimal(62001),
+            "oracle_price": Decimal(62010),
+            "mid_price": Decimal("62002.5"),
+            "price_timestamp": now,
+            "price_block": None,
+        }
+        with (
+            patch.dict(os.environ, {"QUICKNODE_API_KEY": "test-key"}),
+            patch(
+                "quant_tick.exchanges.perpetual_stats.get_current_time",
+                return_value=now,
+            ),
+            patch(
+                "quant_tick.exchanges.perpetual_stats.price_context",
+                return_value=context,
+            ) as native,
+            patch(
+                "quant_tick.exchanges.perpetual_stats.quicknode_market_history"
+            ) as history,
+        ):
+            perpetual_stats(self.symbol, START, now)
+        native.assert_called_once_with("BTC")
+        history.assert_not_called()
+        stored = PerpetualStatsData.objects.get(timestamp=START)
+        self.assertIsNone(stored.open_interest)
+        self.assertFalse(
+            PerpetualStatsData.objects.complete_for_exchange(
+                self.symbol.exchange
+            ).exists()
+        )
+
+        archive = {
+            "mark_price": Decimal(63000),
+            "oracle_price": None,
+            "mid_price": None,
+            "price_timestamp": START + pd.Timedelta(minutes=55),
+            "price_block": 20,
+        }
+        frame = pd.DataFrame([collect(marks={START: archive})[0]]).set_index(
+            "timestamp"
+        )
+        with (
+            patch.dict(os.environ, {"QUICKNODE_API_KEY": "test-key"}),
+            patch(
+                "quant_tick.exchanges.perpetual_stats.get_current_time",
+                return_value=END,
+            ),
+            patch("quant_tick.exchanges.perpetual_stats.price_context") as native,
+            patch(
+                "quant_tick.exchanges.perpetual_stats.quicknode_market_history",
+                return_value=frame,
+            ),
+        ):
+            perpetual_stats(self.symbol, START, START + pd.Timedelta(hours=1))
+            perpetual_stats(
+                self.symbol, START, START + pd.Timedelta(hours=1), retry=True
+            )
+        native.assert_not_called()
+        stored = PerpetualStatsData.objects.get(timestamp=START)
+        self.assertIsNotNone(stored.open_interest)
+        self.assertEqual(stored.json_data["mark_price"], context["mark_price"])
+        self.assertEqual(stored.json_data["oracle_price"], context["oracle_price"])
+        self.assertEqual(stored.json_data["mid_price"], context["mid_price"])
+        self.assertEqual(pd.Timestamp(stored.json_data["price_timestamp"]), now)
+        self.assertIsNone(stored.json_data["price_block"])
+        self.assertTrue(
+            PerpetualStatsData.objects.complete_for_exchange(
+                self.symbol.exchange
+            ).exists()
+        )
+
+    def test_retry_adds_historical_marks_and_preserves_them_if_a_later_query_has_gaps(
+        self,
+    ):
+        row = collect()[0]
+        PerpetualStatsData.write(self.symbol, 60, START, END, pd.DataFrame([row]))
+        mark = {
+            "mark_price": Decimal(62001),
+            "oracle_price": None,
+            "mid_price": None,
+            "price_timestamp": START + pd.Timedelta(minutes=55),
+            "price_block": 20,
+        }
+        with (
+            patch.dict(os.environ, {"QUICKNODE_API_KEY": "test-key"}),
+            patch(
+                "quant_tick.exchanges.perpetual_stats.get_current_time",
+                return_value=END,
+            ),
+            patch("quant_tick.exchanges.perpetual_stats.price_context") as native,
+            patch(
+                "quant_tick.exchanges.perpetual_stats.quicknode_market_history",
+                side_effect=[
+                    pd.DataFrame([{**row, **mark}]).set_index("timestamp"),
+                    pd.DataFrame([row]).set_index("timestamp"),
+                ],
+            ),
+        ):
+            perpetual_stats(
+                self.symbol, START, START + pd.Timedelta(hours=1), retry=True
+            )
+            perpetual_stats(
+                self.symbol, START, START + pd.Timedelta(hours=1), retry=True
+            )
+        native.assert_not_called()
+        stored = PerpetualStatsData.objects.get(timestamp=START).to_row()
+        self.assertEqual(stored["mark_price"], mark["mark_price"])
+        self.assertEqual(
+            pd.Timestamp(stored["price_timestamp"]), mark["price_timestamp"]
+        )
+        self.assertEqual(stored["price_block"], mark["price_block"])
+        self.assertIsNone(stored["oracle_price"])
+
+    def test_older_live_context_cannot_replace_a_newer_observation(self):
+        fresh = {
+            "timestamp": START,
+            "mark_price": Decimal(62001),
+            "oracle_price": Decimal(62010),
+            "mid_price": None,
+            "price_timestamp": START + pd.Timedelta(minutes=50),
+            "price_block": None,
+        }
+        older = {
+            **fresh,
+            "mark_price": Decimal(61001),
+            "oracle_price": Decimal(61010),
+            "mid_price": Decimal(61002),
+            "price_timestamp": START + pd.Timedelta(minutes=40),
+        }
+        for observation in (fresh, older):
+            PerpetualStatsData.write(
+                self.symbol, 60, START, END, pd.DataFrame([observation])
+            )
+        stored = PerpetualStatsData.objects.get(timestamp=START).to_row()
+        self.assertEqual(stored["mark_price"], fresh["mark_price"])
+        self.assertEqual(stored["oracle_price"], fresh["oracle_price"])
+        self.assertIsNone(stored["mid_price"])
+        self.assertEqual(
+            pd.Timestamp(stored["price_timestamp"]), fresh["price_timestamp"]
         )
 
     def test_older_data_is_preserved_and_new_metadata_survives_export(self):

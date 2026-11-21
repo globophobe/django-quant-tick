@@ -6,6 +6,8 @@ All fills between those blocks must reconcile position sizes and account counts;
 only market executions contribute to taker flow and trade counts.
 The rate is the funding settled at the interval's end. Prices use actual execution
 order; trade IDs do not define execution order.
+Optional mark prices are the last node-state observation within the hour,
+with their own timestamps. Missing mark history does not discard positioning.
 
 Funding coverage, not trade or node-snapshot coverage, bounds this collector.
 Old stored history remains usable. Missing anchors, prices or flows leave hours retryable;
@@ -34,6 +36,7 @@ from .flows import (
     validate_flow,
 )
 from .positions import cohort_tiers, cohort_values, funding_points, preceding_prices
+from .prices import mark_prices
 
 BATCH = pd.Timedelta(hours=6)
 
@@ -56,6 +59,7 @@ def market_window(coin, start, end):
     prices = preceding_prices(coin, points, price_start, query_end, bounds)
     tiers = cohort_tiers(coin, points, prices, start, query_end)
     flows = position_flows(coin, points, start, query_end)
+    marks = mark_prices(coin, start, end)
     rows = []
     for index, ((hour, before), (following, after)) in enumerate(
         pairwise(points.items())
@@ -82,6 +86,7 @@ def market_window(coin, start, end):
                 "open_interest_high": None,
                 "open_interest_low": None,
                 "last_price": price,
+                **marks.get(hour, {}),
                 "oi_long_accounts": after["long_accounts"],
                 "oi_short_accounts": after["short_accounts"],
                 "oi_timestamp": after["time"],
