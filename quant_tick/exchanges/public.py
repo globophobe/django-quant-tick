@@ -1,13 +1,16 @@
 """Public market requests with rate limiting and Retry-After handling."""
 
+import atexit
 import json
 import logging
 import math
+import os
 import time
 from collections.abc import Callable
 from datetime import UTC
 from decimal import Decimal
 from email.utils import parsedate_to_datetime
+from threading import Lock
 
 import httpx2
 
@@ -18,6 +21,36 @@ from quant_tick.controllers import (
 )
 
 logger = logging.getLogger(__name__)
+_rpc_transport = None
+_rpc_transport_lock = Lock()
+
+
+def _get_rpc_transport():
+    global _rpc_transport
+    with _rpc_transport_lock:
+        if _rpc_transport is None:
+            _rpc_transport = httpx2.HTTPTransport()
+        return _rpc_transport
+
+
+@atexit.register
+def _close_rpc_transport():
+    global _rpc_transport
+    with _rpc_transport_lock:
+        transport, _rpc_transport = _rpc_transport, None
+    if transport is not None:
+        transport.close()
+
+
+def _reset_rpc_transport():
+    # A forked worker must not share the parent's sockets or locks.
+    global _rpc_transport, _rpc_transport_lock
+    _rpc_transport = None
+    _rpc_transport_lock = Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_rpc_transport)
 
 
 class RPCRetryError(RuntimeError):
@@ -95,10 +128,12 @@ def get_public_json(
                             }
                         },
                     )
-                    with httpx2.HTTPTransport() as transport:
-                        response = transport.handle_request(request)
-                        response.request = safe_request
+                    response = _get_rpc_transport().handle_request(request)
+                    response.request = safe_request
+                    try:
                         response.read()
+                    finally:
+                        response.close()
                     logger.info(
                         'HTTP Request: %s %s "%s %d %s"',
                         safe_request.method,

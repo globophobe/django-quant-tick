@@ -394,14 +394,12 @@ class QuickNodeRequestTest(SimpleTestCase):
                         },
                         clear=True,
                     ),
-                    patch(f"{module}.httpx2.HTTPTransport") as transport,
+                    patch(f"{module}._get_rpc_transport") as transport,
                     patch(f"{module}.throttle_api_requests"),
                     patch(f"{module}.increment_api_total_requests"),
                     patch(f"{module}.time.sleep") as sleep,
                 ):
-                    request = (
-                        transport.return_value.__enter__.return_value.handle_request
-                    )
+                    request = transport.return_value.handle_request
                     request.side_effect = [
                         httpx2.Response(200, json=failure, headers=headers),
                         httpx2.Response(200, json=success),
@@ -454,15 +452,13 @@ class QuickNodeRequestTest(SimpleTestCase):
                         route=collect.func.__name__, code=code, recover=recover
                     ),
                     patch.dict(os.environ, environment, clear=True),
-                    patch(f"{module}.httpx2.HTTPTransport") as transport,
+                    patch(f"{module}._get_rpc_transport") as transport,
                     patch(f"{module}.throttle_api_requests"),
                     patch(f"{module}.increment_api_total_requests"),
                     patch(f"{module}.time.sleep") as sleep,
                     self.assertLogs(module, level="INFO") as logs,
                 ):
-                    request = (
-                        transport.return_value.__enter__.return_value.handle_request
-                    )
+                    request = transport.return_value.handle_request
                     request.side_effect = [
                         httpx2.Response(
                             200, json=success if recover and index == 30 else failure
@@ -513,14 +509,12 @@ class QuickNodeRequestTest(SimpleTestCase):
                             "QUICKNODE_HYPERCORE_URL": "https://node.quiknode.pro/test-token/"
                         },
                     ),
-                    patch(f"{module}.httpx2.HTTPTransport") as transport,
+                    patch(f"{module}._get_rpc_transport") as transport,
                     patch(f"{module}.throttle_api_requests"),
                     patch(f"{module}.increment_api_total_requests"),
                     patch(f"{module}.time.sleep") as sleep,
                 ):
-                    request = (
-                        transport.return_value.__enter__.return_value.handle_request
-                    )
+                    request = transport.return_value.handle_request
                     request.side_effect = [
                         httpx2.Response(200, json=initial),
                         httpx2.Response(200, json=success),

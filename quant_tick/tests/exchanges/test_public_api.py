@@ -4,6 +4,8 @@ import os
 from contextlib import nullcontext
 from decimal import Decimal
 from functools import partial
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from unittest.mock import call, patch
 
 import httpx2
@@ -11,6 +13,7 @@ import sentry_sdk
 from django.test import SimpleTestCase
 from sentry_sdk.integrations.logging import LoggingIntegration
 
+from quant_tick.exchanges import public
 from quant_tick.exchanges.public import RPCRateLimitError, get_public_json
 from quant_tick.exchanges.quicknode.api import query
 from quant_tick.exchanges.quicknode.blocks import get_trade_blocks
@@ -25,6 +28,101 @@ class PublicMarketRequestTest(SimpleTestCase):
             headers=headers,
             request=httpx2.Request("GET", "https://venue.test/trades"),
         )
+
+    def test_rpc_connections_survive_retries_and_separate_calls(self):
+        requests = []
+        connections = []
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def setup(self):
+                super().setup()
+                connections.append(self.connection)
+
+            def do_POST(self):
+                requests.append(self.rfile.read(int(self.headers["Content-Length"])))
+                self.send_response(503 if len(requests) == 1 else 200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"[]")
+
+            def log_message(self, *args):
+                pass
+
+        public._close_rpc_transport()
+        with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+            worker = Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            try:
+                with patch("quant_tick.exchanges.public.time.sleep") as sleep:
+                    for number in range(2):
+                        self.assertEqual(
+                            get_public_json(
+                                f"http://127.0.0.1:{server.server_port}",
+                                "/sample-secret",
+                                {},
+                                namespace="TEST",
+                                max_requests=None,
+                                retry=1,
+                                json_body={"id": number},
+                                redact_url=True,
+                            ),
+                            [],
+                        )
+                self.assertEqual(len(connections), 1)
+                self.assertEqual(
+                    [json.loads(body)["id"] for body in requests], [0, 0, 1]
+                )
+                sleep.assert_called_once_with(1)
+                public._close_rpc_transport()
+                self.assertIsNone(public._rpc_transport)
+                get_public_json(
+                    f"http://127.0.0.1:{server.server_port}",
+                    "/sample-secret",
+                    {},
+                    namespace="TEST",
+                    max_requests=None,
+                    json_body={},
+                    redact_url=True,
+                )
+                self.assertEqual(len(connections), 2)
+            finally:
+                public._close_rpc_transport()
+                server.shutdown()
+                worker.join(timeout=5)
+
+    def test_failed_rpc_body_is_closed_before_retry(self):
+        class BrokenBody(httpx2.SyncByteStream):
+            def __iter__(self):
+                raise httpx2.ReadError("sample-secret")
+                yield
+
+        failed = httpx2.Response(200, stream=BrokenBody())
+        with (
+            patch("quant_tick.exchanges.public._get_rpc_transport") as transport,
+            patch("quant_tick.exchanges.public.time.sleep") as sleep,
+        ):
+            transport.return_value.handle_request.side_effect = [
+                failed,
+                self.response(200, "[]"),
+            ]
+            self.assertEqual(
+                get_public_json(
+                    "https://node.quiknode.pro/sample-secret",
+                    "",
+                    {},
+                    namespace="TEST",
+                    max_requests=None,
+                    retry=1,
+                    json_body={},
+                    redact_url=True,
+                ),
+                [],
+            )
+        self.assertTrue(failed.is_closed)
+        self.assertEqual(str(failed.request.url), "https://quiknode.pro/rpc")
+        sleep.assert_called_once_with(1)
 
     def test_endpoints_share_throttle_and_preserve_decimal_values(self):
         with (
@@ -107,7 +205,7 @@ class PublicMarketRequestTest(SimpleTestCase):
 
     def test_transient_errors_share_bounded_retries(self):
         module = "quant_tick.exchanges.public"
-        for method in ("get", "post", "HTTPTransport"):
+        for method in ("get", "post", "_get_rpc_transport"):
             collect = partial(
                 get_public_json,
                 "https://venue.test",
@@ -116,7 +214,7 @@ class PublicMarketRequestTest(SimpleTestCase):
                 namespace="TEST",
                 retry=3,
                 json_body={"query": "SELECT 1"} if method != "get" else None,
-                redact_url=method == "HTTPTransport",
+                redact_url=method == "_get_rpc_transport",
             )
             for final_status in (200, 408, 503):
                 outcome = (
@@ -130,11 +228,15 @@ class PublicMarketRequestTest(SimpleTestCase):
                     patch(f"{module}.throttle_api_requests"),
                     patch(f"{module}.increment_api_total_requests"),
                     patch(f"{module}.time.sleep") as sleep,
-                    patch(f"{module}.httpx2.{method}") as client,
+                    patch(
+                        f"{module}.{method}"
+                        if method == "_get_rpc_transport"
+                        else f"{module}.httpx2.{method}"
+                    ) as client,
                 ):
                     request = (
-                        client.return_value.__enter__.return_value.handle_request
-                        if method == "HTTPTransport"
+                        client.return_value.handle_request
+                        if method == "_get_rpc_transport"
                         else client
                     )
                     request.side_effect = [
@@ -176,14 +278,14 @@ class PublicMarketRequestTest(SimpleTestCase):
             (
                 "QUICKNODE_SOLANA",
                 partial(rpc, "getBlockTime", [123]),
-                "HTTPTransport",
+                "_get_rpc_transport",
                 '{"jsonrpc":"2.0","id":1,"result":123}',
                 123,
             ),
             (
                 "QUICKNODE_BLOCKS",
                 partial(get_trade_blocks, [123]),
-                "HTTPTransport",
+                "_get_rpc_transport",
                 (
                     '[{"jsonrpc":"2.0","id":123,"result":{"blocks":'
                     '[{"block_number":123,"events":[]}]}}]'
@@ -194,7 +296,7 @@ class PublicMarketRequestTest(SimpleTestCase):
         module = "quant_tick.exchanges.public"
         for provider, collect, method, payload, expected in cases:
             scenarios = [((429, 200), [44]), ((429,) * 31, [44] * 30), ((402,), [])]
-            if method == "HTTPTransport":
+            if method == "_get_rpc_transport":
                 scenarios += [
                     ((-32029, None, 503, 429, 200), [1, 1, 1, 44]),
                     (
@@ -247,7 +349,11 @@ class PublicMarketRequestTest(SimpleTestCase):
                         },
                         clear=True,
                     ),
-                    patch(f"{module}.httpx2.{method}") as client,
+                    patch(
+                        f"{module}.{method}"
+                        if method == "_get_rpc_transport"
+                        else f"{module}.httpx2.{method}"
+                    ) as client,
                     patch(f"{module}.throttle_api_requests"),
                     patch(f"{module}.increment_api_total_requests"),
                     patch(f"{module}.time.sleep") as sleep,
@@ -263,8 +369,8 @@ class PublicMarketRequestTest(SimpleTestCase):
                     outcome,
                 ):
                     request = (
-                        client.return_value.__enter__.return_value.handle_request
-                        if method == "HTTPTransport"
+                        client.return_value.handle_request
+                        if method == "_get_rpc_transport"
                         else client
                     )
                     request.side_effect = responses
@@ -294,7 +400,7 @@ class PublicMarketRequestTest(SimpleTestCase):
             with (
                 self.subTest(result=type(result).__name__),
                 patch.dict(os.environ, {}, clear=True),
-                patch("quant_tick.exchanges.public.httpx2.HTTPTransport") as transport,
+                patch("quant_tick.exchanges.public._get_rpc_transport") as transport,
                 patch("quant_tick.exchanges.public.time.sleep") as sleep,
                 self.assertLogs("quant_tick.exchanges.public", level=logging.INFO)
                 if isinstance(result, httpx2.Response)
@@ -310,7 +416,7 @@ class PublicMarketRequestTest(SimpleTestCase):
                     send_default_pii=False,
                 ),
             ):
-                handler = transport.return_value.__enter__.return_value.handle_request
+                handler = transport.return_value.handle_request
                 handler.side_effect = (
                     [result] * 2 if isinstance(result, Exception) else None
                 )
