@@ -37,10 +37,8 @@ dependencies = [
     "django>=4.2",
     "django-polymorphic>=3.1.0",
     "httpx2>=2.12.0",
-    "grpcio>=1.85.1",
     "pandas>=2.2.3",
     "pyarrow>=18.1.0",
-    "protobuf>=7.35.1",
     "randomname>=0.2.1",
 ]
 
@@ -76,9 +74,6 @@ dev = [
 
 [tool.ruff]
 extend-exclude = ["quant_tick/migrations"]
-
-[tool.ruff.lint.per-file-ignores]
-"quant_tick/exchanges/quicknode/book_pb2.py" = ["E402", "F401"]
 
 [tool.uv]
 exclude-newer = "P7D"

@@ -5,7 +5,6 @@ from django.http import HttpRequest, JsonResponse
 from django.views import View
 
 from quant_tick.constants import TaskType
-from quant_tick.exchanges.order_book.storage import convert_order_book_data_to_daily
 from quant_tick.lib import get_min_time
 from quant_tick.models import Candle, Symbol, TaskState
 from quant_tick.models.task_state import TASK_STATE_EXCHANGE_ALL
@@ -29,7 +28,7 @@ COMPACT_TASK_API_SYMBOL = "all"
 
 
 class CompactView(View):
-    """Compact trade data, book summaries, and candle cache."""
+    """Compact trade data and candle cache."""
 
     symbol_queryset = Symbol.objects.filter(is_active=True)
     candle_queryset = Candle.objects.filter(is_active=True).select_related("symbol")
@@ -73,23 +72,6 @@ class CompactView(View):
                     lease_heartbeat.assert_owned()
                     failed += 1
                     logger.exception("TradeData compaction failed for %s", symbol)
-                else:
-                    lease_heartbeat.assert_owned()
-
-            for symbol in self.symbol_queryset.filter(
-                order_book_data__isnull=False
-            ).distinct():
-                try:
-                    convert_order_book_data_to_daily(
-                        symbol,
-                        timestamp_from,
-                        timestamp_to,
-                        assert_lease_owned=lease_heartbeat.assert_owned,
-                    )
-                except Exception:
-                    lease_heartbeat.assert_owned()
-                    failed += 1
-                    logger.exception("OrderBookData compaction failed for %s", symbol)
                 else:
                     lease_heartbeat.assert_owned()
 

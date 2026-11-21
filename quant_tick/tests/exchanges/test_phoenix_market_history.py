@@ -1319,7 +1319,7 @@ class PhoenixHistoryCollectionTest(TestCase):
     def test_existing_native_rows_receive_reconstruction_without_retry(self):
         unrelated = Checkpoint.objects.create(
             symbol=self.symbol,
-            checkpoint_type=CheckpointType.HYPERLIQUID_ORDER_BOOK,
+            checkpoint_type=CheckpointType.LIQUIDATION_EXPOSURE,
             timestamp=self.end,
             json_data={"cursor": "unchanged"},
         )

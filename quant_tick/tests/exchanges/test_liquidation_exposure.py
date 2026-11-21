@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pandas as pd
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from quant_tick.constants import CheckpointType, Exchange, SymbolType
@@ -628,6 +629,20 @@ class LiquidationPersistenceTest(TestCase):
         )
         _, files = default_storage.listdir(str(Path(original.file_data.name).parent))
         self.assertEqual(files, [Path(original.file_data.name).name])
+
+    def test_checkpoint_deletion_only_removes_file_after_commit(self):
+        snapshots.persist(self.symbol, self.state)
+        checkpoint = Checkpoint.objects.get()
+        name = checkpoint.file_data.name
+        with self.assertRaises(RuntimeError), transaction.atomic():
+            checkpoint.delete()
+            raise RuntimeError("rollback")
+        self.assertTrue(Checkpoint.objects.filter(file_data=name).exists())
+        self.assertTrue(default_storage.exists(name))
+        with self.captureOnCommitCallbacks(execute=True):
+            Checkpoint.objects.only("pk").delete()
+            self.assertTrue(default_storage.exists(name))
+        self.assertFalse(default_storage.exists(name))
 
     @patch.dict(os.environ, {"QUICKNODE_API_KEY": "test"})
     def test_collection_only_fetches_live_portfolios_for_current_requests(self):

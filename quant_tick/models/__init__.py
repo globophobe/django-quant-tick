@@ -3,7 +3,6 @@ from .candles import Candle, CandleCache, CandleData
 from .checkpoints import Checkpoint
 from .exchange_candles import ExchangeCandleData
 from .funding import FundingData
-from .order_book import OrderBookData
 from .perpetual_stats import PerpetualStatsData
 from .symbols import Symbol
 from .task_state import TaskState
@@ -19,7 +18,6 @@ __all__ = [
     "ConstantCandle",
     "ExchangeCandleData",
     "FundingData",
-    "OrderBookData",
     "PerpetualStatsData",
     "Symbol",
     "TaskState",

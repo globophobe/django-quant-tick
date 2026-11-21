@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from quant_tick.constants import Exchange, TaskType
-from quant_tick.models import Candle, OrderBookData, Symbol, TaskState
+from quant_tick.models import Candle, Symbol, TaskState
 from quant_tick.views.compact import COMPACT_TASK_API_SYMBOL, COMPACT_TASK_EXCHANGE
 
 
@@ -18,11 +18,6 @@ class CompactViewTest(TestCase):
             api_symbol="test",
         )
         self.candle = Candle.objects.create(symbol=self.symbol)
-        OrderBookData.objects.create(
-            symbol=self.symbol,
-            timestamp=timezone.now(),
-            file_data="order_book/minute.parquet",
-        )
 
     def get_url(self) -> str:
         return reverse("compact")
@@ -43,14 +38,11 @@ class CompactViewTest(TestCase):
         data.update(kwargs)
         return TaskState.objects.create(**data)
 
-    def test_get_compacts_trades_books_and_candles(self):
+    def test_get_compacts_trades_and_candles(self):
         with (
             patch(
                 "quant_tick.views.compact.convert_trade_data_to_daily"
             ) as mock_compact_trades,
-            patch(
-                "quant_tick.views.compact.convert_order_book_data_to_daily"
-            ) as mock_compact_books,
             patch(
                 "quant_tick.views.compact.convert_candle_cache_to_daily"
             ) as mock_compact_candles,
@@ -65,10 +57,6 @@ class CompactViewTest(TestCase):
             callable(mock_compact_trades.call_args.kwargs["assert_lease_owned"])
         )
         mock_compact_candles.assert_called_once()
-        mock_compact_books.assert_called_once_with(
-            *mock_compact_trades.call_args.args,
-            **mock_compact_trades.call_args.kwargs,
-        )
         self.assertEqual(mock_compact_candles.call_args.args[0], self.candle)
         self.assertTrue(
             callable(mock_compact_candles.call_args.kwargs["assert_lease_owned"])
@@ -84,9 +72,6 @@ class CompactViewTest(TestCase):
                 "quant_tick.views.compact.convert_trade_data_to_daily"
             ) as mock_compact_trades,
             patch(
-                "quant_tick.views.compact.convert_order_book_data_to_daily"
-            ) as mock_compact_books,
-            patch(
                 "quant_tick.views.compact.convert_candle_cache_to_daily"
             ) as mock_compact_candles,
         ):
@@ -95,7 +80,6 @@ class CompactViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"ok": True, "skipped": "locked"})
         mock_compact_trades.assert_not_called()
-        mock_compact_books.assert_not_called()
         mock_compact_candles.assert_not_called()
 
     def test_get_skips_when_compact_task_is_backed_off(self):
@@ -105,9 +89,6 @@ class CompactViewTest(TestCase):
                 "quant_tick.views.compact.convert_trade_data_to_daily"
             ) as mock_compact_trades,
             patch(
-                "quant_tick.views.compact.convert_order_book_data_to_daily"
-            ) as mock_compact_books,
-            patch(
                 "quant_tick.views.compact.convert_candle_cache_to_daily"
             ) as mock_compact_candles,
         ):
@@ -116,7 +97,6 @@ class CompactViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"ok": True, "skipped": "backoff"})
         mock_compact_trades.assert_not_called()
-        mock_compact_books.assert_not_called()
         mock_compact_candles.assert_not_called()
 
     def test_get_logs_compaction_errors_continues_and_marks_task_error(self):
@@ -125,10 +105,6 @@ class CompactViewTest(TestCase):
                 "quant_tick.views.compact.convert_trade_data_to_daily",
                 side_effect=RuntimeError("boom"),
             ) as mock_compact_trades,
-            patch(
-                "quant_tick.views.compact.convert_order_book_data_to_daily",
-                side_effect=RuntimeError("book failed"),
-            ) as mock_compact_books,
             patch(
                 "quant_tick.views.compact.convert_candle_cache_to_daily"
             ) as mock_compact_candles,
@@ -139,7 +115,6 @@ class CompactViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"ok": True})
         mock_compact_trades.assert_called_once()
-        mock_compact_books.assert_called_once()
         mock_compact_candles.assert_called_once()
         self.assertEqual(mock_compact_candles.call_args.args[0], self.candle)
         self.assertTrue(
@@ -161,17 +136,11 @@ class CompactViewTest(TestCase):
             patch(
                 "quant_tick.views.compact.convert_trade_data_to_daily"
             ) as mock_compact_trades,
-            patch(
-                "quant_tick.views.compact.convert_order_book_data_to_daily"
-            ) as mock_compact_books,
             patch("quant_tick.views.compact.convert_candle_cache_to_daily"),
         ):
             response = self.client.get(self.get_url())
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            mock_compact_books.call_args.args, mock_compact_trades.call_args.args
-        )
         self.assertEqual(
             mock_compact_trades.call_args.args[1],
             datetime(2013, 1, 13, tzinfo=UTC),
