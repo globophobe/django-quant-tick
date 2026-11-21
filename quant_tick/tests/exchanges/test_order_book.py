@@ -227,15 +227,13 @@ class OrderBookCollectionTest(BookFixture, TestCase):
             ) as history,
         ):
             order_book(self.symbol, self.start, self.end)
-            original = list(OrderBookData.objects.values("timestamp", "json_data"))
+            original = list(iter_rows(self.symbol))
             self.assertEqual(len(original), 2)
             order_book(self.symbol, self.start, self.end)
             self.assertEqual(snapshot.call_count, 1)
             self.assertEqual(history.call_count, 1)
             order_book(self.symbol, self.start, self.end, retry=True)
-            self.assertEqual(
-                list(OrderBookData.objects.values("timestamp", "json_data")), original
-            )
+            self.assertEqual(list(iter_rows(self.symbol)), original)
             self.assertEqual(snapshot.call_count, 1)
         self.assertEqual(Checkpoint.objects.count(), 3)
 
@@ -321,8 +319,9 @@ class OrderBookCollectionTest(BookFixture, TestCase):
         ):
             order_book(self.symbol, self.start, self.end)
         first = OrderBookData.objects.get(timestamp=self.start)
-        self.assertEqual(first.json_data["bid_notional_5_mean"], 14)
-        self.assertEqual(first.json_data["book_update_count"], 2)
+        values = first.get_data_frame().iloc[0]
+        self.assertEqual(values["bid_notional_5_mean"], 14)
+        self.assertEqual(values["book_update_count"], 2)
         checkpoint = Checkpoint.objects.get(timestamp=self.end)
         self.assertEqual(load(checkpoint)["orders"], self.seed["orders"])
 
@@ -332,10 +331,20 @@ class OrderBookCollectionTest(BookFixture, TestCase):
         rows, states = replay(
             self.seed, self.terminal, self.groups, self.start, self.end
         )
+        uploaded = []
+        save = default_storage.save
+
+        def fail_after_first_minute(name, content, **kwargs):
+            if len(uploaded) == len(states) + 1:
+                raise RuntimeError("upload failed")
+            saved = save(name, content, **kwargs)
+            uploaded.append(saved)
+            return saved
+
         for target in ("storage", "database", "lease"):
             patches = {
                 "storage": patch.object(
-                    default_storage, "save", side_effect=RuntimeError("upload failed")
+                    default_storage, "save", side_effect=fail_after_first_minute
                 ),
                 "database": patch.object(
                     OrderBookData.objects,
@@ -360,6 +369,7 @@ class OrderBookCollectionTest(BookFixture, TestCase):
             self.assertEqual(Checkpoint.objects.count(), 1)
             self.assertEqual(OrderBookData.objects.count(), 0)
             self.assertEqual(load(checkpoint)["orders"], self.seed["orders"])
+            self.assertTrue(all(not default_storage.exists(name) for name in uploaded))
 
     def test_checkpoint_deletion_only_removes_file_after_commit(self):
         self.initialize()
@@ -414,12 +424,7 @@ class OrderBookCollectionTest(BookFixture, TestCase):
 
     def test_export_preserves_timestamps_and_numeric_features(self):
         rows, _ = replay(self.seed, self.terminal, self.groups, self.start, self.end)
-        OrderBookData.objects.bulk_create(
-            [
-                OrderBookData(symbol=self.symbol, timestamp=moment, json_data=values)
-                for moment, values in rows
-            ]
-        )
+        persist(self.symbol, rows, {})
         with TemporaryDirectory() as folder:
             output = Path(folder) / "book.parquet"
             call_command(
@@ -474,12 +479,21 @@ class OrderBookStorageTest(BookFixture, TestCase):
 
     def test_hour_day_compaction_and_partial_exports_keep_minute_values(self):
         self.populate(1440)
+        minute_files = list(OrderBookData.objects.values_list("data", flat=True))
+        self.assertEqual(len(minute_files), 1440)
+        self.assertTrue(
+            all(name and default_storage.exists(name) for name in minute_files)
+        )
         original = self.export()
         hour_end = self.day + pd.Timedelta(hours=1)
-        convert_order_book_data_to_daily(self.symbol, self.day, hour_end)
+        with self.captureOnCommitCallbacks(execute=True):
+            convert_order_book_data_to_daily(self.symbol, self.day, hour_end)
         first = OrderBookData.objects.get(timestamp=self.day)
         self.assertEqual(first.frequency, Frequency.HOUR)
-        self.assertIsNone(first.json_data)
+        self.assertTrue(
+            all(not default_storage.exists(name) for name in minute_files[:60])
+        )
+        self.assertTrue(default_storage.exists(minute_files[60]))
         self.assertEqual(len(first.get_data_frame()), 60)
         self.assertTrue(default_storage.exists(first.data.name))
         pd.testing.assert_frame_equal(
@@ -520,24 +534,29 @@ class OrderBookStorageTest(BookFixture, TestCase):
         )
         self.assertEqual(OrderBookData.objects.get().data.name, daily.data.name)
 
-    def test_partial_retry_preserves_the_rest_of_hour_and_day_partitions(self):
+    def test_retry_replaces_files_and_preserves_other_minutes_in_each_partition(self):
         rows = self.populate(1440)
-        for frequency in (Frequency.HOUR, Frequency.DAY):
+        minute = self.day + pd.Timedelta(minutes=15)
+        for frequency in (Frequency.MINUTE, Frequency.HOUR, Frequency.DAY):
             with self.subTest(frequency=frequency):
                 end = self.day + pd.Timedelta(minutes=frequency)
                 with self.captureOnCommitCallbacks(execute=True):
                     convert_order_book_data_to_daily(self.symbol, self.day, end)
-                old = OrderBookData.objects.get(timestamp=self.day)
-                minute = self.day + pd.Timedelta(minutes=15)
-                changed = {**rows[15][1], "buy_volume": Decimal("12345.678901")}
+                boundary = minute if frequency == Frequency.MINUTE else self.day
+                old = OrderBookData.objects.get(timestamp=boundary)
+                changed = {
+                    **rows[15][1],
+                    "buy_volume": Decimal("12345.678901") + frequency,
+                }
                 with self.captureOnCommitCallbacks(execute=True):
                     persist(self.symbol, [(minute, changed)], {})
-                stored = OrderBookData.objects.get(timestamp=self.day)
+                stored = OrderBookData.objects.get(timestamp=boundary)
                 self.assertEqual(stored.frequency, frequency)
                 self.assertNotEqual(stored.data.name, old.data.name)
                 self.assertFalse(default_storage.exists(old.data.name))
-                self.assertFalse(
-                    OrderBookData.objects.filter(timestamp=minute).exists()
+                self.assertEqual(
+                    OrderBookData.objects.filter(timestamp=minute).exists(),
+                    frequency == Frequency.MINUTE,
                 )
                 result = list(iter_rows(self.symbol))
                 self.assertEqual(len(result), 1440)
@@ -613,13 +632,16 @@ class OrderBookStorageTest(BookFixture, TestCase):
             self.symbol.delete()
         self.assertFalse(default_storage.exists(original.data.name))
 
-    def test_missing_minutes_stay_inline_and_late_retry_can_complete_hour(self):
+    def test_missing_minutes_leave_minute_files_and_late_retry_can_complete_hour(self):
         rows = self.populate(60)
         OrderBookData.objects.filter(timestamp=rows[15][0]).delete()
         end = self.day + pd.Timedelta(hours=1)
         convert_order_book_data_to_daily(self.symbol, self.day, end)
         self.assertEqual(OrderBookData.objects.count(), 59)
-        self.assertFalse(OrderBookData.objects.exclude(data="").exists())
+        self.assertFalse(OrderBookData.objects.filter(data="").exists())
+        self.assertFalse(
+            OrderBookData.objects.exclude(frequency=Frequency.MINUTE).exists()
+        )
         persist(self.symbol, [rows[15]], {})
         # Candidate selection precedes the symbol lock. Read current rows again
         # after acquiring it, including any retry that finished in between.

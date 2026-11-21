@@ -7,7 +7,7 @@ from django.db import models
 
 from quant_tick.constants import NUMERIC_PRECISION, NUMERIC_SCALE, Frequency
 
-from .base import AbstractDataStorage, JSONField
+from .base import AbstractDataStorage
 
 
 def order_book_upload_to(instance, filename):
@@ -42,8 +42,8 @@ class OrderBookData(AbstractDataStorage):
 
     Quantities use base units (notional); volume uses quote units. Summary
     definitions and replay ordering belong to exchanges.order_book.replay.
-    Recent minutes are inline; hour/day files retain individual minutes with
-    the standard 38 decimal places. Frequency describes storage, not sampling.
+    Minute, hour, and day Parquet files retain individual minutes with the
+    standard 38 decimal places. Frequency describes storage, not sampling.
     """
 
     symbol = models.ForeignKey(
@@ -58,8 +58,7 @@ class OrderBookData(AbstractDataStorage):
         default=Frequency.MINUTE,
         db_index=True,
     )
-    json_data = JSONField("data", null=True, blank=True)
-    data = models.FileField(blank=True, max_length=255, upload_to=order_book_upload_to)
+    data = models.FileField(max_length=255, upload_to=order_book_upload_to)
 
     objects = OrderBookDataQuerySet.as_manager()
 
@@ -76,11 +75,9 @@ class OrderBookData(AbstractDataStorage):
         return super().prepare_data(frame)
 
     def get_data_frame(self, field="data"):
-        if self.data.name:
-            return super().get_data_frame(field)
-        if self.frequency != Frequency.MINUTE or self.json_data is None:
+        if not self.data.name:
             raise ValueError("Order book partition has no stored summaries")
-        return pd.DataFrame([{"timestamp": self.timestamp, **self.json_data}])
+        return super().get_data_frame(field)
 
     class Meta:
         db_table = "quant_tick_order_book_data"

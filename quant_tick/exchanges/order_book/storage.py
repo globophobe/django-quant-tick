@@ -44,15 +44,22 @@ def iter_rows(symbol, timestamp_from=None, timestamp_to=None):
         yield from frame.to_dict("records")
 
 
-def replace_partition(partitions, frame, frequency, staged):
-    first = partitions[0]
+def upload_partition(symbol_id, timestamp, frequency, frame, staged):
     stored = OrderBookData(
-        symbol_id=first.symbol_id, timestamp=first.timestamp, frequency=frequency
+        symbol_id=symbol_id, timestamp=timestamp, frequency=frequency
     )
     stored.data.save("data.parquet", OrderBookData.prepare_data(frame), save=False)
     staged.append(stored)
+    return stored
+
+
+def replace_partition(partitions, frame, frequency, staged):
+    first = partitions[0]
+    stored = upload_partition(
+        first.symbol_id, first.timestamp, frequency, frame, staged
+    )
     OrderBookData.objects.filter(pk=first.pk).update(
-        data=stored.data.name, json_data=None, frequency=frequency
+        data=stored.data.name, frequency=frequency
     )
     if first.data.name:
         transaction.on_commit(partial(discard, first.data.storage, first.data.name))
@@ -74,31 +81,42 @@ def write_minutes(symbol, rows, staged):
     pending = dict(rows)
     partitions = OrderBookData.objects.overlapping(
         symbol, moments[0], moments[-1] + pd.Timedelta(minutes=1)
-    ).exclude(frequency=Frequency.MINUTE)
+    )
     for partition in partitions:
-        end = partition.timestamp + pd.Timedelta(minutes=partition.frequency)
-        updates = {
-            moment: values
-            for moment, values in pending.items()
-            if partition.timestamp <= moment < end
-        }
-        if not updates:
-            continue
-        frame = read_partition(partition).set_index("timestamp")
-        for moment, values in updates.items():
-            if set(values) != set(frame.columns):
-                raise ValueError("Order book retry has a different summary schema")
-            frame.loc[moment] = values
-            del pending[moment]
-        replace_partition([partition], frame.reset_index(), partition.frequency, staged)
+        if partition.frequency == Frequency.MINUTE:
+            if partition.timestamp not in pending:
+                continue
+            frame = pd.DataFrame(
+                [{"timestamp": partition.timestamp, **pending.pop(partition.timestamp)}]
+            )
+        else:
+            end = partition.timestamp + pd.Timedelta(minutes=partition.frequency)
+            updates = {
+                moment: values
+                for moment, values in pending.items()
+                if partition.timestamp <= moment < end
+            }
+            if not updates:
+                continue
+            frame = read_partition(partition).set_index("timestamp")
+            for moment, values in updates.items():
+                if set(values) != set(frame.columns):
+                    raise ValueError("Order book retry has a different summary schema")
+                frame.loc[moment] = values
+                del pending[moment]
+            frame = frame.reset_index()
+        replace_partition([partition], frame, partition.frequency, staged)
     OrderBookData.objects.bulk_create(
         [
-            OrderBookData(symbol=symbol, timestamp=moment, json_data=values)
+            upload_partition(
+                symbol.pk,
+                moment,
+                Frequency.MINUTE,
+                pd.DataFrame([{"timestamp": moment, **values}]),
+                staged,
+            )
             for moment, values in pending.items()
         ],
-        update_conflicts=True,
-        update_fields=["json_data"],
-        unique_fields=["symbol", "timestamp"],
         batch_size=1000,
     )
 

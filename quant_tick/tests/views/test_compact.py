@@ -19,7 +19,9 @@ class CompactViewTest(TestCase):
         )
         self.candle = Candle.objects.create(symbol=self.symbol)
         OrderBookData.objects.create(
-            symbol=self.symbol, timestamp=timezone.now(), json_data={}
+            symbol=self.symbol,
+            timestamp=timezone.now(),
+            data="order_book/minute.parquet",
         )
 
     def get_url(self) -> str:
