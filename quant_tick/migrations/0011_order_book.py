@@ -3,6 +3,7 @@
 import django.db.models.deletion
 import quant_tick.models.base
 import quant_tick.models.checkpoints
+import quant_tick.models.order_book
 from django.db import migrations, models
 
 
@@ -40,11 +41,29 @@ class Migration(migrations.Migration):
                 ),
                 ("timestamp", models.DateTimeField(db_index=True)),
                 (
+                    "frequency",
+                    models.PositiveIntegerField(
+                        choices=[(1, "Minute"), (60, "Hour"), (1440, "Day")],
+                        db_index=True,
+                        default=1,
+                    ),
+                ),
+                (
                     "json_data",
                     models.JSONField(
+                        blank=True,
                         decoder=quant_tick.models.base.QuantTickDecoder,
                         encoder=quant_tick.models.base.QuantTickEncoder,
+                        null=True,
                         verbose_name="data",
+                    ),
+                ),
+                (
+                    "data",
+                    models.FileField(
+                        blank=True,
+                        max_length=255,
+                        upload_to=quant_tick.models.order_book.order_book_upload_to,
                     ),
                 ),
                 (
