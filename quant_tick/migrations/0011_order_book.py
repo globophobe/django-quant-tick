@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="checkpoint",
-            name="data",
+            name="file_data",
             field=models.FileField(
                 blank=True,
                 max_length=255,
@@ -70,7 +70,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "data",
+                    "file_data",
                     models.FileField(
                         max_length=255,
                         upload_to=quant_tick.models.order_book.order_book_upload_to,

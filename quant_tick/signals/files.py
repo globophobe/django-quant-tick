@@ -19,9 +19,9 @@ def discard(storage, name):
 @receiver(pre_delete, sender=Checkpoint, dispatch_uid="checkpoint_pre_delete")
 @receiver(pre_delete, sender=OrderBookData, dispatch_uid="order_book_pre_delete")
 def remember_file(sender, instance, **kwargs):
-    if not instance.data.name:
+    if not instance.file_data.name:
         return
-    instance._deleted_file = instance.data.storage, instance.data.name
+    instance._deleted_file = instance.file_data.storage, instance.file_data.name
 
 
 @receiver(post_delete, sender=Checkpoint, dispatch_uid="checkpoint_post_delete")

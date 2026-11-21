@@ -21,7 +21,7 @@ class CompactViewTest(TestCase):
         OrderBookData.objects.create(
             symbol=self.symbol,
             timestamp=timezone.now(),
-            data="order_book/minute.parquet",
+            file_data="order_book/minute.parquet",
         )
 
     def get_url(self) -> str:

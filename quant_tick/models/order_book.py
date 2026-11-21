@@ -58,7 +58,7 @@ class OrderBookData(AbstractDataStorage):
         default=Frequency.MINUTE,
         db_index=True,
     )
-    data = models.FileField(max_length=255, upload_to=order_book_upload_to)
+    file_data = models.FileField(max_length=255, upload_to=order_book_upload_to)
 
     objects = OrderBookDataQuerySet.as_manager()
 
@@ -74,8 +74,8 @@ class OrderBookData(AbstractDataStorage):
                 )
         return super().prepare_data(frame)
 
-    def get_data_frame(self, field="data"):
-        if not self.data.name:
+    def get_data_frame(self, field="file_data"):
+        if not self.file_data.name:
             raise ValueError("Order book partition has no stored summaries")
         return super().get_data_frame(field)
 

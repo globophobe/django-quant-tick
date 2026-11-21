@@ -48,7 +48,7 @@ def upload_partition(symbol_id, timestamp, frequency, frame, staged):
     stored = OrderBookData(
         symbol_id=symbol_id, timestamp=timestamp, frequency=frequency
     )
-    stored.data.save("data.parquet", OrderBookData.prepare_data(frame), save=False)
+    stored.file_data.save("data.parquet", OrderBookData.prepare_data(frame), save=False)
     staged.append(stored)
     return stored
 
@@ -59,10 +59,12 @@ def replace_partition(partitions, frame, frequency, staged):
         first.symbol_id, first.timestamp, frequency, frame, staged
     )
     OrderBookData.objects.filter(pk=first.pk).update(
-        data=stored.data.name, frequency=frequency
+        file_data=stored.file_data.name, frequency=frequency
     )
-    if first.data.name:
-        transaction.on_commit(partial(discard, first.data.storage, first.data.name))
+    if first.file_data.name:
+        transaction.on_commit(
+            partial(discard, first.file_data.storage, first.file_data.name)
+        )
     OrderBookData.objects.filter(pk__in=[row.pk for row in partitions[1:]]).delete()
 
 
@@ -147,7 +149,7 @@ def compact_partition(
                 assert_lease_owned()
     except Exception:
         for stored in staged:
-            discard(stored.data.storage, stored.data.name)
+            discard(stored.file_data.storage, stored.file_data.name)
         raise
     logger.info("%s: compacted order book %s to %s", symbol, start, end)
 

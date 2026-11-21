@@ -27,7 +27,9 @@ class Checkpoint(models.Model):
     checkpoint_type = models.CharField(max_length=255, choices=CheckpointType.choices)
     timestamp = models.DateTimeField(db_index=True)
     json_data = models.JSONField()
-    data = models.FileField(blank=True, max_length=255, upload_to=checkpoint_upload_to)
+    file_data = models.FileField(
+        blank=True, max_length=255, upload_to=checkpoint_upload_to
+    )
 
     class Meta:
         db_table = "quant_tick_checkpoint"

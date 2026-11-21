@@ -212,7 +212,7 @@ class OrderBookCollectionTest(BookFixture, TestCase):
         self.assertEqual(seed.checkpoint_type, CheckpointType.HYPERLIQUID_ORDER_BOOK)
         self.assertIsInstance(seed.json_data["orders"], int)
         self.assertEqual(seed.json_data["orders"], 50)
-        self.assertTrue(default_storage.exists(seed.data.name))
+        self.assertTrue(default_storage.exists(seed.file_data.name))
         with (
             patch(
                 "quant_tick.exchanges.order_book.collector.get_current_time",
@@ -375,7 +375,7 @@ class OrderBookCollectionTest(BookFixture, TestCase):
     def test_checkpoint_deletion_only_removes_file_after_commit(self):
         self.initialize()
         checkpoint = Checkpoint.objects.get()
-        name = checkpoint.data.name
+        name = checkpoint.file_data.name
         with self.assertRaises(RuntimeError), transaction.atomic():
             checkpoint.delete()
             raise RuntimeError("rollback")
@@ -393,7 +393,7 @@ class OrderBookCollectionTest(BookFixture, TestCase):
             state = Book(self.seed, "BTC").state(boundary)
             with self.captureOnCommitCallbacks(execute=True):
                 persist(self.symbol, [], {boundary: encode(state)})
-            names[boundary] = Checkpoint.objects.get(timestamp=boundary).data.name
+            names[boundary] = Checkpoint.objects.get(timestamp=boundary).file_data.name
         expected = [self.start + pd.Timedelta(minutes=i) for i in (0, 1, 3, 4)]
         self.assertEqual(
             list(
@@ -403,7 +403,7 @@ class OrderBookCollectionTest(BookFixture, TestCase):
             ),
             expected,
         )
-        self.assertTrue(default_storage.exists(original.data.name))
+        self.assertTrue(default_storage.exists(original.file_data.name))
         for boundary, name in names.items():
             self.assertEqual(default_storage.exists(name), boundary in expected)
 
@@ -480,7 +480,7 @@ class OrderBookStorageTest(BookFixture, TestCase):
 
     def test_hour_day_compaction_and_partial_exports_keep_minute_values(self):
         self.populate(1440)
-        minute_files = list(OrderBookData.objects.values_list("data", flat=True))
+        minute_files = list(OrderBookData.objects.values_list("file_data", flat=True))
         self.assertEqual(len(minute_files), 1440)
         self.assertTrue(
             all(name and default_storage.exists(name) for name in minute_files)
@@ -496,7 +496,7 @@ class OrderBookStorageTest(BookFixture, TestCase):
         )
         self.assertTrue(default_storage.exists(minute_files[60]))
         self.assertEqual(len(first.get_data_frame()), 60)
-        self.assertTrue(default_storage.exists(first.data.name))
+        self.assertTrue(default_storage.exists(first.file_data.name))
         pd.testing.assert_frame_equal(
             self.export(
                 date_from=str(self.day + pd.Timedelta(minutes=15)),
@@ -520,7 +520,7 @@ class OrderBookStorageTest(BookFixture, TestCase):
         daily = OrderBookData.objects.get(symbol=self.symbol)
         self.assertEqual(daily.frequency, Frequency.DAY)
         self.assertEqual(len(daily.get_data_frame()), 1440)
-        self.assertFalse(default_storage.exists(first.data.name))
+        self.assertFalse(default_storage.exists(first.file_data.name))
         pd.testing.assert_frame_equal(self.export(), original)
         pd.testing.assert_frame_equal(
             self.export(
@@ -533,7 +533,9 @@ class OrderBookStorageTest(BookFixture, TestCase):
         convert_order_book_data_to_daily(
             self.symbol, self.day, self.day + pd.Timedelta(days=1)
         )
-        self.assertEqual(OrderBookData.objects.get().data.name, daily.data.name)
+        self.assertEqual(
+            OrderBookData.objects.get().file_data.name, daily.file_data.name
+        )
 
     def test_retry_replaces_files_and_preserves_other_minutes_in_each_partition(self):
         rows = self.populate(1440)
@@ -553,8 +555,8 @@ class OrderBookStorageTest(BookFixture, TestCase):
                     persist(self.symbol, [(minute, changed)], {})
                 stored = OrderBookData.objects.get(timestamp=boundary)
                 self.assertEqual(stored.frequency, frequency)
-                self.assertNotEqual(stored.data.name, old.data.name)
-                self.assertFalse(default_storage.exists(old.data.name))
+                self.assertNotEqual(stored.file_data.name, old.file_data.name)
+                self.assertFalse(default_storage.exists(old.file_data.name))
                 self.assertEqual(
                     OrderBookData.objects.filter(timestamp=minute).exists(),
                     frequency == Frequency.MINUTE,
@@ -618,9 +620,9 @@ class OrderBookStorageTest(BookFixture, TestCase):
                     )
                 self.assertEqual(Checkpoint.objects.count(), 0)
                 self.assertEqual(
-                    OrderBookData.objects.get().data.name, original.data.name
+                    OrderBookData.objects.get().file_data.name, original.file_data.name
                 )
-                self.assertTrue(default_storage.exists(original.data.name))
+                self.assertTrue(default_storage.exists(original.file_data.name))
                 self.assertEqual(
                     list(iter_rows(self.symbol))[15]["buy_volume"],
                     rows[15][1]["buy_volume"],
@@ -628,10 +630,10 @@ class OrderBookStorageTest(BookFixture, TestCase):
         with self.assertRaises(RuntimeError), transaction.atomic():
             OrderBookData.objects.all().delete()
             raise RuntimeError("rollback")
-        self.assertTrue(default_storage.exists(original.data.name))
+        self.assertTrue(default_storage.exists(original.file_data.name))
         with self.captureOnCommitCallbacks(execute=True):
             self.symbol.delete()
-        self.assertFalse(default_storage.exists(original.data.name))
+        self.assertFalse(default_storage.exists(original.file_data.name))
 
     def test_missing_minutes_leave_minute_files_and_late_retry_can_complete_hour(self):
         rows = self.populate(60)
@@ -639,7 +641,7 @@ class OrderBookStorageTest(BookFixture, TestCase):
         end = self.day + pd.Timedelta(hours=1)
         convert_order_book_data_to_daily(self.symbol, self.day, end)
         self.assertEqual(OrderBookData.objects.count(), 59)
-        self.assertFalse(OrderBookData.objects.filter(data="").exists())
+        self.assertFalse(OrderBookData.objects.filter(file_data="").exists())
         self.assertFalse(
             OrderBookData.objects.exclude(frequency=Frequency.MINUTE).exists()
         )

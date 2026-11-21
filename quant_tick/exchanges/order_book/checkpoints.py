@@ -28,9 +28,12 @@ def encode(state):
 
 
 def load(checkpoint):
-    if not checkpoint.data.name:
+    if not checkpoint.file_data.name:
         raise ValueError("Order book checkpoint has no stored snapshot")
-    with checkpoint.data.open("rb") as source, gzip.GzipFile(fileobj=source) as zipped:
+    with (
+        checkpoint.file_data.open("rb") as source,
+        gzip.GzipFile(fileobj=source) as zipped,
+    ):
         raw = zipped.read(128 * 1024 * 1024 + 1)
     if len(raw) > 128 * 1024 * 1024 or hashlib.sha256(
         raw
@@ -67,7 +70,7 @@ def persist(symbol, rows, states, *, assert_lease_owned=None):
                 timestamp=boundary,
                 json_data=meta,
             )
-            checkpoint.data.save("snapshot.json.gz", ContentFile(data), save=False)
+            checkpoint.file_data.save("snapshot.json.gz", ContentFile(data), save=False)
             staged.append(checkpoint)
         with transaction.atomic():
             if assert_lease_owned:
@@ -85,7 +88,11 @@ def persist(symbol, rows, states, *, assert_lease_owned=None):
                             "Replayed order book disagrees with a saved checkpoint"
                         )
                     transaction.on_commit(
-                        partial(discard, checkpoint.data.storage, checkpoint.data.name)
+                        partial(
+                            discard,
+                            checkpoint.file_data.storage,
+                            checkpoint.file_data.name,
+                        )
                     )
                 else:
                     checkpoint.save(force_insert=True)
@@ -105,5 +112,5 @@ def persist(symbol, rows, states, *, assert_lease_owned=None):
             intermediate.exclude(pk__in=keep).delete()
     except Exception:
         for checkpoint in staged:
-            discard(checkpoint.data.storage, checkpoint.data.name)
+            discard(checkpoint.file_data.storage, checkpoint.file_data.name)
         raise
