@@ -307,7 +307,7 @@ class PerpetualStatsDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
 
 
 class CheckpointAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
-    list_display = ("timestamp", "symbol_link", "kind")
+    list_display = ("timestamp", "symbol_link", "checkpoint_type")
     list_select_related = ("symbol",)
     ordering = ("-timestamp",)
 

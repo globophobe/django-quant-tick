@@ -8,14 +8,13 @@ from functools import partial
 from django.core.files.base import ContentFile
 from django.db import transaction
 
+from quant_tick.constants import CheckpointType
 from quant_tick.exchanges.hyperliquid.api import normalize_coin
 from quant_tick.models import Checkpoint, Symbol
 from quant_tick.signals.files import discard
 
 from .book import Book
 from .storage import write_minutes
-
-KIND = "hyperliquid_order_book"
 
 
 def encode(state):
@@ -35,11 +34,14 @@ def load(checkpoint):
         raw = zipped.read(128 * 1024 * 1024 + 1)
     if len(raw) > 128 * 1024 * 1024 or hashlib.sha256(
         raw
-    ).hexdigest() != checkpoint.state.get("sha256"):
+    ).hexdigest() != checkpoint.json_data.get("sha256"):
         raise ValueError("Order book checkpoint checksum mismatch")
     state = json.loads(raw)
     meta, _ = encode(state)
-    if meta != checkpoint.state or len(state["orders"]) != checkpoint.state["orders"]:
+    if (
+        meta != checkpoint.json_data
+        or len(state["orders"]) != checkpoint.json_data["orders"]
+    ):
         raise ValueError("Order book checkpoint metadata mismatch")
     book = Book(state, normalize_coin(checkpoint.symbol.api_symbol))
     if book.time != checkpoint.timestamp:
@@ -60,7 +62,10 @@ def persist(symbol, rows, states, *, assert_lease_owned=None):
             if assert_lease_owned:
                 assert_lease_owned()
             checkpoint = Checkpoint(
-                symbol=symbol, kind=KIND, timestamp=boundary, state=meta
+                symbol=symbol,
+                checkpoint_type=CheckpointType.HYPERLIQUID_ORDER_BOOK,
+                timestamp=boundary,
+                json_data=meta,
             )
             checkpoint.data.save("snapshot.json.gz", ContentFile(data), save=False)
             staged.append(checkpoint)
@@ -70,10 +75,12 @@ def persist(symbol, rows, states, *, assert_lease_owned=None):
             Symbol.objects.select_for_update().get(pk=symbol.pk)
             for checkpoint in staged:
                 existing = Checkpoint.objects.filter(
-                    symbol=symbol, kind=KIND, timestamp=checkpoint.timestamp
+                    symbol=symbol,
+                    checkpoint_type=CheckpointType.HYPERLIQUID_ORDER_BOOK,
+                    timestamp=checkpoint.timestamp,
                 ).first()
                 if existing:
-                    if existing.state != checkpoint.state:
+                    if existing.json_data != checkpoint.json_data:
                         raise ValueError(
                             "Replayed order book disagrees with a saved checkpoint"
                         )
@@ -85,9 +92,9 @@ def persist(symbol, rows, states, *, assert_lease_owned=None):
             write_minutes(symbol, rows, staged)
             if assert_lease_owned:
                 assert_lease_owned()
-            checkpoints = Checkpoint.objects.filter(symbol=symbol, kind=KIND).order_by(
-                "timestamp"
-            )
+            checkpoints = Checkpoint.objects.filter(
+                symbol=symbol, checkpoint_type=CheckpointType.HYPERLIQUID_ORDER_BOOK
+            ).order_by("timestamp")
             first = checkpoints.values_list("pk", flat=True).first()
             intermediate = checkpoints.exclude(
                 timestamp__minute=0, timestamp__second=0

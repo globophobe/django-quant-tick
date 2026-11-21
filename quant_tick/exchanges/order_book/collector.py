@@ -9,7 +9,7 @@ Summaries and new checkpoints are published only after terminal reconciliation.
 
 import logging
 
-from quant_tick.constants import Exchange
+from quant_tick.constants import CheckpointType, Exchange
 from quant_tick.exchanges.hyperliquid.api import normalize_coin
 from quant_tick.exchanges.quicknode.api import available as sql_available
 from quant_tick.exchanges.quicknode.api import timestamp
@@ -18,7 +18,7 @@ from quant_tick.exchanges.quicknode.book_snapshot import snapshot
 from quant_tick.lib import get_current_time
 from quant_tick.models import Checkpoint
 
-from .checkpoints import KIND, encode, load, persist
+from .checkpoints import encode, load, persist
 from .replay import replay
 
 logger = logging.getLogger(__name__)
@@ -41,9 +41,9 @@ def order_book(
     if requested_start > requested_end:
         return
     coin = normalize_coin(symbol.api_symbol)
-    checkpoints = Checkpoint.objects.filter(symbol=symbol, kind=KIND).select_related(
-        "symbol"
-    )
+    checkpoints = Checkpoint.objects.filter(
+        symbol=symbol, checkpoint_type=CheckpointType.HYPERLIQUID_ORDER_BOOK
+    ).select_related("symbol")
     first = checkpoints.order_by("timestamp").first()
     if first is None:
         state = snapshot(coin)

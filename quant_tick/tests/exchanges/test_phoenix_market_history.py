@@ -14,7 +14,7 @@ import pandas as pd
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
-from quant_tick.constants import Exchange, SymbolType
+from quant_tick.constants import CheckpointType, Exchange, SymbolType
 from quant_tick.exchanges.perpetual_stats import perpetual_stats
 from quant_tick.exchanges.phoenix import (
     accounts,
@@ -1005,7 +1005,7 @@ class PhoenixHistoryCollectionTest(TestCase):
         self.assertEqual(saved.json_data["trades"], 0)
         self.assertTrue(saved.json_data["liquidation_flow_validated"])
         checkpoint = Checkpoint.objects.get(timestamp=self.start + timedelta(hours=1))
-        self.assertEqual(checkpoint.state["before"], "signature-120")
+        self.assertEqual(checkpoint.json_data["before"], "signature-120")
         self.assertFalse(Checkpoint.objects.filter(timestamp=self.start).exists())
         self.rpc.side_effect = None
         self.rpc.return_value = {"data": self.txs[2:], "paginationToken": None}
@@ -1272,11 +1272,13 @@ class PhoenixHistoryCollectionTest(TestCase):
                             perpetual_stats(self.symbol, self.start, end, retry=retry)
                         self.assertFalse(PerpetualStatsData.objects.exists())
                         pending = Checkpoint.objects.get()
-                        self.assertEqual(pending.kind, "phoenix_snapshot")
-                        self.assertEqual(pending.timestamp, snapshot_time)
-                        self.assertEqual(pending.state["slot"], 140)
                         self.assertEqual(
-                            pending.state["positions"],
+                            pending.checkpoint_type, CheckpointType.PHOENIX_SNAPSHOT
+                        )
+                        self.assertEqual(pending.timestamp, snapshot_time)
+                        self.assertEqual(pending.json_data["slot"], 140)
+                        self.assertEqual(
+                            pending.json_data["positions"],
                             {
                                 key.hex(): value
                                 for key, value in snapshot["positions"].items()
@@ -1293,10 +1295,15 @@ class PhoenixHistoryCollectionTest(TestCase):
                 self.assertTrue(saved.json_data["cohort_replay_validated"])
                 self.assertTrue(saved.json_data["trade_position_flow_validated"])
                 self.assertFalse(
-                    Checkpoint.objects.filter(kind="phoenix_snapshot").exists()
+                    Checkpoint.objects.filter(
+                        checkpoint_type=CheckpointType.PHOENIX_SNAPSHOT
+                    ).exists()
                 )
                 self.assertEqual(
-                    Checkpoint.objects.filter(kind="phoenix_positions").count(), 2
+                    Checkpoint.objects.filter(
+                        checkpoint_type=CheckpointType.PHOENIX_POSITIONS
+                    ).count(),
+                    2,
                 )
 
     def test_verified_idle_snapshot_does_not_require_a_transaction_after_hour_end(self):
@@ -1312,9 +1319,9 @@ class PhoenixHistoryCollectionTest(TestCase):
     def test_existing_native_rows_receive_reconstruction_without_retry(self):
         unrelated = Checkpoint.objects.create(
             symbol=self.symbol,
-            kind="other_collector",
+            checkpoint_type=CheckpointType.HYPERLIQUID_ORDER_BOOK,
             timestamp=self.end,
-            state={"cursor": "unchanged"},
+            json_data={"cursor": "unchanged"},
         )
         PerpetualStatsData.objects.create(
             symbol=self.symbol,
@@ -1325,10 +1332,10 @@ class PhoenixHistoryCollectionTest(TestCase):
         )
         perpetual_stats(self.symbol, self.start, self.end)
         unrelated.refresh_from_db()
-        self.assertEqual(unrelated.state, {"cursor": "unchanged"})
+        self.assertEqual(unrelated.json_data, {"cursor": "unchanged"})
         self.assertEqual(
             Checkpoint.objects.filter(
-                symbol=self.symbol, kind="phoenix_positions"
+                symbol=self.symbol, checkpoint_type=CheckpointType.PHOENIX_POSITIONS
             ).count(),
             3,
         )

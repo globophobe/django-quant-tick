@@ -27,6 +27,7 @@ from itertools import chain
 import pandas as pd
 from django.db import transaction
 
+from quant_tick.constants import CheckpointType
 from quant_tick.models import Checkpoint
 
 from ..position_metrics import minute_open_interest
@@ -201,9 +202,6 @@ class ReversePositions:
 
 
 class PhoenixPositionHistory:
-    checkpoint_kind = "phoenix_positions"
-    snapshot_kind = "phoenix_snapshot"
-
     def __init__(self, symbol, *, assert_lease_owned=None):
         self.symbol = symbol
         self.assert_lease_owned = assert_lease_owned
@@ -212,18 +210,18 @@ class PhoenixPositionHistory:
         self.next_transaction = None
         self.snapshot_id = None
 
-    def save(self, timestamp, state, *, kind=None):
+    def save(self, timestamp, state, *, checkpoint_type=None):
         with transaction.atomic():
             if self.assert_lease_owned is not None:
                 self.assert_lease_owned()
             checkpoint, created = Checkpoint.objects.get_or_create(
                 symbol=self.symbol,
-                kind=kind or self.checkpoint_kind,
+                checkpoint_type=checkpoint_type or CheckpointType.PHOENIX_POSITIONS,
                 timestamp=timestamp,
-                defaults={"state": state},
+                defaults={"json_data": state},
             )
             if not created and any(
-                checkpoint.state[key] != state[key]
+                checkpoint.json_data[key] != state[key]
                 for key in (
                     "version",
                     "positions",
@@ -235,9 +233,9 @@ class PhoenixPositionHistory:
                 raise ValueError(
                     "Phoenix replay disagrees with a saved position checkpoint"
                 )
-            if kind is None and self.snapshot_id is not None:
+            if checkpoint_type is None and self.snapshot_id is not None:
                 Checkpoint.objects.filter(
-                    pk=self.snapshot_id, kind=self.snapshot_kind
+                    pk=self.snapshot_id, checkpoint_type=CheckpointType.PHOENIX_SNAPSHOT
                 ).delete()
                 self.snapshot_id = None
             return checkpoint
@@ -245,7 +243,9 @@ class PhoenixPositionHistory:
     def load(self, end):
         checkpoint = (
             Checkpoint.objects.filter(
-                symbol=self.symbol, kind=self.checkpoint_kind, timestamp__gte=end
+                symbol=self.symbol,
+                checkpoint_type=CheckpointType.PHOENIX_POSITIONS,
+                timestamp__gte=end,
             )
             .order_by("timestamp")
             .first()
@@ -254,7 +254,9 @@ class PhoenixPositionHistory:
         if checkpoint is None:
             checkpoint = (
                 Checkpoint.objects.filter(
-                    symbol=self.symbol, kind=self.snapshot_kind, timestamp__gt=end
+                    symbol=self.symbol,
+                    checkpoint_type=CheckpointType.PHOENIX_SNAPSHOT,
+                    timestamp__gt=end,
                 )
                 .order_by("timestamp")
                 .first()
@@ -279,8 +281,10 @@ class PhoenixPositionHistory:
             state["history_head"] = latest_address_signature(
                 state["history_address"], state["slot"]
             )
-            checkpoint = self.save(block_time, state, kind=self.snapshot_kind)
-        self.boundary, state = checkpoint.timestamp, checkpoint.state
+            checkpoint = self.save(
+                block_time, state, checkpoint_type=CheckpointType.PHOENIX_SNAPSHOT
+            )
+        self.boundary, state = checkpoint.timestamp, checkpoint.json_data
         if not state.get("history_head"):
             raise ValueError("Phoenix checkpoint lacks its ledger boundary")
         replay = ReversePositions(state)

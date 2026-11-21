@@ -18,7 +18,7 @@ from django.core.management import call_command
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from quant_tick.constants import Exchange, Frequency, SymbolType
+from quant_tick.constants import CheckpointType, Exchange, Frequency, SymbolType
 from quant_tick.exchanges.order_book.book import Book
 from quant_tick.exchanges.order_book.checkpoints import encode, load, persist
 from quant_tick.exchanges.order_book.collector import order_book
@@ -209,8 +209,9 @@ class OrderBookCollectionTest(BookFixture, TestCase):
         self.initialize()
         self.assertEqual(OrderBookData.objects.count(), 0)
         seed = Checkpoint.objects.get()
-        self.assertIsInstance(seed.state["orders"], int)
-        self.assertEqual(seed.state["orders"], 50)
+        self.assertEqual(seed.checkpoint_type, CheckpointType.HYPERLIQUID_ORDER_BOOK)
+        self.assertIsInstance(seed.json_data["orders"], int)
+        self.assertEqual(seed.json_data["orders"], 50)
         self.assertTrue(default_storage.exists(seed.data.name))
         with (
             patch(
@@ -409,8 +410,8 @@ class OrderBookCollectionTest(BookFixture, TestCase):
     def test_bad_checksum_and_earlier_history_are_not_silently_reseeded(self):
         self.initialize()
         checkpoint = Checkpoint.objects.get()
-        checkpoint.state["sha256"] = "bad"
-        checkpoint.save(update_fields=["state"])
+        checkpoint.json_data["sha256"] = "bad"
+        checkpoint.save(update_fields=["json_data"])
         with self.assertRaisesRegex(ValueError, "checksum"):
             load(checkpoint)
         with patch("quant_tick.exchanges.order_book.collector.snapshot") as snapshot:
