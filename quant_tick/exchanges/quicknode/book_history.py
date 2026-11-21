@@ -1,8 +1,11 @@
 """Bounded historical updates between two independently known order books.
 
 SQL returns repeated changes to an order in reverse source occurrence order.
+Wait for both indexes before reading any window: omitted additions followed by
+cancellations can reconcile to the same terminal book while corrupting summaries.
 Validate each state transition during replay and reconcile the full terminal
 order map before publishing summaries or advancing the saved checkpoint.
+Execution totals exclude position transfers that do not consume resting orders.
 """
 
 import time
@@ -11,6 +14,7 @@ import pandas as pd
 
 from .api import (
     BORROW_LIQUIDATION_DIRECTIONS,
+    MARKET_EXECUTION_FILTER,
     coin_literal,
     query,
     time_literal,
@@ -48,12 +52,13 @@ def history(coin, start, terminal, *, assert_lease_owned=None):
     stop = timestamp(terminal["timestamp"]) + pd.Timedelta(milliseconds=1)
     if first > last or lower > stop:
         raise ValueError("Order book history boundaries are reversed")
+    if assert_lease_owned:
+        assert_lease_owned()
+    indexed_through(terminal)
     while lower < stop:
         if assert_lease_owned:
             assert_lease_owned()
         upper = min(lower + pd.Timedelta(minutes=1), stop)
-        if upper == stop:
-            indexed_through(terminal)
         begin, end = time_literal(lower), time_literal(upper)
         where = (
             f"coin={market} AND block_number > {first} AND block_number <= {last} "
@@ -72,6 +77,7 @@ def history(coin, start, terminal, *, assert_lease_owned=None):
             "toString(price) AS price,toString(size) AS size "
             "FROM hyperliquid_trades FINAL WHERE "
             + where
+            + f" AND {MARKET_EXECUTION_FILTER}"
             + f" AND NOT (buyer_dir IN {BORROW_LIQUIDATION_DIRECTIONS} AND seller_dir=buyer_dir) "
             "ORDER BY block_number,trade_id LIMIT 100000"
         )

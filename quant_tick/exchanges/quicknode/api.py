@@ -25,6 +25,11 @@ BORROW_LIQUIDATION_DIRECTIONS = (
     "Partial Borrow Liquidation",
     "Backstop Borrow Liquidation",
 )
+MARKET_EXECUTION_FILTER = (
+    "NOT (buyer_dir='Auto-Deleveraging' OR seller_dir='Auto-Deleveraging' "
+    "OR ifNull(liquidation_method,'')='backstop' "
+    "OR (buyer_dir='Net Child Vaults' AND seller_dir='Net Child Vaults'))"
+)
 
 
 def available():

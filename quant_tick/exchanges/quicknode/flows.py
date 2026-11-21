@@ -28,7 +28,14 @@ from ..position_metrics import (
     validate_flow_tiers,
     validate_realized_pnl,
 )
-from .api import coin_literal, number, query, time_literal, timestamp
+from .api import (
+    MARKET_EXECUTION_FILTER,
+    coin_literal,
+    number,
+    query,
+    time_literal,
+    timestamp,
+)
 
 CATEGORIES = ("liquidated", "backstop", "adl")
 FLOW_FIELDS = (
@@ -221,7 +228,7 @@ def position_flows(coin, points, start, end):
         "(buyer_dir='Auto-Deleveraging' OR seller_dir='Auto-Deleveraging') AS is_adl, "
         "(method='backstop' AND NOT is_adl) AS is_backstop, "
         "(buyer_dir='Net Child Vaults' AND seller_dir='Net Child Vaults') AS is_netting, "
-        "NOT (is_adl OR is_backstop OR is_netting) AS is_market, "
+        f"{MARKET_EXECUTION_FILTER} AS is_market, "
         "(method='market' AND is_market) AS is_market_liquidation, "
         "if(is_adl,buyer_dir='Auto-Deleveraging',ifNull(liquidated_user=seller_address,0)) AS distressed_long, "
         "if(is_adl,seller_dir='Auto-Deleveraging',ifNull(liquidated_user=buyer_address,0)) AS distressed_short, "

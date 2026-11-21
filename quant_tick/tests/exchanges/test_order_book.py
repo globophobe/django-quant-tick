@@ -1,6 +1,8 @@
 import gzip
 import json
 import os
+import re
+import sqlite3
 from contextlib import nullcontext
 from copy import deepcopy
 from io import StringIO
@@ -255,6 +257,69 @@ class OrderBookCollectionTest(BookFixture, TestCase):
         self.assertEqual(OrderBookData.objects.count(), 0)
         self.assertEqual(load(original)["block_number"], 100)
 
+    def test_lagging_round_trip_updates_are_read_before_advancing_checkpoint(self):
+        self.seed["orders"] = [self.seed["orders"][0], self.seed["orders"][25]]
+        self.initialize()
+        terminal = deepcopy(self.seed)
+        terminal.update(block_number=120, timestamp=self.end.isoformat())
+        events = [
+            [
+                101,
+                self.start + pd.Timedelta(seconds=10),
+                "B",
+                "100",
+                999,
+                0,
+                "new",
+                "8",
+                None,
+                None,
+            ],
+            [
+                102,
+                self.start + pd.Timedelta(seconds=40),
+                "B",
+                "100",
+                999,
+                0,
+                "remove",
+                None,
+                None,
+                None,
+            ],
+        ]
+        polls = 0
+
+        def query(sql):
+            nonlocal polls
+            if "max(block_number)" in sql:
+                polls += 1
+                height = 100 if polls == 1 else 120
+                return [{"height": height}, {"height": height}]
+            if "groupArray" in sql:
+                first_window = book_history.time_literal(self.start) in sql
+                return [{"events": events if polls >= 2 and first_window else []}]
+            return []
+
+        with (
+            patch(
+                "quant_tick.exchanges.order_book.collector.get_current_time",
+                return_value=self.end,
+            ),
+            patch(
+                "quant_tick.exchanges.order_book.collector.snapshot",
+                return_value=terminal,
+            ),
+            patch.object(book_history, "query", side_effect=query),
+            patch.object(book_history.time, "sleep"),
+        ):
+            order_book(self.symbol, self.start, self.end)
+        first = OrderBookData.objects.get(timestamp=self.start)
+        self.assertEqual(first.json_data["bid_notional_5_mean"], 14)
+        self.assertEqual(first.json_data["book_update_count"], 2)
+        checkpoint = Checkpoint.objects.get(timestamp=self.end)
+        self.assertEqual(load(checkpoint)["orders"], self.seed["orders"])
+
     def test_upload_database_and_lease_failures_do_not_delete_previous_data(self):
         self.initialize()
         checkpoint = Checkpoint.objects.get()
@@ -366,6 +431,95 @@ class OrderBookCollectionTest(BookFixture, TestCase):
 
 
 class QuickNodeBookAdapterTest(BookFixture, SimpleTestCase):
+    def test_off_book_transfers_do_not_change_execution_or_replenishment_totals(self):
+        database = sqlite3.connect(":memory:")
+        self.addCleanup(database.close)
+        database.row_factory = sqlite3.Row
+        database.create_function("toString", 1, str)
+        database.execute(
+            "CREATE TABLE hyperliquid_trades (block_number INTEGER, block_time TEXT, "
+            "coin TEXT, trade_id INTEGER, side TEXT, price TEXT, size TEXT, "
+            "buyer_dir TEXT, seller_dir TEXT, liquidation_method TEXT)"
+        )
+        records = []
+        for height, group in self.groups:
+            for trade in group["trades"]:
+                records.append(
+                    (
+                        height,
+                        group["time"].strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        "BTC",
+                        len(records),
+                        trade["side"],
+                        trade["price"],
+                        trade["size"],
+                        "Open Long",
+                        "Open Short",
+                        "market" if trade["side"] == "B" else None,
+                    )
+                )
+        off_book = (
+            ("Auto-Deleveraging", "Close Long", None),
+            ("Close Short", "Auto-Deleveraging", "backstop"),
+            ("Open Long", "Close Long", "backstop"),
+            ("Net Child Vaults", "Net Child Vaults", None),
+            ("Partial Borrow Liquidation", "Partial Borrow Liquidation", None),
+            ("Backstop Borrow Liquidation", "Backstop Borrow Liquidation", None),
+        )
+        for buyer, seller, method in off_book:
+            records.append(
+                (
+                    101,
+                    records[0][1],
+                    "BTC",
+                    len(records),
+                    "A",
+                    "100",
+                    "1000",
+                    buyer,
+                    seller,
+                    method,
+                )
+            )
+        database.executemany(
+            "INSERT INTO hyperliquid_trades VALUES (?,?,?,?,?,?,?,?,?,?)", records
+        )
+
+        def query(sql):
+            if "groupArray" in sql:
+                lower = pd.Timestamp(
+                    re.search(r"block_time >= '([^']+)'", sql)[1], tz="UTC"
+                )
+                upper = pd.Timestamp(
+                    re.search(r"block_time < '([^']+)'", sql)[1], tz="UTC"
+                )
+                return [
+                    {
+                        "events": [
+                            row
+                            for _, group in self.groups
+                            for row in group["updates"]
+                            if lower <= group["time"] < upper
+                        ]
+                    }
+                ]
+            # Execute the production predicate; FINAL is ClickHouse-specific.
+            return [dict(row) for row in database.execute(sql.replace(" FINAL ", " "))]
+
+        expected = replay(self.seed, self.terminal, self.groups, self.start, self.end)
+        with (
+            patch.object(book_history, "query", side_effect=query),
+            patch.object(book_history, "indexed_through"),
+        ):
+            actual = replay(
+                self.seed,
+                self.terminal,
+                book_history.history("BTC", self.seed, self.terminal),
+                self.start,
+                self.end,
+            )
+        self.assertEqual(actual, expected)
+
     def test_sql_occurrence_order_and_index_lag(self):
         terminal = deepcopy(self.seed)
         terminal["block_number"] = 110
