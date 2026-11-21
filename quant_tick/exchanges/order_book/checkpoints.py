@@ -3,17 +3,18 @@
 import gzip
 import hashlib
 import json
-import logging
+from functools import partial
 
 from django.core.files.base import ContentFile
 from django.db import transaction
 
 from quant_tick.exchanges.hyperliquid.api import normalize_coin
-from quant_tick.models import Checkpoint, OrderBookData, Symbol
+from quant_tick.models import Checkpoint, Symbol
+from quant_tick.signals.files import discard
 
 from .book import Book
+from .storage import write_minutes
 
-logger = logging.getLogger(__name__)
 KIND = "hyperliquid_order_book"
 
 
@@ -46,13 +47,6 @@ def load(checkpoint):
     return state
 
 
-def discard(file):
-    try:
-        file.storage.delete(file.name)
-    except Exception:
-        logger.exception("Order book snapshot cleanup failed: %s", file.name)
-
-
 def persist(symbol, rows, states, *, assert_lease_owned=None):
     """Upload immutable files before the transaction that publishes their references.
 
@@ -83,19 +77,14 @@ def persist(symbol, rows, states, *, assert_lease_owned=None):
                         raise ValueError(
                             "Replayed order book disagrees with a saved checkpoint"
                         )
-                    transaction.on_commit(lambda file=checkpoint.data: discard(file))
+                    transaction.on_commit(
+                        partial(discard, checkpoint.data.storage, checkpoint.data.name)
+                    )
                 else:
                     checkpoint.save(force_insert=True)
-            OrderBookData.objects.bulk_create(
-                [
-                    OrderBookData(symbol=symbol, timestamp=moment, json_data=values)
-                    for moment, values in rows
-                ],
-                update_conflicts=True,
-                update_fields=["json_data"],
-                unique_fields=["symbol", "timestamp"],
-                batch_size=1000,
-            )
+            write_minutes(symbol, rows, staged)
+            if assert_lease_owned:
+                assert_lease_owned()
             checkpoints = Checkpoint.objects.filter(symbol=symbol, kind=KIND).order_by(
                 "timestamp"
             )
@@ -109,5 +98,5 @@ def persist(symbol, rows, states, *, assert_lease_owned=None):
             intermediate.exclude(pk__in=keep).delete()
     except Exception:
         for checkpoint in staged:
-            discard(checkpoint.data)
+            discard(checkpoint.data.storage, checkpoint.data.name)
         raise

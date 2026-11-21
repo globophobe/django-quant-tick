@@ -5,6 +5,7 @@ import re
 import sqlite3
 from contextlib import nullcontext
 from copy import deepcopy
+from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -17,11 +18,16 @@ from django.core.management import call_command
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from quant_tick.constants import Exchange, SymbolType
+from quant_tick.constants import Exchange, Frequency, SymbolType
 from quant_tick.exchanges.order_book.book import Book
 from quant_tick.exchanges.order_book.checkpoints import encode, load, persist
 from quant_tick.exchanges.order_book.collector import order_book
 from quant_tick.exchanges.order_book.replay import replay
+from quant_tick.exchanges.order_book.storage import (
+    compact_partition,
+    convert_order_book_data_to_daily,
+    iter_rows,
+)
 from quant_tick.exchanges.quicknode import book_history, book_pb2, book_snapshot
 from quant_tick.models import Checkpoint, OrderBookData, Symbol
 from quant_tick.services.task_lease import TaskLeaseLost
@@ -428,6 +434,212 @@ class OrderBookCollectionTest(BookFixture, TestCase):
         self.assertEqual(
             frame.timestamp.tolist(), [self.start, self.start + pd.Timedelta(minutes=1)]
         )
+
+
+@override_settings(
+    STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
+)
+class OrderBookStorageTest(BookFixture, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.symbol = Symbol.objects.create(
+            exchange=Exchange.HYPERLIQUID, api_symbol="BTC"
+        )
+        self.day = self.start.floor("D")
+        rows, _ = replay(self.seed, self.terminal, self.groups, self.start, self.end)
+        self.values = [values for _, values in rows]
+
+    def populate(self, count):
+        rows = [
+            (
+                self.day + pd.Timedelta(minutes=i),
+                {**self.values[i % 2], "trade_count": Decimal(i)},
+            )
+            for i in range(count)
+        ]
+        persist(self.symbol, rows, {})
+        return rows
+
+    def export(self, **options):
+        with TemporaryDirectory() as folder:
+            output = Path(folder) / "book.parquet"
+            call_command(
+                "export_order_book",
+                code_name=self.symbol.code_name,
+                output=output,
+                stdout=StringIO(),
+                **options,
+            )
+            return pd.read_parquet(output)
+
+    def test_hour_day_compaction_and_partial_exports_keep_minute_values(self):
+        self.populate(1440)
+        original = self.export()
+        hour_end = self.day + pd.Timedelta(hours=1)
+        convert_order_book_data_to_daily(self.symbol, self.day, hour_end)
+        first = OrderBookData.objects.get(timestamp=self.day)
+        self.assertEqual(first.frequency, Frequency.HOUR)
+        self.assertIsNone(first.json_data)
+        self.assertEqual(len(first.get_data_frame()), 60)
+        self.assertTrue(default_storage.exists(first.data.name))
+        pd.testing.assert_frame_equal(
+            self.export(
+                date_from=str(self.day + pd.Timedelta(minutes=15)),
+                date_to=str(self.day + pd.Timedelta(minutes=75)),
+            ),
+            original.iloc[15:75].reset_index(drop=True),
+        )
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch(
+                "quant_tick.management.commands.convert_order_book_data_to_daily.get_current_time",
+                return_value=self.day + pd.Timedelta(days=1, hours=4),
+            ),
+        ):
+            call_command(
+                "convert_order_book_data_to_daily",
+                code_name=[self.symbol.code_name],
+                date_from=str(self.day.date()),
+                date_to=str((self.day + pd.Timedelta(days=1)).date()),
+            )
+        daily = OrderBookData.objects.get(symbol=self.symbol)
+        self.assertEqual(daily.frequency, Frequency.DAY)
+        self.assertEqual(len(daily.get_data_frame()), 1440)
+        self.assertFalse(default_storage.exists(first.data.name))
+        pd.testing.assert_frame_equal(self.export(), original)
+        pd.testing.assert_frame_equal(
+            self.export(
+                date_from=str(self.day + pd.Timedelta(minutes=15)),
+                date_to=str(self.day + pd.Timedelta(minutes=75)),
+            ),
+            original.iloc[15:75].reset_index(drop=True),
+        )
+        # Already compacted data is unchanged on the next scheduled pass.
+        convert_order_book_data_to_daily(
+            self.symbol, self.day, self.day + pd.Timedelta(days=1)
+        )
+        self.assertEqual(OrderBookData.objects.get().data.name, daily.data.name)
+
+    def test_partial_retry_preserves_the_rest_of_hour_and_day_partitions(self):
+        rows = self.populate(1440)
+        for frequency in (Frequency.HOUR, Frequency.DAY):
+            with self.subTest(frequency=frequency):
+                end = self.day + pd.Timedelta(minutes=frequency)
+                with self.captureOnCommitCallbacks(execute=True):
+                    convert_order_book_data_to_daily(self.symbol, self.day, end)
+                old = OrderBookData.objects.get(timestamp=self.day)
+                minute = self.day + pd.Timedelta(minutes=15)
+                changed = {**rows[15][1], "buy_volume": Decimal("12345.678901")}
+                with self.captureOnCommitCallbacks(execute=True):
+                    persist(self.symbol, [(minute, changed)], {})
+                stored = OrderBookData.objects.get(timestamp=self.day)
+                self.assertEqual(stored.frequency, frequency)
+                self.assertNotEqual(stored.data.name, old.data.name)
+                self.assertFalse(default_storage.exists(old.data.name))
+                self.assertFalse(
+                    OrderBookData.objects.filter(timestamp=minute).exists()
+                )
+                result = list(iter_rows(self.symbol))
+                self.assertEqual(len(result), 1440)
+                self.assertEqual(result[15]["buy_volume"], changed["buy_volume"])
+                self.assertEqual(
+                    [row["trade_count"] for row in result], list(range(1440))
+                )
+                for index in (0, 14, 16, 59, 60, 1439):
+                    self.assertEqual(
+                        result[index]["buy_volume"], rows[index][1]["buy_volume"]
+                    )
+
+    def test_failed_compaction_and_retry_keep_files_rows_and_checkpoints(self):
+        rows = self.populate(60)
+        hour_end = self.day + pd.Timedelta(hours=1)
+        owned = MagicMock(side_effect=[None, TaskLeaseLost("lost")])
+        with (
+            patch.object(default_storage, "save", wraps=default_storage.save) as saved,
+            self.assertRaises(TaskLeaseLost),
+        ):
+            convert_order_book_data_to_daily(
+                self.symbol, self.day, hour_end, assert_lease_owned=owned
+            )
+        self.assertEqual(OrderBookData.objects.count(), 60)
+        self.assertEqual(Checkpoint.objects.count(), 0)
+        self.assertEqual(saved.call_count, 1)
+        self.assertFalse(default_storage.exists(saved.call_args.args[0]))
+        convert_order_book_data_to_daily(self.symbol, self.day, hour_end)
+        original = OrderBookData.objects.get()
+        checkpoint_state = Book(self.seed, "BTC").state(self.start)
+        retry_rows = [(rows[15][0], {**rows[15][1], "buy_volume": Decimal(999)})]
+        for stage in ("upload", "database", "lease"):
+            with self.subTest(stage=stage):
+                owned = (
+                    MagicMock(side_effect=[None, None, TaskLeaseLost("lost")])
+                    if stage == "lease"
+                    else None
+                )
+                failure = {
+                    "upload": patch.object(
+                        default_storage,
+                        "save",
+                        side_effect=RuntimeError("upload failed"),
+                    ),
+                    "database": patch.object(
+                        OrderBookData.objects,
+                        "bulk_create",
+                        side_effect=RuntimeError("database failed"),
+                    ),
+                    "lease": nullcontext(),
+                }[stage]
+                with failure, self.assertRaises(RuntimeError):
+                    persist(
+                        self.symbol,
+                        retry_rows,
+                        {self.start: encode(checkpoint_state)},
+                        assert_lease_owned=owned,
+                    )
+                self.assertEqual(Checkpoint.objects.count(), 0)
+                self.assertEqual(
+                    OrderBookData.objects.get().data.name, original.data.name
+                )
+                self.assertTrue(default_storage.exists(original.data.name))
+                self.assertEqual(
+                    list(iter_rows(self.symbol))[15]["buy_volume"],
+                    rows[15][1]["buy_volume"],
+                )
+        with self.assertRaises(RuntimeError), transaction.atomic():
+            OrderBookData.objects.all().delete()
+            raise RuntimeError("rollback")
+        self.assertTrue(default_storage.exists(original.data.name))
+        with self.captureOnCommitCallbacks(execute=True):
+            self.symbol.delete()
+        self.assertFalse(default_storage.exists(original.data.name))
+
+    def test_missing_minutes_stay_inline_and_late_retry_can_complete_hour(self):
+        rows = self.populate(60)
+        OrderBookData.objects.filter(timestamp=rows[15][0]).delete()
+        end = self.day + pd.Timedelta(hours=1)
+        convert_order_book_data_to_daily(self.symbol, self.day, end)
+        self.assertEqual(OrderBookData.objects.count(), 59)
+        self.assertFalse(OrderBookData.objects.exclude(data="").exists())
+        persist(self.symbol, [rows[15]], {})
+        # Candidate selection precedes the symbol lock. Read current rows again
+        # after acquiring it, including any retry that finished in between.
+        updated = {**rows[16][1], "buy_volume": Decimal(42)}
+        owned = MagicMock()
+
+        def update_before_read():
+            if owned.call_count == 1:
+                persist(self.symbol, [(rows[16][0], updated)], {})
+
+        owned.side_effect = update_before_read
+        compact_partition(
+            self.symbol,
+            self.day,
+            Frequency.MINUTE,
+            Frequency.HOUR,
+            assert_lease_owned=owned,
+        )
+        self.assertEqual(OrderBookData.objects.get().frequency, Frequency.HOUR)
+        self.assertEqual(list(iter_rows(self.symbol))[16]["buy_volume"], 42)
 
 
 class QuickNodeBookAdapterTest(BookFixture, SimpleTestCase):

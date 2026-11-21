@@ -313,7 +313,7 @@ class CheckpointAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
 
 
 class OrderBookDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
-    list_display = ("timestamp", "symbol_link")
+    list_display = ("timestamp", "symbol_link", "frequency")
     list_select_related = ("symbol",)
     ordering = ("-timestamp",)
 

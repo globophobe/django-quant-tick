@@ -7,8 +7,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from django.core.management.base import CommandError
 
+from quant_tick.exchanges.order_book.storage import iter_rows
 from quant_tick.management.base import BaseDateCommand
-from quant_tick.models import OrderBookData, Symbol
+from quant_tick.models import Symbol
 
 
 class Command(BaseDateCommand):
@@ -24,30 +25,23 @@ class Command(BaseDateCommand):
             symbol = Symbol.objects.get(code_name=options["code_name"])
         except Symbol.DoesNotExist as error:
             raise CommandError("Unknown symbol code name") from error
-        queryset = OrderBookData.objects.filter(symbol=symbol).order_by("timestamp")
-        for name, lookup in (
-            ("date_from", "timestamp__gte"),
-            ("date_to", "timestamp__lt"),
-        ):
-            if options[name]:
-                queryset = queryset.filter(
-                    **{
-                        lookup: datetime.fromisoformat(options[name]).replace(
-                            tzinfo=UTC
-                        )
-                    }
-                )
+        bounds = [
+            datetime.fromisoformat(options[name]).replace(tzinfo=UTC)
+            if options[name]
+            else None
+            for name in ("date_from", "date_to")
+        ]
         output = options["output"]
         temporary = None
         writer = None
         count = 0
         try:
             batch = []
-            for row in queryset.iterator(chunk_size=5000):
+            for row in iter_rows(symbol, *bounds):
                 batch.append(
                     {
-                        "timestamp": row.timestamp,
-                        **{key: float(value) for key, value in row.json_data.items()},
+                        key: value if key == "timestamp" else float(value)
+                        for key, value in row.items()
                     }
                 )
                 if len(batch) == 5000:
