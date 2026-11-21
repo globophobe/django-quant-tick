@@ -27,6 +27,7 @@ from .bybit.constants import MARKET_HISTORY_INTERVAL as BYBIT_INTERVAL
 from .bybit.funding import bybit_market_history
 from .hyperliquid.api import normalize_coin
 from .hyperliquid.prices import price_context
+from .liquidation_snapshots import collect as collect_liquidation_snapshot
 from .phoenix.constants import MARKET_HISTORY_INTERVAL as PHOENIX_INTERVAL
 from .phoenix.history import PhoenixPositionHistory
 from .phoenix.market_history import phoenix_market_history
@@ -163,6 +164,8 @@ def perpetual_stats(
     scan the requested range unless the adapter explicitly reports exhaustion.
     Hyperliquid requests reaching the current hour also stage its live price
     context; the row remains partial until that hour's positioning is complete.
+    Current BTC requests also capture liquidation exposure once per availability
+    hour. Its portfolio inputs cannot be reconstructed by retrying older rows.
     """
     if symbol.exchange == Exchange.HYPERLIQUID and not quicknode_available():
         return
@@ -172,8 +175,10 @@ def perpetual_stats(
     timestamp_from, timestamp_to = timestamp_range
     requested_timestamp_to = timestamp_to
     frequency = perpetual_stats_frequency(symbol)
+    now = pd.Timestamp(get_current_time())
+    if timestamp_from <= now and now.floor("h") < timestamp_to:
+        collect_liquidation_snapshot(symbol, assert_lease_owned=assert_lease_owned)
     if symbol.exchange == Exchange.HYPERLIQUID:
-        now = pd.Timestamp(get_current_time())
         current_hour = now.floor("h")
         if timestamp_from <= now and current_hour < timestamp_to:
             observation = price_context(symbol.api_symbol)

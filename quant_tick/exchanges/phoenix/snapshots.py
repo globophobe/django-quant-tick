@@ -28,21 +28,21 @@ RATIO_FIELDS = (
 )
 
 
-def fetch_position_snapshot(symbol):
-    snapshot = decode_snapshot(
-        rpc(
-            "getProgramAccounts",
-            [
-                PROGRAM,
-                {
-                    "encoding": "base64+zstd",
-                    "commitment": "finalized",
-                    "withContext": True,
-                },
-            ],
-        ),
-        symbol.strip().upper(),
+def fetch_position_snapshot(symbol, *, include_accounts=False):
+    accounts = rpc(
+        "getProgramAccounts",
+        [
+            PROGRAM,
+            {
+                "encoding": "base64+zstd",
+                "commitment": "finalized",
+                "withContext": True,
+            },
+        ],
     )
+    snapshot = decode_snapshot(accounts, symbol.strip().upper())
+    if include_accounts:
+        snapshot["accounts"] = accounts
     timestamp = rpc("getBlockTime", [snapshot["slot"]])
     if type(timestamp) is not int:
         raise ValueError("Invalid Phoenix snapshot block time")

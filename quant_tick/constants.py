@@ -53,6 +53,7 @@ class CheckpointType(models.TextChoices):
     PHOENIX_POSITIONS = "phoenix_positions", "Phoenix positions"
     PHOENIX_SNAPSHOT = "phoenix_snapshot", "Phoenix snapshot"
     HYPERLIQUID_ORDER_BOOK = "hyperliquid_order_book", "Hyperliquid order book"
+    LIQUIDATION_EXPOSURE = "liquidation_exposure", "Liquidation exposure"
 
 
 class SampleType(models.TextChoices):
