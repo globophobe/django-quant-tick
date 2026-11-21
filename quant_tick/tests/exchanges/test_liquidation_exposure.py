@@ -15,7 +15,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from quant_tick.constants import CheckpointType, Exchange, SymbolType
 from quant_tick.exchanges import liquidation_snapshots as snapshots
 from quant_tick.exchanges.hyperliquid import liquidation as hyperliquid
-from quant_tick.exchanges.liquidation_exposure import summarize
+from quant_tick.exchanges.liquidation_exposure import VERSION, summarize
 from quant_tick.exchanges.perpetual_stats import perpetual_stats
 from quant_tick.exchanges.phoenix import accounts
 from quant_tick.exchanges.phoenix import liquidation as phoenix
@@ -28,10 +28,12 @@ def fixture(name):
     return json.loads(gzip.decompress(path.read_bytes()))
 
 
-def portfolio(size, equity=80, required=50, mode="disabled"):
+def portfolio(size, equity=80, required=None, mode="disabled"):
     size = Decimal(size)
     price = Decimal(1000)
-    boundary = (size * price - Decimal(equity) + required - 50) / (
+    maintenance = abs(size) * price / 20
+    required = maintenance if required is None else required
+    boundary = (size * price - Decimal(equity) + required - maintenance) / (
         size - abs(size) / 20
     )
     return {
@@ -46,7 +48,7 @@ def portfolio(size, equity=80, required=50, mode="disabled"):
                         "position": {
                             "coin": "BTC",
                             "szi": str(size),
-                            "positionValue": "1000",
+                            "positionValue": str(abs(size) * price),
                             "leverage": {"type": "cross"},
                             "liquidationPx": str(boundary),
                         }
@@ -74,43 +76,49 @@ class LiquidationMathTest(SimpleTestCase):
                 )
             }
             rows[3] = {
-                "size": sign * Decimal(6),
-                "price": Decimal(100),
-                "buffers": [Decimal(1)] * 4,
+                "size": census[3],
+                "unknown": "unsupported_account_mode",
             }
             result = summarize(census, rows)[side]
             self.assertEqual(result["coverage"], Decimal(6) / 15)
             self.assertEqual(
                 result["unknown_by_reason"],
-                {"position_changed": Decimal(4), "missing_portfolio": Decimal(5)},
+                {
+                    "unsupported_account_mode": Decimal(4),
+                    "missing_portfolio": Decimal(5),
+                },
             )
             self.assertEqual(
                 [result[k]["size"] for k in ("already", "1", "3", "5")],
                 list(map(Decimal, (3, 2, 3, 3))),
             )
-            self.assertEqual(result["3"]["reference_share"], Decimal("0.2"))
+            self.assertEqual(result["3"]["observed_share"], Decimal("0.2"))
             self.assertEqual(result["3"]["largest_account_share"], Decimal(2) / 3)
             result = summarize(census, {})[side]
             self.assertEqual(result["coverage"], 0)
             self.assertIsNone(result["5"]["size"])
 
-    def test_sample_coverage_uses_full_census_without_extrapolation(self):
+            rows[3]["size"] *= 2
+            with self.assertRaisesRegex(ValueError, "quantities disagree"):
+                summarize(census, rows)
+
+    def test_selection_coverage_does_not_claim_current_quantities(self):
         totals = {
             "long_size": Decimal(10),
             "short_size": Decimal(10),
             "long_accounts": 8,
             "short_accounts": 8,
         }
-        result = summarize({"one": Decimal(2)}, {}, totals=totals)
+        result = hyperliquid.selection_coverage({"one": Decimal(2)}, totals, {})
         self.assertEqual(
-            result["long"]["unknown_by_reason"],
-            {"not_sampled": Decimal(8), "missing_portfolio": Decimal(2)},
+            result["long"]["unobserved_by_reason"],
+            {"missing_portfolio": Decimal(2)},
         )
-        self.assertEqual(
-            result["short"]["unknown_by_reason"], {"not_sampled": Decimal(10)}
-        )
+        self.assertEqual(result["long"]["sampled_share"], Decimal("0.2"))
+        self.assertEqual(result["short"]["sampled_share"], 0)
+        self.assertEqual(result["short"]["unobserved_accounts"], 0)
         with self.assertRaisesRegex(ValueError, "exceeds"):
-            summarize({"one": Decimal(11)}, {}, totals=totals)
+            hyperliquid.selection_coverage({"one": Decimal(11)}, totals, {})
 
 
 class HyperliquidLiquidationTest(SimpleTestCase):
@@ -188,7 +196,7 @@ class HyperliquidLiquidationTest(SimpleTestCase):
         self.assertEqual(supported, 6)
 
     def test_bad_or_old_evidence_is_unknown(self):
-        for kind in ("mode", "collateral", "time"):
+        for kind in ("mode", "collateral", "time", "missing", "null", "invalid"):
             state = portfolio(1)
             if kind == "mode":
                 state["userAbstraction"] = "portfolioMargin"
@@ -196,8 +204,14 @@ class HyperliquidLiquidationTest(SimpleTestCase):
                 state["clearinghouseState"]["native"]["crossMarginSummary"][
                     "accountValue"
                 ] = "800"
-            else:
+            elif kind == "time":
                 state["clearinghouseState"]["native"]["time"] -= 600000
+            elif kind == "missing":
+                del state["clearinghouseState"]["native"]["assetPositions"]
+            else:
+                state["clearinghouseState"]["native"]["assetPositions"] = (
+                    None if kind == "null" else {}
+                )
             self.assertIn(
                 "unknown", hyperliquid.observe(state, self.metas, [None], self.received)
             )
@@ -215,40 +229,35 @@ class HyperliquidLiquidationTest(SimpleTestCase):
         )
 
     @patch.dict(os.environ, {"QUICKNODE_HYPERCORE_URL": "configured"})
-    def test_missing_collateral_stays_unknown_and_availability_follows_calculation(
-        self,
-    ):
-        missing = portfolio(1)
-        del missing["clearinghouseState"]["native"]["crossMarginSummary"][
-            "accountValue"
-        ]
+    def collect(self, census, states):
         metas = deepcopy(self.metas)
         metas[0]["universe"][0]["szDecimals"] = 0
         totals = {
-            "long_size": 10,
-            "short_size": 10,
-            "long_accounts": 10,
-            "short_accounts": 10,
+            "long_size": 100,
+            "short_size": 100,
+            "long_accounts": 100,
+            "short_accounts": 100,
         }
+        selected = self.received - pd.Timedelta(minutes=8)
         completed = self.received + pd.Timedelta(seconds=1)
         with (
             patch.object(
                 hyperliquid,
                 "position_census",
                 return_value=(
-                    {"snapshot_time": self.received.isoformat(), "block_number": 100},
-                    {"a": Decimal(1), "b": Decimal(1)},
+                    {"snapshot_time": selected.isoformat(), "block_number": 100},
+                    census,
                     totals,
                 ),
-            ),
+            ) as select,
             patch.object(
                 hyperliquid, "post_hyperliquid_info", side_effect=[metas, [None]]
-            ),
+            ) as metadata,
             patch.object(
                 hyperliquid,
                 "portfolio_states",
-                return_value=({"a": portfolio(1), "b": missing}, []),
-            ),
+                return_value=(states, list(census.keys() - states.keys())),
+            ) as fetch,
             patch.object(
                 hyperliquid,
                 "get_current_time",
@@ -263,10 +272,97 @@ class HyperliquidLiquidationTest(SimpleTestCase):
         self.assertEqual(result["available_at"], completed)
         self.assertEqual(result["summary"]["available_at"], completed)
         self.assertEqual(
-            result["summary"]["long"]["unknown_by_reason"],
-            {"not_sampled": Decimal(8), "incomplete_portfolio": Decimal(1)},
+            result["summary"]["selection"]["timestamp"], selected.isoformat()
         )
-        self.assertEqual(result["summary"]["long"]["covered_accounts"], 1)
+        self.assertEqual(
+            result["summary"]["coverage_basis"], "observed_sample_positions"
+        )
+        select.assert_called_once_with(5000)
+        self.assertEqual(metadata.call_count, 2)
+        fetch.assert_called_once_with(list(census))
+        return result["summary"]
+
+    def test_missing_collateral_stays_unknown_and_availability_follows_calculation(
+        self,
+    ):
+        missing = portfolio(1)
+        del missing["clearinghouseState"]["native"]["crossMarginSummary"][
+            "accountValue"
+        ]
+        result = self.collect(
+            {"a": Decimal(1), "b": Decimal(1)}, {"a": portfolio(1), "b": missing}
+        )
+        self.assertEqual(
+            result["long"]["unknown_by_reason"],
+            {"incomplete_portfolio": Decimal(1)},
+        )
+        self.assertEqual(result["long"]["coverage"], Decimal("0.5"))
+        self.assertEqual(result["selection"]["long"]["unobserved_accounts"], 0)
+
+    def test_changed_positions_use_fresh_quantities_and_directions(self):
+        census = {
+            "increased": Decimal(1),
+            "reduced": Decimal(-3),
+            "flipped_short": Decimal(1),
+            "flipped_long": Decimal(-1),
+            "closed": Decimal(2),
+            "missing": Decimal(-2),
+            "stale": Decimal(1),
+            "unsupported": Decimal(-1),
+            "incomplete": Decimal(1),
+        }
+        closed, stale = portfolio(1), portfolio(1)
+        closed["clearinghouseState"]["native"]["assetPositions"] = []
+        stale["clearinghouseState"]["native"]["time"] -= 600000
+        result = self.collect(
+            census,
+            {
+                "increased": portfolio(3, equity=240),
+                "reduced": portfolio(-1),
+                "flipped_short": portfolio(-1),
+                "flipped_long": portfolio(1),
+                "closed": closed,
+                "stale": stale,
+                "unsupported": portfolio(-2, mode="portfolioMargin"),
+                "incomplete": {},
+            },
+        )
+        self.assertEqual(result["long"]["observed_size"], 4)
+        self.assertEqual(result["long"]["observed_accounts"], 2)
+        self.assertEqual(result["long"]["coverage"], 1)
+        self.assertEqual(result["short"]["observed_size"], 4)
+        self.assertEqual(result["short"]["observed_accounts"], 3)
+        self.assertEqual(result["short"]["coverage"], Decimal("0.5"))
+        self.assertEqual(
+            result["short"]["unknown_by_reason"],
+            {"unsupported_account_mode": Decimal(2)},
+        )
+        self.assertEqual(
+            [result["long"][k]["size"] for k in ("1", "3", "5")], [0, 0, 4]
+        )
+        self.assertEqual(
+            [result["short"][k]["size"] for k in ("1", "3", "5")], [0, 2, 2]
+        )
+        self.assertEqual(result["long"]["5"]["value"], 4000)
+        self.assertEqual(result["short"]["5"]["value"], 2000)
+        self.assertEqual(result["selection"]["long"]["sampled_size"], 6)
+        self.assertEqual(result["selection"]["short"]["sampled_size"], 7)
+        self.assertEqual(
+            result["selection"]["long"]["unobserved_by_reason"],
+            {"stale_portfolio": Decimal(1), "incomplete_portfolio": Decimal(1)},
+        )
+        self.assertEqual(
+            result["selection"]["short"]["unobserved_by_reason"],
+            {"missing_portfolio": Decimal(2)},
+        )
+
+    def test_current_sample_can_exceed_older_market_size(self):
+        result = self.collect({"a": Decimal(1)}, {"a": portfolio(200, equity=16000)})
+        self.assertEqual(result["long"]["observed_size"], 200)
+        self.assertEqual(result["long"]["coverage"], 1)
+        self.assertEqual(result["long"]["5"]["observed_share"], 1)
+        self.assertEqual(result["selection"]["long"]["size"], 100)
+        self.assertEqual(result["selection"]["long"]["sampled_share"], Decimal("0.01"))
 
 
 class PhoenixLiquidationTest(SimpleTestCase):
@@ -436,7 +532,7 @@ class LiquidationPersistenceTest(TestCase):
         )
         self.hour = pd.Timestamp("2026-11-21T12:00Z")
         self.state = {
-            "version": 1,
+            "version": VERSION,
             "available_at": self.hour + pd.Timedelta(seconds=5),
             "summary": {
                 "reference_timestamp": self.hour - pd.Timedelta(minutes=5),
