@@ -1,4 +1,4 @@
-"""Comparable execution-size brackets and minute-sampled position summaries.
+"""Position-size flow brackets and minute-sampled open interest.
 
 Flow tiers value the taker's absolute position immediately before each fill at
 that fill's price, including market liquidations. They are not trade-size or

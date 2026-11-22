@@ -50,7 +50,6 @@ PERPETUAL_STATS_REQUIRED_FIELDS = {
         "short_account_ratio",
     ),
     Exchange.PHOENIX: ("open_interest", "open_interest_value"),
-    # The adapter omits hours missing cohorts once cohort history has begun.
     Exchange.HYPERLIQUID: ("open_interest",),
 }
 
@@ -84,7 +83,7 @@ def preserve_price_context(existing, incoming):
 
 
 def perpetual_stats_required_fields(exchange: str) -> tuple[str, ...]:
-    """Return fields proving every native endpoint contributed an observation."""
+    """Return fields required for an observation to count as complete."""
     try:
         return PERPETUAL_STATS_REQUIRED_FIELDS[Exchange(exchange)]
     except (KeyError, ValueError) as exc:
@@ -111,7 +110,7 @@ class PerpetualStatsDataQuerySet(QuerySet):
         )
 
     def complete_for_exchange(self, exchange: str) -> QuerySet:
-        """Return observations populated by every required venue endpoint."""
+        """Return observations with all required fields populated for the exchange."""
         required = perpetual_stats_required_fields(exchange)
         return self.filter(**{f"{field}__isnull": False for field in required})
 

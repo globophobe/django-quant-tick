@@ -9,9 +9,10 @@ order; trade IDs do not define execution order.
 Optional mark prices are the last node-state observation within the hour,
 with their own timestamps. Missing mark history does not discard positioning.
 
-Funding coverage, not trade or node-snapshot coverage, bounds this collector.
-Old stored history remains usable. Missing anchors, prices or flows leave hours retryable;
-provider errors and reconciliation failures propagate. Tick-level OI high/low
+Funding coverage bounds this collector. Missing anchors, prices or flows omit
+hours so they remain retryable. Every returned hour includes cohorts reconciled
+to its opening funding anchor; provider errors and reconciliation failures
+propagate. Old stored history remains usable. Tick-level OI high/low
 remains unavailable. Separate minute_open_interest_* fields use one-sided OI
 at minute closes and both settlement anchors. They include forced transfers and
 ADL, while position_size_flows splits market taker flow by pre-fill position value.

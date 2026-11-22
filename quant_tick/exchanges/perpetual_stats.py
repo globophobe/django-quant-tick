@@ -114,7 +114,7 @@ def perpetual_stats_api(
 
 
 def complete_perpetual_stats_frame(symbol: Symbol, df: DataFrame) -> DataFrame:
-    """Keep only observations populated by every required venue endpoint."""
+    """Keep observations with all required fields populated for the exchange."""
     df = validate_perpetual_stats_frame(symbol, df)
     if df.empty:
         return df

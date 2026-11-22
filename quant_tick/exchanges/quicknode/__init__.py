@@ -1,1 +1,1 @@
-"""Optional Hyperliquid market history from SQL Explorer."""
+"""Public market history and portfolio snapshots from QuickNode."""
