@@ -270,7 +270,7 @@ class PhoenixPositionHistory:
             ).delete()
         return checkpoint
 
-    def load(self, end):
+    def _checkpoint(self, end):
         checkpoint = (
             Checkpoint.objects.filter(
                 symbol=self.symbol,
@@ -280,7 +280,6 @@ class PhoenixPositionHistory:
             .order_by("timestamp")
             .first()
         )
-        verified = checkpoint is not None
         if checkpoint is None:
             checkpoint = (
                 Checkpoint.objects.filter(
@@ -314,14 +313,38 @@ class PhoenixPositionHistory:
             checkpoint = self.save(
                 block_time, state, checkpoint_type=CheckpointType.PHOENIX_SNAPSHOT
             )
-        self.boundary, state = checkpoint.timestamp, checkpoint.read_state()
-        if not state.get("history_head"):
-            raise ValueError("Phoenix checkpoint lacks its ledger boundary")
-        replay = ReversePositions(state)
-        if not checkpoint.file_data:
-            self.save(
-                checkpoint.timestamp, state, checkpoint_type=checkpoint.checkpoint_type
-            )
+        return checkpoint
+
+    def load(self, end):
+        while True:
+            selected = self._checkpoint(end)
+            with ExitStack() as cleanup:
+                with transaction.atomic():
+                    if self.assert_lease_owned is not None:
+                        self.assert_lease_owned()
+                    # Deletion removes the file on commit; hold its row through
+                    # the read and any conversion of an existing inline state.
+                    checkpoint = (
+                        Checkpoint.objects.select_for_update()
+                        .filter(pk=selected.pk)
+                        .first()
+                    )
+                    if checkpoint is None:
+                        continue
+                    state = checkpoint.read_state()
+                    if not state.get("history_head"):
+                        raise ValueError("Phoenix checkpoint lacks its ledger boundary")
+                    replay = ReversePositions(state)
+                    if not checkpoint.file_data:
+                        self._save(
+                            checkpoint.timestamp,
+                            state,
+                            checkpoint.checkpoint_type,
+                            cleanup,
+                        )
+                cleanup.pop_all()
+            break
+        self.boundary = checkpoint.timestamp
         self.transactions = iter(
             address_transactions(
                 state["history_address"],
@@ -330,7 +353,7 @@ class PhoenixPositionHistory:
                 transaction_index=state.get("transaction_index"),
             )
         )
-        if not verified:
+        if checkpoint.checkpoint_type == CheckpointType.PHOENIX_SNAPSHOT:
             self.snapshot_id = checkpoint.pk
             first = next(self.transactions, None)
             head = state["history_head"]

@@ -14,6 +14,7 @@ import pandas as pd
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.management import call_command
+from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from quant_tick.constants import CheckpointType, Exchange, SymbolType
@@ -1272,6 +1273,37 @@ class PhoenixHistoryCollectionTest(TestCase):
                 self.assertEqual(checkpoint.read_state(), state)
                 with self.captureOnCommitCallbacks(execute=True):
                     checkpoint.delete()
+
+    def test_concurrent_snapshot_replacement_reselects_the_committed_checkpoint(self):
+        writer = history.PhoenixPositionHistory(self.symbol)
+        writer.load(self.end)
+        writer.rewind(self.end)
+        snapshot = Checkpoint.objects.get()
+        reader = history.PhoenixPositionHistory(self.symbol)
+        first = QuerySet.first
+        replaced = False
+
+        def select_then_replace(queryset):
+            nonlocal replaced
+            row = first(queryset)
+            if (
+                not replaced
+                and isinstance(row, Checkpoint)
+                and row.checkpoint_type == CheckpointType.PHOENIX_SNAPSHOT
+            ):
+                replaced = True
+                with self.captureOnCommitCallbacks(execute=True):
+                    writer.save(self.end, writer.replay.dump())
+            return row
+
+        with patch.object(QuerySet, "first", select_then_replace):
+            reader.load(self.end)
+        self.assertTrue(replaced)
+        self.assertFalse(default_storage.exists(snapshot.file_data.name))
+        self.assertEqual(reader.boundary, self.end)
+        self.assertEqual(reader.replay.dump(), writer.replay.dump())
+        self.assertIsNone(reader.snapshot_id)
+        self.snapshot.assert_called_once()
 
     def test_missing_or_corrupt_checkpoint_file_cannot_restart_from_live_state(self):
         history.PhoenixPositionHistory(self.symbol).load(self.end)
