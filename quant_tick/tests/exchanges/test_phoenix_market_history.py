@@ -11,8 +11,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.core.management import call_command
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from quant_tick.constants import CheckpointType, Exchange, SymbolType
 from quant_tick.exchanges.perpetual_stats import perpetual_stats
@@ -896,6 +898,9 @@ class PhoenixReversePositionsTest(SimpleTestCase):
                 solana.latest_address_signature("buffer", 140)
 
 
+@override_settings(
+    STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
+)
 class PhoenixHistoryCollectionTest(TestCase):
     def setUp(self):
         self.symbol = Symbol.objects.create(
@@ -1006,6 +1011,15 @@ class PhoenixHistoryCollectionTest(TestCase):
         self.assertTrue(saved.json_data["liquidation_flow_validated"])
         checkpoint = Checkpoint.objects.get(timestamp=self.start + timedelta(hours=1))
         self.assertEqual(checkpoint.json_data["before"], "signature-120")
+        self.assertNotIn("positions", checkpoint.json_data)
+        self.assertEqual(
+            checkpoint.read_state()["positions"],
+            {self.accounts[0].hex(): 10, self.accounts[2].hex(): -10},
+        )
+        self.assertEqual(
+            Path(checkpoint.file_data.name).parts[:-1],
+            ("test-checkpoints", *self.symbol.upload_path, "phoenix_positions"),
+        )
         self.assertFalse(Checkpoint.objects.filter(timestamp=self.start).exists())
         self.rpc.side_effect = None
         self.rpc.return_value = {"data": self.txs[2:], "paginationToken": None}
@@ -1189,6 +1203,93 @@ class PhoenixHistoryCollectionTest(TestCase):
         self.assertEqual(PerpetualStatsData.objects.get().open_interest, 4)
         self.assertFalse(Checkpoint.objects.filter(timestamp__lt=self.end).exists())
 
+    def test_checkpoint_write_failure_rolls_back_statistics_and_new_file(self):
+        save = Checkpoint.save
+
+        def fail_lower_checkpoint(checkpoint, *args, **kwargs):
+            if checkpoint.timestamp < self.end and checkpoint.file_data:
+                raise RuntimeError("checkpoint write failed")
+            return save(checkpoint, *args, **kwargs)
+
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch.object(Checkpoint, "save", fail_lower_checkpoint),
+            self.assertRaisesRegex(RuntimeError, "checkpoint write failed"),
+        ):
+            perpetual_stats(self.symbol, self.start, self.end)
+        self.assertFalse(PerpetualStatsData.objects.exists())
+        saved = Checkpoint.objects.get()
+        self.assertEqual(saved.timestamp, self.end)
+        self.assertEqual(saved.read_state()["before"], "signature-130")
+        directory = Path(saved.file_data.name).parent
+        self.assertEqual(
+            default_storage.listdir(str(directory))[1],
+            [saved.file_data.name.split("/")[-1]],
+        )
+        self.assertEqual(
+            default_storage.listdir(str(directory.parent / "phoenix_snapshot"))[1], []
+        )
+
+        self.snapshot.reset_mock()
+        self.rpc.return_value = {"data": self.txs[1:], "paginationToken": None}
+        perpetual_stats(self.symbol, self.start, self.end)
+        self.snapshot.assert_not_called()
+        self.assertEqual(PerpetualStatsData.objects.count(), 2)
+
+    def test_inline_checkpoints_move_to_files_without_losing_resume_state(self):
+        history.PhoenixPositionHistory(self.symbol).load(self.end)
+        saved = Checkpoint.objects.get()
+        state = saved.read_state()
+        with self.captureOnCommitCallbacks(execute=True):
+            saved.delete()
+        for kind in (CheckpointType.PHOENIX_POSITIONS, CheckpointType.PHOENIX_SNAPSHOT):
+            with self.subTest(checkpoint_type=kind):
+                checkpoint = Checkpoint.objects.create(
+                    symbol=self.symbol,
+                    checkpoint_type=kind,
+                    timestamp=self.end + timedelta(minutes=10),
+                    json_data=state,
+                )
+                self.snapshot.reset_mock()
+                with (
+                    patch.object(
+                        default_storage, "save", side_effect=OSError("upload failed")
+                    ),
+                    self.assertRaisesRegex(OSError, "upload failed"),
+                ):
+                    history.PhoenixPositionHistory(self.symbol).load(self.end)
+                checkpoint.refresh_from_db()
+                self.assertEqual(checkpoint.json_data, state)
+                self.assertFalse(checkpoint.file_data)
+
+                resumed = history.PhoenixPositionHistory(self.symbol)
+                resumed.load(self.end)
+                self.snapshot.assert_not_called()
+                self.assertEqual(resumed.replay.dump(), state)
+                checkpoint.refresh_from_db()
+                self.assertTrue(checkpoint.file_data)
+                self.assertNotIn("positions", checkpoint.json_data)
+                self.assertEqual(checkpoint.read_state(), state)
+                with self.captureOnCommitCallbacks(execute=True):
+                    checkpoint.delete()
+
+    def test_missing_or_corrupt_checkpoint_file_cannot_restart_from_live_state(self):
+        history.PhoenixPositionHistory(self.symbol).load(self.end)
+        checkpoint = Checkpoint.objects.get()
+        self.snapshot.reset_mock()
+        default_storage.delete(checkpoint.file_data.name)
+        default_storage.save(
+            checkpoint.file_data.name, ContentFile(gzip.compress(b"{}"))
+        )
+        with self.assertRaisesRegex(ValueError, "checksum"):
+            history.PhoenixPositionHistory(self.symbol).load(self.end)
+        default_storage.delete(checkpoint.file_data.name)
+        with self.assertRaises(FileNotFoundError):
+            history.PhoenixPositionHistory(self.symbol).load(self.end)
+        self.snapshot.assert_not_called()
+        self.assertEqual(Checkpoint.objects.count(), 1)
+        self.assertFalse(PerpetualStatsData.objects.exists())
+
     def test_missing_or_lagging_history_cannot_publish_counts(self):
         wrong_head = deepcopy(self.txs[0])
         wrong_head["transaction"]["signatures"] = ["earlier-in-the-same-slot"]
@@ -1277,8 +1378,9 @@ class PhoenixHistoryCollectionTest(TestCase):
                         )
                         self.assertEqual(pending.timestamp, snapshot_time)
                         self.assertEqual(pending.json_data["slot"], 140)
+                        self.assertNotIn("positions", pending.json_data)
                         self.assertEqual(
-                            pending.json_data["positions"],
+                            pending.read_state()["positions"],
                             {
                                 key.hex(): value
                                 for key, value in snapshot["positions"].items()

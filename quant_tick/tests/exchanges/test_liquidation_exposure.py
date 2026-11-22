@@ -551,6 +551,11 @@ class LiquidationPersistenceTest(TestCase):
         )
         with checkpoint.file_data.open("rb") as source:
             saved = json.loads(gzip.decompress(source.read()))
+        self.assertEqual(checkpoint.read_state(), saved)
+        self.assertEqual(
+            Path(checkpoint.file_data.name).parts[:-1],
+            ("test-checkpoints", *self.symbol.upload_path, "liquidation_exposure"),
+        )
         row = PerpetualStatsData.objects.get()
         self.assertEqual(row.timestamp, self.hour)
         self.assertEqual(

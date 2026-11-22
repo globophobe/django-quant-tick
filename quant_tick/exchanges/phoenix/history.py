@@ -8,7 +8,8 @@ Before replay, the indexed head must match the latest successful transaction in
 the native finalized ledger through the snapshot slot. A snapshot awaiting index
 catch-up is stored separately and cannot be used as reconstructed hour-end state.
 
-Checkpoints retain the exclusive transaction boundary and all nonzero positions.
+Checkpoints retain full replay state in compressed files, with cursor metadata
+and a checksum in the database. Existing inline states move to files when reused.
 Requested hours commit checkpoints with their statistics; intervening hours can
 save progress independently without publishing an observation. Hourly cohorts use
 the native bucket's mark price for size tiers, not the present snapshot's price.
@@ -18,17 +19,23 @@ Minute-sampled OI includes every replayed position change, including transfers,
 ADL and shutdowns. It uses exact hour boundaries, independently of native sampled OI.
 """
 
+import gzip
+import hashlib
+import json
 from collections import Counter, defaultdict
+from contextlib import ExitStack
 from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from itertools import chain
 
 import pandas as pd
+from django.core.files.base import ContentFile
 from django.db import transaction
 
 from quant_tick.constants import CheckpointType
 from quant_tick.models import Checkpoint
+from quant_tick.signals.files import discard
 
 from ..position_metrics import minute_open_interest
 from ..quicknode.solana import address_transactions, latest_address_signature
@@ -211,34 +218,57 @@ class PhoenixPositionHistory:
         self.snapshot_id = None
 
     def save(self, timestamp, state, *, checkpoint_type=None):
-        with transaction.atomic():
+        with ExitStack() as cleanup:
+            with transaction.atomic():
+                checkpoint = self._save(timestamp, state, checkpoint_type, cleanup)
+            cleanup.pop_all()
+        if checkpoint_type is None:
+            self.snapshot_id = None
+        return checkpoint
+
+    def _save(self, timestamp, state, checkpoint_type, cleanup):
+        if self.assert_lease_owned is not None:
+            self.assert_lease_owned()
+        checkpoint, created = Checkpoint.objects.select_for_update().get_or_create(
+            symbol=self.symbol,
+            checkpoint_type=checkpoint_type or CheckpointType.PHOENIX_POSITIONS,
+            timestamp=timestamp,
+            defaults={"json_data": {}},
+        )
+        stored = state if created else checkpoint.read_state()
+        if not created and any(
+            stored[key] != state[key]
+            for key in (
+                "version",
+                "positions",
+                "asset_id",
+                "base_lot_decimals",
+                "history_address",
+            )
+        ):
+            raise ValueError(
+                "Phoenix replay disagrees with a saved position checkpoint"
+            )
+        if not checkpoint.file_data:
+            raw = json.dumps(stored, separators=(",", ":")).encode()
+            checkpoint.file_data.save(
+                "state.json.gz", ContentFile(gzip.compress(raw, mtime=0)), save=False
+            )
+            cleanup.callback(
+                discard, checkpoint.file_data.storage, checkpoint.file_data.name
+            )
+            checkpoint.json_data = {
+                **{key: value for key, value in stored.items() if key != "positions"},
+                "sha256": hashlib.sha256(raw).hexdigest(),
+            }
             if self.assert_lease_owned is not None:
                 self.assert_lease_owned()
-            checkpoint, created = Checkpoint.objects.get_or_create(
-                symbol=self.symbol,
-                checkpoint_type=checkpoint_type or CheckpointType.PHOENIX_POSITIONS,
-                timestamp=timestamp,
-                defaults={"json_data": state},
-            )
-            if not created and any(
-                checkpoint.json_data[key] != state[key]
-                for key in (
-                    "version",
-                    "positions",
-                    "asset_id",
-                    "base_lot_decimals",
-                    "history_address",
-                )
-            ):
-                raise ValueError(
-                    "Phoenix replay disagrees with a saved position checkpoint"
-                )
-            if checkpoint_type is None and self.snapshot_id is not None:
-                Checkpoint.objects.filter(
-                    pk=self.snapshot_id, checkpoint_type=CheckpointType.PHOENIX_SNAPSHOT
-                ).delete()
-                self.snapshot_id = None
-            return checkpoint
+            checkpoint.save(update_fields=["file_data", "json_data"])
+        if checkpoint_type is None and self.snapshot_id is not None:
+            Checkpoint.objects.filter(
+                pk=self.snapshot_id, checkpoint_type=CheckpointType.PHOENIX_SNAPSHOT
+            ).delete()
+        return checkpoint
 
     def load(self, end):
         checkpoint = (
@@ -284,10 +314,14 @@ class PhoenixPositionHistory:
             checkpoint = self.save(
                 block_time, state, checkpoint_type=CheckpointType.PHOENIX_SNAPSHOT
             )
-        self.boundary, state = checkpoint.timestamp, checkpoint.json_data
+        self.boundary, state = checkpoint.timestamp, checkpoint.read_state()
         if not state.get("history_head"):
             raise ValueError("Phoenix checkpoint lacks its ledger boundary")
         replay = ReversePositions(state)
+        if not checkpoint.file_data:
+            self.save(
+                checkpoint.timestamp, state, checkpoint_type=checkpoint.checkpoint_type
+            )
         self.transactions = iter(
             address_transactions(
                 state["history_address"],
@@ -440,8 +474,13 @@ class PhoenixPositionHistory:
         self.pending = [(end, end_state), (start, self.replay.dump())]
         return {**flows, **values}
 
-    def commit(self):
-        """Called inside the statistics write transaction, after native validation."""
-        for timestamp, state in self.pending:
-            self.save(timestamp, state)
+    def commit(self, write_statistics):
+        """Commit statistics and checkpoints together; discard uploads on rollback."""
+        with ExitStack() as cleanup:
+            with transaction.atomic():
+                write_statistics()
+                for timestamp, state in self.pending:
+                    self._save(timestamp, state, None, cleanup)
+            cleanup.pop_all()
+        self.snapshot_id = None
         self.pending = []

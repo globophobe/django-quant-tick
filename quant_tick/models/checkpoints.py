@@ -1,16 +1,20 @@
+import gzip
+import hashlib
+import json
 from pathlib import PurePosixPath
 from uuid import uuid4
 
 from django.db import models
 
 from quant_tick.constants import CheckpointType
+from quant_tick.testing import is_test
 
 
 def checkpoint_upload_to(instance, filename):
     return str(
         PurePosixPath(
-            "checkpoints",
-            str(instance.symbol_id),
+            "test-checkpoints" if is_test() else "checkpoints",
+            *instance.symbol.upload_path,
             instance.checkpoint_type,
             uuid4().hex + ".json.gz",
         )
@@ -30,6 +34,19 @@ class Checkpoint(models.Model):
     file_data = models.FileField(
         blank=True, max_length=255, upload_to=checkpoint_upload_to
     )
+
+    def read_state(self):
+        """Read verified file contents, or an existing inline checkpoint."""
+        if not self.file_data:
+            return self.json_data
+        with self.file_data.open("rb") as source:
+            raw = gzip.decompress(source.read())
+        if hashlib.sha256(raw).hexdigest() != self.json_data.get("sha256"):
+            raise ValueError("Checkpoint file checksum mismatch")
+        state = json.loads(raw)
+        if not isinstance(state, dict):
+            raise TypeError("Checkpoint file must contain an object")
+        return state
 
     class Meta:
         db_table = "quant_tick_checkpoint"

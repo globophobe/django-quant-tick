@@ -1,9 +1,9 @@
 import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from functools import partial
 
 import pandas as pd
-from django.db import transaction
 from pandas import DataFrame
 
 from quant_tick.constants import Exchange, SymbolType
@@ -285,17 +285,19 @@ def perpetual_stats(
             )
             history_exhausted = df.attrs.get(HISTORY_EXHAUSTED_ATTR)
             df = validate_perpetual_stats_frame(symbol, df)
-            with transaction.atomic():
-                PerpetualStatsData.write(
-                    symbol,
-                    frequency,
-                    fetch_from,
-                    fetch_to,
-                    df,
-                    assert_lease_owned=assert_lease_owned,
-                )
-                if position_history is not None:
-                    position_history.commit()
+            write_statistics = partial(
+                PerpetualStatsData.write,
+                symbol,
+                frequency,
+                fetch_from,
+                fetch_to,
+                df,
+                assert_lease_owned=assert_lease_owned,
+            )
+            if position_history is not None:
+                position_history.commit(write_statistics)
+            else:
+                write_statistics()
             if history_exhausted is True:
                 return
             if (
