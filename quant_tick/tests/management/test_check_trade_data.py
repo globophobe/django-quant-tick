@@ -23,7 +23,7 @@ from quant_tick.models import (
     TimeBasedCandle,
     TradeData,
 )
-from quant_tick.services.check_data import (
+from quant_tick.services.check_trade_data import (
     AuditUnavailable,
     check_candle,
     check_exchange,
@@ -176,10 +176,10 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
         self.symbol.exchange = Exchange.HYPERLIQUID
         with (
             patch(
-                "quant_tick.services.check_data.native_hyperliquid_candles",
+                "quant_tick.services.check_trade_data.native_hyperliquid_candles",
                 return_value=self.reference(START),
             ) as native,
-            patch("quant_tick.services.check_data.candles_api") as dispatch,
+            patch("quant_tick.services.check_trade_data.candles_api") as dispatch,
         ):
             daily_candles(self.symbol, START, START + DAY)
         native.assert_called_once_with(self.symbol.api_symbol, START, START + DAY, "1d")
@@ -246,7 +246,7 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
             with (
                 self.subTest(index=index),
                 patch(
-                    "quant_tick.services.check_data.candles_api",
+                    "quant_tick.services.check_trade_data.candles_api",
                     return_value=pd.DataFrame({"notional": Decimal(1)}, index=index),
                 ),
                 self.assertRaises(AuditUnavailable),
@@ -347,7 +347,7 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
         with (
             TemporaryDirectory() as directory,
             patch(
-                "quant_tick.services.check_data.candles_api",
+                "quant_tick.services.check_trade_data.candles_api",
                 return_value=self.reference(START + DAY, notional=Decimal(9)),
             ) as native,
             patch.object(
@@ -360,7 +360,7 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
             output = Path(directory) / "audit.json"
             with self.assertRaises(CommandError):
                 call_command(
-                    "check_data",
+                    "check_trade_data",
                     code_name=[self.symbol.code_name],
                     date_from="2026-11-02",
                     date_to="2026-11-03",
@@ -412,13 +412,13 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
                 day += DAY
         output = StringIO()
         with patch(
-            "quant_tick.services.check_data.candles_api",
+            "quant_tick.services.check_trade_data.candles_api",
             return_value=pd.concat(
                 [self.reference(START), self.reference(START + DAY)]
             ),
         ) as native:
             call_command(
-                "check_data",
+                "check_trade_data",
                 code_name=[symbol.code_name for symbol in symbols],
                 date_from="2026-11-01",
                 date_to="2026-11-03",
@@ -454,13 +454,13 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
         output = StringIO()
         with (
             patch(
-                "quant_tick.services.check_data.candles_api",
+                "quant_tick.services.check_trade_data.candles_api",
                 return_value=self.reference(START + DAY),
             ) as native,
             self.assertRaises(CommandError),
         ):
             call_command(
-                "check_data",
+                "check_trade_data",
                 code_name=[self.symbol.code_name],
                 date_from="2026-11-01",
                 date_to="2026-11-03",
@@ -493,11 +493,13 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
         )
         output = StringIO()
         with (
-            patch("quant_tick.services.check_data.candles_api", side_effect=error),
+            patch(
+                "quant_tick.services.check_trade_data.candles_api", side_effect=error
+            ),
             self.assertRaises(CommandError),
         ):
             call_command(
-                "check_data",
+                "check_trade_data",
                 code_name=[self.symbol.code_name],
                 date_from="2026-11-02",
                 date_to="2026-11-03",
@@ -524,9 +526,9 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
             with (
                 self.subTest(options=options),
                 patch(
-                    "quant_tick.management.commands.check_data.daily_candles"
+                    "quant_tick.management.commands.check_trade_data.daily_candles"
                 ) as native,
                 self.assertRaises(CommandError),
             ):
-                call_command("check_data", **options, stdout=StringIO())
+                call_command("check_trade_data", **options, stdout=StringIO())
             native.assert_not_called()

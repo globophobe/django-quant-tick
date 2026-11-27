@@ -10,7 +10,7 @@ from quant_tick.lib import get_current_time, get_min_time, parse_period_from_to
 from quant_tick.management.base import BaseTradeDataCommand
 from quant_tick.models import Candle
 from quant_tick.models.base import QuantTickEncoder
-from quant_tick.services.check_data import (
+from quant_tick.services.check_trade_data import (
     AuditUnavailable,
     check_candle,
     check_exchange,
