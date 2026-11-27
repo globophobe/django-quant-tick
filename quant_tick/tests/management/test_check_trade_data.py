@@ -45,6 +45,13 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
     def reference(self, day, *, notional=Decimal(8), volume=Decimal(800)):
         return pd.DataFrame([{"notional": notional, "volume": volume}], index=[day])
 
+    def table_rows(self, output):
+        return [
+            tuple(value.strip() for value in line.split(" | "))
+            for line in output.getvalue().splitlines()
+            if " | " in line
+        ]
+
     def write_summary(self, start=START, frequency=1440, notional=Decimal(8)):
         return TradeData.objects.create(
             symbol=self.symbol,
@@ -340,6 +347,7 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
 
     def test_command_reports_failures_without_changing_rows_or_fetching_trades(self):
         candle = self.make_candle()
+        stdout = StringIO()
         before = [
             list(model.objects.values())
             for model in (TradeData, CandleData, CandleCache)
@@ -358,16 +366,44 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
             ),
         ):
             output = Path(directory) / "audit.json"
-            with self.assertRaises(CommandError):
+            with self.assertRaisesMessage(CommandError, "1 failed; 0 unavailable."):
                 call_command(
                     "check_trade_data",
                     code_name=[self.symbol.code_name],
                     date_from="2026-11-02",
                     date_to="2026-11-03",
                     output=output,
-                    stdout=StringIO(),
+                    stdout=stdout,
                 )
             results = json.loads(output.read_text())
+        rows = self.table_rows(stdout)
+        self.assertIn(
+            (
+                self.symbol.exchange,
+                self.symbol.api_symbol,
+                self.symbol.code_name,
+                "Trades vs exchange",
+                "0",
+                "1",
+                "0",
+            ),
+            rows,
+        )
+        self.assertIn(
+            (
+                self.symbol.exchange,
+                self.symbol.api_symbol,
+                self.symbol.code_name,
+                f"Candles/cache: {candle.code_name}",
+                "1",
+                "0",
+                "0",
+            ),
+            rows,
+        )
+        self.assertEqual(rows[-1], ("TOTAL", "", "", "", "1", "1", "0"))
+        self.assertIn(f"Detailed results: {output}", stdout.getvalue())
+        self.assertNotIn('"status":', stdout.getvalue())
         self.assertEqual([row["status"] for row in results], ["FAIL", "PASS"])
         self.assertEqual(
             [row["exchange"] for row in results], [self.symbol.exchange] * 2
@@ -422,6 +458,7 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
                 code_name=[symbol.code_name for symbol in symbols],
                 date_from="2026-11-01",
                 date_to="2026-11-03",
+                verbosity=2,
                 stdout=output,
             )
         self.assertEqual(native.call_count, len(starts))
@@ -440,6 +477,22 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
                 [row["date"] for row in results if row["symbol"] == symbol], dates
             )
         self.assertTrue(all(row["status"] == "PASS" for row in results))
+        rows = self.table_rows(output)
+        self.assertEqual(rows[-1], ("TOTAL", "", "", "", "3", "0", "0"))
+        for symbol in symbols:
+            if symbol.code_name in expected_dates:
+                self.assertIn(
+                    (
+                        symbol.exchange,
+                        symbol.api_symbol,
+                        symbol.code_name,
+                        "Trades vs exchange",
+                        str(len(expected_dates[symbol.code_name])),
+                        "0",
+                        "0",
+                    ),
+                    rows,
+                )
 
     def test_command_checks_all_symbol_candles_with_fresh_exchange_candles(self):
         candle = self.make_candle()
@@ -464,6 +517,7 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
                 code_name=[self.symbol.code_name],
                 date_from="2026-11-01",
                 date_to="2026-11-03",
+                verbosity=2,
                 stdout=output,
             )
         native.assert_called_once_with(
@@ -482,6 +536,20 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
             {row["candle"]: row["status"] for row in results[1:]},
             {candle.code_name: "PASS", inactive.code_name: "UNKNOWN"},
         )
+        rows = self.table_rows(output)
+        self.assertIn(
+            (
+                self.symbol.exchange,
+                self.symbol.api_symbol,
+                self.symbol.code_name,
+                f"Candles/cache: {inactive.code_name}",
+                "0",
+                "0",
+                "1",
+            ),
+            rows,
+        )
+        self.assertEqual(rows[-1], ("TOTAL", "", "", "", "2", "0", "1"))
 
     def test_exchange_failure_does_not_prevent_the_database_check(self):
         self.make_candle()
@@ -503,6 +571,7 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
                 code_name=[self.symbol.code_name],
                 date_from="2026-11-02",
                 date_to="2026-11-03",
+                verbosity=2,
                 stdout=output,
             )
         results = [
@@ -511,6 +580,9 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
             if line.startswith("{")
         ]
         self.assertEqual([row["status"] for row in results], ["UNKNOWN", "PASS"])
+        self.assertEqual(
+            self.table_rows(output)[-1], ("TOTAL", "", "", "", "1", "0", "1")
+        )
 
     def test_command_requires_a_bounded_completed_range_and_selection(self):
         for options in (

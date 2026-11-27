@@ -23,7 +23,8 @@ class Command(BaseTradeDataCommand):
     help = (
         "Compare daily TradeData summaries with fresh exchange candles and all "
         "stored candle/cache totals for the selected symbols. No trade downloads "
-        "or regeneration. Both dates are "
+        "or regeneration. Show a summary table; verbosity 2 also prints daily "
+        "JSON results. Both dates are "
         "required; date-to is exclusive (UTC). Exit nonzero for FAIL or UNKNOWN."
     )
 
@@ -32,6 +33,43 @@ class Command(BaseTradeDataCommand):
         parser.add_argument(
             "--output", type=Path, help="Also save the results as JSON."
         )
+
+    def write_summary(self, results):
+        groups = {}
+        counts = Counter()
+        for result in results:
+            check = {
+                "trades": "Trades vs exchange",
+                "candles": "Candles/cache: " + result.get("candle", ""),
+                "trade summaries": "Trade summaries",
+            }[result["check"]]
+            key = (result["exchange"], result["api_symbol"], result["symbol"], check)
+            groups.setdefault(key, Counter())[result["status"]] += 1
+            counts[result["status"]] += 1
+
+        statuses = ("PASS", "FAIL", "UNKNOWN")
+        header = ("Exchange", "Market", "Symbol", "Check", *statuses)
+        rows = [
+            (*key, *(str(group[status]) for status in statuses))
+            for key, group in sorted(groups.items())
+        ]
+        total = ("TOTAL", "", "", "", *(str(counts[status]) for status in statuses))
+        widths = [max(map(len, column)) for column in zip(header, *rows, total)]
+
+        def line(row):
+            return " | ".join(
+                value.ljust(width) if index < 4 else value.rjust(width)
+                for index, (value, width) in enumerate(zip(row, widths))
+            )
+
+        separator = "-+-".join("-" * width for width in widths)
+        self.stdout.write(line(header))
+        self.stdout.write(separator)
+        for row in rows:
+            self.stdout.write(line(row))
+        self.stdout.write(separator)
+        self.stdout.write(line(total))
+        return counts
 
     def handle(self, *args, **options):
         if not options["date_from"] or not options["date_to"]:
@@ -71,7 +109,6 @@ class Command(BaseTradeDataCommand):
                     "error": f"{type(exc).__name__}: {exc}",
                 }
             results.append(result)
-            self.stdout.write(json.dumps(result, cls=QuantTickEncoder))
 
         for job in jobs:
             symbol = job["symbol"]
@@ -101,7 +138,6 @@ class Command(BaseTradeDataCommand):
                     "error": f"{type(exc).__name__}: {exc}",
                 }
                 results.append(result)
-                self.stdout.write(json.dumps(result, cls=QuantTickEncoder))
             day = symbol_start
             while day < symbol_end:
                 next_day = day + timedelta(days=1)
@@ -116,7 +152,6 @@ class Command(BaseTradeDataCommand):
                         "error": f"{type(exc).__name__}: {exc}",
                     }
                     results.append(result)
-                    self.stdout.write(json.dumps(result, cls=QuantTickEncoder))
                 else:
                     if reference is not None:
                         record(
@@ -141,9 +176,17 @@ class Command(BaseTradeDataCommand):
             Path(options["output"]).write_text(
                 json.dumps(results, cls=QuantTickEncoder, indent=2) + "\n"
             )
-        counts = Counter(result["status"] for result in results)
+        if options["verbosity"] >= 2:
+            for result in results:
+                self.stdout.write(json.dumps(result, cls=QuantTickEncoder))
         self.stdout.write(
-            f"PASS {counts['PASS']}; FAIL {counts['FAIL']}; UNKNOWN {counts['UNKNOWN']}"
+            f"\nAudit summary: {start:%Y-%m-%d} to {end:%Y-%m-%d} "
+            "(exclusive, UTC); counts of checks"
         )
+        counts = self.write_summary(results)
+        if options.get("output"):
+            self.stdout.write(f"Detailed results: {options['output']}")
         if not results or counts["FAIL"] or counts["UNKNOWN"]:
-            raise CommandError("Data checks did not all pass; see the results above.")
+            raise CommandError(
+                f"{counts['FAIL']} failed; {counts['UNKNOWN']} unavailable."
+            )
