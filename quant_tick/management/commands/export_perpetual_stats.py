@@ -1,5 +1,6 @@
 """Export stored native-cadence stats, preserving partial rows and null values."""
 
+import json
 import re
 from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime, timedelta
@@ -12,7 +13,9 @@ import pyarrow.parquet as pq
 from django.core.management.base import CommandError, CommandParser
 from django.db.models import Max, Min, QuerySet
 
+from quant_tick.constants import Exchange
 from quant_tick.models import PerpetualStatsData, Symbol
+from quant_tick.models.base import QuantTickEncoder
 from quant_tick.models.perpetual_stats import (
     PERPETUAL_STATS_VALUE_FIELDS,
     perpetual_stats_required_fields,
@@ -20,7 +23,7 @@ from quant_tick.models.perpetual_stats import (
 
 from ..base import BaseDateCommand
 
-EXPORTABLE_FIELDS = (*PERPETUAL_STATS_VALUE_FIELDS, "open_interest_unit")
+EXPORTABLE_FIELDS = (*PERPETUAL_STATS_VALUE_FIELDS, "open_interest_unit", "json_data")
 EXPORT_BATCH_SIZE = 50_000
 
 
@@ -88,6 +91,16 @@ def _build_table(
                     type=pa.float64(),
                 )
             )
+        elif field == "json_data":
+            arrays.append(
+                pa.array(
+                    [
+                        json.dumps(value, cls=QuantTickEncoder, separators=(",", ":"))
+                        for value in values
+                    ],
+                    type=pa.string(),
+                )
+            )
         else:
             arrays.append(
                 pa.array(
@@ -125,7 +138,8 @@ class Command(BaseDateCommand):
             help=(
                 "Columns to export after timestamp. "
                 "Defaults to the exchange's required fields plus the optional "
-                "open_interest_unit metadata."
+                "open_interest_unit metadata. Hyperliquid and Phoenix defaults include account ratios "
+                "and json_data with exact cohort/flow metadata."
             ),
         )
         parser.add_argument(
@@ -282,10 +296,22 @@ class Command(BaseDateCommand):
             )
 
         for symbol, frequency in targets:
-            export_fields = fields or (
+            defaults = (
                 *perpetual_stats_required_fields(symbol.exchange),
                 "open_interest_unit",
             )
+            if symbol.exchange in (Exchange.HYPERLIQUID, Exchange.PHOENIX):
+                defaults = (
+                    "open_interest",
+                    "open_interest_value",
+                    "single_open_interest",
+                    "long_account_ratio",
+                    "short_account_ratio",
+                    "long_short_account_ratio",
+                    "open_interest_unit",
+                    "json_data",
+                )
+            export_fields = fields or defaults
             output_path = options["output"] or Path(
                 get_output_path(symbol, frequency, export_fields, today)
             )

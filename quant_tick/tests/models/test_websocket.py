@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from itertools import product
 
 from django.test import TestCase
 
@@ -89,7 +90,7 @@ class WebSocketDataTest(TestCase):
             [linear_row],
         )
 
-    def test_get_data_frames_parses_trade_payloads(self):
+    def test_get_data_frames_parses_only_enabled_trade_payloads(self):
         symbol = Symbol.objects.create(
             exchange=Exchange.COINBASE,
             api_symbol="BTC-USD",
@@ -100,19 +101,29 @@ class WebSocketDataTest(TestCase):
             api_symbol="BTC-USD",
             significant_trade_filter=1000,
             timestamp=datetime(2026, 5, 10, 10, tzinfo=UTC),
+            raw_trades=[self.get_trade("6291886372")],
+            aggregated_trades=[self.get_trade("6291886372")],
             filtered_trades=[self.get_trade("6291886372")],
         )
-        data.refresh_from_db()
-
-        _raw_trades, _aggregated_trades, filtered_trades = data.get_data_frames(symbol)
-
-        self.assertEqual(data.filtered_trades[0]["uid"], "6291886372")
-        self.assertEqual(filtered_trades.iloc[0].uid, "6291886372")
-        self.assertEqual(
-            filtered_trades.iloc[0].timestamp.to_pydatetime(),
-            datetime(2026, 5, 10, 10, 0, 10, tzinfo=UTC),
-        )
-        self.assertEqual(filtered_trades.iloc[0].totalVolume, Decimal(1000))
+        fields = ("raw_trades", "aggregated_trades", "filtered_trades")
+        for enabled in product((False, True), repeat=3):
+            with self.subTest(enabled=enabled):
+                symbol.save_raw, symbol.save_aggregated = enabled[:2]
+                symbol.significant_trade_filter = 1000 if enabled[2] else 0
+                selected = [field for field, used in zip(fields, enabled) if used]
+                row = WebSocketData.objects.only("timestamp", *selected).get(pk=data.pk)
+                with self.assertNumQueries(0):
+                    frames = row.get_data_frames(symbol)
+                for frame, used in zip(frames, enabled):
+                    if not used:
+                        self.assertIsNone(frame)
+                        continue
+                    self.assertEqual(frame.iloc[0].uid, "6291886372")
+                    self.assertEqual(
+                        frame.iloc[0].timestamp.to_pydatetime(),
+                        datetime(2026, 5, 10, 10, 0, 10, tzinfo=UTC),
+                    )
+                    self.assertEqual(frame.iloc[0].totalVolume, Decimal(1000))
 
     def test_get_data_frames_preserves_equal_timestamp_order(self):
         symbol = Symbol.objects.create(

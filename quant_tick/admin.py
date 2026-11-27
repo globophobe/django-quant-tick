@@ -24,6 +24,7 @@ from quant_tick.models import (
     Candle,
     CandleCache,
     CandleData,
+    Checkpoint,
     ExchangeCandleData,
     FundingData,
     PerpetualStatsData,
@@ -303,7 +304,14 @@ class PerpetualStatsDataAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
         return format_display_rate(obj.long_short_account_ratio)
 
 
+class CheckpointAdmin(DirectSymbolLinkMixin, ReadOnlyAdmin):
+    list_display = ("timestamp", "symbol_link", "checkpoint_type")
+    list_select_related = ("symbol",)
+    ordering = ("-timestamp",)
+
+
 if apps.is_installed("django.contrib.admin"):
+    admin.site.register(Checkpoint, CheckpointAdmin)
     admin.site.register(Symbol, SymbolAdmin)
     admin.site.register(Candle, CandleAdmin)
     admin.site.register(TaskState, TaskStateAdmin)

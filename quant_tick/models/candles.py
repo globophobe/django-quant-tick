@@ -20,6 +20,7 @@ from quant_tick.lib import (
     merge_cache,
     parse_datetime,
 )
+from quant_tick.lib.volume_brackets import parse_volume_brackets
 
 from .base import AbstractCodeName, BigDecimalField, JSONField
 from .trades import TradeData
@@ -33,7 +34,7 @@ def camel_to_snake(value: str) -> str:
 
 
 class Candle(AbstractCodeName, PolymorphicModel):
-    """Base candle model."""
+    """Base candle model with optional json_data.volume_brackets quote cutoffs."""
 
     symbol = models.ForeignKey(
         "quant_tick.Symbol",
@@ -170,6 +171,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
         logs report both cases to Sentry. Cache endpoints record processed
         partitions, not continuous coverage. Management commands remain strict.
         """
+        parse_volume_brackets(self.json_data.get("volume_brackets"))
         min_ts_from, max_ts_to, cache_data = self.initialize(
             timestamp_from, timestamp_to, retry
         )
@@ -423,6 +425,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             timestamp=timestamp,
             min_volume_exponent=self.json_data.get("min_volume_exponent"),
             min_notional_exponent=self.json_data.get("min_notional_exponent"),
+            volume_brackets=self.json_data.get("volume_brackets"),
         )
 
     def _merge_cache(self, prev: dict, curr: dict) -> dict:
@@ -442,6 +445,7 @@ class Candle(AbstractCodeName, PolymorphicModel):
             timestamp=timestamp,
             min_volume_exponent=self.json_data.get("min_volume_exponent"),
             min_notional_exponent=self.json_data.get("min_notional_exponent"),
+            volume_brackets=self.json_data.get("volume_brackets"),
         )
 
     def write_cache(

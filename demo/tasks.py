@@ -9,7 +9,10 @@ from django.db.models import Q
 from dotenv import load_dotenv
 from invoke import task
 
-load_dotenv(Path(__file__).resolve().with_name(".env"))
+from quant_tick.testing import is_test
+
+if not is_test():
+    load_dotenv(Path(__file__).resolve().with_name(".env"))
 
 
 @task

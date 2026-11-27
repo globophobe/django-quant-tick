@@ -14,7 +14,7 @@ class CompactViewTest(TestCase):
     def setUp(self):
         super().setUp()
         self.symbol = Symbol.objects.create(
-            exchange=Exchange.COINBASE,
+            exchange=Exchange.HYPERLIQUID,
             api_symbol="test",
         )
         self.candle = Candle.objects.create(symbol=self.symbol)
@@ -38,7 +38,7 @@ class CompactViewTest(TestCase):
         data.update(kwargs)
         return TaskState.objects.create(**data)
 
-    def test_get_compacts_all_symbols_and_candles(self):
+    def test_get_compacts_trades_and_candles(self):
         with (
             patch(
                 "quant_tick.views.compact.convert_trade_data_to_daily"

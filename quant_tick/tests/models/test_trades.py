@@ -165,6 +165,7 @@ class WriteTradeDataTest(BaseWriteTradeDataTest, TestCase):
                 trade_data = TradeData.objects.get(symbol=symbol)
                 self.assertTrue(trade_data.ok)
                 self.assertEqual(trade_data.uid, f"{name}-1")
+                self.assertEqual(set(trade_data.json_data), {"candle"})
                 for file_data in FileData:
                     self.assertEqual(
                         trade_data.has_data_frame(file_data),

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from io import StringIO
@@ -17,6 +18,71 @@ from ..base import BaseSymbolTest
 
 
 class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
+    def test_default_export_retains_exact_cohort_and_flow_metadata(self):
+        symbol = self.get_symbol(
+            exchange=Exchange.HYPERLIQUID,
+            api_symbol="BTC",
+            symbol_type=SymbolType.PERPETUAL,
+        )
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        PerpetualStatsData.objects.create(
+            symbol=symbol,
+            timestamp=timestamp,
+            frequency=60,
+            open_interest=Decimal(100),
+            long_account_ratio=Decimal("0.6"),
+            json_data={
+                "cohort_timestamp": timestamp + timedelta(milliseconds=23),
+                "long_open_size": Decimal("1.123456789123456789"),
+                "cohorts": [{"tier": 4, "longSz": Decimal("7.123456789123456789")}],
+                "position_size_flows": [
+                    {
+                        "tier": 4,
+                        "taker_short_close_size": Decimal("2.123456789123456789"),
+                        "liquidation": {
+                            "taker_short_close_size": Decimal("1.123456789123456789")
+                        },
+                    }
+                ],
+                "minute_open_interest_low": Decimal("9.123456789123456789"),
+                "taker_long_realized_loss": Decimal("123.123456789123456789"),
+                "taker_flow_concentration": {
+                    "accounts": 1,
+                    "buy": {"top1_share": Decimal(1)},
+                    "sell": {"top1_share": None},
+                },
+            },
+        )
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "stats.parquet"
+            call_command(
+                "export_perpetual_stats",
+                "--code-name",
+                symbol.code_name,
+                "--output",
+                str(output),
+                stdout=StringIO(),
+            )
+            frame = pd.read_parquet(output)
+        self.assertEqual(frame.iloc[0].long_account_ratio, 0.6)
+        self.assertTrue(frame.single_open_interest.isna().all())
+        metadata = json.loads(frame.iloc[0].json_data)
+        self.assertEqual(metadata["cohort_timestamp"], "2026-01-01T00:00:00.023000Z")
+        self.assertEqual(metadata["long_open_size"], "1.123456789123456789")
+        self.assertEqual(metadata["cohorts"][0]["longSz"], "7.123456789123456789")
+        self.assertEqual(
+            metadata["position_size_flows"][0]["taker_short_close_size"],
+            "2.123456789123456789",
+        )
+        self.assertEqual(metadata["minute_open_interest_low"], "9.123456789123456789")
+        self.assertEqual(
+            metadata["position_size_flows"][0]["liquidation"]["taker_short_close_size"],
+            "1.123456789123456789",
+        )
+        self.assertEqual(metadata["taker_long_realized_loss"], "123.123456789123456789")
+        self.assertEqual(metadata["taker_flow_concentration"]["buy"]["top1_share"], "1")
+        self.assertIsNone(metadata["taker_flow_concentration"]["sell"]["top1_share"])
+
     def setUp(self):
         super().setUp()
         self.symbol = self.get_symbol(
@@ -172,7 +238,7 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
             ),
         )
 
-    def test_phoenix_default_export_uses_open_interest_fields(self):
+    def test_phoenix_default_export_retains_open_interest_and_cohort_evidence(self):
         symbol = self.get_symbol(
             exchange=Exchange.PHOENIX,
             api_symbol="BTC",
@@ -185,6 +251,8 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
             open_interest=Decimal("24.4222"),
             open_interest_value=Decimal("2065800.6314"),
             open_interest_unit="base_asset",
+            long_account_ratio=Decimal("0.7"),
+            json_data={"cohort_snapshot_validated": True, "long_accounts": 7},
         )
         with TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "phoenix-stats.parquet"
@@ -199,7 +267,19 @@ class ExportPerpetualStatsCommandTest(BaseSymbolTest, TestCase):
             frame = pd.read_parquet(output)
         self.assertEqual(
             frame.columns.tolist(),
-            ["timestamp", "open_interest", "open_interest_value", "open_interest_unit"],
+            [
+                "timestamp",
+                "open_interest",
+                "open_interest_value",
+                "single_open_interest",
+                "long_account_ratio",
+                "short_account_ratio",
+                "long_short_account_ratio",
+                "open_interest_unit",
+                "json_data",
+            ],
         )
         self.assertEqual(len(frame), 1)
         self.assertEqual(frame.iloc[0].open_interest, 24.4222)
+        self.assertEqual(frame.iloc[0].long_account_ratio, 0.7)
+        self.assertEqual(json.loads(frame.iloc[0].json_data)["long_accounts"], 7)

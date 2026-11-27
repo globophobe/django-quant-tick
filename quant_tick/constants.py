@@ -49,6 +49,12 @@ class TaskType(models.TextChoices):
     COMPACT = "compact", "Compact"
 
 
+class CheckpointType(models.TextChoices):
+    PHOENIX_POSITIONS = "phoenix_positions", "Phoenix positions"
+    PHOENIX_SNAPSHOT = "phoenix_snapshot", "Phoenix snapshot"
+    LIQUIDATION_EXPOSURE = "liquidation_exposure", "Liquidation exposure"
+
+
 class SampleType(models.TextChoices):
     """Sampling inputs for non-time-based candles."""
 

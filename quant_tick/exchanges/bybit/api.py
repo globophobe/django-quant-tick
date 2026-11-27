@@ -29,7 +29,7 @@ def get_bybit_result(path: str, params: dict, retry: int = 30) -> dict:
     """Fetch within the process-wide Bybit request budget, counting every attempt.
 
     HTTP and ``10006`` failures share the retry budget. Rate-limit retries wait
-    at least two seconds and honor a later reset timestamp.
+    at least one second and honor a later reset timestamp.
     """
     attempts = retry + 1
     for attempt in range(attempts):
@@ -52,9 +52,9 @@ def get_bybit_result(path: str, params: dict, retry: int = 30) -> dict:
             if payload.get("retCode") == 10006 and attempt < retry:
                 try:
                     reset_ms = int(response.headers["X-Bapi-Limit-Reset-Timestamp"])
-                    delay = max(2.0, reset_ms / 1000 - time.time())
+                    delay = max(1.0, reset_ms / 1000 - time.time())
                 except (KeyError, ValueError):
-                    delay = 2.0
+                    delay = 1.0
                 time.sleep(delay)
                 continue
             if payload.get("retCode") != 0:

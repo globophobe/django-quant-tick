@@ -5,6 +5,7 @@ from decimal import Decimal
 from pandas import DataFrame
 
 from .candles import aggregate_candle
+from .volume_brackets import merge_volume_brackets
 
 
 def get_next_cache(
@@ -13,6 +14,7 @@ def get_next_cache(
     timestamp: datetime | None = None,
     min_volume_exponent: int | None = None,
     min_notional_exponent: int | None = None,
+    volume_brackets: list | None = None,
 ) -> dict:
     """Get next cache."""
     values = aggregate_candle(
@@ -20,6 +22,7 @@ def get_next_cache(
         timestamp,
         min_volume_exponent=min_volume_exponent,
         min_notional_exponent=min_notional_exponent,
+        volume_brackets=volume_brackets,
     )
     if "next" in cache_data:
         previous_values = cache_data.pop("next")
@@ -31,6 +34,10 @@ def get_next_cache(
 
 def merge_cache(previous: dict, current: dict) -> dict:
     """Merge cache."""
+    if "volumeBrackets" in previous or "volumeBrackets" in current:
+        current["volumeBrackets"] = merge_volume_brackets(
+            previous.get("volumeBrackets"), current.get("volumeBrackets")
+        )
     current["timestamp"] = previous["timestamp"]
     curr_open = current.get("open")
     current["open"] = previous["open"]

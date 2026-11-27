@@ -9,6 +9,7 @@ from django.db.models import Max, Min, QuerySet
 from pandas import DataFrame
 
 from quant_tick.constants import Frequency
+from quant_tick.lib.volume_brackets import parse_volume_brackets
 from quant_tick.models import AdaptiveCandle, Candle, ConstantCandle, TimeBasedCandle
 from quant_tick.models.candles import CandleData
 
@@ -46,17 +47,21 @@ def _cache_reset_token(value: object) -> str | None:
     return _token(value)
 
 
-def _round_feature_tokens(data: dict) -> list[str]:
+def _feature_tokens(data: dict) -> list[str]:
     if data.get("min_volume_exponent") == 1 and data.get("min_notional_exponent") == 1:
-        return ["round"]
-
-    parts = []
-    min_volume_exponent = data.get("min_volume_exponent")
-    min_notional_exponent = data.get("min_notional_exponent")
-    if min_volume_exponent is not None:
-        parts.append(f"mv{min_volume_exponent}")
-    if min_notional_exponent is not None:
-        parts.append(f"mn{min_notional_exponent}")
+        parts = ["round"]
+    else:
+        parts = []
+        min_volume_exponent = data.get("min_volume_exponent")
+        min_notional_exponent = data.get("min_notional_exponent")
+        if min_volume_exponent is not None:
+            parts.append(f"mv{min_volume_exponent}")
+        if min_notional_exponent is not None:
+            parts.append(f"mn{min_notional_exponent}")
+    bounds = parse_volume_brackets(data.get("volume_brackets"))
+    if bounds:
+        brackets = "-".join(_token(bound) for bound in bounds)
+        parts.append(f"vb{brackets}")
     return parts
 
 
@@ -71,7 +76,7 @@ def _describe_candle(candle: Candle) -> list[str]:
             parts.append(_token(window))
         if source:
             parts.append(_token(source))
-        parts.extend(_round_feature_tokens(data))
+        parts.extend(_feature_tokens(data))
         return parts
 
     if isinstance(candle, AdaptiveCandle):
@@ -87,7 +92,7 @@ def _describe_candle(candle: Candle) -> list[str]:
         moving_average_number_of_days = data.get("moving_average_number_of_days")
         if moving_average_number_of_days is not None:
             parts.append(f"ma{moving_average_number_of_days}d")
-        parts.extend(_round_feature_tokens(data))
+        parts.extend(_feature_tokens(data))
         cache_reset = _cache_reset_token(data.get("cache_reset"))
         if cache_reset:
             parts.append(f"{cache_reset}-cache-reset")
@@ -103,7 +108,7 @@ def _describe_candle(candle: Candle) -> list[str]:
         target_value = data.get("target_value")
         if target_value is not None:
             parts.append(f"target{_token(target_value)}")
-        parts.extend(_round_feature_tokens(data))
+        parts.extend(_feature_tokens(data))
         cache_reset = _cache_reset_token(data.get("cache_reset"))
         if cache_reset:
             parts.append(cache_reset)

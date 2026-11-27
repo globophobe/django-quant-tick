@@ -1,5 +1,6 @@
 from .candle_types import AdaptiveCandle, ConstantCandle, TimeBasedCandle
 from .candles import Candle, CandleCache, CandleData
+from .checkpoints import Checkpoint
 from .exchange_candles import ExchangeCandleData
 from .funding import FundingData
 from .perpetual_stats import PerpetualStatsData
@@ -13,6 +14,7 @@ __all__ = [
     "Candle",
     "CandleCache",
     "CandleData",
+    "Checkpoint",
     "ConstantCandle",
     "ExchangeCandleData",
     "FundingData",

@@ -5,15 +5,19 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 import time_machine
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
-from quant_tick.constants import Exchange, SymbolType
+from quant_tick.constants import Exchange, FileData, Frequency, SymbolType
+from quant_tick.exchanges.api import api
 from quant_tick.exchanges.bybit.controllers import (
     BybitSpotTradesS3,
     BybitTradesS3,
     BybitTradesWebSocket,
     bybit_trades,
 )
+from quant_tick.models import TradeData, WebSocketData
+
+from ..base import BaseWriteTradeDataTest
 
 
 class BybitTradesTest(SimpleTestCase):
@@ -48,7 +52,7 @@ class BybitTradesTest(SimpleTestCase):
         )
 
     @time_machine.travel(datetime(2026, 7, 25, 12, 0, 30, tzinfo=UTC), tick=False)
-    def test_trades_use_full_archive_range_then_recent_websocket(self):
+    def test_trades_validate_websocket_before_archives_and_refresh_after(self):
         timestamp_to = datetime(2026, 7, 25, 12, tzinfo=UTC)
         recent_start = timestamp_to - timedelta(days=2)
         old_start = timestamp_to - timedelta(days=30)
@@ -85,8 +89,14 @@ class BybitTradesTest(SimpleTestCase):
                     archive.return_value.main.side_effect = lambda calls=calls: (
                         calls.append("archive")
                     )
-                    websocket.return_value.main.side_effect = lambda calls=calls: (
-                        calls.append("websocket")
+                    websocket.return_value.get_websocket_rows.side_effect = (
+                        lambda *args, calls=calls: calls.append("capture") or {}
+                    )
+                    websocket.return_value.collect_websocket.side_effect = (
+                        lambda calls=calls, **kwargs: calls.append("validate")
+                    )
+                    websocket.return_value.main.side_effect = (
+                        lambda calls=calls, **kwargs: calls.append("websocket")
                     )
                     bybit_trades(symbol, start, end, on_data_frame)
 
@@ -103,10 +113,14 @@ class BybitTradesTest(SimpleTestCase):
                         self.assertEqual(calls, ["archive"])
                         websocket.assert_not_called()
                     else:
-                        self.assertEqual(calls, ["archive", "websocket"])
+                        self.assertEqual(
+                            calls, ["capture", "validate", "archive", "websocket"]
+                        )
                         kwargs["timestamp_from"] = expected_start
                         websocket.assert_called_once_with(symbol, **kwargs)
-                        websocket.return_value.main.assert_called_once_with()
+                        websocket.return_value.main.assert_called_once_with(
+                            websocket_rows={}
+                        )
 
     def test_websocket_controller_promotes_valid_current_minute(self):
         timestamp_from = datetime(2026, 7, 23, 12, tzinfo=UTC)
@@ -128,6 +142,7 @@ class BybitTradesTest(SimpleTestCase):
             timestamp_to,
             on_data_frame,
         )
+        controller.get_websocket_rows = Mock(return_value={})
         controller.get_websocket_timestamp_from = Mock(return_value=timestamp_from)
         controller.get_candles = Mock(return_value=candles)
         controller.validate_websocket_partitions = Mock(
@@ -137,6 +152,7 @@ class BybitTradesTest(SimpleTestCase):
         with patch(
             "quant_tick.controllers.rest.TradeData.objects.overlapping"
         ) as overlapping:
+            overlapping.return_value.filter.return_value.values.return_value = []
             overlapping.return_value.exists.return_value = False
             controller.main()
 
@@ -170,6 +186,7 @@ class BybitTradesTest(SimpleTestCase):
             timestamp_to,
             on_data_frame,
         )
+        controller.get_websocket_rows = Mock(return_value={})
         controller.get_websocket_timestamp_from = Mock(return_value=timestamp_from)
         controller.get_candles = Mock(return_value=pd.DataFrame([]))
         controller.validate_websocket_partitions = Mock(
@@ -182,6 +199,7 @@ class BybitTradesTest(SimpleTestCase):
         with patch(
             "quant_tick.controllers.rest.TradeData.objects.overlapping"
         ) as overlapping:
+            overlapping.return_value.filter.return_value.values.return_value = []
             overlapping.return_value.exists.return_value = False
             controller.main()
 
@@ -212,6 +230,7 @@ class BybitTradesTest(SimpleTestCase):
             timestamp_to,
             on_data_frame,
         )
+        controller.get_websocket_rows = Mock(return_value={})
         controller.get_websocket_timestamp_from = Mock(return_value=timestamp_from)
         controller.get_candles = Mock(return_value=pd.DataFrame([]))
         controller.validate_websocket_partitions = Mock(
@@ -221,9 +240,15 @@ class BybitTradesTest(SimpleTestCase):
         with patch(
             "quant_tick.controllers.rest.TradeData.objects.overlapping"
         ) as overlapping:
-            overlapping.return_value.exists.return_value = True
+            overlapping.return_value.filter.return_value.values.return_value = [
+                {
+                    "timestamp": timestamp_from.replace(hour=0),
+                    "frequency": Frequency.DAY,
+                }
+            ]
             controller.main()
 
+        controller.get_candles.assert_not_called()
         on_data_frame.assert_not_called()
 
     def test_spot_archive_normalizes_chunked_hours(self):
@@ -462,3 +487,88 @@ class BybitTradesTest(SimpleTestCase):
 
         self.assertEqual(parsed.iloc[0]["volume"], Decimal(100))
         self.assertEqual(parsed.iloc[0]["notional"], Decimal("0.01"))
+
+
+@override_settings(
+    STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
+)
+class BybitArchiveRecoveryTest(BaseWriteTradeDataTest, TestCase):
+    def test_incomplete_archive_recovers_retained_websocket_when_candles_catch_up(self):
+        start = datetime(2026, 7, 31, 1, tzinfo=UTC)
+        for exchange, kind, archive in (
+            (Exchange.BYBIT, SymbolType.SPOT, "BybitSpotTradesS3"),
+            (Exchange.BYBIT_LINEAR, SymbolType.PERPETUAL, "BybitTradesS3"),
+        ):
+            with self.subTest(exchange=exchange):
+                symbol = self.get_symbol(
+                    exchange=exchange, api_symbol="BTCUSDT", symbol_type=kind
+                )
+                WebSocketData.objects.create(
+                    exchange=exchange,
+                    api_symbol="BTCUSDT",
+                    significant_trade_filter=symbol.significant_trade_filter,
+                    timestamp=start,
+                    raw_trades=[
+                        {
+                            "uid": "native",
+                            "timestamp": start.isoformat(),
+                            "nanoseconds": 0,
+                            "price": "100",
+                            "volume": "100",
+                            "notional": "1",
+                            "tickRule": 1,
+                        }
+                    ],
+                )
+                row = (
+                    {
+                        "id": "archive",
+                        "timestamp": str(int(start.timestamp() * 1000)),
+                        "price": "100",
+                        "volume": "0.5",
+                        "side": "buy",
+                    }
+                    if kind == SymbolType.SPOT
+                    else {
+                        "trdMatchID": "archive",
+                        "timestamp": str(int(start.timestamp())),
+                        "symbol": "BTCUSDT",
+                        "price": "100",
+                        "size": "0.5",
+                        "side": "Buy",
+                    }
+                )
+
+                def download(*args, row=row):
+                    WebSocketData.objects.all().delete()
+                    return iter([pd.DataFrame([row])])
+
+                with (
+                    time_machine.travel(start + timedelta(minutes=59), tick=False),
+                    patch(
+                        "quant_tick.exchanges.bybit.controllers.get_archive_followup_start",
+                        return_value=start,
+                    ),
+                    patch(
+                        f"quant_tick.exchanges.bybit.controllers.{archive}.get_data_frame_chunks",
+                        side_effect=download,
+                    ) as archive_download,
+                    patch(
+                        "quant_tick.exchanges.bybit.base.bybit_candles",
+                        side_effect=[pd.DataFrame([])]
+                        + [
+                            pd.DataFrame(
+                                {"notional": [Decimal(1)], "volume": [Decimal(100)]},
+                                index=[start],
+                            )
+                        ]
+                        * 2,
+                    ),
+                ):
+                    api(symbol, start, start + timedelta(minutes=1))
+                archive_download.assert_called_once()
+                stored = TradeData.objects.get(symbol=symbol, timestamp=start)
+                self.assertIs(stored.ok, True)
+                self.assertEqual(
+                    stored.get_data_frame(FileData.RAW).notional.sum(), Decimal(1)
+                )
