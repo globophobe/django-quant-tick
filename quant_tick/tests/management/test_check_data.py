@@ -362,7 +362,6 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
                 call_command(
                     "check_data",
                     code_name=[self.symbol.code_name],
-                    candle_code_name=[candle.code_name],
                     date_from="2026-11-02",
                     date_to="2026-11-03",
                     output=output,
@@ -375,6 +374,7 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
         )
         self.assertEqual(results[0]["exchange_quantity"], "9")
         self.assertEqual(results[0]["trade_data"], "8")
+        self.assertEqual(results[1]["candle"], candle.code_name)
         native.assert_called_once_with(
             self.symbol, START + DAY, START + 2 * DAY, resolution="1d"
         )
@@ -420,7 +420,6 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
             call_command(
                 "check_data",
                 code_name=[symbol.code_name for symbol in symbols],
-                checks=["trades"],
                 date_from="2026-11-01",
                 date_to="2026-11-03",
                 stdout=output,
@@ -442,30 +441,47 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
             )
         self.assertTrue(all(row["status"] == "PASS" for row in results))
 
-    def test_candle_only_check_respects_collection_start_without_venue_requests(self):
-        self.make_candle()
+    def test_command_checks_all_symbol_candles_with_fresh_exchange_candles(self):
+        candle = self.make_candle()
+        inactive = ConstantCandle.objects.create(
+            symbol=self.symbol, json_data=candle.json_data, is_active=False
+        )
+        ConstantCandle.objects.create(
+            symbol=self.get_symbol(api_symbol="other"), json_data=candle.json_data
+        )
         self.symbol.date_from = (START + DAY).date()
         self.symbol.save()
         output = StringIO()
-        with patch(
-            "quant_tick.management.commands.check_data.daily_candles",
-            side_effect=AssertionError("No API requests"),
-        ) as native:
+        with (
+            patch(
+                "quant_tick.services.check_data.candles_api",
+                return_value=self.reference(START + DAY),
+            ) as native,
+            self.assertRaises(CommandError),
+        ):
             call_command(
                 "check_data",
                 code_name=[self.symbol.code_name],
-                checks=["candles"],
                 date_from="2026-11-01",
                 date_to="2026-11-03",
                 stdout=output,
             )
-        native.assert_not_called()
+        native.assert_called_once_with(
+            self.symbol, START + DAY, START + 2 * DAY, resolution="1d"
+        )
         results = [
             json.loads(line)
             for line in output.getvalue().splitlines()
             if line.startswith("{")
         ]
-        self.assertEqual([row["date"] for row in results], ["2026-11-02"])
+        self.assertEqual([row["date"] for row in results], ["2026-11-02"] * 3)
+        self.assertEqual(
+            (results[0]["check"], results[0]["status"]), ("trades", "PASS")
+        )
+        self.assertEqual(
+            {row["candle"]: row["status"] for row in results[1:]},
+            {candle.code_name: "PASS", inactive.code_name: "UNKNOWN"},
+        )
 
     def test_exchange_failure_does_not_prevent_the_database_check(self):
         self.make_candle()

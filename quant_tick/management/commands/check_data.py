@@ -21,25 +21,14 @@ from quant_tick.services.check_data import (
 
 class Command(BaseTradeDataCommand):
     help = (
-        "Compare daily TradeData summaries with fresh exchange candles and stored "
-        "candle/cache totals. No trade downloads or regeneration. Both dates are "
+        "Compare daily TradeData summaries with fresh exchange candles and all "
+        "stored candle/cache totals for the selected symbols. No trade downloads "
+        "or regeneration. Both dates are "
         "required; date-to is exclusive (UTC). Exit nonzero for FAIL or UNKNOWN."
     )
 
     def add_arguments(self, parser):
         super().add_arguments(parser)
-        parser.add_argument(
-            "--checks",
-            nargs="+",
-            choices=("trades", "candles"),
-            default=["trades", "candles"],
-            help="trades fetches fresh daily candles; candles checks only the database. Default: both.",
-        )
-        parser.add_argument(
-            "--candle-code-name",
-            nargs="+",
-            help="Check these candles instead of all active candles for the selected symbols.",
-        )
         parser.add_argument(
             "--output", type=Path, help="Also save the results as JSON."
         )
@@ -70,19 +59,6 @@ class Command(BaseTradeDataCommand):
         jobs = list(super().handle(*args, **options))
         if not jobs:
             raise CommandError("No matching symbols in the requested range.")
-        candle_names = options.get("candle_code_name")
-        candles = Candle.objects.filter(symbol__in=[job["symbol"] for job in jobs])
-        candles = (
-            candles.filter(code_name__in=candle_names)
-            if candle_names
-            else candles.filter(is_active=True)
-        )
-        if candle_names and set(candles.values_list("code_name", flat=True)) != set(
-            candle_names
-        ):
-            raise CommandError(
-                "Some candle names do not belong to the selected symbols."
-            )
         results = []
 
         def record(context, operation, *arguments):
@@ -106,31 +82,26 @@ class Command(BaseTradeDataCommand):
                 "exchange": symbol.exchange,
                 "api_symbol": symbol.api_symbol,
             }
-            selected = (
-                list(candles.filter(symbol=symbol))
-                if "candles" in options["checks"]
-                else []
-            )
-            if "candles" in options["checks"] and not selected:
-                self.stdout.write(f"{symbol}: no selected candles")
+            candles = list(Candle.objects.filter(symbol=symbol))
+            if not candles:
+                self.stdout.write(f"{symbol}: no candles")
             reference = None
-            if "trades" in options["checks"]:
-                try:
-                    reference = daily_candles(symbol, symbol_start, symbol_end)
-                except (
-                    httpx2.HTTPError,
-                    ValueError,
-                    NotImplementedError,
-                    RuntimeError,
-                ) as exc:
-                    result = {
-                        **context,
-                        "check": "trades",
-                        "status": "UNKNOWN",
-                        "error": f"{type(exc).__name__}: {exc}",
-                    }
-                    results.append(result)
-                    self.stdout.write(json.dumps(result, cls=QuantTickEncoder))
+            try:
+                reference = daily_candles(symbol, symbol_start, symbol_end)
+            except (
+                httpx2.HTTPError,
+                ValueError,
+                NotImplementedError,
+                RuntimeError,
+            ) as exc:
+                result = {
+                    **context,
+                    "check": "trades",
+                    "status": "UNKNOWN",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                results.append(result)
+                self.stdout.write(json.dumps(result, cls=QuantTickEncoder))
             day = symbol_start
             while day < symbol_end:
                 next_day = day + timedelta(days=1)
@@ -156,7 +127,7 @@ class Command(BaseTradeDataCommand):
                             totals,
                             reference,
                         )
-                    for candle in selected:
+                    for candle in candles:
                         record(
                             {**dated, "check": "candles", "candle": candle.code_name},
                             check_candle,
