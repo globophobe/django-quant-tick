@@ -66,36 +66,58 @@ class DeribitCandleTest(SimpleTestCase):
         self.assertEqual(row.notional, Decimal(10))
         self.assertEqual(row.volume, Decimal(1000))
 
-    def test_deribit_candles_uses_non_overlapping_bounded_windows(self):
+    def test_deribit_candles_excludes_repeated_page_boundary_candles(self):
         timestamp_from = datetime(2026, 1, 1, tzinfo=UTC)
-        timestamp_to = timestamp_from + timedelta(minutes=1001)
+        for minutes, resolution in ((1, "1m"), (60, "1h")):
+            with self.subTest(resolution=resolution):
+                interval = timedelta(minutes=minutes)
+                timestamp_to = timestamp_from + 1001 * interval
+                responses = [
+                    {
+                        "status": "ok",
+                        "ticks": [
+                            int((timestamp_from + index * interval).timestamp() * 1000)
+                            for index in indices
+                        ],
+                        **dict.fromkeys(
+                            ("open", "high", "low", "close", "cost"),
+                            ["100"] * len(indices),
+                        ),
+                        "volume": ["1"] * len(indices),
+                    }
+                    for indices in (range(1000), (999, 1000))
+                ]
+                with patch(
+                    "quant_tick.exchanges.deribit.candles.get_deribit_candle_response",
+                    side_effect=responses,
+                ) as mocked:
+                    result = deribit_candles(
+                        "BTC-PERPETUAL",
+                        timestamp_from,
+                        timestamp_to,
+                        resolution=resolution,
+                    )
 
-        with patch(
-            "quant_tick.exchanges.deribit.candles.get_deribit_candle_response",
-            side_effect=[{"status": "no_data"}, {"status": "no_data"}],
-        ) as mocked:
-            result = deribit_candles(
-                "BTC-PERPETUAL",
-                timestamp_from,
-                timestamp_to,
-                resolution="1m",
-            )
-
-        start_ms = int(timestamp_from.timestamp() * 1000)
-        first_end_ms = start_ms + 999 * 60_000
-        self.assertEqual(
-            mocked.call_args_list,
-            [
-                call("BTC-PERPETUAL", start_ms, first_end_ms, "1"),
-                call(
-                    "BTC-PERPETUAL",
-                    first_end_ms + 1,
-                    int(timestamp_to.timestamp() * 1000) - 1,
-                    "1",
-                ),
-            ],
-        )
-        self.assertTrue(result.empty)
+                start_ms = int(timestamp_from.timestamp() * 1000)
+                first_end_ms = start_ms + 999 * minutes * 60_000
+                self.assertEqual(
+                    mocked.call_args_list,
+                    [
+                        call("BTC-PERPETUAL", start_ms, first_end_ms, str(minutes)),
+                        call(
+                            "BTC-PERPETUAL",
+                            first_end_ms + 1,
+                            int(timestamp_to.timestamp() * 1000) - 1,
+                            str(minutes),
+                        ),
+                    ],
+                )
+                self.assertEqual(
+                    list(result.index),
+                    [timestamp_from + index * interval for index in range(1001)],
+                )
+                self.assertEqual(result.notional.sum(), Decimal(1001))
+                self.assertEqual(result.volume.sum(), Decimal(100100))
 
     def test_deribit_candles_rejects_misaligned_response_arrays(self):
         timestamp_from = datetime(2026, 4, 25, tzinfo=UTC)

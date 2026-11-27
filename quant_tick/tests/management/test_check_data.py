@@ -185,6 +185,74 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
         native.assert_called_once_with(self.symbol.api_symbol, START, START + DAY, "1d")
         dispatch.assert_not_called()
 
+    def test_deribit_check_uses_only_complete_utc_days(self):
+        self.symbol.exchange = Exchange.DERIBIT
+        for instrument in ("BTC-PERPETUAL", "BTC_USDC-PERPETUAL"):
+            self.symbol.api_symbol = instrument
+            for missing in (None, 0, 12, 23, "all"):
+                with self.subTest(instrument=instrument, missing=missing):
+                    hours = [
+                        offset
+                        for offset in range(72)
+                        if missing != "all"
+                        and (missing is None or offset != 24 + missing)
+                    ]
+                    response = {
+                        "status": "ok",
+                        "ticks": [
+                            int((START + timedelta(hours=hour)).timestamp() * 1000)
+                            for hour in hours
+                        ],
+                        **dict.fromkeys(
+                            ("open", "high", "low", "close"), ["100"] * len(hours)
+                        ),
+                        "volume": [str(Decimal(hour // 24 + 1) / 10) for hour in hours],
+                        "cost": [str((hour // 24 + 1) * 10) for hour in hours],
+                    }
+                    with patch(
+                        "quant_tick.exchanges.deribit.candles.get_deribit_candle_response",
+                        return_value=response,
+                    ) as native:
+                        reference = daily_candles(self.symbol, START, START + 3 * DAY)
+                    for index in range(3):
+                        day = START + index * DAY
+                        size = Decimal(index + 1) * Decimal("2.4")
+                        result = check_exchange(
+                            self.symbol,
+                            day,
+                            {"notional": size, "volume": size * 100},
+                            reference,
+                        )
+                        incomplete = missing == "all" or (
+                            missing is not None and index == 1
+                        )
+                        self.assertEqual(
+                            result["status"], "UNKNOWN" if incomplete else "PASS"
+                        )
+                        self.assertEqual(
+                            result["exchange_quantity"], None if incomplete else size
+                        )
+                    native.assert_called_once_with(
+                        instrument,
+                        int(START.timestamp() * 1000),
+                        int((START + 3 * DAY).timestamp() * 1000) - 1,
+                        "60",
+                    )
+
+    def test_deribit_check_rejects_duplicate_or_misaligned_hours(self):
+        self.symbol.exchange = Exchange.DERIBIT
+        hours = pd.date_range(START, periods=24, freq="h")
+        for index in (hours.append(hours[:1]), hours + timedelta(minutes=1)):
+            with (
+                self.subTest(index=index),
+                patch(
+                    "quant_tick.services.check_data.candles_api",
+                    return_value=pd.DataFrame({"notional": Decimal(1)}, index=index),
+                ),
+                self.assertRaises(AuditUnavailable),
+            ):
+                daily_candles(self.symbol, START, START + DAY)
+
     def test_missing_or_ambiguous_partitions_are_not_reported_as_valid(self):
         for problem in ("gap", "overlap", "missing_summary", "unvalidated_empty"):
             with self.subTest(problem=problem):

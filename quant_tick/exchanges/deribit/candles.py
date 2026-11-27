@@ -84,6 +84,7 @@ def fetch_deribit_candles(
     inclusive_end_ms = end_ms - 1
     rows = []
     while cursor <= inclusive_end_ms:
+        chunk_start = cursor
         chunk_end = min(cursor + max_span_ms, inclusive_end_ms)
         result = get_deribit_candle_response(
             api_symbol,
@@ -111,6 +112,7 @@ def fetch_deribit_candles(
         lengths = {name: len(values) for name, values in columns.items()}
         if len(set(lengths.values())) != 1:
             raise ValueError(f"Deribit candle arrays differ in length: {lengths}")
+        # Deribit repeats the containing candle when a page starts mid-candle.
         rows.extend(
             {
                 "timestamp": datetime.fromtimestamp(timestamp / 1000, tz=UTC),
@@ -139,6 +141,7 @@ def fetch_deribit_candles(
                 columns["notional"],
                 strict=True,
             )
+            if chunk_start <= timestamp <= chunk_end
         )
 
     if not rows:

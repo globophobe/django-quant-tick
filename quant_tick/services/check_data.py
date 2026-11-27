@@ -16,6 +16,7 @@ from django.db.models import Count, Sum
 from quant_tick.constants import Exchange
 from quant_tick.exchanges.api import candles_api
 from quant_tick.exchanges.hyperliquid.candles import native_hyperliquid_candles
+from quant_tick.lib import resample_candles
 from quant_tick.lib.dataframe import is_decimal_close
 from quant_tick.models import CandleCache, CandleData, TradeData
 
@@ -67,6 +68,21 @@ def trade_totals(symbol, start, end):
 def daily_candles(symbol, start, end):
     if symbol.exchange == Exchange.HYPERLIQUID:
         return native_hyperliquid_candles(symbol.api_symbol, start, end, "1d")
+    if symbol.exchange == Exchange.DERIBIT:
+        # Native daily candles start at 08:00 UTC; the audit uses midnight.
+        hourly = candles_api(symbol, start, end, resolution="1h")
+        if not hourly.empty and (
+            hourly.index.has_duplicates
+            or not hourly.index.equals(hourly.index.floor("h"))
+        ):
+            raise AuditUnavailable("Duplicate or misaligned Deribit hourly candles")
+        return resample_candles(
+            hourly,
+            timestamp_from=start,
+            timestamp_to=end,
+            resolution_minutes=1440,
+            source_resolution_minutes=60,
+        )
     return candles_api(symbol, start, end, resolution="1d")
 
 
