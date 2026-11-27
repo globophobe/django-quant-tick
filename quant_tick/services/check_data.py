@@ -89,7 +89,7 @@ def check_exchange(symbol, start, totals, reference):
         "status": "PASS" if ok is True else "FAIL" if ok is False else "UNKNOWN",
         "quantity": key,
         "trade_data": actual,
-        "exchange": expected,
+        "exchange_quantity": expected,
         "difference": actual - expected if expected is not None else None,
     }
 

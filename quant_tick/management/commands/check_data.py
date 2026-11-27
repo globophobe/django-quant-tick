@@ -99,6 +99,8 @@ class Command(BaseTradeDataCommand):
 
         for job in jobs:
             symbol = job["symbol"]
+            symbol_start = job["timestamp_from"]
+            symbol_end = job["timestamp_to"]
             context = {
                 "symbol": symbol.code_name,
                 "exchange": symbol.exchange,
@@ -114,7 +116,7 @@ class Command(BaseTradeDataCommand):
             reference = None
             if "trades" in options["checks"]:
                 try:
-                    reference = daily_candles(symbol, start, end)
+                    reference = daily_candles(symbol, symbol_start, symbol_end)
                 except (
                     httpx2.HTTPError,
                     ValueError,
@@ -129,8 +131,8 @@ class Command(BaseTradeDataCommand):
                     }
                     results.append(result)
                     self.stdout.write(json.dumps(result, cls=QuantTickEncoder))
-            day = start
-            while day < end:
+            day = symbol_start
+            while day < symbol_end:
                 next_day = day + timedelta(days=1)
                 dated = {**context, "date": day.date()}
                 try:

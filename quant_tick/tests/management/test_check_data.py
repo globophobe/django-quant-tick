@@ -302,6 +302,11 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
                 )
             results = json.loads(output.read_text())
         self.assertEqual([row["status"] for row in results], ["FAIL", "PASS"])
+        self.assertEqual(
+            [row["exchange"] for row in results], [self.symbol.exchange] * 2
+        )
+        self.assertEqual(results[0]["exchange_quantity"], "9")
+        self.assertEqual(results[0]["trade_data"], "8")
         native.assert_called_once_with(
             self.symbol, START + DAY, START + 2 * DAY, resolution="1d"
         )
@@ -313,8 +318,67 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
             ],
         )
 
-    def test_candle_only_check_does_not_make_venue_requests(self):
+    def test_command_uses_each_symbols_configured_history(self):
+        expected_dates = {}
+        starts = {}
+        symbols = []
+        for index, first in enumerate((START + DAY, START, START + 2 * DAY)):
+            symbol = self.get_symbol(api_symbol=f"test{index}")
+            symbol.date_from = first.date()
+            symbol.save()
+            symbols.append(symbol)
+            if first >= START + 2 * DAY:
+                continue
+            starts[symbol.pk] = first
+            expected_dates[symbol.code_name] = []
+            day = first
+            while day < START + 2 * DAY:
+                TradeData.objects.create(
+                    symbol=symbol,
+                    timestamp=day,
+                    frequency=1440,
+                    ok=True,
+                    json_data={"candle": {"notional": "8", "volume": "800"}},
+                )
+                expected_dates[symbol.code_name].append(day.date().isoformat())
+                day += DAY
+        output = StringIO()
+        with patch(
+            "quant_tick.services.check_data.candles_api",
+            return_value=pd.concat(
+                [self.reference(START), self.reference(START + DAY)]
+            ),
+        ) as native:
+            call_command(
+                "check_data",
+                code_name=[symbol.code_name for symbol in symbols],
+                checks=["trades"],
+                date_from="2026-11-01",
+                date_to="2026-11-03",
+                stdout=output,
+            )
+        self.assertEqual(native.call_count, len(starts))
+        for request in native.call_args_list:
+            symbol, first, last = request.args
+            self.assertEqual((first, last), (starts[symbol.pk], START + 2 * DAY))
+            self.assertEqual(request.kwargs, {"resolution": "1d"})
+        results = [
+            json.loads(line)
+            for line in output.getvalue().splitlines()
+            if line.startswith("{")
+        ]
+        self.assertEqual(len(results), 3)
+        for symbol, dates in expected_dates.items():
+            self.assertEqual(
+                [row["date"] for row in results if row["symbol"] == symbol], dates
+            )
+        self.assertTrue(all(row["status"] == "PASS" for row in results))
+
+    def test_candle_only_check_respects_collection_start_without_venue_requests(self):
         self.make_candle()
+        self.symbol.date_from = (START + DAY).date()
+        self.symbol.save()
+        output = StringIO()
         with patch(
             "quant_tick.management.commands.check_data.daily_candles",
             side_effect=AssertionError("No API requests"),
@@ -323,11 +387,17 @@ class DataCheckTest(BaseRandomTradeTest, BaseSymbolTest, TestCase):
                 "check_data",
                 code_name=[self.symbol.code_name],
                 checks=["candles"],
-                date_from="2026-11-02",
+                date_from="2026-11-01",
                 date_to="2026-11-03",
-                stdout=StringIO(),
+                stdout=output,
             )
         native.assert_not_called()
+        results = [
+            json.loads(line)
+            for line in output.getvalue().splitlines()
+            if line.startswith("{")
+        ]
+        self.assertEqual([row["date"] for row in results], ["2026-11-02"])
 
     def test_exchange_failure_does_not_prevent_the_database_check(self):
         self.make_candle()
